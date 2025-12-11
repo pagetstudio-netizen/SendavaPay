@@ -1,5 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
+import express from "express";
 import { storage } from "./storage";
 import bcrypt from "bcrypt";
 import session from "express-session";
@@ -41,6 +42,33 @@ const upload = multer({
   }
 });
 
+const productImageUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567";
+      const uploadDir = `/${bucketId}/public/products`;
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+      cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1E9);
+      cb(null, uniqueSuffix + path.extname(file.originalname));
+    }
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = /image\/(jpeg|jpg|png|gif|webp)/.test(file.mimetype);
+    if (extname && mimetype) {
+      return cb(null, true);
+    }
+    cb(new Error("Seules les images sont autorisées (JPG, PNG, GIF, WebP)"));
+  }
+});
+
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session.userId) {
     return res.status(401).json({ message: "Non authentifié" });
@@ -79,6 +107,9 @@ export async function registerRoutes(
       },
     })
   );
+
+  const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567";
+  app.use(`/object-storage/${bucketId}`, express.static(`/${bucketId}`));
 
   app.post("/api/auth/register", async (req, res) => {
     try {
@@ -360,9 +391,25 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/upload/product-image", requireAuth, productImageUpload.single("image"), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ message: "Aucune image fournie" });
+      }
+      
+      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567";
+      const imageUrl = `/object-storage/${bucketId}/public/products/${req.file.filename}`;
+      
+      res.json({ imageUrl });
+    } catch (error) {
+      console.error("Upload product image error:", error);
+      res.status(500).json({ message: "Erreur lors de l'upload" });
+    }
+  });
+
   app.post("/api/payment-links", requireAuth, async (req, res) => {
     try {
-      const { title, description, amount } = req.body;
+      const { title, description, amount, productImage } = req.body;
       const numericAmount = parseFloat(amount);
 
       if (!title || isNaN(numericAmount) || numericAmount < 100) {
@@ -374,6 +421,7 @@ export async function registerRoutes(
         title,
         description,
         amount: numericAmount.toString(),
+        productImage: productImage || null,
       });
 
       res.json(link);

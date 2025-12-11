@@ -73,6 +73,7 @@ export const paymentLinks = pgTable("payment_links", {
   title: text("title").notNull(),
   description: text("description"),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  productImage: text("product_image"),
   status: paymentLinkStatusEnum("status").default("active").notNull(),
   paidAt: timestamp("paid_at"),
   payerName: text("payer_name"),
