@@ -479,8 +479,9 @@ export async function registerRoutes(
       const fee = Math.round(amount * (commissionRate / 100));
       const netAmount = amount - fee;
 
+      // Note: Le lien reste actif pour permettre des paiements multiples
+      // Les informations du dernier payeur sont mises à jour pour référence
       await storage.updatePaymentLink(link.id, {
-        status: "completed",
         paidAt: new Date(),
         payerName,
         payerEmail: payerEmail || null,
