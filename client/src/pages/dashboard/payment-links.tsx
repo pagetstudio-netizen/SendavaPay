@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Plus, Link2, Copy, ExternalLink, Clock, CheckCircle, XCircle } from "lucide-react";
+import { Loader2, Plus, Link2, Copy, ExternalLink, Clock, CheckCircle, XCircle, Upload, ImageIcon, X } from "lucide-react";
 import type { PaymentLink } from "@shared/schema";
 
 function formatCurrency(amount: string | number) {
@@ -49,13 +49,50 @@ export default function PaymentLinksPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
+  const [productImage, setProductImage] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: paymentLinks, isLoading } = useQuery<PaymentLink[]>({
     queryKey: ["/api/payment-links"],
   });
 
+  const handleImageUpload = async (file: File) => {
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+
+      const res = await fetch("/api/upload/product-image", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Erreur lors de l'upload");
+      }
+
+      const data = await res.json();
+      setProductImage(data.imageUrl);
+      toast({
+        title: "Image ajoutée",
+        description: "L'image du produit a été uploadée avec succès.",
+      });
+    } catch (error) {
+      toast({
+        title: "Erreur",
+        description: error instanceof Error ? error.message : "Erreur lors de l'upload",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const createLinkMutation = useMutation({
-    mutationFn: async (data: { title: string; description?: string; amount: number }) => {
+    mutationFn: async (data: { title: string; description?: string; amount: number; productImage?: string }) => {
       const res = await apiRequest("POST", "/api/payment-links", data);
       return await res.json();
     },
@@ -69,6 +106,7 @@ export default function PaymentLinksPage() {
       setTitle("");
       setDescription("");
       setAmount("");
+      setProductImage(null);
     },
     onError: (error: Error) => {
       toast({
@@ -94,6 +132,7 @@ export default function PaymentLinksPage() {
       title: title.trim(),
       description: description.trim() || undefined,
       amount: numericAmount,
+      productImage: productImage || undefined,
     });
   };
 
@@ -162,10 +201,67 @@ export default function PaymentLinksPage() {
                     data-testid="input-link-amount"
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label>Image du produit (optionnel)</Label>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleImageUpload(file);
+                    }}
+                    data-testid="input-product-image"
+                  />
+                  {productImage ? (
+                    <div className="relative rounded-md overflow-hidden border">
+                      <img
+                        src={productImage}
+                        alt="Aperçu du produit"
+                        className="w-full h-32 object-cover"
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="icon"
+                        className="absolute top-2 right-2"
+                        onClick={() => setProductImage(null)}
+                        data-testid="button-remove-image"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      className="border-2 border-dashed rounded-md p-6 text-center cursor-pointer hover:border-primary/50 transition-colors"
+                    >
+                      {isUploading ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                          <span className="text-sm text-muted-foreground">Upload en cours...</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="p-2 rounded-full bg-muted">
+                            <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                          </div>
+                          <span className="text-sm text-muted-foreground">
+                            Cliquez pour ajouter une image
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            JPG, PNG, GIF, WebP (max 5 Mo)
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={createLinkMutation.isPending}
+                  disabled={createLinkMutation.isPending || isUploading}
                   data-testid="button-submit-link"
                 >
                   {createLinkMutation.isPending ? (
@@ -215,7 +311,16 @@ export default function PaymentLinksPage() {
               const StatusIcon = status.icon;
 
               return (
-                <Card key={link.id} data-testid={`payment-link-${link.id}`}>
+                <Card key={link.id} data-testid={`payment-link-${link.id}`} className="overflow-hidden">
+                  {link.productImage && (
+                    <div className="relative h-32 bg-muted">
+                      <img
+                        src={link.productImage}
+                        alt={link.title}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  )}
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between gap-2">
                       <CardTitle className="text-lg line-clamp-1">{link.title}</CardTitle>

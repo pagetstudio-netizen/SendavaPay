@@ -186,7 +186,16 @@ export default function PaymentPage() {
 
   return (
     <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
+      <Card className="w-full max-w-md overflow-hidden">
+        {paymentLink.productImage && (
+          <div className="relative h-48 bg-muted">
+            <img
+              src={paymentLink.productImage}
+              alt={paymentLink.title}
+              className="w-full h-full object-cover"
+            />
+          </div>
+        )}
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
             <img src={logoPath} alt="SendavaPay" className="h-8" />
