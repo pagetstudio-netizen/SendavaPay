@@ -45,8 +45,7 @@ const upload = multer({
 const productImageUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
-      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567";
-      const uploadDir = `/${bucketId}/public/products`;
+      const uploadDir = "uploads/products";
       if (!fs.existsSync(uploadDir)) {
         fs.mkdirSync(uploadDir, { recursive: true });
       }
@@ -110,6 +109,7 @@ export async function registerRoutes(
 
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567";
   app.use(`/object-storage/${bucketId}`, express.static(`/${bucketId}`));
+  app.use("/uploads", express.static("uploads"));
 
   app.post("/api/auth/register", async (req, res) => {
     try {
@@ -397,8 +397,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Aucune image fournie" });
       }
       
-      const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567";
-      const imageUrl = `/object-storage/${bucketId}/public/products/${req.file.filename}`;
+      const imageUrl = `/uploads/products/${req.file.filename}`;
       
       res.json({ imageUrl });
     } catch (error) {
