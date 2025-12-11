@@ -718,5 +718,115 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/transactions", requireAdmin, async (req, res) => {
+    try {
+      const transactions = await storage.getAllTransactions();
+      res.json(transactions);
+    } catch (error) {
+      console.error("Get admin transactions error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/admin/withdrawals", requireAdmin, async (req, res) => {
+    try {
+      const withdrawals = await storage.getPendingWithdrawals();
+      res.json(withdrawals);
+    } catch (error) {
+      console.error("Get admin withdrawals error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/withdrawals/:id/approve", requireAdmin, async (req, res) => {
+    try {
+      const withdrawalId = parseInt(req.params.id);
+      const transaction = await storage.getTransaction(withdrawalId);
+      
+      if (!transaction) {
+        return res.status(404).json({ message: "Retrait non trouvé" });
+      }
+
+      const updated = await storage.updateTransactionStatus(withdrawalId, "completed");
+      res.json(updated);
+    } catch (error) {
+      console.error("Approve withdrawal error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/withdrawals/:id/reject", requireAdmin, async (req, res) => {
+    try {
+      const withdrawalId = parseInt(req.params.id);
+      const transaction = await storage.getTransaction(withdrawalId);
+      
+      if (!transaction) {
+        return res.status(404).json({ message: "Retrait non trouvé" });
+      }
+
+      const user = await storage.getUser(transaction.userId);
+      if (user) {
+        const refundAmount = parseFloat(transaction.amount);
+        await storage.updateUserBalance(user.id, refundAmount.toString());
+      }
+
+      const updated = await storage.updateTransactionStatus(withdrawalId, "rejected");
+      res.json(updated);
+    } catch (error) {
+      console.error("Reject withdrawal error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/admin/api-keys", requireAdmin, async (req, res) => {
+    try {
+      const keys = await storage.getAllApiKeys();
+      res.json(keys.map(k => ({
+        ...k,
+        apiKey: undefined,
+        keyPrefix: k.apiKey.substring(0, 12),
+      })));
+    } catch (error) {
+      console.error("Get admin API keys error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.delete("/api/admin/api-keys/:id", requireAdmin, async (req, res) => {
+    try {
+      const keyId = parseInt(req.params.id);
+      await storage.updateApiKey(keyId, { isActive: false });
+      res.json({ message: "Clé API révoquée" });
+    } catch (error) {
+      console.error("Revoke API key error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/admin/settings", requireAdmin, async (req, res) => {
+    try {
+      const settings = await storage.getCommissionSettings();
+      res.json(settings || { depositRate: "7", withdrawalRate: "7" });
+    } catch (error) {
+      console.error("Get admin settings error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/settings", requireAdmin, async (req, res) => {
+    try {
+      const { depositRate, withdrawalRate } = req.body;
+      const settings = await storage.updateCommissionSettings(
+        depositRate || "7",
+        withdrawalRate || "7",
+        req.session.userId!
+      );
+      res.json(settings);
+    } catch (error) {
+      console.error("Update admin settings error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   return httpServer;
 }

@@ -47,11 +47,15 @@ export interface IStorage {
   updatePaymentLink(id: number, updates: Partial<PaymentLink>): Promise<PaymentLink | undefined>;
   
   getApiKeys(userId: number): Promise<ApiKey[]>;
+  getAllApiKeys(): Promise<ApiKey[]>;
   getApiKeyByKey(key: string): Promise<ApiKey | undefined>;
   createApiKey(apiKey: InsertApiKey): Promise<ApiKey>;
   updateApiKey(id: number, updates: Partial<ApiKey>): Promise<ApiKey | undefined>;
   deleteApiKey(id: number): Promise<void>;
   incrementApiKeyRequestCount(id: number): Promise<void>;
+  
+  getPendingWithdrawals(): Promise<Transaction[]>;
+  getTransaction(id: number): Promise<Transaction | undefined>;
   
   getKycRequest(userId: number): Promise<KycRequest | undefined>;
   createKycRequest(kyc: InsertKycRequest): Promise<KycRequest>;
@@ -200,6 +204,21 @@ export class DatabaseStorage implements IStorage {
 
   async deleteApiKey(id: number): Promise<void> {
     await db.delete(apiKeys).where(eq(apiKeys.id, id));
+  }
+
+  async getAllApiKeys(): Promise<ApiKey[]> {
+    return db.select().from(apiKeys).orderBy(desc(apiKeys.createdAt));
+  }
+
+  async getPendingWithdrawals(): Promise<Transaction[]> {
+    return db.select().from(transactions)
+      .where(and(eq(transactions.type, "withdrawal"), eq(transactions.status, "pending")))
+      .orderBy(desc(transactions.createdAt));
+  }
+
+  async getTransaction(id: number): Promise<Transaction | undefined> {
+    const [transaction] = await db.select().from(transactions).where(eq(transactions.id, id));
+    return transaction;
   }
 
   async incrementApiKeyRequestCount(id: number): Promise<void> {
