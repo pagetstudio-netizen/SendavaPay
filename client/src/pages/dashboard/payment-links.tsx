@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -18,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Plus, Link2, Copy, ExternalLink, Clock, CheckCircle, XCircle, Upload, ImageIcon, X } from "lucide-react";
+import { Loader2, Plus, Link2, Copy, ExternalLink, Clock, CheckCircle, XCircle, Upload, ImageIcon, X, Edit3 } from "lucide-react";
 import type { PaymentLink } from "@shared/schema";
 
 function formatCurrency(amount: string | number) {
@@ -50,6 +51,8 @@ export default function PaymentLinksPage() {
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [productImage, setProductImage] = useState<string | null>(null);
+  const [allowCustomAmount, setAllowCustomAmount] = useState(false);
+  const [minimumAmount, setMinimumAmount] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -92,7 +95,7 @@ export default function PaymentLinksPage() {
   };
 
   const createLinkMutation = useMutation({
-    mutationFn: async (data: { title: string; description?: string; amount: number; productImage?: string }) => {
+    mutationFn: async (data: { title: string; description?: string; amount: number; productImage?: string; allowCustomAmount?: boolean; minimumAmount?: number }) => {
       const res = await apiRequest("POST", "/api/payment-links", data);
       return await res.json();
     },
@@ -107,6 +110,8 @@ export default function PaymentLinksPage() {
       setDescription("");
       setAmount("");
       setProductImage(null);
+      setAllowCustomAmount(false);
+      setMinimumAmount("");
     },
     onError: (error: Error) => {
       toast({
@@ -120,19 +125,42 @@ export default function PaymentLinksPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const numericAmount = parseFloat(amount);
-    if (!title.trim() || numericAmount < 100) {
+    const numericMinAmount = minimumAmount ? parseFloat(minimumAmount) : null;
+    
+    if (!title.trim()) {
       toast({
         title: "Informations invalides",
-        description: "Veuillez remplir le titre et un montant minimum de 100 XOF.",
+        description: "Veuillez remplir le titre.",
         variant: "destructive",
       });
       return;
     }
+
+    if (!allowCustomAmount && numericAmount < 100) {
+      toast({
+        title: "Informations invalides",
+        description: "Le montant doit être d'au moins 100 XOF.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (allowCustomAmount && numericMinAmount !== null && numericMinAmount < 100) {
+      toast({
+        title: "Informations invalides",
+        description: "Le montant minimum doit être d'au moins 100 XOF.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     createLinkMutation.mutate({
       title: title.trim(),
       description: description.trim() || undefined,
-      amount: numericAmount,
+      amount: allowCustomAmount ? (numericMinAmount || 100) : numericAmount,
       productImage: productImage || undefined,
+      allowCustomAmount,
+      minimumAmount: allowCustomAmount && numericMinAmount ? numericMinAmount : undefined,
     });
   };
 
@@ -189,18 +217,53 @@ export default function PaymentLinksPage() {
                     data-testid="input-link-description"
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="amount">Montant (XOF)</Label>
-                  <Input
-                    id="amount"
-                    type="number"
-                    placeholder="Ex: 10000"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    min="100"
-                    data-testid="input-link-amount"
+                <div className="flex items-center justify-between p-3 border rounded-md">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="allow-custom" className="text-sm font-medium cursor-pointer">
+                      Le client choisit le montant
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Permettre au client de saisir son propre montant
+                    </p>
+                  </div>
+                  <Switch
+                    id="allow-custom"
+                    checked={allowCustomAmount}
+                    onCheckedChange={setAllowCustomAmount}
+                    data-testid="switch-allow-custom"
                   />
                 </div>
+
+                {allowCustomAmount ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="min-amount">Montant minimum (XOF)</Label>
+                    <Input
+                      id="min-amount"
+                      type="number"
+                      placeholder="Ex: 1000 (optionnel)"
+                      value={minimumAmount}
+                      onChange={(e) => setMinimumAmount(e.target.value)}
+                      min="100"
+                      data-testid="input-min-amount"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Le client ne pourra pas payer moins que ce montant
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="amount">Montant (XOF)</Label>
+                    <Input
+                      id="amount"
+                      type="number"
+                      placeholder="Ex: 10000"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      min="100"
+                      data-testid="input-link-amount"
+                    />
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>Image du produit (optionnel)</Label>
                   <input

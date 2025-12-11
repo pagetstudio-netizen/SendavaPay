@@ -409,11 +409,16 @@ export async function registerRoutes(
 
   app.post("/api/payment-links", requireAuth, async (req, res) => {
     try {
-      const { title, description, amount, productImage } = req.body;
+      const { title, description, amount, productImage, allowCustomAmount, minimumAmount } = req.body;
       const numericAmount = parseFloat(amount);
+      const numericMinAmount = minimumAmount ? parseFloat(minimumAmount) : null;
 
       if (!title || isNaN(numericAmount) || numericAmount < 100) {
         return res.status(400).json({ message: "Données invalides" });
+      }
+
+      if (allowCustomAmount && numericMinAmount !== null && numericMinAmount < 100) {
+        return res.status(400).json({ message: "Le montant minimum doit être d'au moins 100 XOF" });
       }
 
       const link = await storage.createPaymentLink({
@@ -422,6 +427,8 @@ export async function registerRoutes(
         description,
         amount: numericAmount.toString(),
         productImage: productImage || null,
+        allowCustomAmount: allowCustomAmount || false,
+        minimumAmount: numericMinAmount ? numericMinAmount.toString() : null,
       });
 
       res.json(link);
@@ -446,7 +453,7 @@ export async function registerRoutes(
 
   app.post("/api/pay/:code", async (req, res) => {
     try {
-      const { payerName, payerPhone, paymentMethod } = req.body;
+      const { payerName, payerPhone, payerEmail, payerCountry, paymentMethod, paidAmount } = req.body;
       const link = await storage.getPaymentLinkByCode(req.params.code);
 
       if (!link) {
@@ -457,7 +464,16 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Ce lien n'est plus valide" });
       }
 
-      const amount = parseFloat(link.amount);
+      let amount = parseFloat(link.amount);
+      
+      if (link.allowCustomAmount && paidAmount) {
+        amount = parseFloat(paidAmount);
+        const minAmount = parseFloat(link.minimumAmount || "100");
+        if (amount < minAmount) {
+          return res.status(400).json({ message: `Le montant minimum est de ${minAmount} XOF` });
+        }
+      }
+      
       const settings = await storage.getCommissionSettings();
       const commissionRate = parseFloat(settings?.depositRate || "7");
       const fee = Math.round(amount * (commissionRate / 100));
@@ -467,6 +483,10 @@ export async function registerRoutes(
         status: "completed",
         paidAt: new Date(),
         payerName,
+        payerEmail: payerEmail || null,
+        payerPhone,
+        payerCountry,
+        paidAmount: amount.toString(),
       });
 
       await storage.updateUserBalance(link.userId, netAmount.toString());
