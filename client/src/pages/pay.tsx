@@ -1,32 +1,72 @@
 import { useState } from "react";
 import { useRoute } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
   Loader2,
   CheckCircle,
   XCircle,
-  CreditCard,
   Smartphone,
   Shield,
   Clock,
+  ArrowRight,
+  Moon,
+  Sun,
 } from "lucide-react";
 import logoPath from "@assets/20251211_105226_1765450558306.png";
 import type { PaymentLink } from "@shared/schema";
 
-const paymentMethods = [
-  { id: "mtn", name: "MTN Mobile Money", icon: Smartphone },
-  { id: "moov", name: "Moov Money", icon: Smartphone },
-  { id: "tmoney", name: "TMoney", icon: Smartphone },
-  { id: "orange", name: "Orange Money", icon: Smartphone },
+const countries = [
+  { code: "TG", name: "Togo", flag: "\u{1F1F9}\u{1F1EC}", prefix: "+228" },
+  { code: "BJ", name: "Bénin", flag: "\u{1F1E7}\u{1F1EF}", prefix: "+229" },
+  { code: "CI", name: "Côte d'Ivoire", flag: "\u{1F1E8}\u{1F1EE}", prefix: "+225" },
+  { code: "SN", name: "Sénégal", flag: "\u{1F1F8}\u{1F1F3}", prefix: "+221" },
+  { code: "ML", name: "Mali", flag: "\u{1F1F2}\u{1F1F1}", prefix: "+223" },
+  { code: "BF", name: "Burkina Faso", flag: "\u{1F1E7}\u{1F1EB}", prefix: "+226" },
 ];
+
+const paymentMethodsByCountry: Record<string, { id: string; name: string; color: string }[]> = {
+  TG: [
+    { id: "tmoney", name: "TMoney", color: "bg-blue-500" },
+    { id: "moov", name: "Moov Money", color: "bg-blue-600" },
+  ],
+  BJ: [
+    { id: "mtn", name: "MTN Mobile Money", color: "bg-yellow-500" },
+    { id: "moov", name: "Moov Money", color: "bg-blue-600" },
+  ],
+  CI: [
+    { id: "orange", name: "Orange Money", color: "bg-orange-500" },
+    { id: "mtn", name: "MTN Mobile Money", color: "bg-yellow-500" },
+    { id: "moov", name: "Moov Money", color: "bg-blue-600" },
+    { id: "wave", name: "Wave", color: "bg-cyan-500" },
+  ],
+  SN: [
+    { id: "orange", name: "Orange Money", color: "bg-orange-500" },
+    { id: "wave", name: "Wave", color: "bg-cyan-500" },
+    { id: "free", name: "Free Money", color: "bg-red-500" },
+  ],
+  ML: [
+    { id: "orange", name: "Orange Money", color: "bg-orange-500" },
+    { id: "moov", name: "Moov Money", color: "bg-blue-600" },
+  ],
+  BF: [
+    { id: "orange", name: "Orange Money", color: "bg-orange-500" },
+    { id: "moov", name: "Moov Money", color: "bg-blue-600" },
+  ],
+};
 
 function formatCurrency(amount: string | number) {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
@@ -36,11 +76,16 @@ function formatCurrency(amount: string | number) {
 export default function PaymentPage() {
   const [, params] = useRoute("/pay/:code");
   const { toast } = useToast();
+  const [isDarkMode, setIsDarkMode] = useState(false);
   
-  const [payerName, setPayerName] = useState("");
-  const [payerPhone, setPayerPhone] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("mtn");
-  const [paymentComplete, setPaymentComplete] = useState(false);
+  const [step, setStep] = useState<"info" | "payment" | "complete">("info");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [country, setCountry] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [customAmount, setCustomAmount] = useState("");
 
   const { data: paymentLink, isLoading, error } = useQuery<PaymentLink>({
     queryKey: ["/api/pay", params?.code],
@@ -55,16 +100,19 @@ export default function PaymentPage() {
   });
 
   const payMutation = useMutation({
-    mutationFn: async (data: { payerName: string; payerPhone: string; paymentMethod: string }) => {
+    mutationFn: async (data: { 
+      payerName: string; 
+      payerPhone: string; 
+      payerEmail?: string;
+      payerCountry: string;
+      paymentMethod: string;
+      paidAmount?: number;
+    }) => {
       const res = await apiRequest("POST", `/api/pay/${params?.code}`, data);
       return await res.json();
     },
     onSuccess: () => {
-      toast({
-        title: "Paiement initié",
-        description: "Veuillez valider le paiement sur votre téléphone.",
-      });
-      setPaymentComplete(true);
+      setStep("complete");
     },
     onError: (error: Error) => {
       toast({
@@ -75,28 +123,92 @@ export default function PaymentPage() {
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!payerName.trim() || !payerPhone.trim()) {
+  const selectedCountry = countries.find(c => c.code === country);
+  const availablePaymentMethods = country ? paymentMethodsByCountry[country] || [] : [];
+  const selectedMethod = availablePaymentMethods.find(m => m.id === paymentMethod);
+
+  const getPaymentAmount = () => {
+    if (paymentLink?.allowCustomAmount && customAmount) {
+      return parseFloat(customAmount);
+    }
+    return parseFloat(paymentLink?.amount || "0");
+  };
+
+  const handleContinueToPayment = () => {
+    if (!firstName.trim() || !lastName.trim()) {
       toast({
         title: "Informations manquantes",
-        description: "Veuillez remplir tous les champs.",
+        description: "Veuillez remplir votre nom complet.",
         variant: "destructive",
       });
       return;
     }
 
+    if (paymentLink?.allowCustomAmount) {
+      const amt = parseFloat(customAmount);
+      const minAmt = parseFloat(paymentLink.minimumAmount || "0");
+      if (!customAmount || isNaN(amt) || amt < 100) {
+        toast({
+          title: "Montant invalide",
+          description: "Veuillez entrer un montant valide (minimum 100 XOF).",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (minAmt > 0 && amt < minAmt) {
+        toast({
+          title: "Montant insuffisant",
+          description: `Le montant minimum est de ${formatCurrency(minAmt)}.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    setStep("payment");
+  };
+
+  const handleSubmitPayment = () => {
+    if (!country) {
+      toast({
+        title: "Informations manquantes",
+        description: "Veuillez sélectionner votre pays.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!paymentMethod) {
+      toast({
+        title: "Informations manquantes",
+        description: "Veuillez sélectionner un moyen de paiement.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!phoneNumber.trim()) {
+      toast({
+        title: "Informations manquantes",
+        description: "Veuillez entrer votre numéro de paiement.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const fullPhone = `${selectedCountry?.prefix} ${phoneNumber}`;
+    
     payMutation.mutate({
-      payerName: payerName.trim(),
-      payerPhone: payerPhone.trim(),
+      payerName: `${firstName} ${lastName}`,
+      payerPhone: fullPhone,
+      payerEmail: email || undefined,
+      payerCountry: country,
       paymentMethod,
+      paidAmount: paymentLink?.allowCustomAmount ? getPaymentAmount() : undefined,
     });
   };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardContent className="p-8 space-y-6">
             <div className="flex justify-center">
@@ -115,7 +227,7 @@ export default function PaymentPage() {
 
   if (error || !paymentLink) {
     return (
-      <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardContent className="p-8 text-center">
             <XCircle className="h-16 w-16 mx-auto mb-4 text-destructive" />
@@ -131,7 +243,7 @@ export default function PaymentPage() {
 
   if (paymentLink.status === "completed") {
     return (
-      <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardContent className="p-8 text-center">
             <CheckCircle className="h-16 w-16 mx-auto mb-4 text-green-500" />
@@ -147,7 +259,7 @@ export default function PaymentPage() {
 
   if (paymentLink.status === "expired" || paymentLink.status === "cancelled") {
     return (
-      <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardContent className="p-8 text-center">
             <Clock className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
@@ -161,22 +273,22 @@ export default function PaymentPage() {
     );
   }
 
-  if (paymentComplete) {
+  if (step === "complete") {
     return (
-      <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md overflow-hidden">
           <CardContent className="p-8 text-center">
-            <div className="h-16 w-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
-              <Smartphone className="h-8 w-8 text-primary" />
+            <div className="h-20 w-20 mx-auto mb-6 rounded-full bg-green-500 flex items-center justify-center">
+              <CheckCircle className="h-10 w-10 text-white" />
             </div>
-            <h2 className="text-xl font-semibold mb-2">Vérifiez votre téléphone</h2>
+            <h2 className="text-xl font-semibold mb-2">Paiement confirmé</h2>
             <p className="text-muted-foreground mb-6">
-              Une demande de paiement a été envoyée sur votre numéro {payerPhone}. 
-              Validez le paiement pour finaliser la transaction.
+              Votre commande a été validée avec succès.
+              {email && " Vous allez recevoir un e-mail de confirmation."}
             </p>
-            <div className="bg-muted/50 rounded-lg p-4">
-              <p className="text-sm text-muted-foreground">Montant à payer</p>
-              <p className="text-2xl font-bold">{formatCurrency(paymentLink.amount)}</p>
+            <div className="bg-muted/50 rounded-lg p-4 mb-6">
+              <p className="text-sm text-muted-foreground">Montant payé</p>
+              <p className="text-2xl font-bold">{formatCurrency(getPaymentAmount())}</p>
             </div>
           </CardContent>
         </Card>
@@ -185,107 +297,251 @@ export default function PaymentPage() {
   }
 
   return (
-    <div className="min-h-screen bg-muted/30 flex items-center justify-center p-4">
-      <Card className="w-full max-w-md overflow-hidden">
-        {paymentLink.productImage && (
-          <div className="relative h-48 bg-muted">
-            <img
-              src={paymentLink.productImage}
-              alt={paymentLink.title}
-              className="w-full h-full object-cover"
-            />
-          </div>
-        )}
-        <CardHeader className="text-center">
-          <div className="flex justify-center mb-4">
-            <img src={logoPath} alt="SendavaPay" className="h-8" />
-          </div>
-          <CardTitle className="text-2xl">{paymentLink.title}</CardTitle>
-          {paymentLink.description && (
-            <CardDescription>{paymentLink.description}</CardDescription>
-          )}
-        </CardHeader>
-        <CardContent>
-          <div className="text-center mb-6 p-4 bg-primary/5 rounded-lg">
-            <p className="text-sm text-muted-foreground">Montant à payer</p>
-            <p className="text-3xl font-bold text-primary" data-testid="text-payment-amount">
-              {formatCurrency(paymentLink.amount)}
-            </p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="payerName">Votre nom</Label>
-              <Input
-                id="payerName"
-                placeholder="Jean Dupont"
-                value={payerName}
-                onChange={(e) => setPayerName(e.target.value)}
-                data-testid="input-payer-name"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="payerPhone">Numéro de téléphone</Label>
-              <Input
-                id="payerPhone"
-                type="tel"
-                placeholder="+228 99 99 99 99"
-                value={payerPhone}
-                onChange={(e) => setPayerPhone(e.target.value)}
-                data-testid="input-payer-phone"
-              />
-            </div>
-
-            <div className="space-y-3">
-              <Label>Mode de paiement</Label>
-              <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="grid grid-cols-2 gap-3">
-                {paymentMethods.map((method) => (
-                  <div key={method.id}>
-                    <RadioGroupItem
-                      value={method.id}
-                      id={`pay-${method.id}`}
-                      className="peer sr-only"
-                    />
-                    <Label
-                      htmlFor={`pay-${method.id}`}
-                      className="flex items-center gap-2 rounded-lg border-2 p-3 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 text-sm"
-                    >
-                      <method.icon className="h-4 w-4" />
-                      <span className="font-medium">{method.name}</span>
-                    </Label>
-                  </div>
-                ))}
-              </RadioGroup>
-            </div>
-
+    <div className={`min-h-screen ${isDarkMode ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
+      <div className="max-w-md mx-auto p-4">
+        <div className="flex items-center justify-between mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
+          <img src={logoPath} alt="SendavaPay" className="h-8" />
+          <div className="flex items-center gap-3">
             <Button
-              type="submit"
-              className="w-full"
-              size="lg"
-              disabled={payMutation.isPending}
-              data-testid="button-pay"
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              data-testid="button-theme-toggle"
             >
-              {payMutation.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Traitement...
-                </>
-              ) : (
-                <>
-                  <CreditCard className="h-4 w-4 mr-2" />
-                  Payer {formatCurrency(paymentLink.amount)}
-                </>
-              )}
+              {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Button>
-          </form>
-
-          <div className="flex items-center justify-center gap-2 mt-6 text-xs text-muted-foreground">
-            <Shield className="h-4 w-4" />
-            <span>Paiement sécurisé par SendavaPay</span>
+            <div className="flex items-center gap-1 px-2 py-1 bg-muted rounded-md text-sm">
+              <span>{selectedCountry?.flag || countries[0].flag}</span>
+              <span className="font-medium">XOF</span>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        <Card className="overflow-hidden shadow-lg">
+          {paymentLink.productImage && step === "info" && (
+            <div className="relative h-48 bg-muted">
+              <img
+                src={paymentLink.productImage}
+                alt={paymentLink.title}
+                className="w-full h-full object-cover"
+              />
+            </div>
+          )}
+
+          <CardContent className="p-6">
+            {step === "info" && (
+              <>
+                <div className="flex items-start gap-4 mb-6 p-4 bg-muted/50 rounded-lg">
+                  {paymentLink.productImage ? (
+                    <img
+                      src={paymentLink.productImage}
+                      alt={paymentLink.title}
+                      className="w-16 h-16 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <Smartphone className="h-8 w-8 text-primary" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <h2 className="font-semibold text-lg line-clamp-2">{paymentLink.title}</h2>
+                    {paymentLink.description && (
+                      <p className="text-sm text-muted-foreground line-clamp-2">{paymentLink.description}</p>
+                    )}
+                    {paymentLink.allowCustomAmount ? (
+                      <p className="text-primary font-bold mt-1">
+                        À partir de {formatCurrency(paymentLink.minimumAmount || "100")}
+                      </p>
+                    ) : (
+                      <p className="text-primary font-bold mt-1">{formatCurrency(paymentLink.amount)}</p>
+                    )}
+                  </div>
+                </div>
+
+                {paymentLink.allowCustomAmount && (
+                  <div className="mb-6 p-4 border-2 border-primary/20 rounded-lg bg-primary/5">
+                    <Label htmlFor="custom-amount" className="text-sm font-medium">
+                      Montant à payer (XOF)
+                    </Label>
+                    <Input
+                      id="custom-amount"
+                      type="number"
+                      placeholder={`Minimum ${formatCurrency(paymentLink.minimumAmount || "100")}`}
+                      value={customAmount}
+                      onChange={(e) => setCustomAmount(e.target.value)}
+                      min={paymentLink.minimumAmount || "100"}
+                      className="mt-2 text-lg font-bold"
+                      data-testid="input-custom-amount"
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  <h3 className="font-semibold">Informations personnelles</h3>
+                  
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="firstName" className="text-sm text-muted-foreground">Prénom</Label>
+                      <Input
+                        id="firstName"
+                        placeholder="Ex. John"
+                        value={firstName}
+                        onChange={(e) => setFirstName(e.target.value)}
+                        data-testid="input-first-name"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="lastName" className="text-sm text-muted-foreground">Nom</Label>
+                      <Input
+                        id="lastName"
+                        placeholder="Ex. Doe"
+                        value={lastName}
+                        onChange={(e) => setLastName(e.target.value)}
+                        data-testid="input-last-name"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="email" className="text-sm text-muted-foreground">
+                      Adresse e-mail (optionnel)
+                    </Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="Ex. email@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      data-testid="input-email"
+                    />
+                  </div>
+
+                  <p className="text-xs text-muted-foreground text-center mt-4">
+                    Vos informations sont utilisées uniquement pour votre commande.
+                    Aucun compte n'est créé automatiquement.
+                  </p>
+
+                  <Button
+                    onClick={handleContinueToPayment}
+                    className="w-full"
+                    size="lg"
+                    data-testid="button-continue"
+                  >
+                    Continuer vers le paiement
+                    <ArrowRight className="h-4 w-4 ml-2" />
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {step === "payment" && (
+              <>
+                <div className="text-center mb-6 p-4 bg-muted/50 rounded-lg">
+                  <p className="text-sm text-muted-foreground">Total dû aujourd'hui</p>
+                  <p className="text-3xl font-bold text-primary" data-testid="text-payment-amount">
+                    {formatCurrency(getPaymentAmount())}
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-sm text-muted-foreground">Pays</Label>
+                    <Select value={country} onValueChange={(val) => { setCountry(val); setPaymentMethod(""); }}>
+                      <SelectTrigger data-testid="select-country">
+                        <SelectValue placeholder="Sélectionnez votre pays" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {countries.map((c) => (
+                          <SelectItem key={c.code} value={c.code}>
+                            <span className="flex items-center gap-2">
+                              <span>{c.flag}</span>
+                              <span>{c.name}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {country && (
+                    <div className="space-y-2">
+                      <Label className="text-sm text-muted-foreground">Méthode de paiement</Label>
+                      <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                        <SelectTrigger data-testid="select-payment-method">
+                          <SelectValue placeholder="Choisissez un moyen de paiement" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availablePaymentMethods.map((method) => (
+                            <SelectItem key={method.id} value={method.id}>
+                              <span className="flex items-center gap-2">
+                                <span className={`w-3 h-3 rounded-full ${method.color}`}></span>
+                                <span>{method.name}</span>
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {paymentMethod && (
+                    <div className="space-y-2">
+                      <Label className="text-sm text-muted-foreground">
+                        Numéro {selectedMethod?.name}
+                      </Label>
+                      <div className="flex gap-2">
+                        <div className="flex items-center gap-1 px-3 py-2 bg-muted rounded-md text-sm font-medium min-w-fit">
+                          <span>{selectedCountry?.flag}</span>
+                          <span>{selectedCountry?.prefix}</span>
+                        </div>
+                        <Input
+                          type="tel"
+                          placeholder="00 00 00 00"
+                          value={phoneNumber}
+                          onChange={(e) => setPhoneNumber(e.target.value)}
+                          className="flex-1"
+                          data-testid="input-phone"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 mt-6">
+                    <Button
+                      variant="outline"
+                      onClick={() => setStep("info")}
+                      className="flex-1"
+                      data-testid="button-back"
+                    >
+                      Retour
+                    </Button>
+                    <Button
+                      onClick={handleSubmitPayment}
+                      disabled={payMutation.isPending || !country || !paymentMethod || !phoneNumber}
+                      className="flex-1"
+                      data-testid="button-pay"
+                    >
+                      {payMutation.isPending ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Traitement...
+                        </>
+                      ) : (
+                        `Payer ${formatCurrency(getPaymentAmount())}`
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="flex items-center justify-center gap-2 mt-6 text-xs text-muted-foreground">
+              <Shield className="h-4 w-4" />
+              <span>Paiement sécurisé par SendavaPay</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
