@@ -1,12 +1,21 @@
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Menu, X } from "lucide-react";
-import { useState } from "react";
+import { Menu, X, ChevronRight } from "lucide-react";
+import { useState, useEffect } from "react";
 import logoPath from "@assets/20251211_105226_1765450558306.png";
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
   const [location] = useLocation();
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 10);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   const navLinks = [
     { href: "/#features", label: "Fonctionnalités" },
@@ -15,19 +24,28 @@ export function Navbar() {
   ];
 
   return (
-    <header className="sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
+    <header className={`sticky top-0 z-50 transition-all duration-300 ${
+      isScrolled 
+        ? "bg-background/95 backdrop-blur-md shadow-sm border-b" 
+        : "bg-background border-b"
+    }`}>
       <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between gap-4">
-          <Link href="/" className="flex items-center gap-2">
-            <img src={logoPath} alt="SendavaPay" className="h-8" data-testid="img-logo" />
+          <Link href="/" className="flex items-center gap-2 group">
+            <img 
+              src={logoPath} 
+              alt="SendavaPay" 
+              className="h-8 transition-transform duration-200 group-hover:scale-105" 
+              data-testid="img-logo" 
+            />
           </Link>
 
-          <div className="hidden md:flex items-center gap-6">
+          <div className="hidden md:flex items-center gap-1">
             {navLinks.map((link) => (
               <a
                 key={link.href}
                 href={link.href}
-                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                className="px-4 py-2 text-sm font-medium text-muted-foreground hover-elevate rounded-lg transition-colors duration-200"
                 data-testid={`link-nav-${link.label.toLowerCase().replace(/\s+/g, "-")}`}
               >
                 {link.label}
@@ -37,52 +55,68 @@ export function Navbar() {
 
           <div className="hidden md:flex items-center gap-3">
             <Link href="/auth">
-              <Button variant="ghost" data-testid="button-login">
+              <Button 
+                variant="ghost" 
+                className="font-medium"
+                data-testid="button-login"
+              >
                 Connexion
               </Button>
             </Link>
             <Link href="/auth?tab=register">
-              <Button data-testid="button-register">
+              <Button 
+                className="font-medium shadow-lg shadow-primary/25"
+                data-testid="button-register"
+              >
                 S'inscrire
+                <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             </Link>
           </div>
 
-          <button
-            className="md:hidden p-2"
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden"
             onClick={() => setIsOpen(!isOpen)}
             data-testid="button-mobile-menu"
           >
-            {isOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-          </button>
+            {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </Button>
         </div>
 
-        {isOpen && (
-          <div className="md:hidden py-4 space-y-4">
+        <div className={`md:hidden overflow-hidden transition-all duration-300 ease-in-out ${
+          isOpen ? "max-h-96 pb-4" : "max-h-0"
+        }`}>
+          <div className="space-y-1 pt-2">
             {navLinks.map((link) => (
               <a
                 key={link.href}
                 href={link.href}
-                className="block text-sm font-medium text-muted-foreground hover:text-foreground transition-colors py-2"
+                className="block px-4 py-3 text-sm font-medium text-muted-foreground hover-elevate rounded-lg transition-colors duration-200"
                 onClick={() => setIsOpen(false)}
               >
                 {link.label}
               </a>
             ))}
-            <div className="flex flex-col gap-2 pt-4 border-t">
-              <Link href="/auth" onClick={() => setIsOpen(false)}>
-                <Button variant="ghost" className="w-full justify-start">
-                  Connexion
-                </Button>
-              </Link>
-              <Link href="/auth?tab=register" onClick={() => setIsOpen(false)}>
-                <Button className="w-full">
-                  S'inscrire
-                </Button>
-              </Link>
-            </div>
           </div>
-        )}
+          <div className="flex flex-col gap-2 pt-4 mt-4 border-t">
+            <Link href="/auth" onClick={() => setIsOpen(false)}>
+              <Button 
+                variant="outline" 
+                className="w-full justify-center font-medium"
+              >
+                Connexion
+              </Button>
+            </Link>
+            <Link href="/auth?tab=register" onClick={() => setIsOpen(false)}>
+              <Button className="w-full justify-center font-medium shadow-lg shadow-primary/25">
+                S'inscrire
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </Link>
+          </div>
+        </div>
       </nav>
     </header>
   );

@@ -106,13 +106,22 @@ export default function HomePage() {
 
               <div className="flex flex-col sm:flex-row gap-4">
                 <Link href="/auth?tab=register">
-                  <Button size="lg" className="gap-2 w-full sm:w-auto" data-testid="button-hero-register">
+                  <Button 
+                    size="lg" 
+                    className="gap-2 w-full sm:w-auto font-semibold shadow-lg shadow-primary/30" 
+                    data-testid="button-hero-register"
+                  >
                     Commencer maintenant
                     <ArrowRight className="h-4 w-4" />
                   </Button>
                 </Link>
                 <a href="#how-it-works">
-                  <Button size="lg" variant="outline" className="w-full sm:w-auto" data-testid="button-hero-learn-more">
+                  <Button 
+                    size="lg" 
+                    variant="outline" 
+                    className="w-full sm:w-auto font-medium" 
+                    data-testid="button-hero-learn-more"
+                  >
                     En savoir plus
                   </Button>
                 </a>
@@ -278,13 +287,23 @@ export default function HomePage() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/auth?tab=register">
-              <Button size="lg" variant="secondary" className="gap-2" data-testid="button-cta-register">
+              <Button 
+                size="lg" 
+                variant="secondary" 
+                className="gap-2 font-semibold shadow-lg" 
+                data-testid="button-cta-register"
+              >
                 Créer un compte gratuit
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
             <a href="https://wa.me/22899935673" target="_blank" rel="noopener noreferrer">
-              <Button size="lg" variant="outline" className="bg-transparent border-white/30 hover:bg-white/10" data-testid="button-cta-contact">
+              <Button 
+                size="lg" 
+                variant="outline" 
+                className="bg-white/10 border-white/40 text-white font-medium backdrop-blur-sm" 
+                data-testid="button-cta-contact"
+              >
                 Nous contacter
               </Button>
             </a>
