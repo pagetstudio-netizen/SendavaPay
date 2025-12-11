@@ -23,7 +23,7 @@ export function Footer() {
                  data-testid="link-instagram">
                 <SiInstagram className="h-5 w-5" />
               </a>
-              <a href="https://wa.me/22899935673" target="_blank" rel="noopener noreferrer"
+              <a href="https://wa.me/22892299772" target="_blank" rel="noopener noreferrer"
                  className="text-muted-foreground hover:text-primary transition-colors"
                  data-testid="link-whatsapp">
                 <SiWhatsapp className="h-5 w-5" />
@@ -71,7 +71,7 @@ export function Footer() {
             <h4 className="font-semibold mb-4">Contact</h4>
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li>support@sendavapay.com</li>
-              <li>+228 99 93 56 73</li>
+              <li>+228 92 29 97 72</li>
               <li>Lomé, Togo</li>
             </ul>
           </div>

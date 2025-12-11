@@ -1133,10 +1133,10 @@ const isValid = verifyWebhookSignature(
                   support@sendavapay.com
                 </Button>
               </a>
-              <a href="https://wa.me/22899935673" target="_blank" rel="noopener noreferrer">
+              <a href="https://wa.me/22892299772" target="_blank" rel="noopener noreferrer">
                 <Button className="gap-2">
                   <Smartphone className="h-4 w-4" />
-                  +228 99 93 56 73
+                  +228 92 29 97 72
                 </Button>
               </a>
             </div>
