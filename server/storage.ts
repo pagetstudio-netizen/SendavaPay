@@ -55,12 +55,14 @@ export interface IStorage {
   incrementApiKeyRequestCount(id: number): Promise<void>;
   
   getPendingWithdrawals(): Promise<Transaction[]>;
+  getAllWithdrawals(): Promise<Transaction[]>;
   getTransaction(id: number): Promise<Transaction | undefined>;
   
   getKycRequest(userId: number): Promise<KycRequest | undefined>;
   createKycRequest(kyc: InsertKycRequest): Promise<KycRequest>;
   updateKycRequest(id: number, updates: Partial<KycRequest>): Promise<KycRequest | undefined>;
   getPendingKycRequests(): Promise<KycRequest[]>;
+  getAllKycRequests(): Promise<(KycRequest & { user?: User })[]>;
   
   getCommissionSettings(): Promise<CommissionSettings | undefined>;
   updateCommissionSettings(depositRate: string, withdrawalRate: string, updatedBy: number): Promise<CommissionSettings>;
@@ -216,6 +218,12 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(transactions.createdAt));
   }
 
+  async getAllWithdrawals(): Promise<Transaction[]> {
+    return db.select().from(transactions)
+      .where(eq(transactions.type, "withdrawal"))
+      .orderBy(desc(transactions.createdAt));
+  }
+
   async getTransaction(id: number): Promise<Transaction | undefined> {
     const [transaction] = await db.select().from(transactions).where(eq(transactions.id, id));
     return transaction;
@@ -252,6 +260,17 @@ export class DatabaseStorage implements IStorage {
 
   async getPendingKycRequests(): Promise<KycRequest[]> {
     return db.select().from(kycRequests).where(eq(kycRequests.status, "pending")).orderBy(desc(kycRequests.createdAt));
+  }
+
+  async getAllKycRequests(): Promise<(KycRequest & { user?: User })[]> {
+    const allKyc = await db.select().from(kycRequests).orderBy(desc(kycRequests.createdAt));
+    const enrichedKyc = await Promise.all(
+      allKyc.map(async (kyc) => {
+        const user = await this.getUser(kyc.userId);
+        return { ...kyc, user };
+      })
+    );
+    return enrichedKyc;
   }
 
   async getCommissionSettings(): Promise<CommissionSettings | undefined> {
