@@ -593,9 +593,9 @@ export async function registerRoutes(
         phone,
         country,
         documentType,
-        documentFrontPath: files.documentFront[0].path,
-        documentBackPath: files.documentBack[0].path,
-        selfiePath: files.selfie[0].path,
+        documentFrontPath: `/${files.documentFront[0].path}`,
+        documentBackPath: `/${files.documentBack[0].path}`,
+        selfiePath: `/${files.selfie[0].path}`,
       });
 
       res.json(kyc);
@@ -630,7 +630,7 @@ export async function registerRoutes(
 
   app.get("/api/admin/kyc", requireAdmin, async (req, res) => {
     try {
-      const requests = await storage.getPendingKycRequests();
+      const requests = await storage.getAllKycRequests();
       res.json(requests);
     } catch (error) {
       console.error("Get admin KYC error:", error);
@@ -735,7 +735,7 @@ export async function registerRoutes(
 
   app.get("/api/admin/withdrawals", requireAdmin, async (req, res) => {
     try {
-      const withdrawals = await storage.getPendingWithdrawals();
+      const withdrawals = await storage.getAllWithdrawals();
       res.json(withdrawals);
     } catch (error) {
       console.error("Get admin withdrawals error:", error);
