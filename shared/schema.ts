@@ -129,6 +129,14 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const socialLinks = pgTable("social_links", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  platform: text("platform").notNull().unique(),
+  url: text("url"),
+  isActive: boolean("is_active").default(false).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const usersRelations = relations(users, ({ many }) => ({
   transactions: many(transactions),
   transfers: many(transfers, { relationName: "sender" }),
@@ -276,3 +284,4 @@ export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type CommissionSettings = typeof commissionSettings.$inferSelect;
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type SocialLink = typeof socialLinks.$inferSelect;
