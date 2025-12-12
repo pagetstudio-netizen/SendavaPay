@@ -500,6 +500,11 @@ export async function registerRoutes(
         status: "completed",
         description: `Paiement reçu: ${link.title}`,
         mobileNumber: payerPhone,
+        payerName,
+        payerEmail: payerEmail || null,
+        payerCountry,
+        paymentMethod,
+        paymentLinkId: link.id,
       });
 
       res.json({ message: "Paiement initié" });

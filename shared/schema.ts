@@ -53,6 +53,11 @@ export const transactions = pgTable("transactions", {
   description: text("description"),
   externalRef: text("external_ref"),
   mobileNumber: text("mobile_number"),
+  payerName: text("payer_name"),
+  payerEmail: text("payer_email"),
+  payerCountry: text("payer_country"),
+  paymentMethod: text("payment_method"),
+  paymentLinkId: integer("payment_link_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
