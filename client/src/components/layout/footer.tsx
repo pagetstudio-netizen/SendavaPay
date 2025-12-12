@@ -64,6 +64,18 @@ export function Footer() {
                   Documentation API
                 </a>
               </li>
+              <li>
+                <a href="/about" className="text-muted-foreground hover:text-foreground transition-colors"
+                   data-testid="link-about">
+                  À propos
+                </a>
+              </li>
+              <li>
+                <a href="/terms" className="text-muted-foreground hover:text-foreground transition-colors"
+                   data-testid="link-terms">
+                  Conditions d'utilisation
+                </a>
+              </li>
             </ul>
           </div>
 
