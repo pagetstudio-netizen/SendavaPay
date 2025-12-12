@@ -1,7 +1,34 @@
 import logoPath from "@assets/20251211_105226_1765450558306.png";
-import { SiFacebook, SiInstagram, SiWhatsapp, SiTelegram, SiTiktok, SiYoutube } from "react-icons/si";
+import { useQuery } from "@tanstack/react-query";
+import { SiFacebook, SiInstagram, SiWhatsapp, SiTelegram, SiTiktok, SiYoutube, SiX } from "react-icons/si";
+
+interface SocialLink {
+  id: number;
+  platform: string;
+  url: string | null;
+  isActive: boolean;
+}
+
+const SocialIcon = ({ platform }: { platform: string }) => {
+  switch (platform) {
+    case 'facebook': return <SiFacebook className="h-5 w-5" />;
+    case 'instagram': return <SiInstagram className="h-5 w-5" />;
+    case 'whatsapp': return <SiWhatsapp className="h-5 w-5" />;
+    case 'telegram': return <SiTelegram className="h-5 w-5" />;
+    case 'youtube': return <SiYoutube className="h-5 w-5" />;
+    case 'tiktok': return <SiTiktok className="h-5 w-5" />;
+    case 'twitter': return <SiX className="h-5 w-5" />;
+    default: return null;
+  }
+};
 
 export function Footer() {
+  const { data: socialLinks = [] } = useQuery<SocialLink[]>({
+    queryKey: ['/api/social-links'],
+  });
+
+  const activeLinks = socialLinks.filter(link => link.isActive && link.url);
+
   return (
     <footer className="bg-card border-t">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -12,38 +39,22 @@ export function Footer() {
               SendavaPay est une plateforme tout-en-un qui vous permet de créer des liens de paiement, 
               de transférer de l'argent et d'effectuer des retraits instantanés, rapides et sécurisés.
             </p>
-            <div className="flex gap-4 mt-6">
-              <a href="https://facebook.com" target="_blank" rel="noopener noreferrer" 
-                 className="text-muted-foreground hover:text-primary transition-colors"
-                 data-testid="link-facebook">
-                <SiFacebook className="h-5 w-5" />
-              </a>
-              <a href="https://instagram.com" target="_blank" rel="noopener noreferrer"
-                 className="text-muted-foreground hover:text-primary transition-colors"
-                 data-testid="link-instagram">
-                <SiInstagram className="h-5 w-5" />
-              </a>
-              <a href="https://wa.me/22892299772" target="_blank" rel="noopener noreferrer"
-                 className="text-muted-foreground hover:text-primary transition-colors"
-                 data-testid="link-whatsapp">
-                <SiWhatsapp className="h-5 w-5" />
-              </a>
-              <a href="https://t.me/sendavapay" target="_blank" rel="noopener noreferrer"
-                 className="text-muted-foreground hover:text-primary transition-colors"
-                 data-testid="link-telegram">
-                <SiTelegram className="h-5 w-5" />
-              </a>
-              <a href="https://youtube.com" target="_blank" rel="noopener noreferrer"
-                 className="text-muted-foreground hover:text-primary transition-colors"
-                 data-testid="link-youtube">
-                <SiYoutube className="h-5 w-5" />
-              </a>
-              <a href="https://tiktok.com" target="_blank" rel="noopener noreferrer"
-                 className="text-muted-foreground hover:text-primary transition-colors"
-                 data-testid="link-tiktok">
-                <SiTiktok className="h-5 w-5" />
-              </a>
-            </div>
+            {activeLinks.length > 0 && (
+              <div className="flex gap-4 mt-6 flex-wrap">
+                {activeLinks.map((link) => (
+                  <a
+                    key={link.id}
+                    href={link.url!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-muted-foreground hover:text-primary transition-colors"
+                    data-testid={`link-${link.platform}`}
+                  >
+                    <SocialIcon platform={link.platform} />
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>
@@ -68,6 +79,12 @@ export function Footer() {
                 <a href="/about" className="text-muted-foreground hover:text-foreground transition-colors"
                    data-testid="link-about">
                   À propos
+                </a>
+              </li>
+              <li>
+                <a href="/help" className="text-muted-foreground hover:text-foreground transition-colors"
+                   data-testid="link-help">
+                  Centre d'aide
                 </a>
               </li>
               <li>

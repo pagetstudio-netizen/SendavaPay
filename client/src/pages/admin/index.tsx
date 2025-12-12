@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -1158,14 +1159,53 @@ function ReportsContent() {
   );
 }
 
+interface SocialLink {
+  id: number;
+  platform: string;
+  url: string | null;
+  isActive: boolean;
+}
+
+const platformLabels: Record<string, string> = {
+  facebook: 'Facebook',
+  instagram: 'Instagram',
+  whatsapp: 'WhatsApp',
+  telegram: 'Telegram',
+  youtube: 'YouTube',
+  tiktok: 'TikTok',
+  twitter: 'Twitter/X'
+};
+
 function SettingsContent() {
   const { toast } = useToast();
   const [platformName, setPlatformName] = useState("SendavaPay");
   const [supportEmail, setSupportEmail] = useState("support@sendavapay.com");
   const [supportPhone, setSupportPhone] = useState("+228 92299772");
 
+  const { data: socialLinks = [], refetch: refetchLinks } = useQuery<SocialLink[]>({
+    queryKey: ['/api/admin/social-links'],
+  });
+
+  const updateSocialMutation = useMutation({
+    mutationFn: async ({ platform, url, isActive }: { platform: string; url: string; isActive: boolean }) => {
+      const res = await apiRequest("PUT", `/api/admin/social-links/${platform}`, { url, isActive });
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchLinks();
+      toast({ title: "Lien mis à jour", description: "Le réseau social a été configuré" });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Impossible de mettre à jour le lien", variant: "destructive" });
+    }
+  });
+
   const handleSave = () => {
     toast({ title: "Paramètres enregistrés", description: "Les modifications ont été appliquées" });
+  };
+
+  const handleSocialUpdate = (platform: string, url: string, isActive: boolean) => {
+    updateSocialMutation.mutate({ platform, url, isActive });
   };
 
   return (
@@ -1214,6 +1254,28 @@ function SettingsContent() {
 
       <Card>
         <CardHeader>
+          <CardTitle>Réseaux sociaux</CardTitle>
+          <CardDescription>Configurez les liens vers vos réseaux sociaux. Désactivez les boutons si vous n'avez pas encore de compte.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {socialLinks.map((link) => (
+            <SocialLinkRow
+              key={link.platform}
+              link={link}
+              onUpdate={handleSocialUpdate}
+              isUpdating={updateSocialMutation.isPending}
+            />
+          ))}
+          {socialLinks.length === 0 && (
+            <p className="text-muted-foreground text-center py-4">
+              Chargement des réseaux sociaux...
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Maintenance</CardTitle>
           <CardDescription>Options de maintenance de la plateforme</CardDescription>
         </CardHeader>
@@ -1227,6 +1289,59 @@ function SettingsContent() {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function SocialLinkRow({ 
+  link, 
+  onUpdate, 
+  isUpdating 
+}: { 
+  link: SocialLink; 
+  onUpdate: (platform: string, url: string, isActive: boolean) => void;
+  isUpdating: boolean;
+}) {
+  const [url, setUrl] = useState(link.url || '');
+  const [isActive, setIsActive] = useState(link.isActive);
+
+  const handleSave = () => {
+    onUpdate(link.platform, url, isActive);
+  };
+
+  const handleToggle = (checked: boolean) => {
+    setIsActive(checked);
+    onUpdate(link.platform, url, checked);
+  };
+
+  return (
+    <div className="flex flex-col sm:flex-row gap-3 p-4 bg-muted/30 rounded-lg">
+      <div className="flex items-center gap-3 min-w-[140px]">
+        <Switch
+          checked={isActive}
+          onCheckedChange={handleToggle}
+          disabled={isUpdating}
+          data-testid={`switch-${link.platform}`}
+        />
+        <span className="font-medium">{platformLabels[link.platform] || link.platform}</span>
+      </div>
+      <div className="flex-1 flex gap-2">
+        <Input
+          placeholder={`URL ${platformLabels[link.platform] || link.platform}`}
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          className="flex-1"
+          data-testid={`input-${link.platform}-url`}
+        />
+        <Button 
+          size="sm" 
+          onClick={handleSave}
+          disabled={isUpdating}
+          data-testid={`button-save-${link.platform}`}
+        >
+          Sauver
+        </Button>
+      </div>
     </div>
   );
 }

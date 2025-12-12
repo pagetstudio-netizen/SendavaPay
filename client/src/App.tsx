@@ -34,6 +34,7 @@ function Router() {
       <Route path="/pay/:code" component={PaymentPage} />
       <Route path="/terms" component={TermsPage} />
       <Route path="/about" component={AboutPage} />
+      <Route path="/help" component={HelpPage} />
       
       <ProtectedRoute path="/dashboard" component={DashboardPage} />
       <ProtectedRoute path="/dashboard/deposit" component={DepositPage} />

@@ -3,6 +3,48 @@ import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
 import { ArrowLeft, Target, Eye, Heart, Users, Globe, Zap, Shield, TrendingUp, Handshake } from "lucide-react";
 
+const countries = [
+  {
+    name: "Togo",
+    flag: "TG",
+    payments: ["Moov Money", "TMoney"]
+  },
+  {
+    name: "Côte d'Ivoire",
+    flag: "CI",
+    payments: ["Wave", "MTN", "Orange Money", "Moov Money"]
+  },
+  {
+    name: "Bénin",
+    flag: "BJ",
+    payments: ["Celtis", "Moov Money", "MTN"]
+  },
+  {
+    name: "Mali",
+    flag: "ML",
+    payments: ["Orange Money", "Moov Money"]
+  },
+  {
+    name: "Burkina Faso",
+    flag: "BF",
+    payments: ["Moov Money"]
+  },
+  {
+    name: "Sénégal",
+    flag: "SN",
+    payments: ["Moov Money", "Orange Money", "Wave"]
+  }
+];
+
+const flagEmojis: Record<string, string> = {
+  TG: "🇹🇬",
+  CI: "🇨🇮",
+  BJ: "🇧🇯",
+  ML: "🇲🇱",
+  BF: "🇧🇫",
+  SN: "🇸🇳"
+};
+
 export default function AboutPage() {
   return (
     <div className="min-h-screen bg-background">
@@ -202,23 +244,28 @@ export default function AboutPage() {
               <CardTitle className="text-center">Présence en Afrique de l'Ouest</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                <div className="p-4 bg-muted/50 rounded-md">
-                  <div className="text-2xl mb-1">🇹🇬</div>
-                  <p className="font-medium">Togo</p>
-                </div>
-                <div className="p-4 bg-muted/50 rounded-md">
-                  <div className="text-2xl mb-1">🇧🇯</div>
-                  <p className="font-medium">Bénin</p>
-                </div>
-                <div className="p-4 bg-muted/50 rounded-md">
-                  <div className="text-2xl mb-1">🇧🇫</div>
-                  <p className="font-medium">Burkina Faso</p>
-                </div>
-                <div className="p-4 bg-muted/50 rounded-md">
-                  <div className="text-2xl mb-1">🇨🇮</div>
-                  <p className="font-medium">Côte d'Ivoire</p>
-                </div>
+              <p className="text-center text-muted-foreground mb-6">
+                SendavaPay est disponible dans 6 pays avec différents moyens de paiement Mobile Money
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {countries.map((country) => (
+                  <div key={country.flag} className="p-4 bg-muted/50 rounded-md" data-testid={`country-${country.flag}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-2xl">{flagEmojis[country.flag]}</span>
+                      <p className="font-semibold">{country.name}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {country.payments.map((payment) => (
+                        <span 
+                          key={payment} 
+                          className="text-xs bg-primary/10 text-primary px-2 py-1 rounded"
+                        >
+                          {payment}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
@@ -229,7 +276,7 @@ export default function AboutPage() {
             </CardHeader>
             <CardContent className="text-center space-y-2">
               <p className="text-muted-foreground">
-                Support client : <span className="font-medium text-foreground">+228 92299772</span>
+                Support client : <span className="font-medium text-foreground">+228 92 29 97 72</span>
               </p>
               <p className="text-muted-foreground">
                 Email : <span className="font-medium text-foreground">contact@sendavapay.com</span>
@@ -242,6 +289,11 @@ export default function AboutPage() {
           <Link href="/terms">
             <Button variant="outline" data-testid="button-view-terms">
               Conditions d'utilisation
+            </Button>
+          </Link>
+          <Link href="/help">
+            <Button variant="outline" data-testid="button-view-help">
+              Centre d'aide
             </Button>
           </Link>
           <Link href="/">
