@@ -23,6 +23,7 @@ import PaymentPage from "@/pages/pay";
 import AdminDashboardPage from "@/pages/admin/index";
 import TermsPage from "@/pages/terms";
 import AboutPage from "@/pages/about";
+import HelpPage from "@/pages/help";
 
 function Router() {
   return (
