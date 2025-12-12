@@ -300,7 +300,9 @@ export default function PaymentPage() {
     <div className={`min-h-screen ${isDarkMode ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
       <div className="max-w-md mx-auto p-4">
         <div className="flex items-center justify-between mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
-          <img src={logoPath} alt="SendavaPay" className="h-8" />
+          <a href="/" target="_blank" rel="noopener noreferrer" className="cursor-pointer hover:opacity-80 transition-opacity">
+            <img src={logoPath} alt="SendavaPay" className="h-8" />
+          </a>
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
@@ -535,10 +537,15 @@ export default function PaymentPage() {
               </>
             )}
 
-            <div className="flex items-center justify-center gap-2 mt-6 text-xs text-muted-foreground">
+            <a 
+              href="/" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 mt-6 text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+            >
               <Shield className="h-4 w-4" />
               <span>Paiement sécurisé par SendavaPay</span>
-            </div>
+            </a>
           </CardContent>
         </Card>
       </div>
