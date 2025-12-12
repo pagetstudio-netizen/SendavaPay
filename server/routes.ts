@@ -833,5 +833,39 @@ export async function registerRoutes(
     }
   });
 
+  // Social Links - Public endpoint
+  app.get("/api/social-links", async (req, res) => {
+    try {
+      const links = await storage.getSocialLinks();
+      res.json(links);
+    } catch (error) {
+      console.error("Get social links error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // Social Links - Admin endpoints
+  app.get("/api/admin/social-links", requireAdmin, async (req, res) => {
+    try {
+      const links = await storage.getSocialLinks();
+      res.json(links);
+    } catch (error) {
+      console.error("Get admin social links error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.put("/api/admin/social-links/:platform", requireAdmin, async (req, res) => {
+    try {
+      const { platform } = req.params;
+      const { url, isActive } = req.body;
+      const updated = await storage.updateSocialLink(platform, url || null, isActive ?? false);
+      res.json(updated);
+    } catch (error) {
+      console.error("Update social link error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   return httpServer;
 }

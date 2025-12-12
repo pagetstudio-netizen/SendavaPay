@@ -26,6 +26,9 @@ export async function initializeAdminAccount() {
       });
       log("Mot de passe administrateur réinitialisé", "init");
       
+      // Initialize social links if not done
+      await storage.initializeSocialLinks();
+      
       return existingAdmin;
     }
     
@@ -46,16 +49,13 @@ export async function initializeAdminAccount() {
     
     const existingCommission = await storage.getCommissionSettings();
     if (!existingCommission) {
-      await storage.createCommissionSettings({
-        depositRate: "7.00",
-        withdrawalRate: "7.00",
-        transferRate: "0.00",
-        minDeposit: "100",
-        minWithdrawal: "500",
-        minTransfer: "100",
-      });
+      await storage.updateCommissionSettings("7.00", "7.00", admin.id);
       log("Paramètres de commission initialisés (7%)", "init");
     }
+    
+    // Initialize social links
+    await storage.initializeSocialLinks();
+    log("Liens réseaux sociaux initialisés", "init");
     
     return admin;
   } catch (error) {

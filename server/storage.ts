@@ -12,6 +12,7 @@ import {
   type KycRequest,
   type InsertKycRequest,
   type CommissionSettings,
+  type SocialLink,
   users,
   transactions,
   transfers,
@@ -19,6 +20,7 @@ import {
   apiKeys,
   kycRequests,
   commissionSettings,
+  socialLinks,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, or, and, desc, sql } from "drizzle-orm";
@@ -77,6 +79,10 @@ export interface IStorage {
     activeApiKeys: number;
     commissionRate: string;
   }>;
+  
+  getSocialLinks(): Promise<SocialLink[]>;
+  updateSocialLink(platform: string, url: string | null, isActive: boolean): Promise<SocialLink>;
+  initializeSocialLinks(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -315,6 +321,44 @@ export class DatabaseStorage implements IStorage {
       activeApiKeys: activeApiKeysCount.length,
       commissionRate: settings?.depositRate || "7",
     };
+  }
+
+  async getSocialLinks(): Promise<SocialLink[]> {
+    return db.select().from(socialLinks).orderBy(socialLinks.platform);
+  }
+
+  async updateSocialLink(platform: string, url: string | null, isActive: boolean): Promise<SocialLink> {
+    const existing = await db.select().from(socialLinks).where(eq(socialLinks.platform, platform));
+    
+    if (existing.length > 0) {
+      const [updated] = await db.update(socialLinks)
+        .set({ url, isActive, updatedAt: new Date() })
+        .where(eq(socialLinks.platform, platform))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(socialLinks)
+        .values({ platform, url, isActive, updatedAt: new Date() })
+        .returning();
+      return created;
+    }
+  }
+
+  async initializeSocialLinks(): Promise<void> {
+    const platforms = ['facebook', 'instagram', 'whatsapp', 'telegram', 'youtube', 'tiktok', 'twitter'];
+    const existing = await db.select().from(socialLinks);
+    const existingPlatforms = existing.map(l => l.platform);
+    
+    for (const platform of platforms) {
+      if (!existingPlatforms.includes(platform)) {
+        await db.insert(socialLinks).values({
+          platform,
+          url: null,
+          isActive: false,
+          updatedAt: new Date(),
+        });
+      }
+    }
   }
 }
 
