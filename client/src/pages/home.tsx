@@ -566,8 +566,6 @@ export default function HomePage() {
                 <div className="text-center mb-8">
                   <h3 className="text-xl font-bold mb-2">Plan Unique</h3>
                   <p className="text-muted-foreground text-sm mb-6">Parfait pour les indépendants et créateurs</p>
-                  <span className="text-5xl font-bold">7%</span>
-                  <p className="text-muted-foreground mt-2">Par transaction</p>
                 </div>
                 <div className="space-y-4 mb-8">
                   {[
