@@ -7,15 +7,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
-import { Smartphone, Info, ArrowLeft } from "lucide-react";
+import { Info, ArrowLeft } from "lucide-react";
 import { Link } from "wouter";
 import comingSoonImage from "@assets/1767357766910-416405275_1769441573289.png";
+import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
+import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
+import waveLogo from "@assets/wave_(1)_1763835083242-BDJmxeWc_(1)_1769443204492.png";
+import wizallLogo from "@assets/wizall_1763835083090-BfalgIrK_1769443204592.png";
+import mixxLogo from "@assets/mixxByYas-web-page_1763835083140-t9C-E95C_1769443204464.png";
 
 const paymentMethods = [
-  { id: "mtn", name: "MTN Mobile Money", icon: Smartphone },
-  { id: "moov", name: "Moov Money", icon: Smartphone },
-  { id: "tmoney", name: "TMoney", icon: Smartphone },
-  { id: "orange", name: "Orange Money", icon: Smartphone },
+  { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo },
+  { id: "moov", name: "Moov Money", logo: moovLogo },
+  { id: "wave", name: "Wave", logo: waveLogo },
+  { id: "wizall", name: "Wizall Money", logo: wizallLogo },
+  { id: "mixx", name: "Mixx by Yas", logo: mixxLogo },
 ];
 
 const quickAmounts = [5000, 10000, 25000, 50000, 100000];
@@ -158,7 +164,7 @@ export default function DepositPage() {
 
               <div className="space-y-4">
                 <Label>Mode de paiement</Label>
-                <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="grid grid-cols-2 gap-4">
+                <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {paymentMethods.map((method) => (
                     <div key={method.id}>
                       <RadioGroupItem
@@ -168,11 +174,11 @@ export default function DepositPage() {
                       />
                       <Label
                         htmlFor={method.id}
-                        className="flex items-center gap-3 rounded-lg border-2 p-4 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5"
+                        className="flex flex-col items-center gap-2 rounded-lg border-2 p-4 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all"
                         data-testid={`radio-payment-${method.id}`}
                       >
-                        <method.icon className="h-5 w-5" />
-                        <span className="text-sm font-medium">{method.name}</span>
+                        <img src={method.logo} alt={method.name} className="h-12 w-12 object-contain rounded-full" />
+                        <span className="text-xs font-medium text-center">{method.name}</span>
                       </Label>
                     </div>
                   ))}
