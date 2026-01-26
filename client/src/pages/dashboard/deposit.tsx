@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,9 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Smartphone, CreditCard, Info, ArrowLeft } from "lucide-react";
+import { Smartphone, Info, ArrowLeft } from "lucide-react";
 import { Link } from "wouter";
+import comingSoonImage from "@assets/1767357766910-416405275_1769441573289.png";
 
 const paymentMethods = [
   { id: "mtn", name: "MTN Mobile Money", icon: Smartphone },
@@ -27,34 +26,12 @@ export default function DepositPage() {
   const [amount, setAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("mtn");
   const [mobileNumber, setMobileNumber] = useState(user?.phone || "");
+  const [showComingSoon, setShowComingSoon] = useState(false);
 
   const commissionRate = 7;
   const numericAmount = parseFloat(amount) || 0;
   const fee = Math.round(numericAmount * (commissionRate / 100));
   const netAmount = numericAmount - fee;
-
-  const depositMutation = useMutation({
-    mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string }) => {
-      const res = await apiRequest("POST", "/api/deposit", data);
-      return await res.json();
-    },
-    onSuccess: (data) => {
-      toast({
-        title: "Dépôt initié",
-        description: "Veuillez valider le paiement sur votre téléphone.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-      setAmount("");
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Erreur",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,12 +43,46 @@ export default function DepositPage() {
       });
       return;
     }
-    depositMutation.mutate({
-      amount: numericAmount,
-      paymentMethod,
-      mobileNumber,
-    });
+    setShowComingSoon(true);
   };
+
+  if (showComingSoon) {
+    return (
+      <DashboardLayout>
+        <div className="max-w-2xl mx-auto space-y-6">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => setShowComingSoon(false)}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div>
+              <h1 className="text-2xl font-bold">Dépôt</h1>
+              <p className="text-muted-foreground">Rechargez votre compte SendavaPay</p>
+            </div>
+          </div>
+
+          <Card>
+            <CardContent className="p-8 text-center space-y-6">
+              <img
+                src={comingSoonImage}
+                alt="Bientôt disponible"
+                className="max-w-sm mx-auto w-full h-auto"
+                data-testid="img-deposit-coming-soon"
+              />
+              <div className="space-y-2">
+                <h2 className="text-xl font-semibold">Fonctionnalité bientôt disponible</h2>
+                <p className="text-muted-foreground">
+                  Les dépôts via Mobile Money seront bientôt disponibles. Nous travaillons pour vous offrir cette fonctionnalité.
+                </p>
+              </div>
+              <Button onClick={() => setShowComingSoon(false)} data-testid="button-back-deposit">
+                Retour
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
@@ -184,17 +195,10 @@ export default function DepositPage() {
                 type="submit"
                 className="w-full"
                 size="lg"
-                disabled={depositMutation.isPending || numericAmount < 100}
+                disabled={numericAmount < 100}
                 data-testid="button-deposit-submit"
               >
-                {depositMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Traitement...
-                  </>
-                ) : (
-                  `Déposer ${numericAmount > 0 ? numericAmount.toLocaleString() + " XOF" : ""}`
-                )}
+                {`Déposer ${numericAmount > 0 ? numericAmount.toLocaleString() + " XOF" : ""}`}
               </Button>
             </form>
           </CardContent>

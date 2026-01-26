@@ -19,6 +19,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Loader2, Smartphone, Info, ArrowLeft, Shield, Clock, CheckCircle, XCircle, Wallet } from "lucide-react";
 import { Link } from "wouter";
+import comingSoonImage from "@assets/1767357766910-416405275_1769441573289.png";
 
 const countries = [
   { 
@@ -102,6 +103,7 @@ export default function WithdrawPage() {
   const [paymentMethod, setPaymentMethod] = useState("");
   const [mobileNumber, setMobileNumber] = useState(user?.phone || "");
   const [walletName, setWalletName] = useState("");
+  const [showComingSoon, setShowComingSoon] = useState(false);
 
   const { data: withdrawalRequests = [], isLoading: requestsLoading } = useQuery<WithdrawalRequest[]>({
     queryKey: ["/api/withdrawal-requests"],
@@ -189,13 +191,7 @@ export default function WithdrawPage() {
       return;
     }
 
-    withdrawMutation.mutate({
-      amount: numericAmount,
-      paymentMethod,
-      mobileNumber,
-      country,
-      walletName,
-    });
+    setShowComingSoon(true);
   };
 
   const handleMaxAmount = () => {
@@ -216,6 +212,44 @@ export default function WithdrawPage() {
       minute: "2-digit",
     }).format(new Date(date));
   };
+
+  if (showComingSoon) {
+    return (
+      <DashboardLayout>
+        <div className="max-w-2xl mx-auto space-y-6">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => setShowComingSoon(false)}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div>
+              <h1 className="text-2xl font-bold">Retrait</h1>
+              <p className="text-muted-foreground">Demandez un retrait vers votre Mobile Money</p>
+            </div>
+          </div>
+
+          <Card>
+            <CardContent className="p-8 text-center space-y-6">
+              <img
+                src={comingSoonImage}
+                alt="Bientôt disponible"
+                className="max-w-sm mx-auto w-full h-auto"
+                data-testid="img-withdraw-coming-soon"
+              />
+              <div className="space-y-2">
+                <h2 className="text-xl font-semibold">Fonctionnalité bientôt disponible</h2>
+                <p className="text-muted-foreground">
+                  Les retraits vers Mobile Money seront bientôt disponibles. Nous travaillons pour vous offrir cette fonctionnalité.
+                </p>
+              </div>
+              <Button onClick={() => setShowComingSoon(false)} data-testid="button-back-withdraw">
+                Retour
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   if (!user?.isVerified) {
     return (
@@ -291,7 +325,7 @@ export default function WithdrawPage() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="amount">Montant (XOF)</Label>
-                  <Button type="button" variant="link" size="sm" onClick={handleMaxAmount}>
+                  <Button type="button" variant="ghost" size="sm" onClick={handleMaxAmount}>
                     Max: {balance.toLocaleString()} XOF
                   </Button>
                 </div>

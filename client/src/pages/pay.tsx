@@ -27,6 +27,7 @@ import {
   Sun,
 } from "lucide-react";
 import logoPath from "@assets/20251211_105226_1765450558306.png";
+import comingSoonImage from "@assets/1767357766910-416405275_1769441573289.png";
 import type { PaymentLink } from "@shared/schema";
 
 const countries = [
@@ -78,7 +79,7 @@ export default function PaymentPage() {
   const { toast } = useToast();
   const [isDarkMode, setIsDarkMode] = useState(false);
   
-  const [step, setStep] = useState<"info" | "payment" | "complete">("info");
+  const [step, setStep] = useState<"info" | "payment" | "complete" | "coming_soon">("info");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -194,16 +195,7 @@ export default function PaymentPage() {
       return;
     }
 
-    const fullPhone = `${selectedCountry?.prefix} ${phoneNumber}`;
-    
-    payMutation.mutate({
-      payerName: `${firstName} ${lastName}`,
-      payerPhone: fullPhone,
-      payerEmail: email || undefined,
-      payerCountry: country,
-      paymentMethod,
-      paidAmount: paymentLink?.allowCustomAmount ? getPaymentAmount() : undefined,
-    });
+    setStep("coming_soon");
   };
 
   if (isLoading) {
@@ -267,6 +259,32 @@ export default function PaymentPage() {
             <p className="text-muted-foreground">
               Ce lien de paiement n'est plus valide.
             </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (step === "coming_soon") {
+    return (
+      <div className={`min-h-screen ${isDarkMode ? 'dark bg-gray-900' : 'bg-gray-50'} flex items-center justify-center p-4`}>
+        <Card className="w-full max-w-md overflow-hidden">
+          <CardContent className="p-8 text-center space-y-6">
+            <img
+              src={comingSoonImage}
+              alt="Bientôt disponible"
+              className="max-w-xs mx-auto w-full h-auto"
+              data-testid="img-payment-coming-soon"
+            />
+            <div className="space-y-2">
+              <h2 className="text-xl font-semibold">Paiement bientôt disponible</h2>
+              <p className="text-muted-foreground">
+                Les paiements via Mobile Money seront bientôt disponibles. Nous travaillons pour vous offrir cette fonctionnalité.
+              </p>
+            </div>
+            <Button onClick={() => setStep("payment")} data-testid="button-back-payment">
+              Retour
+            </Button>
           </CardContent>
         </Card>
       </div>
