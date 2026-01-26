@@ -455,70 +455,8 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/transfer", requireAuth, async (req, res) => {
-    try {
-      const { amount, recipientPhone, description } = req.body;
-      const numericAmount = parseFloat(amount);
-
-      if (isNaN(numericAmount) || numericAmount < 100) {
-        return res.status(400).json({ message: "Montant minimum: 100 XOF" });
-      }
-
-      const sender = await storage.getUser(req.session.userId!);
-      if (!sender) {
-        return res.status(404).json({ message: "Utilisateur non trouvé" });
-      }
-
-      const balance = parseFloat(sender.balance);
-      if (numericAmount > balance) {
-        return res.status(400).json({ message: "Solde insuffisant" });
-      }
-
-      const recipient = await storage.getUserByPhone(recipientPhone);
-      if (!recipient) {
-        return res.status(404).json({ message: "Destinataire non trouvé" });
-      }
-
-      if (recipient.id === sender.id) {
-        return res.status(400).json({ message: "Vous ne pouvez pas vous transférer de l'argent" });
-      }
-
-      await storage.updateUserBalance(sender.id, (-numericAmount).toString());
-      await storage.updateUserBalance(recipient.id, numericAmount.toString());
-
-      await storage.createTransfer({
-        senderId: sender.id,
-        receiverId: recipient.id,
-        amount: numericAmount.toString(),
-        description,
-      });
-
-      await storage.createTransaction({
-        userId: sender.id,
-        type: "transfer_out",
-        amount: numericAmount.toString(),
-        fee: "0",
-        netAmount: numericAmount.toString(),
-        status: "completed",
-        description: `Transfert vers ${recipient.fullName}`,
-      });
-
-      await storage.createTransaction({
-        userId: recipient.id,
-        type: "transfer_in",
-        amount: numericAmount.toString(),
-        fee: "0",
-        netAmount: numericAmount.toString(),
-        status: "completed",
-        description: `Transfert de ${sender.fullName}`,
-      });
-
-      res.json({ message: "Transfert effectué" });
-    } catch (error) {
-      console.error("Transfer error:", error);
-      res.status(500).json({ message: "Erreur lors du transfert" });
-    }
-  });
+  // Transfer feature disabled
+  // app.post("/api/transfer", requireAuth, async (req, res) => { ... });
 
   app.get("/api/payment-links", requireAuth, async (req, res) => {
     try {

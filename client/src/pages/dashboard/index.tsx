@@ -6,8 +6,6 @@ import { Button } from "@/components/ui/button";
 import {
   Wallet,
   ArrowUpRight,
-  ArrowDownLeft,
-  Send,
   Link2,
   AlertTriangle,
 } from "lucide-react";
@@ -24,7 +22,6 @@ function formatCurrency(amount: string | number) {
 const quickActions = [
   { icon: Wallet, label: "Dépôt", href: "/dashboard/deposit", color: "text-green-500" },
   { icon: ArrowUpRight, label: "Retrait", href: "/dashboard/withdraw", color: "text-orange-500" },
-  { icon: Send, label: "Transfert", href: "/dashboard/transfer", color: "text-blue-500" },
   { icon: Link2, label: "Lien de paiement", href: "/dashboard/payment-links", color: "text-purple-500" },
 ];
 
