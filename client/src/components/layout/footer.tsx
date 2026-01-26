@@ -37,7 +37,7 @@ export function Footer() {
             <img src={logoPath} alt="SendavaPay" className="h-8 mb-4" />
             <p className="text-muted-foreground text-sm max-w-md">
               SendavaPay est une plateforme tout-en-un qui vous permet de créer des liens de paiement, 
-              de transférer de l'argent et d'effectuer des retraits sous 1h à 24h, rapides et sécurisés.
+              de transférer de l'argent et d'effectuer des retraits crédités sous 1h à 24h.
             </p>
             {activeLinks.length > 0 && (
               <div className="flex gap-4 mt-6 flex-wrap">
