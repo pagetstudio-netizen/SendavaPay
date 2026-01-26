@@ -21,7 +21,7 @@ export function Navbar() {
     { href: "/#features", label: "Fonctionnalités" },
     { href: "/#how-it-works", label: "Comment ça marche" },
     { href: "/api-docs", label: "Documentation" },
-    { href: "/dashboard/help", label: "Contact" },
+    { href: "/help", label: "Contact" },
   ];
 
   return (
