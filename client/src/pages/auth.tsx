@@ -14,7 +14,7 @@ import logoPath from "@assets/20251211_105226_1765450558306.png";
 import heroImage from "@assets/IMG-20251205-WA0058(1)_1765450585004.jpg";
 
 const loginSchema = z.object({
-  emailOrPhone: z.string().min(1, "Email ou téléphone requis"),
+  email: z.string().email("Email invalide"),
   password: z.string().min(1, "Mot de passe requis"),
 });
 
@@ -46,7 +46,7 @@ export default function AuthPage() {
   const loginForm = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      emailOrPhone: "",
+      email: "",
       password: "",
     },
   });
@@ -63,7 +63,10 @@ export default function AuthPage() {
   });
 
   const onLogin = (data: LoginFormData) => {
-    loginMutation.mutate(data);
+    loginMutation.mutate({
+      emailOrPhone: data.email,
+      password: data.password
+    });
   };
 
   const onRegister = (data: RegisterFormData) => {
@@ -96,18 +99,18 @@ export default function AuthPage() {
               <div className="space-y-6">
                 <form onSubmit={loginForm.handleSubmit(onLogin)} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="emailOrPhone" className="text-sm font-semibold">Email</Label>
+                    <Label htmlFor="email" className="text-sm font-semibold">Email</Label>
                     <Input
-                      id="emailOrPhone"
-                      type="text"
+                      id="email"
+                      type="email"
                       placeholder="vous@exemple.com"
                       className="bg-muted/50 border-muted rounded-xl h-12"
-                      {...loginForm.register("emailOrPhone")}
+                      {...loginForm.register("email")}
                       data-testid="input-login-email"
                     />
-                    {loginForm.formState.errors.emailOrPhone && (
+                    {loginForm.formState.errors.email && (
                       <p className="text-sm text-destructive">
-                        {loginForm.formState.errors.emailOrPhone.message}
+                        {loginForm.formState.errors.email.message}
                       </p>
                     )}
                   </div>
