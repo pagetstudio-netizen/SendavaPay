@@ -100,7 +100,7 @@ export default function HomePage() {
                 </h1>
                 <p className="text-lg md:text-xl text-muted-foreground max-w-xl">
                   SendavaPay est une plateforme tout-en-un qui vous permet de créer des liens de paiement, 
-                  de transférer de l'argent et d'effectuer des retraits instantanés.
+                  de transférer de l'argent et d'effectuer des retraits sous 1h à 24h.
                 </p>
               </div>
 

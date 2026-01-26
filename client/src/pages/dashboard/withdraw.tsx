@@ -282,7 +282,7 @@ export default function WithdrawPage() {
           <CardHeader>
             <CardTitle>Nouvelle demande de retrait</CardTitle>
             <CardDescription>
-              Minimum: {minWithdrawal.toLocaleString()} XOF. Les retraits sont validés manuellement par l'administrateur.
+              Minimum: {minWithdrawal.toLocaleString()} XOF. Les retraits sont traités sous 1h à 24h après validation par l'administrateur.
             </CardDescription>
           </CardHeader>
           <CardContent>
