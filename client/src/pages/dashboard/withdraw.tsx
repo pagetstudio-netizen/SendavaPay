@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,24 +7,108 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Smartphone, Info, ArrowLeft, AlertTriangle, Shield } from "lucide-react";
+import { Loader2, Smartphone, Info, ArrowLeft, Shield, Clock, CheckCircle, XCircle, Wallet } from "lucide-react";
 import { Link } from "wouter";
 
-const paymentMethods = [
-  { id: "mtn", name: "MTN Mobile Money", icon: Smartphone },
-  { id: "moov", name: "Moov Money", icon: Smartphone },
-  { id: "tmoney", name: "TMoney", icon: Smartphone },
-  { id: "orange", name: "Orange Money", icon: Smartphone },
+const countries = [
+  { 
+    id: "togo", 
+    name: "Togo", 
+    methods: [
+      { id: "moov", name: "Moov Money" },
+      { id: "tmoney", name: "TMoney" },
+    ]
+  },
+  { 
+    id: "cote_ivoire", 
+    name: "Côte d'Ivoire", 
+    methods: [
+      { id: "wave", name: "Wave" },
+      { id: "mtn", name: "MTN Mobile Money" },
+      { id: "orange", name: "Orange Money" },
+      { id: "moov", name: "Moov Money" },
+    ]
+  },
+  { 
+    id: "benin", 
+    name: "Bénin", 
+    methods: [
+      { id: "celtis", name: "Celtis" },
+      { id: "moov", name: "Moov Money" },
+      { id: "mtn", name: "MTN Mobile Money" },
+    ]
+  },
+  { 
+    id: "mali", 
+    name: "Mali", 
+    methods: [
+      { id: "orange", name: "Orange Money" },
+      { id: "moov", name: "Moov Money" },
+    ]
+  },
+  { 
+    id: "burkina_faso", 
+    name: "Burkina Faso", 
+    methods: [
+      { id: "moov", name: "Moov Money" },
+    ]
+  },
+  { 
+    id: "senegal", 
+    name: "Sénégal", 
+    methods: [
+      { id: "moov", name: "Moov Money" },
+      { id: "orange", name: "Orange Money" },
+      { id: "wave", name: "Wave" },
+    ]
+  },
 ];
+
+interface WithdrawalRequest {
+  id: number;
+  amount: string;
+  fee: string;
+  netAmount: string;
+  paymentMethod: string;
+  mobileNumber: string;
+  country: string;
+  walletName: string | null;
+  status: "pending" | "approved" | "rejected";
+  rejectionReason: string | null;
+  createdAt: string;
+}
+
+const statusConfig = {
+  pending: { label: "En attente", icon: Clock, color: "text-orange-600 bg-orange-100 dark:bg-orange-900/30" },
+  approved: { label: "Approuvé", icon: CheckCircle, color: "text-green-600 bg-green-100 dark:bg-green-900/30" },
+  rejected: { label: "Rejeté", icon: XCircle, color: "text-red-600 bg-red-100 dark:bg-red-900/30" },
+};
 
 export default function WithdrawPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [amount, setAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("mtn");
+  const [country, setCountry] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
   const [mobileNumber, setMobileNumber] = useState(user?.phone || "");
+  const [walletName, setWalletName] = useState("");
+
+  const { data: withdrawalRequests = [], isLoading: requestsLoading } = useQuery<WithdrawalRequest[]>({
+    queryKey: ["/api/withdrawal-requests"],
+  });
+
+  const selectedCountry = countries.find(c => c.id === country);
+  const availableMethods = selectedCountry?.methods || [];
 
   const commissionRate = 7;
   const balance = parseFloat(user?.balance || "0");
@@ -34,18 +118,18 @@ export default function WithdrawPage() {
   const minWithdrawal = 500;
 
   const withdrawMutation = useMutation({
-    mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string }) => {
+    mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string; country: string; walletName: string }) => {
       const res = await apiRequest("POST", "/api/withdraw", data);
       return await res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       toast({
-        title: "Retrait effectué",
-        description: "Le montant sera crédité sur votre compte Mobile Money.",
+        title: "Demande soumise",
+        description: data.message || "Votre demande de retrait a été soumise pour validation.",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/withdrawal-requests"] });
       setAmount("");
+      setWalletName("");
     },
     onError: (error: Error) => {
       toast({
@@ -86,15 +170,50 @@ export default function WithdrawPage() {
       return;
     }
 
+    if (!country) {
+      toast({
+        title: "Pays requis",
+        description: "Veuillez sélectionner un pays.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!paymentMethod) {
+      toast({
+        title: "Moyen de paiement requis",
+        description: "Veuillez sélectionner un moyen de paiement.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     withdrawMutation.mutate({
       amount: numericAmount,
       paymentMethod,
       mobileNumber,
+      country,
+      walletName,
     });
   };
 
   const handleMaxAmount = () => {
     setAmount(Math.floor(balance).toString());
+  };
+
+  const formatCurrency = (amount: string | number) => {
+    const num = typeof amount === "string" ? parseFloat(amount) : amount;
+    return new Intl.NumberFormat("fr-FR").format(num) + " XOF";
+  };
+
+  const formatDate = (date: string) => {
+    return new Intl.DateTimeFormat("fr-FR", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(date));
   };
 
   if (!user?.isVerified) {
@@ -146,7 +265,7 @@ export default function WithdrawPage() {
           </Link>
           <div>
             <h1 className="text-2xl font-bold">Retrait</h1>
-            <p className="text-muted-foreground">Retirez de l'argent vers votre Mobile Money</p>
+            <p className="text-muted-foreground">Demandez un retrait vers votre Mobile Money</p>
           </div>
         </div>
 
@@ -161,8 +280,10 @@ export default function WithdrawPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Montant à retirer</CardTitle>
-            <CardDescription>Minimum: {minWithdrawal.toLocaleString()} XOF</CardDescription>
+            <CardTitle>Nouvelle demande de retrait</CardTitle>
+            <CardDescription>
+              Minimum: {minWithdrawal.toLocaleString()} XOF. Les retraits sont validés manuellement par l'administrateur.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
@@ -208,34 +329,43 @@ export default function WithdrawPage() {
                 </Card>
               )}
 
-              {numericAmount > balance && (
-                <div className="flex items-center gap-2 text-destructive text-sm">
-                  <AlertTriangle className="h-4 w-4" />
-                  <span>Solde insuffisant pour ce montant</span>
+              <div className="space-y-2">
+                <Label>Pays de réception</Label>
+                <Select value={country} onValueChange={(value) => { setCountry(value); setPaymentMethod(""); }}>
+                  <SelectTrigger data-testid="select-country">
+                    <SelectValue placeholder="Sélectionnez un pays" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {countries.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {availableMethods.length > 0 && (
+                <div className="space-y-4">
+                  <Label>Moyen de paiement</Label>
+                  <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="grid grid-cols-2 gap-4">
+                    {availableMethods.map((method) => (
+                      <div key={method.id}>
+                        <RadioGroupItem
+                          value={method.id}
+                          id={`withdraw-${method.id}`}
+                          className="peer sr-only"
+                        />
+                        <Label
+                          htmlFor={`withdraw-${method.id}`}
+                          className="flex items-center gap-3 rounded-lg border-2 p-4 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5"
+                        >
+                          <Smartphone className="h-5 w-5" />
+                          <span className="text-sm font-medium">{method.name}</span>
+                        </Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
                 </div>
               )}
-
-              <div className="space-y-4">
-                <Label>Destination</Label>
-                <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="grid grid-cols-2 gap-4">
-                  {paymentMethods.map((method) => (
-                    <div key={method.id}>
-                      <RadioGroupItem
-                        value={method.id}
-                        id={`withdraw-${method.id}`}
-                        className="peer sr-only"
-                      />
-                      <Label
-                        htmlFor={`withdraw-${method.id}`}
-                        className="flex items-center gap-3 rounded-lg border-2 p-4 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5"
-                      >
-                        <method.icon className="h-5 w-5" />
-                        <span className="text-sm font-medium">{method.name}</span>
-                      </Label>
-                    </div>
-                  ))}
-                </RadioGroup>
-              </div>
 
               <div className="space-y-2">
                 <Label htmlFor="mobileNumber">Numéro de téléphone destinataire</Label>
@@ -249,25 +379,94 @@ export default function WithdrawPage() {
                 />
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="walletName" className="flex items-center gap-2">
+                  <Wallet className="h-4 w-4" />
+                  Nom du portefeuille (optionnel)
+                </Label>
+                <Input
+                  id="walletName"
+                  type="text"
+                  placeholder="Ex: Mon portefeuille principal"
+                  value={walletName}
+                  onChange={(e) => setWalletName(e.target.value)}
+                  data-testid="input-wallet-name"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Un nom pour identifier ce portefeuille dans vos demandes
+                </p>
+              </div>
+
               <Button
                 type="submit"
                 className="w-full"
                 size="lg"
-                disabled={withdrawMutation.isPending || numericAmount < minWithdrawal || numericAmount > balance}
+                disabled={withdrawMutation.isPending || numericAmount < minWithdrawal || numericAmount > balance || !country || !paymentMethod}
                 data-testid="button-withdraw-submit"
               >
                 {withdrawMutation.isPending ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Traitement...
+                    Envoi...
                   </>
                 ) : (
-                  `Retirer ${numericAmount > 0 ? numericAmount.toLocaleString() + " XOF" : ""}`
+                  `Demander le retrait${numericAmount > 0 ? ` de ${numericAmount.toLocaleString()} XOF` : ""}`
                 )}
               </Button>
             </form>
           </CardContent>
         </Card>
+
+        {withdrawalRequests.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Historique des demandes</CardTitle>
+              <CardDescription>Vos demandes de retrait récentes</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {requestsLoading ? (
+                  <p className="text-muted-foreground text-center py-4">Chargement...</p>
+                ) : (
+                  withdrawalRequests.map((request) => {
+                    const status = statusConfig[request.status];
+                    const StatusIcon = status.icon;
+                    const countryName = countries.find(c => c.id === request.country)?.name || request.country;
+                    
+                    return (
+                      <div key={request.id} className="flex items-start justify-between p-4 rounded-lg bg-muted/30">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold">{formatCurrency(request.amount)}</span>
+                            <Badge className={status.color}>
+                              <StatusIcon className="h-3 w-3 mr-1" />
+                              {status.label}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            {request.paymentMethod.toUpperCase()} - {request.mobileNumber}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {countryName} • {formatDate(request.createdAt)}
+                          </p>
+                          {request.rejectionReason && (
+                            <p className="text-sm text-red-600 mt-2">
+                              Raison: {request.rejectionReason}
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm text-muted-foreground">Vous recevez</p>
+                          <p className="font-semibold text-green-600">{formatCurrency(request.netAmount)}</p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </DashboardLayout>
   );
