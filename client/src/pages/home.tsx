@@ -15,9 +15,9 @@ import {
   Download,
   CheckCircle,
 } from "lucide-react";
-import heroImage from "@assets/IMG-20251211-WA0021_1765450584906.jpg";
-import countriesImage from "@assets/IMG-20251211-WA0018_1765450584978.jpg";
-import transferImage from "@assets/IMG-20251205-WA0027(1)_1765450585083.jpg";
+import heroImage from "@assets/20260126_143225_1769439498445.png";
+import countriesImage from "@assets/benefits-3_1769439430626.webp";
+import transferImage from "@assets/xJ3fjboUJLVolfGqf752ILN4_1769439430656.png";
 
 export default function HomePage() {
   const features = [
