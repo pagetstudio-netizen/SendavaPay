@@ -14,6 +14,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -25,6 +33,7 @@ import {
   ArrowRight,
   Moon,
   Sun,
+  Info,
 } from "lucide-react";
 import logoPath from "@assets/20251211_105226_1765450558306.png";
 import comingSoonImage from "@assets/1767357766910-416405275_1769441573289.png";
@@ -384,7 +393,47 @@ export default function PaymentPage() {
                   <div className="flex-1 min-w-0">
                     <h2 className="font-semibold text-lg line-clamp-2">{paymentLink.title}</h2>
                     {paymentLink.description && (
-                      <p className="text-sm text-muted-foreground line-clamp-2">{paymentLink.description}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <p className="text-sm text-muted-foreground line-clamp-1 flex-1">{paymentLink.description}</p>
+                        <Dialog>
+                          <DialogTrigger asChild>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="h-6 px-2 text-xs text-primary hover:text-primary/80"
+                              data-testid="button-view-description"
+                            >
+                              <Info className="h-3 w-3 mr-1" />
+                              Détails
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                              <DialogTitle className="flex items-center gap-3">
+                                {paymentLink.productImage && (
+                                  <img
+                                    src={paymentLink.productImage}
+                                    alt={paymentLink.title}
+                                    className="w-12 h-12 rounded-lg object-cover"
+                                  />
+                                )}
+                                {paymentLink.title}
+                              </DialogTitle>
+                            </DialogHeader>
+                            <DialogDescription className="text-base leading-relaxed whitespace-pre-wrap">
+                              {paymentLink.description}
+                            </DialogDescription>
+                            <div className="mt-4 pt-4 border-t">
+                              <p className="text-lg font-bold text-primary">
+                                {paymentLink.allowCustomAmount 
+                                  ? `À partir de ${formatCurrency(paymentLink.minimumAmount || "100")}`
+                                  : formatCurrency(paymentLink.amount)
+                                }
+                              </p>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      </div>
                     )}
                     {paymentLink.allowCustomAmount ? (
                       <p className="text-primary font-bold mt-1">
