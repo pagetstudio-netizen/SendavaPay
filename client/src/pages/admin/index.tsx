@@ -436,38 +436,116 @@ function TransactionsContent() {
   );
 }
 
+interface WithdrawalRequest {
+  id: number;
+  userId: number;
+  amount: string;
+  fee: string;
+  netAmount: string;
+  paymentMethod: string;
+  mobileNumber: string;
+  country: string;
+  walletName: string | null;
+  status: "pending" | "approved" | "rejected";
+  rejectionReason: string | null;
+  reviewedBy: number | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  user?: {
+    id: number;
+    fullName: string;
+    email: string;
+    phone: string;
+    balance: string;
+  };
+}
+
+const countryNames: Record<string, string> = {
+  togo: "Togo",
+  cote_ivoire: "Côte d'Ivoire",
+  benin: "Bénin",
+  mali: "Mali",
+  burkina_faso: "Burkina Faso",
+  senegal: "Sénégal",
+};
+
+const paymentMethodNames: Record<string, string> = {
+  mtn: "MTN Mobile Money",
+  moov: "Moov Money",
+  tmoney: "TMoney",
+  orange: "Orange Money",
+  wave: "Wave",
+  celtis: "Celtis",
+};
+
 function WithdrawalsContent() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [viewingRequest, setViewingRequest] = useState<WithdrawalRequest | null>(null);
 
-  const { data: withdrawals, isLoading } = useQuery<Transaction[]>({ queryKey: ["/api/admin/withdrawals"] });
+  const { data: withdrawalRequests, isLoading } = useQuery<WithdrawalRequest[]>({ 
+    queryKey: ["/api/admin/withdrawal-requests"] 
+  });
 
-  const filteredWithdrawals = useMemo(() => {
-    return withdrawals?.filter((w) => {
+  const filteredRequests = useMemo(() => {
+    return withdrawalRequests?.filter((w) => {
       const matchesSearch = 
         w.id.toString().includes(searchQuery) ||
-        w.mobileNumber?.includes(searchQuery);
+        w.mobileNumber?.includes(searchQuery) ||
+        w.user?.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        w.user?.email?.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesStatus = statusFilter === "all" || w.status === statusFilter;
       return matchesSearch && matchesStatus;
     }) || [];
-  }, [withdrawals, searchQuery, statusFilter]);
+  }, [withdrawalRequests, searchQuery, statusFilter]);
 
   const approveMutation = useMutation({
-    mutationFn: async ({ id, approve }: { id: number; approve: boolean }) => {
-      await apiRequest("POST", `/api/admin/withdrawals/${id}/${approve ? "approve" : "reject"}`);
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/admin/withdrawal-requests/${id}/approve`);
+      return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawals"] });
-      toast({ title: "Succès", description: "Retrait traité" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawal-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+      toast({ title: "Succès", description: "Retrait approuvé et traité" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
     },
   });
+
+  const rejectMutation = useMutation({
+    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
+      const res = await apiRequest("POST", `/api/admin/withdrawal-requests/${id}/reject`, { reason });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawal-requests"] });
+      toast({ title: "Succès", description: "Demande de retrait rejetée" });
+      setRejectingId(null);
+      setRejectionReason("");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleReject = () => {
+    if (!rejectingId || !rejectionReason.trim()) {
+      toast({ title: "Erreur", description: "Veuillez fournir une raison de rejet", variant: "destructive" });
+      return;
+    }
+    rejectMutation.mutate({ id: rejectingId, reason: rejectionReason });
+  };
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Demandes de retrait</h1>
-        <p className="text-muted-foreground">Approuvez ou rejetez les retraits</p>
+        <p className="text-muted-foreground">Validez ou rejetez les demandes de retrait des utilisateurs</p>
       </div>
 
       <Card>
@@ -476,75 +554,165 @@ function WithdrawalsContent() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Rechercher par ID ou numéro..."
+                placeholder="Rechercher par ID, nom, email ou numéro..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
+                data-testid="input-search-withdrawals"
               />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-40">
+              <SelectTrigger className="w-40" data-testid="select-status-filter">
                 <SelectValue placeholder="Statut" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tous</SelectItem>
                 <SelectItem value="pending">En attente</SelectItem>
-                <SelectItem value="completed">Approuvé</SelectItem>
+                <SelectItem value="approved">Approuvé</SelectItem>
                 <SelectItem value="rejected">Rejeté</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b bg-muted/50">
-                <tr>
-                  <th className="text-left p-4 font-medium">ID</th>
-                  <th className="text-left p-4 font-medium">User ID</th>
-                  <th className="text-left p-4 font-medium">Montant</th>
-                  <th className="text-left p-4 font-medium">Numéro</th>
-                  <th className="text-left p-4 font-medium">Statut</th>
-                  <th className="text-left p-4 font-medium">Date</th>
-                  <th className="text-left p-4 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <tr><td colSpan={7} className="p-8 text-center"><Skeleton className="h-8 w-full" /></td></tr>
-                ) : !filteredWithdrawals?.length ? (
-                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">Aucun retrait trouvé</td></tr>
-                ) : filteredWithdrawals.map((w) => (
-                  <tr key={w.id} className="border-b hover:bg-muted/30">
-                    <td className="p-4 font-mono text-sm">{w.id}</td>
-                    <td className="p-4 font-mono text-sm">{w.userId}</td>
-                    <td className="p-4 font-medium">{formatCurrency(w.amount)}</td>
-                    <td className="p-4">{w.mobileNumber || "-"}</td>
-                    <td className="p-4">
-                      <Badge className={w.status === "completed" ? "bg-green-100 text-green-700" : w.status === "pending" ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}>
-                        {w.status}
-                      </Badge>
-                    </td>
-                    <td className="p-4 text-sm text-muted-foreground">{formatDate(w.createdAt)}</td>
-                    <td className="p-4 flex gap-2 flex-wrap">
-                      {w.status === "pending" && (
-                        <>
-                          <Button size="sm" onClick={() => approveMutation.mutate({ id: w.id, approve: true })}>
-                            <CheckCircle className="h-4 w-4 mr-1" /> Approuver
+        <CardContent>
+          {isLoading ? (
+            <div className="space-y-4">
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-32 w-full" />)}
+            </div>
+          ) : !filteredRequests?.length ? (
+            <p className="text-center text-muted-foreground py-8">Aucune demande de retrait trouvée</p>
+          ) : (
+            <div className="space-y-4">
+              {filteredRequests.map((request) => (
+                <Card key={request.id} className="overflow-hidden">
+                  <CardContent className="p-4">
+                    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                      <div className="space-y-2 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-sm text-muted-foreground">#{request.id}</span>
+                          <Badge className={
+                            request.status === "approved" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : 
+                            request.status === "pending" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" : 
+                            "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                          }>
+                            {request.status === "approved" ? "Approuvé" : request.status === "pending" ? "En attente" : "Rejeté"}
+                          </Badge>
+                          <span className="text-xl font-bold">{formatCurrency(request.amount)}</span>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                          <div>
+                            <span className="text-muted-foreground">Utilisateur:</span>{" "}
+                            <span className="font-medium">{request.user?.fullName || `User #${request.userId}`}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Email:</span>{" "}
+                            <span>{request.user?.email || "-"}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Pays:</span>{" "}
+                            <span className="font-medium">{countryNames[request.country] || request.country}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Moyen:</span>{" "}
+                            <span className="font-medium">{paymentMethodNames[request.paymentMethod] || request.paymentMethod}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Téléphone:</span>{" "}
+                            <span className="font-mono">{request.mobileNumber}</span>
+                          </div>
+                          {request.walletName && (
+                            <div>
+                              <span className="text-muted-foreground">Portefeuille:</span>{" "}
+                              <span>{request.walletName}</span>
+                            </div>
+                          )}
+                          <div>
+                            <span className="text-muted-foreground">Frais:</span>{" "}
+                            <span>{formatCurrency(request.fee)}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Net à envoyer:</span>{" "}
+                            <span className="font-medium text-green-600">{formatCurrency(request.netAmount)}</span>
+                          </div>
+                        </div>
+                        
+                        <p className="text-xs text-muted-foreground">
+                          Demandé le {formatDate(request.createdAt)}
+                          {request.user && ` • Solde actuel: ${formatCurrency(request.user.balance)}`}
+                        </p>
+                        
+                        {request.rejectionReason && (
+                          <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded text-sm text-red-700 dark:text-red-400">
+                            <strong>Raison du rejet:</strong> {request.rejectionReason}
+                          </div>
+                        )}
+                      </div>
+                      
+                      {request.status === "pending" && (
+                        <div className="flex gap-2 flex-wrap lg:flex-col">
+                          <Button 
+                            size="sm" 
+                            onClick={() => approveMutation.mutate(request.id)}
+                            disabled={approveMutation.isPending}
+                            data-testid={`button-approve-${request.id}`}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-1" /> 
+                            {approveMutation.isPending ? "..." : "Approuver"}
                           </Button>
-                          <Button size="sm" variant="destructive" onClick={() => approveMutation.mutate({ id: w.id, approve: false })}>
+                          <Button 
+                            size="sm" 
+                            variant="destructive" 
+                            onClick={() => setRejectingId(request.id)}
+                            data-testid={`button-reject-${request.id}`}
+                          >
                             <XCircle className="h-4 w-4 mr-1" /> Rejeter
                           </Button>
-                        </>
+                        </div>
                       )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {rejectingId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>Rejeter la demande</CardTitle>
+              <CardDescription>
+                Expliquez à l'utilisateur pourquoi sa demande est rejetée
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Textarea
+                placeholder="Raison du rejet..."
+                value={rejectionReason}
+                onChange={(e) => setRejectionReason(e.target.value)}
+                rows={4}
+                data-testid="input-rejection-reason"
+              />
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => { setRejectingId(null); setRejectionReason(""); }}>
+                  Annuler
+                </Button>
+                <Button 
+                  variant="destructive" 
+                  onClick={handleReject}
+                  disabled={rejectMutation.isPending || !rejectionReason.trim()}
+                  data-testid="button-confirm-reject"
+                >
+                  {rejectMutation.isPending ? "..." : "Confirmer le rejet"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

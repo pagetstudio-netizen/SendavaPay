@@ -13,6 +13,8 @@ import {
   type InsertKycRequest,
   type CommissionSettings,
   type SocialLink,
+  type WithdrawalRequest,
+  type InsertWithdrawalRequest,
   users,
   transactions,
   transfers,
@@ -21,6 +23,7 @@ import {
   kycRequests,
   commissionSettings,
   socialLinks,
+  withdrawalRequests,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, or, and, desc, sql } from "drizzle-orm";
@@ -44,9 +47,11 @@ export interface IStorage {
   getTransfersByUser(userId: number): Promise<Transfer[]>;
   
   getPaymentLinks(userId: number): Promise<PaymentLink[]>;
+  getPaymentLink(id: number): Promise<PaymentLink | undefined>;
   getPaymentLinkByCode(code: string): Promise<PaymentLink | undefined>;
   createPaymentLink(link: InsertPaymentLink): Promise<PaymentLink>;
   updatePaymentLink(id: number, updates: Partial<PaymentLink>): Promise<PaymentLink | undefined>;
+  deletePaymentLink(id: number): Promise<void>;
   
   getApiKeys(userId: number): Promise<ApiKey[]>;
   getAllApiKeys(): Promise<ApiKey[]>;
@@ -83,6 +88,13 @@ export interface IStorage {
   getSocialLinks(): Promise<SocialLink[]>;
   updateSocialLink(platform: string, url: string | null, isActive: boolean): Promise<SocialLink>;
   initializeSocialLinks(): Promise<void>;
+  
+  createWithdrawalRequest(request: InsertWithdrawalRequest): Promise<WithdrawalRequest>;
+  getWithdrawalRequests(userId: number): Promise<WithdrawalRequest[]>;
+  getWithdrawalRequest(id: number): Promise<WithdrawalRequest | undefined>;
+  getPendingWithdrawalRequests(): Promise<(WithdrawalRequest & { user?: User })[]>;
+  getAllWithdrawalRequests(): Promise<(WithdrawalRequest & { user?: User })[]>;
+  updateWithdrawalRequest(id: number, updates: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -186,6 +198,15 @@ export class DatabaseStorage implements IStorage {
   async updatePaymentLink(id: number, updates: Partial<PaymentLink>): Promise<PaymentLink | undefined> {
     const [updated] = await db.update(paymentLinks).set(updates).where(eq(paymentLinks.id, id)).returning();
     return updated;
+  }
+
+  async getPaymentLink(id: number): Promise<PaymentLink | undefined> {
+    const [link] = await db.select().from(paymentLinks).where(eq(paymentLinks.id, id));
+    return link;
+  }
+
+  async deletePaymentLink(id: number): Promise<void> {
+    await db.delete(paymentLinks).where(eq(paymentLinks.id, id));
   }
 
   async getApiKeys(userId: number): Promise<ApiKey[]> {
@@ -359,6 +380,45 @@ export class DatabaseStorage implements IStorage {
         });
       }
     }
+  }
+
+  async createWithdrawalRequest(request: InsertWithdrawalRequest): Promise<WithdrawalRequest> {
+    const [newRequest] = await db.insert(withdrawalRequests).values(request).returning();
+    return newRequest;
+  }
+
+  async getWithdrawalRequests(userId: number): Promise<WithdrawalRequest[]> {
+    return db.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, userId)).orderBy(desc(withdrawalRequests.createdAt));
+  }
+
+  async getWithdrawalRequest(id: number): Promise<WithdrawalRequest | undefined> {
+    const [request] = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.id, id));
+    return request;
+  }
+
+  async getPendingWithdrawalRequests(): Promise<(WithdrawalRequest & { user?: User })[]> {
+    const requests = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.status, "pending")).orderBy(desc(withdrawalRequests.createdAt));
+    const result: (WithdrawalRequest & { user?: User })[] = [];
+    for (const request of requests) {
+      const user = await this.getUser(request.userId);
+      result.push({ ...request, user });
+    }
+    return result;
+  }
+
+  async getAllWithdrawalRequests(): Promise<(WithdrawalRequest & { user?: User })[]> {
+    const requests = await db.select().from(withdrawalRequests).orderBy(desc(withdrawalRequests.createdAt));
+    const result: (WithdrawalRequest & { user?: User })[] = [];
+    for (const request of requests) {
+      const user = await this.getUser(request.userId);
+      result.push({ ...request, user });
+    }
+    return result;
+  }
+
+  async updateWithdrawalRequest(id: number, updates: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined> {
+    const [updated] = await db.update(withdrawalRequests).set(updates).where(eq(withdrawalRequests.id, id)).returning();
+    return updated;
   }
 }
 

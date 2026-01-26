@@ -272,6 +272,15 @@ export async function registerRoutes(
     }
   });
 
+  const countryPaymentMethods: Record<string, string[]> = {
+    togo: ["moov", "tmoney"],
+    cote_ivoire: ["wave", "mtn", "orange", "moov"],
+    benin: ["celtis", "moov", "mtn"],
+    mali: ["orange", "moov"],
+    burkina_faso: ["moov"],
+    senegal: ["moov", "orange", "wave"],
+  };
+
   app.post("/api/withdraw", requireAuth, async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
@@ -279,7 +288,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Compte non vérifié. Veuillez compléter la vérification KYC." });
       }
 
-      const { amount, paymentMethod, mobileNumber } = req.body;
+      const { amount, paymentMethod, mobileNumber, country, walletName } = req.body;
       const numericAmount = parseFloat(amount);
       const balance = parseFloat(user.balance);
 
@@ -291,28 +300,156 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Solde insuffisant" });
       }
 
+      if (!country || !countryPaymentMethods[country]) {
+        return res.status(400).json({ message: "Pays invalide" });
+      }
+
+      if (!paymentMethod || !countryPaymentMethods[country].includes(paymentMethod)) {
+        return res.status(400).json({ message: "Moyen de paiement invalide pour ce pays" });
+      }
+
+      if (!mobileNumber) {
+        return res.status(400).json({ message: "Veuillez entrer un numéro de téléphone" });
+      }
+
       const settings = await storage.getCommissionSettings();
       const commissionRate = parseFloat(settings?.withdrawalRate || "7");
       const fee = Math.round(numericAmount * (commissionRate / 100));
       const netAmount = numericAmount - fee;
 
-      await storage.updateUserBalance(req.session.userId!, (-numericAmount).toString());
-
-      const transaction = await storage.createTransaction({
+      const withdrawalRequest = await storage.createWithdrawalRequest({
         userId: req.session.userId!,
-        type: "withdrawal",
         amount: numericAmount.toString(),
         fee: fee.toString(),
         netAmount: netAmount.toString(),
-        status: "completed",
-        description: `Retrait vers ${paymentMethod}`,
+        paymentMethod,
         mobileNumber,
+        country,
+        walletName: walletName || null,
       });
 
-      res.json(transaction);
+      res.json({ 
+        message: "Demande de retrait soumise avec succès. L'administrateur va la traiter sous peu.",
+        request: withdrawalRequest 
+      });
     } catch (error) {
-      console.error("Withdraw error:", error);
-      res.status(500).json({ message: "Erreur lors du retrait" });
+      console.error("Withdraw request error:", error);
+      res.status(500).json({ message: "Erreur lors de la demande de retrait" });
+    }
+  });
+
+  app.get("/api/withdrawal-requests", requireAuth, async (req, res) => {
+    try {
+      const requests = await storage.getWithdrawalRequests(req.session.userId!);
+      res.json(requests);
+    } catch (error) {
+      console.error("Get withdrawal requests error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/admin/withdrawal-requests", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const requests = await storage.getAllWithdrawalRequests();
+      res.json(requests);
+    } catch (error) {
+      console.error("Get all withdrawal requests error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/admin/withdrawal-requests/pending", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const requests = await storage.getPendingWithdrawalRequests();
+      res.json(requests);
+    } catch (error) {
+      console.error("Get pending withdrawal requests error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/withdrawal-requests/:id/approve", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const requestId = parseInt(req.params.id);
+      const withdrawalRequest = await storage.getWithdrawalRequest(requestId);
+      
+      if (!withdrawalRequest) {
+        return res.status(404).json({ message: "Demande introuvable" });
+      }
+      
+      if (withdrawalRequest.status !== "pending") {
+        return res.status(400).json({ message: "Cette demande a déjà été traitée" });
+      }
+      
+      const user = await storage.getUser(withdrawalRequest.userId);
+      if (!user) {
+        return res.status(404).json({ message: "Utilisateur introuvable" });
+      }
+      
+      const balance = parseFloat(user.balance);
+      const amount = parseFloat(withdrawalRequest.amount);
+      
+      if (amount > balance) {
+        return res.status(400).json({ message: "L'utilisateur n'a plus assez de fonds" });
+      }
+      
+      await storage.updateUserBalance(withdrawalRequest.userId, (-amount).toString());
+      
+      await storage.createTransaction({
+        userId: withdrawalRequest.userId,
+        type: "withdrawal",
+        amount: withdrawalRequest.amount,
+        fee: withdrawalRequest.fee,
+        netAmount: withdrawalRequest.netAmount,
+        status: "completed",
+        description: `Retrait vers ${withdrawalRequest.paymentMethod} - ${withdrawalRequest.mobileNumber}`,
+        mobileNumber: withdrawalRequest.mobileNumber,
+        paymentMethod: withdrawalRequest.paymentMethod,
+      });
+      
+      await storage.updateWithdrawalRequest(requestId, {
+        status: "approved",
+        reviewedBy: req.session.userId,
+        reviewedAt: new Date(),
+      });
+      
+      res.json({ message: "Retrait approuvé et traité avec succès" });
+    } catch (error) {
+      console.error("Approve withdrawal error:", error);
+      res.status(500).json({ message: "Erreur lors de l'approbation" });
+    }
+  });
+
+  app.post("/api/admin/withdrawal-requests/:id/reject", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const requestId = parseInt(req.params.id);
+      const { reason } = req.body;
+      
+      const withdrawalRequest = await storage.getWithdrawalRequest(requestId);
+      
+      if (!withdrawalRequest) {
+        return res.status(404).json({ message: "Demande introuvable" });
+      }
+      
+      if (withdrawalRequest.status !== "pending") {
+        return res.status(400).json({ message: "Cette demande a déjà été traitée" });
+      }
+      
+      if (!reason) {
+        return res.status(400).json({ message: "Veuillez fournir une raison de rejet" });
+      }
+      
+      await storage.updateWithdrawalRequest(requestId, {
+        status: "rejected",
+        rejectionReason: reason,
+        reviewedBy: req.session.userId,
+        reviewedAt: new Date(),
+      });
+      
+      res.json({ message: "Demande de retrait rejetée" });
+    } catch (error) {
+      console.error("Reject withdrawal error:", error);
+      res.status(500).json({ message: "Erreur lors du rejet" });
     }
   });
 
@@ -434,6 +571,68 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Create payment link error:", error);
       res.status(500).json({ message: "Erreur lors de la création" });
+    }
+  });
+
+  app.put("/api/payment-links/:id", requireAuth, async (req, res) => {
+    try {
+      const linkId = parseInt(req.params.id);
+      const link = await storage.getPaymentLink(linkId);
+      
+      if (!link) {
+        return res.status(404).json({ message: "Lien introuvable" });
+      }
+      
+      if (link.userId !== req.session.userId) {
+        return res.status(403).json({ message: "Non autorisé" });
+      }
+      
+      if (link.status !== "active") {
+        return res.status(400).json({ message: "Ce lien ne peut plus être modifié" });
+      }
+      
+      const { title, description, amount, productImage, allowCustomAmount, minimumAmount } = req.body;
+      const numericAmount = parseFloat(amount);
+      const numericMinAmount = minimumAmount ? parseFloat(minimumAmount) : null;
+
+      if (!title || isNaN(numericAmount) || numericAmount < 100) {
+        return res.status(400).json({ message: "Données invalides" });
+      }
+
+      const updated = await storage.updatePaymentLink(linkId, {
+        title,
+        description,
+        amount: numericAmount.toString(),
+        productImage: productImage || null,
+        allowCustomAmount: allowCustomAmount || false,
+        minimumAmount: numericMinAmount ? numericMinAmount.toString() : null,
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Update payment link error:", error);
+      res.status(500).json({ message: "Erreur lors de la modification" });
+    }
+  });
+
+  app.delete("/api/payment-links/:id", requireAuth, async (req, res) => {
+    try {
+      const linkId = parseInt(req.params.id);
+      const link = await storage.getPaymentLink(linkId);
+      
+      if (!link) {
+        return res.status(404).json({ message: "Lien introuvable" });
+      }
+      
+      if (link.userId !== req.session.userId) {
+        return res.status(403).json({ message: "Non autorisé" });
+      }
+      
+      await storage.deletePaymentLink(linkId);
+      res.json({ message: "Lien supprimé" });
+    } catch (error) {
+      console.error("Delete payment link error:", error);
+      res.status(500).json({ message: "Erreur lors de la suppression" });
     }
   });
 

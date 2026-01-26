@@ -1,12 +1,36 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
+import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Link2, Copy, ExternalLink, Clock, CheckCircle, XCircle } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Plus, Link2, Copy, ExternalLink, Clock, CheckCircle, XCircle, Pencil, Trash2, Loader2 } from "lucide-react";
 import type { PaymentLink } from "@shared/schema";
 
 function formatCurrency(amount: string | number) {
@@ -33,9 +57,49 @@ const statusConfig = {
 
 export default function PaymentLinksPage() {
   const { toast } = useToast();
+  const [editingLink, setEditingLink] = useState<PaymentLink | null>(null);
+  const [deletingLink, setDeletingLink] = useState<PaymentLink | null>(null);
+  const [editForm, setEditForm] = useState({
+    title: "",
+    description: "",
+    amount: "",
+    productImage: "",
+    allowCustomAmount: false,
+    minimumAmount: "",
+  });
 
   const { data: paymentLinks, isLoading } = useQuery<PaymentLink[]>({
     queryKey: ["/api/payment-links"],
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: { id: number; updates: typeof editForm }) => {
+      const res = await apiRequest("PUT", `/api/payment-links/${data.id}`, data.updates);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payment-links"] });
+      toast({ title: "Lien modifié", description: "Le lien de paiement a été mis à jour." });
+      setEditingLink(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/payment-links/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/payment-links"] });
+      toast({ title: "Lien supprimé", description: "Le lien de paiement a été supprimé." });
+      setDeletingLink(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    },
   });
 
   const copyLink = (linkCode: string) => {
@@ -45,6 +109,31 @@ export default function PaymentLinksPage() {
       title: "Lien copié",
       description: "Le lien de paiement a été copié dans le presse-papiers.",
     });
+  };
+
+  const openEditDialog = (link: PaymentLink) => {
+    setEditForm({
+      title: link.title,
+      description: link.description || "",
+      amount: link.amount,
+      productImage: link.productImage || "",
+      allowCustomAmount: link.allowCustomAmount,
+      minimumAmount: link.minimumAmount || "",
+    });
+    setEditingLink(link);
+  };
+
+  const handleEditSubmit = () => {
+    if (!editingLink) return;
+    updateMutation.mutate({
+      id: editingLink.id,
+      updates: editForm,
+    });
+  };
+
+  const handleDelete = () => {
+    if (!deletingLink) return;
+    deleteMutation.mutate(deletingLink.id);
   };
 
   return (
@@ -96,6 +185,7 @@ export default function PaymentLinksPage() {
             {paymentLinks.map((link) => {
               const status = statusConfig[link.status as keyof typeof statusConfig] || statusConfig.active;
               const StatusIcon = status.icon;
+              const isActive = link.status === "active";
 
               return (
                 <Card key={link.id} data-testid={`payment-link-${link.id}`} className="overflow-hidden">
@@ -168,6 +258,30 @@ export default function PaymentLinksPage() {
                         Ouvrir
                       </Button>
                     </div>
+
+                    <div className="flex gap-2 pt-2 border-t">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => openEditDialog(link)}
+                        disabled={!isActive}
+                        data-testid={`button-edit-link-${link.id}`}
+                      >
+                        <Pencil className="h-4 w-4 mr-1" />
+                        Modifier
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex-1 text-destructive hover:text-destructive"
+                        onClick={() => setDeletingLink(link)}
+                        data-testid={`button-delete-link-${link.id}`}
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Supprimer
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               );
@@ -175,6 +289,123 @@ export default function PaymentLinksPage() {
           </div>
         )}
       </div>
+
+      <Dialog open={!!editingLink} onOpenChange={(open) => !open && setEditingLink(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Modifier le lien de paiement</DialogTitle>
+            <DialogDescription>
+              Modifiez les informations de votre lien de paiement
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-title">Titre</Label>
+              <Input
+                id="edit-title"
+                value={editForm.title}
+                onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                data-testid="input-edit-title"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-description">Description</Label>
+              <Textarea
+                id="edit-description"
+                value={editForm.description}
+                onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                data-testid="input-edit-description"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="edit-custom-amount"
+                checked={editForm.allowCustomAmount}
+                onCheckedChange={(checked) => setEditForm({ ...editForm, allowCustomAmount: checked })}
+                data-testid="switch-edit-custom-amount"
+              />
+              <Label htmlFor="edit-custom-amount">Montant personnalisé</Label>
+            </div>
+            {editForm.allowCustomAmount ? (
+              <div className="space-y-2">
+                <Label htmlFor="edit-min-amount">Montant minimum (XOF)</Label>
+                <Input
+                  id="edit-min-amount"
+                  type="number"
+                  value={editForm.minimumAmount}
+                  onChange={(e) => setEditForm({ ...editForm, minimumAmount: e.target.value })}
+                  data-testid="input-edit-min-amount"
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="edit-amount">Montant (XOF)</Label>
+                <Input
+                  id="edit-amount"
+                  type="number"
+                  value={editForm.amount}
+                  onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                  data-testid="input-edit-amount"
+                />
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="edit-image">URL de l'image (optionnel)</Label>
+              <Input
+                id="edit-image"
+                value={editForm.productImage}
+                onChange={(e) => setEditForm({ ...editForm, productImage: e.target.value })}
+                placeholder="https://..."
+                data-testid="input-edit-image"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingLink(null)}>
+              Annuler
+            </Button>
+            <Button onClick={handleEditSubmit} disabled={updateMutation.isPending} data-testid="button-save-edit">
+              {updateMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Enregistrement...
+                </>
+              ) : (
+                "Enregistrer"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deletingLink} onOpenChange={(open) => !open && setDeletingLink(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer ce lien de paiement ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cette action est irréversible. Le lien "{deletingLink?.title}" sera définitivement supprimé
+              et ne pourra plus être utilisé pour recevoir des paiements.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              {deleteMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Suppression...
+                </>
+              ) : (
+                "Supprimer"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }

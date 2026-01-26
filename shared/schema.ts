@@ -137,6 +137,25 @@ export const socialLinks = pgTable("social_links", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const withdrawalRequestStatusEnum = pgEnum("withdrawal_request_status", ["pending", "approved", "rejected"]);
+
+export const withdrawalRequests = pgTable("withdrawal_requests", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  fee: decimal("fee", { precision: 15, scale: 2 }).notNull(),
+  netAmount: decimal("net_amount", { precision: 15, scale: 2 }).notNull(),
+  paymentMethod: text("payment_method").notNull(),
+  mobileNumber: text("mobile_number").notNull(),
+  country: text("country").notNull(),
+  walletName: text("wallet_name"),
+  status: withdrawalRequestStatusEnum("status").default("pending").notNull(),
+  rejectionReason: text("rejection_reason"),
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const usersRelations = relations(users, ({ many }) => ({
   transactions: many(transactions),
   transfers: many(transfers, { relationName: "sender" }),
@@ -268,6 +287,15 @@ export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
   createdAt: true,
 });
 
+export const insertWithdrawalRequestSchema = createInsertSchema(withdrawalRequests).omit({
+  id: true,
+  createdAt: true,
+  status: true,
+  rejectionReason: true,
+  reviewedBy: true,
+  reviewedAt: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type KycRequest = typeof kycRequests.$inferSelect;
@@ -285,3 +313,5 @@ export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type CommissionSettings = typeof commissionSettings.$inferSelect;
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type SocialLink = typeof socialLinks.$inferSelect;
+export type WithdrawalRequest = typeof withdrawalRequests.$inferSelect;
+export type InsertWithdrawalRequest = z.infer<typeof insertWithdrawalRequestSchema>;
