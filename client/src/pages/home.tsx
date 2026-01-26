@@ -88,8 +88,8 @@ export default function HomePage() {
     },
     {
       icon: Megaphone,
-      title: "Outils Marketing",
-      description: "Partagez vos liens partout",
+      title: "Partagez vos liens partout",
+      description: "WhatsApp, Instagram, Facebook...",
     },
     {
       icon: MousePointer,
@@ -567,14 +567,14 @@ export default function HomePage() {
                   <h3 className="text-xl font-bold mb-2">Plan Unique</h3>
                   <p className="text-muted-foreground text-sm mb-6">Parfait pour les indépendants et créateurs</p>
                   <span className="text-5xl font-bold">7%</span>
-                  <span className="text-muted-foreground"> / par transaction</span>
+                  <p className="text-muted-foreground mt-2">Par transaction</p>
                 </div>
                 <div className="space-y-4 mb-8">
                   {[
                     "Liens de paiement illimités",
                     "Mobile Money accepté",
                     "Retraits sous 1h à 24h",
-                    "Frais de retrait : 0 FCFA",
+                    "Zéro frais d'inscription",
                     "Support client disponible",
                   ].map((item, index) => (
                     <div key={index} className="flex items-center gap-3">
