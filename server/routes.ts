@@ -317,6 +317,10 @@ export async function registerRoutes(
       const fee = Math.round(numericAmount * (commissionRate / 100));
       const netAmount = numericAmount - fee;
 
+      // Débiter le solde immédiatement
+      const newBalance = balance - numericAmount;
+      await storage.updateUserBalance(req.session.userId!, newBalance.toString());
+
       const withdrawalRequest = await storage.createWithdrawalRequest({
         userId: req.session.userId!,
         amount: numericAmount.toString(),
@@ -329,7 +333,7 @@ export async function registerRoutes(
       });
 
       res.json({ 
-        message: "Demande de retrait soumise avec succès. L'administrateur va la traiter sous peu.",
+        message: "Demande de retrait soumise avec succès. Votre solde a été débité.",
         request: withdrawalRequest 
       });
     } catch (error) {
@@ -381,19 +385,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Cette demande a déjà été traitée" });
       }
       
-      const user = await storage.getUser(withdrawalRequest.userId);
-      if (!user) {
-        return res.status(404).json({ message: "Utilisateur introuvable" });
-      }
-      
-      const balance = parseFloat(user.balance);
-      const amount = parseFloat(withdrawalRequest.amount);
-      
-      if (amount > balance) {
-        return res.status(400).json({ message: "L'utilisateur n'a plus assez de fonds" });
-      }
-      
-      await storage.updateUserBalance(withdrawalRequest.userId, (-amount).toString());
+      // Le solde a déjà été débité lors de la demande de retrait
+      // Ici on crée simplement la transaction pour l'historique
       
       await storage.createTransaction({
         userId: withdrawalRequest.userId,
@@ -439,6 +432,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Veuillez fournir une raison de rejet" });
       }
       
+      // Rembourser le solde de l'utilisateur
+      const user = await storage.getUser(withdrawalRequest.userId);
+      if (user) {
+        const currentBalance = parseFloat(user.balance);
+        const refundAmount = parseFloat(withdrawalRequest.amount);
+        const newBalance = currentBalance + refundAmount;
+        await storage.updateUserBalance(withdrawalRequest.userId, newBalance.toString());
+      }
+      
       await storage.updateWithdrawalRequest(requestId, {
         status: "rejected",
         rejectionReason: reason,
@@ -446,7 +448,7 @@ export async function registerRoutes(
         reviewedAt: new Date(),
       });
       
-      res.json({ message: "Demande de retrait rejetée" });
+      res.json({ message: "Demande de retrait rejetée et solde remboursé" });
     } catch (error) {
       console.error("Reject withdrawal error:", error);
       res.status(500).json({ message: "Erreur lors du rejet" });

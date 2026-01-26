@@ -125,9 +125,10 @@ export default function WithdrawPage() {
     onSuccess: (data) => {
       toast({
         title: "Demande soumise",
-        description: data.message || "Votre demande de retrait a été soumise pour validation.",
+        description: data.message || "Votre demande de retrait a été soumise.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/withdrawal-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
       setAmount("");
       setWalletName("");
     },
