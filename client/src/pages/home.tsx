@@ -550,7 +550,7 @@ export default function HomePage() {
               Tarifs
             </div>
             <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-6 scroll-animate stagger-1">
-              Aucun abonnement. Aucun frais caché.
+              Aucun abonnement.
             </h2>
             <p className="text-lg text-muted-foreground scroll-animate stagger-2">
               Vous payez seulement quand vous encaissez.
