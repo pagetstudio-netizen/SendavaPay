@@ -141,7 +141,6 @@ export default function HomePage() {
 
             <div className="relative">
               <div className="relative rounded-2xl overflow-hidden shadow-2xl">
-                <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent z-10" />
                 <img
                   src={heroImage}
                   alt="SendavaPay - Paiements en Afrique de l'Ouest"
