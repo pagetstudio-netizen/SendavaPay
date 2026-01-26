@@ -19,9 +19,10 @@ import mixxLogo from "@assets/mixxByYas-web-page_1763835083140-t9C-E95C_17694432
 const paymentMethods = [
   { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo },
   { id: "moov", name: "Moov Money", logo: moovLogo },
-  { id: "wave", name: "Wave", logo: waveLogo },
-  { id: "wizall", name: "Wizall Money", logo: wizallLogo },
-  { id: "mixx", name: "Mixx by Yas", logo: mixxLogo },
+  { id: "orange", name: "Orange Money", logo: moovLogo },
+  { id: "tmoney", name: "TMoney", logo: mixxLogo },
+  { id: "airtel", name: "Airtel Money", logo: moovLogo },
+  { id: "vodacom", name: "Vodacom M-Pesa", logo: mtnLogo },
 ];
 
 const quickAmounts = [5000, 10000, 25000, 50000, 100000];
