@@ -78,244 +78,271 @@ export default function AuthPage() {
     <div className="min-h-screen grid lg:grid-cols-2">
       <div className="flex flex-col items-center justify-center p-6 lg:p-12 bg-background">
         <div className="w-full max-w-md space-y-8">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col items-center justify-center space-y-6">
             <Link href="/">
-              <Button variant="ghost" size="sm" className="gap-2">
-                <ArrowLeft className="h-4 w-4" />
-                Retour
-              </Button>
-            </Link>
-            <Link href="/">
-              <img src={logoPath} alt="SendavaPay" className="h-8" data-testid="img-auth-logo" />
+              <div className="flex flex-col items-center">
+                <span className="text-4xl font-black text-primary tracking-tighter italic">SendavaPay</span>
+              </div>
             </Link>
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="login" data-testid="tab-login">Connexion</TabsTrigger>
-              <TabsTrigger value="register" data-testid="tab-register">Inscription</TabsTrigger>
-            </TabsList>
-
             <TabsContent value="login" className="mt-6">
-              <Card>
-                <CardHeader className="space-y-1">
-                  <CardTitle className="text-2xl">Bon retour!</CardTitle>
-                  <CardDescription>
-                    Connectez-vous à votre compte SendavaPay
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={loginForm.handleSubmit(onLogin)} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="emailOrPhone">Email ou téléphone</Label>
+              <div className="text-center mb-8">
+                <p className="text-muted-foreground">
+                  Veuillez utiliser vos identifiants Sendava pour accéder à votre compte SendavaPay.
+                </p>
+              </div>
+              <div className="space-y-6">
+                <form onSubmit={loginForm.handleSubmit(onLogin)} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="emailOrPhone" className="text-sm font-semibold">Email</Label>
+                    <Input
+                      id="emailOrPhone"
+                      type="text"
+                      placeholder="vous@exemple.com"
+                      className="bg-muted/50 border-muted rounded-xl h-12"
+                      {...loginForm.register("emailOrPhone")}
+                      data-testid="input-login-email"
+                    />
+                    {loginForm.formState.errors.emailOrPhone && (
+                      <p className="text-sm text-destructive">
+                        {loginForm.formState.errors.emailOrPhone.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Mot de passe</Label>
+                    <div className="relative">
                       <Input
-                        id="emailOrPhone"
-                        type="text"
-                        placeholder="exemple@email.com ou +228..."
-                        {...loginForm.register("emailOrPhone")}
-                        data-testid="input-login-email"
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        className="bg-muted/50 border-muted rounded-xl h-12 pr-12"
+                        {...loginForm.register("password")}
+                        data-testid="input-login-password"
                       />
-                      {loginForm.formState.errors.emailOrPhone && (
-                        <p className="text-sm text-destructive">
-                          {loginForm.formState.errors.emailOrPhone.message}
-                        </p>
-                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full px-3 text-muted-foreground"
+                        onClick={() => setShowPassword(!showPassword)}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
                     </div>
+                    {loginForm.formState.errors.password && (
+                      <p className="text-sm text-destructive">
+                        {loginForm.formState.errors.password.message}
+                      </p>
+                    )}
+                  </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="password">Mot de passe</Label>
-                      <div className="relative">
-                        <Input
-                          id="password"
-                          type={showPassword ? "text" : "password"}
-                          placeholder="Votre mot de passe"
-                          {...loginForm.register("password")}
-                          data-testid="input-login-password"
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="absolute right-0 top-0 h-full px-3"
-                          onClick={() => setShowPassword(!showPassword)}
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </Button>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-5 h-5 rounded-full border border-primary flex items-center justify-center cursor-pointer">
+                        <div className="w-2.5 h-2.5 rounded-full bg-primary opacity-0 hover:opacity-20 transition-opacity" />
                       </div>
-                      {loginForm.formState.errors.password && (
-                        <p className="text-sm text-destructive">
-                          {loginForm.formState.errors.password.message}
-                        </p>
-                      )}
+                      <span className="text-sm text-muted-foreground">Se souvenir de moi</span>
                     </div>
-
-                    <div className="flex items-center justify-end">
-                      <Link href="/forgot-password" className="text-sm text-primary hover:underline">
+                    <Link href="/forgot-password" data-testid="link-forgot-password">
+                      <span className="text-sm font-medium text-primary cursor-pointer hover:underline">
                         Mot de passe oublié ?
-                      </Link>
-                    </div>
+                      </span>
+                    </Link>
+                  </div>
 
-                    <Button
-                      type="submit"
-                      className="w-full"
-                      disabled={loginMutation.isPending}
-                      data-testid="button-login-submit"
+                  <Button
+                    type="submit"
+                    className="w-full h-14 rounded-xl text-lg font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20 transition-all active:scale-[0.98]"
+                    disabled={loginMutation.isPending}
+                    data-testid="button-login-submit"
+                  >
+                    {loginMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                        Connexion...
+                      </>
+                    ) : (
+                      "Se connecter"
+                    )}
+                  </Button>
+                </form>
+                
+                <div className="text-center pt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Pas encore de compte ?{" "}
+                    <span 
+                      className="text-primary font-bold cursor-pointer hover:underline"
+                      onClick={() => setActiveTab("register")}
                     >
-                      {loginMutation.isPending ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Connexion...
-                        </>
-                      ) : (
-                        "Se connecter"
-                      )}
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
+                      Créer un compte
+                    </span>
+                  </p>
+                </div>
+              </div>
             </TabsContent>
 
             <TabsContent value="register" className="mt-6">
-              <Card>
-                <CardHeader className="space-y-1">
-                  <CardTitle className="text-2xl">Créer un compte</CardTitle>
-                  <CardDescription>
-                    Rejoignez SendavaPay et commencez à transférer de l'argent
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={registerForm.handleSubmit(onRegister)} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="fullName">Nom complet</Label>
+              <div className="text-center mb-8">
+                <p className="text-muted-foreground">Créez votre compte</p>
+              </div>
+              <div className="space-y-6">
+                <form onSubmit={registerForm.handleSubmit(onRegister)} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="fullName" className="text-sm font-semibold">Nom complet</Label>
+                    <Input
+                      id="fullName"
+                      type="text"
+                      placeholder="Jean Dupont"
+                      className="bg-muted/50 border-muted rounded-xl h-12"
+                      {...registerForm.register("fullName")}
+                      data-testid="input-register-name"
+                    />
+                    {registerForm.formState.errors.fullName && (
+                      <p className="text-sm text-destructive">
+                        {registerForm.formState.errors.fullName.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="email" className="text-sm font-semibold">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="vous@exemple.com"
+                      className="bg-muted/50 border-muted rounded-xl h-12"
+                      {...registerForm.register("email")}
+                      data-testid="input-register-email"
+                    />
+                    {registerForm.formState.errors.email && (
+                      <p className="text-sm text-destructive">
+                        {registerForm.formState.errors.email.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="phone" className="text-sm font-semibold">Numéro de téléphone (optionnel)</Label>
+                    <Input
+                      id="phone"
+                      type="tel"
+                      placeholder="+228 90000000"
+                      className="bg-muted/50 border-muted rounded-xl h-12"
+                      {...registerForm.register("phone")}
+                      data-testid="input-register-phone"
+                    />
+                    {registerForm.formState.errors.phone && (
+                      <p className="text-sm text-destructive">
+                        {registerForm.formState.errors.phone.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="registerPassword">Mot de passe</Label>
+                    <div className="relative">
                       <Input
-                        id="fullName"
-                        type="text"
-                        placeholder="Jean Dupont"
-                        {...registerForm.register("fullName")}
-                        data-testid="input-register-name"
+                        id="registerPassword"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        className="bg-muted/50 border-muted rounded-xl h-12 pr-12"
+                        {...registerForm.register("password")}
+                        data-testid="input-register-password"
                       />
-                      {registerForm.formState.errors.fullName && (
-                        <p className="text-sm text-destructive">
-                          {registerForm.formState.errors.fullName.message}
-                        </p>
-                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full px-3 text-muted-foreground"
+                        onClick={() => setShowPassword(!showPassword)}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
                     </div>
+                    <div className="mt-3 text-xs text-muted-foreground space-y-1">
+                      <p className="font-semibold text-foreground/80">Le mot de passe doit contenir :</p>
+                      <ul className="list-disc list-inside space-y-0.5 ml-1">
+                        <li>Au moins 8 caractères</li>
+                        <li>Une lettre majuscule</li>
+                        <li>Une lettre minuscule</li>
+                        <li>Un chiffre</li>
+                      </ul>
+                    </div>
+                    {registerForm.formState.errors.password && (
+                      <p className="text-sm text-destructive">
+                        {registerForm.formState.errors.password.message}
+                      </p>
+                    )}
+                  </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="email">Email</Label>
+                  <div className="space-y-2 pt-2">
+                    <Label htmlFor="confirmPassword">Confirmer le mot de passe</Label>
+                    <div className="relative">
                       <Input
-                        id="email"
-                        type="email"
-                        placeholder="exemple@email.com"
-                        {...registerForm.register("email")}
-                        data-testid="input-register-email"
+                        id="confirmPassword"
+                        type={showConfirmPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        className="bg-muted/50 border-muted rounded-xl h-12 pr-12"
+                        {...registerForm.register("confirmPassword")}
+                        data-testid="input-register-confirm-password"
                       />
-                      {registerForm.formState.errors.email && (
-                        <p className="text-sm text-destructive">
-                          {registerForm.formState.errors.email.message}
-                        </p>
-                      )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full px-3 text-muted-foreground"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      >
+                        {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
                     </div>
+                    {registerForm.formState.errors.confirmPassword && (
+                      <p className="text-sm text-destructive">
+                        {registerForm.formState.errors.confirmPassword.message}
+                      </p>
+                    )}
+                  </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="phone">Numéro de téléphone</Label>
-                      <Input
-                        id="phone"
-                        type="tel"
-                        placeholder="+228 99 99 99 99"
-                        {...registerForm.register("phone")}
-                        data-testid="input-register-phone"
-                      />
-                      {registerForm.formState.errors.phone && (
-                        <p className="text-sm text-destructive">
-                          {registerForm.formState.errors.phone.message}
-                        </p>
-                      )}
-                    </div>
+                  <Button
+                    type="submit"
+                    className="w-full h-14 rounded-xl text-lg font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20 transition-all active:scale-[0.98]"
+                    disabled={registerMutation.isPending}
+                    data-testid="button-register-submit"
+                  >
+                    {registerMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                        Création...
+                      </>
+                    ) : (
+                      "Créer mon compte"
+                    )}
+                  </Button>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="registerPassword">Mot de passe</Label>
-                      <div className="relative">
-                        <Input
-                          id="registerPassword"
-                          type={showPassword ? "text" : "password"}
-                          placeholder="Minimum 6 caractères"
-                          {...registerForm.register("password")}
-                          data-testid="input-register-password"
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="absolute right-0 top-0 h-full px-3"
-                          onClick={() => setShowPassword(!showPassword)}
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </Button>
-                      </div>
-                      {registerForm.formState.errors.password && (
-                        <p className="text-sm text-destructive">
-                          {registerForm.formState.errors.password.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="confirmPassword">Confirmer le mot de passe</Label>
-                      <div className="relative">
-                        <Input
-                          id="confirmPassword"
-                          type={showConfirmPassword ? "text" : "password"}
-                          placeholder="Confirmer votre mot de passe"
-                          {...registerForm.register("confirmPassword")}
-                          data-testid="input-register-confirm-password"
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="absolute right-0 top-0 h-full px-3"
-                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                        >
-                          {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </Button>
-                      </div>
-                      {registerForm.formState.errors.confirmPassword && (
-                        <p className="text-sm text-destructive">
-                          {registerForm.formState.errors.confirmPassword.message}
-                        </p>
-                      )}
-                    </div>
-
-                    <Button
-                      type="submit"
-                      className="w-full"
-                      disabled={registerMutation.isPending}
-                      data-testid="button-register-submit"
+                  <p className="text-[10px] text-center text-muted-foreground pt-2">
+                    En créant un compte, vous acceptez nos{" "}
+                    <span className="text-primary font-medium hover:underline cursor-pointer">Conditions d'utilisation</span>{" "}
+                    et notre{" "}
+                    <span className="text-primary font-medium hover:underline cursor-pointer">Politique de confidentialité</span>
+                  </p>
+                </form>
+                
+                <div className="text-center pb-4">
+                  <p className="text-sm text-muted-foreground">
+                    Déjà un compte ?{" "}
+                    <span 
+                      className="text-primary font-bold cursor-pointer hover:underline"
+                      onClick={() => setActiveTab("login")}
                     >
-                      {registerMutation.isPending ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Inscription...
-                        </>
-                      ) : (
-                        "S'inscrire"
-                      )}
-                    </Button>
-
-                    <p className="text-xs text-center text-muted-foreground">
-                      En vous inscrivant, vous acceptez nos{" "}
-                      <a href="#" className="text-primary hover:underline">
-                        Conditions d'utilisation
-                      </a>{" "}
-                      et notre{" "}
-                      <a href="#" className="text-primary hover:underline">
-                        Politique de confidentialité
-                      </a>
-                    </p>
-                  </form>
-                </CardContent>
-              </Card>
+                      Se connecter
+                    </span>
+                  </p>
+                </div>
+              </div>
             </TabsContent>
           </Tabs>
         </div>
