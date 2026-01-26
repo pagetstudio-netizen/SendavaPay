@@ -34,6 +34,10 @@ import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png"
 import waveLogo from "@assets/wave_(1)_1763835083242-BDJmxeWc_(1)_1769443204492.png";
 import wizallLogo from "@assets/wizall_1763835083090-BfalgIrK_1769443204592.png";
 import mixxLogo from "@assets/mixxByYas-web-page_1763835083140-t9C-E95C_1769443204464.png";
+import orangeLogo from "@assets/images_1769443862827.png";
+import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
+import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
+import vodacomLogo from "@assets/vodacom_1769443862923.png";
 
 export default function HomePage() {
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -270,7 +274,7 @@ export default function HomePage() {
               <p className="text-sm text-muted-foreground mb-6">Moyens de paiement acceptés</p>
               <div className="overflow-hidden max-w-3xl mx-auto">
                 <div className="logo-marquee gap-8">
-                  {[mtnLogo, moovLogo, waveLogo, wizallLogo, mixxLogo, mtnLogo, moovLogo, waveLogo, wizallLogo, mixxLogo].map((logo, index) => (
+                  {[mtnLogo, moovLogo, orangeLogo, tmoneyLogo, airtelLogo, vodacomLogo, mtnLogo, moovLogo, orangeLogo, tmoneyLogo, airtelLogo, vodacomLogo].map((logo, index) => (
                     <div key={index} className="flex-shrink-0">
                       <img 
                         src={logo} 
