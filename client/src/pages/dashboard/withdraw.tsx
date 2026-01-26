@@ -22,20 +22,18 @@ import { Link } from "wouter";
 import comingSoonImage from "@assets/1767357766910-416405275_1769441573289.png";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
 import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
-import waveLogo from "@assets/wave_(1)_1763835083242-BDJmxeWc_(1)_1769443204492.png";
-import wizallLogo from "@assets/wizall_1763835083090-BfalgIrK_1769443204592.png";
-import mixxLogo from "@assets/mixxByYas-web-page_1763835083140-t9C-E95C_1769443204464.png";
+import orangeLogo from "@assets/images_1769443862827.png";
+import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
+import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
+import vodacomLogo from "@assets/vodacom_1769443862923.png";
 
 const methodLogos: Record<string, string> = {
   mtn: mtnLogo,
   moov: moovLogo,
-  wave: waveLogo,
-  wizall: wizallLogo,
-  mixx: mixxLogo,
-  tmoney: mixxLogo,
-  orange: moovLogo,
-  airtel: moovLogo,
-  vodacom: mtnLogo,
+  orange: orangeLogo,
+  tmoney: tmoneyLogo,
+  airtel: airtelLogo,
+  vodacom: vodacomLogo,
 };
 
 const countries = [
