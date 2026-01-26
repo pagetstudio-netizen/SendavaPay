@@ -8,6 +8,7 @@ import {
   ArrowUpRight,
   Link2,
   AlertTriangle,
+  History,
 } from "lucide-react";
 
 function formatCurrency(amount: string | number) {
@@ -23,6 +24,7 @@ const quickActions = [
   { icon: Wallet, label: "Dépôt", href: "/dashboard/deposit", color: "text-green-500" },
   { icon: ArrowUpRight, label: "Retrait", href: "/dashboard/withdraw", color: "text-orange-500" },
   { icon: Link2, label: "Lien de paiement", href: "/dashboard/payment-links", color: "text-purple-500" },
+  { icon: History, label: "Historique", href: "/dashboard/history", color: "text-blue-500" },
 ];
 
 export default function DashboardPage() {
