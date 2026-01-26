@@ -53,8 +53,8 @@ export default function HomePage() {
     },
     {
       icon: CreditCard,
-      title: "Mobile Money & Cartes",
-      description: "Acceptez Mobile Money (MTN, Moov, Orange, TMoney, Wave) et cartes bancaires.",
+      title: "Mobile Money",
+      description: "Acceptez Mobile Money (MTN, Moov, Orange, TMoney, Wave) facilement.",
     },
     {
       icon: Banknote,
@@ -79,7 +79,7 @@ export default function HomePage() {
     {
       step: "3",
       title: "Recevez votre argent",
-      description: "Vos clients paient par Mobile Money ou carte. Vous retirez vos fonds quand vous voulez.",
+      description: "Vos clients paient par Mobile Money. Vous retirez vos fonds quand vous voulez.",
       icon: Wallet,
     },
   ];
@@ -92,8 +92,8 @@ export default function HomePage() {
     },
     {
       icon: Smartphone,
-      title: "Mobile Money ou Carte",
-      description: "Recevez Mobile Money & cartes, sans compte bancaire.",
+      title: "Mobile Money",
+      description: "Recevez via Mobile Money, sans compte bancaire.",
     },
     {
       icon: Clock,
@@ -109,7 +109,7 @@ export default function HomePage() {
     },
     {
       question: "Quels moyens de paiement sont acceptés ?",
-      answer: "Nous acceptons Mobile Money (MTN, Moov, Orange, TMoney, Wave) et les cartes bancaires (Visa, Mastercard).",
+      answer: "Nous acceptons Mobile Money (MTN, Moov, Orange, TMoney, Wave).",
     },
     {
       question: "En combien de temps puis-je retirer mes fonds ?",
@@ -205,7 +205,7 @@ export default function HomePage() {
                   <span className="gradient-text">30 secondes</span>
                 </h1>
                 <p className="text-lg md:text-xl text-muted-foreground max-w-xl">
-                  Créez un lien de paiement, partagez-le et recevez l'argent immédiatement par Mobile Money ou carte bancaire.
+                  Créez un lien de paiement, partagez-le et recevez l'argent immédiatement par Mobile Money.
                 </p>
               </div>
 

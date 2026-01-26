@@ -11,7 +11,6 @@ import AuthPage from "@/pages/auth";
 import DashboardPage from "@/pages/dashboard/index";
 import DepositPage from "@/pages/dashboard/deposit";
 import WithdrawPage from "@/pages/dashboard/withdraw";
-import TransferPage from "@/pages/dashboard/transfer";
 import PaymentLinksPage from "@/pages/dashboard/payment-links";
 import CreatePaymentLinkPage from "@/pages/dashboard/create-payment-link";
 import HistoryPage from "@/pages/dashboard/history";
@@ -39,8 +38,7 @@ function Router() {
       <ProtectedRoute path="/dashboard" component={DashboardPage} />
       <ProtectedRoute path="/dashboard/deposit" component={DepositPage} />
       <ProtectedRoute path="/dashboard/withdraw" component={WithdrawPage} />
-      <ProtectedRoute path="/dashboard/transfer" component={TransferPage} />
-      <ProtectedRoute path="/dashboard/payment-links" component={PaymentLinksPage} />
+            <ProtectedRoute path="/dashboard/payment-links" component={PaymentLinksPage} />
       <ProtectedRoute path="/dashboard/payment-links/create" component={CreatePaymentLinkPage} />
       <ProtectedRoute path="/dashboard/history" component={HistoryPage} />
       <ProtectedRoute path="/dashboard/kyc" component={KycPage} />
