@@ -1,15 +1,14 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   Shield,
   Globe,
   Smartphone,
-  CreditCard,
   Link2,
   Zap,
   CheckCircle,
@@ -19,13 +18,30 @@ import {
   Wallet,
   Share2,
   Banknote,
+  MessageSquare,
+  Users,
+  Star,
+  ThumbsUp,
+  Phone,
+  CheckCircle2,
+  ShoppingBag,
+  Megaphone,
+  MousePointer,
 } from "lucide-react";
-import heroImage from "@assets/20260126_143225_1769439498445.png";
-import countriesImage from "@assets/benefits-3_1769439430626.webp";
-import transferImage from "@assets/xJ3fjboUJLVolfGqf752ILN4_1769439430656.png";
 
 export default function HomePage() {
   const observerRef = useRef<IntersectionObserver | null>(null);
+  const [currentPlatform, setCurrentPlatform] = useState(0);
+  
+  const platforms = ["WhatsApp", "Instagram", "Facebook", "Telegram"];
+  const platformColors = ["text-green-500", "text-pink-500", "text-blue-600", "text-blue-400"];
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentPlatform((prev) => (prev + 1) % platforms.length);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     observerRef.current = new IntersectionObserver(
@@ -47,58 +63,73 @@ export default function HomePage() {
 
   const features = [
     {
-      icon: Link2,
-      title: "Liens de paiement illimités",
-      description: "Créez autant de liens que vous voulez pour vos produits et services.",
+      icon: Smartphone,
+      title: "Moyens de Paiement",
+      description: "MTN, Moov, Orange, TMoney, Wave",
     },
     {
-      icon: CreditCard,
-      title: "Mobile Money",
-      description: "Acceptez Mobile Money (MTN, Moov, Orange, TMoney, Wave) facilement.",
+      icon: ShoppingBag,
+      title: "Tous Produits",
+      description: "Vendez n'importe quel produit ou service",
     },
     {
-      icon: Banknote,
-      title: "Recevez votre argent",
-      description: "Retirez vos fonds rapidement vers votre Mobile Money, sous 1h à 24h.",
+      icon: Megaphone,
+      title: "Outils Marketing",
+      description: "Partagez vos liens partout",
+    },
+    {
+      icon: MousePointer,
+      title: "User Friendly",
+      description: "Interface simple et intuitive",
+    },
+    {
+      icon: Phone,
+      title: "Support Réactif",
+      description: "Assistance disponible 7j/7",
+    },
+    {
+      icon: CheckCircle2,
+      title: "Conformité KYC",
+      description: "Vérification sécurisée",
     },
   ];
 
   const steps = [
     {
-      step: "1",
+      step: "Etape 1",
       title: "Créez votre lien de paiement",
-      description: "Définissez un montant et une description en quelques secondes.",
-      icon: Link2,
+      description: "Définissez un montant en quelques secondes.",
+      icon: Users,
     },
     {
-      step: "2",
+      step: "Etape 2",
       title: "Partagez votre lien",
       description: "Envoyez-le à vos clients sur WhatsApp, Instagram ou par SMS.",
       icon: Share2,
     },
     {
-      step: "3",
+      step: "Etape 3",
       title: "Recevez votre argent",
-      description: "Vos clients paient par Mobile Money. Vous retirez vos fonds quand vous voulez.",
+      description: "Vos clients paient par Mobile Money. Retirez vos fonds quand vous voulez.",
       icon: Wallet,
     },
   ];
 
   const benefits = [
     {
-      icon: Globe,
-      title: "Partout dans le monde",
-      description: "Vendez via WhatsApp, Instagram ou lien direct.",
-    },
-    {
-      icon: Smartphone,
-      title: "Mobile Money",
-      description: "Recevez via Mobile Money, sans compte bancaire.",
-    },
-    {
       icon: Clock,
-      title: "Retrait Rapide",
-      description: "Retirez vos fonds rapidement, sans stress ni paperasse.",
+      title: "Gagner du temps",
+      description: "Automatiser les réponses et la gestion des commandes",
+    },
+    {
+      icon: Shield,
+      title: "Paiements sécurisés",
+      description: "Transactions protégées et conformes aux normes",
+    },
+    {
+      icon: Banknote,
+      title: "Retrait rapide",
+      description: "Recevez vos fonds sous 1h à 24h sur Mobile Money",
     },
   ];
 
@@ -133,24 +164,6 @@ export default function HomePage() {
           opacity: 1;
           transform: translateY(0);
         }
-        .scroll-animate-left {
-          opacity: 0;
-          transform: translateX(-60px);
-          transition: opacity 0.8s ease-out, transform 0.8s ease-out;
-        }
-        .scroll-animate-left.animate-in {
-          opacity: 1;
-          transform: translateX(0);
-        }
-        .scroll-animate-right {
-          opacity: 0;
-          transform: translateX(60px);
-          transition: opacity 0.8s ease-out, transform 0.8s ease-out;
-        }
-        .scroll-animate-right.animate-in {
-          opacity: 1;
-          transform: translateX(0);
-        }
         .scroll-animate-scale {
           opacity: 0;
           transform: scale(0.9);
@@ -160,90 +173,100 @@ export default function HomePage() {
           opacity: 1;
           transform: scale(1);
         }
-        .float-animation {
-          animation: float 3s ease-in-out infinite;
-        }
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
-        }
-        .pulse-glow {
-          animation: pulseGlow 2s ease-in-out infinite;
-        }
-        @keyframes pulseGlow {
-          0%, 100% { box-shadow: 0 0 20px rgba(var(--primary-rgb), 0.3); }
-          50% { box-shadow: 0 0 40px rgba(var(--primary-rgb), 0.6); }
-        }
         .stagger-1 { transition-delay: 0.1s; }
         .stagger-2 { transition-delay: 0.2s; }
         .stagger-3 { transition-delay: 0.3s; }
         .stagger-4 { transition-delay: 0.4s; }
-        .gradient-text {
-          background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--primary)/0.7) 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
+        .platform-text {
+          animation: fadeInUp 0.5s ease-out;
+        }
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        .hero-gradient {
+          background: linear-gradient(180deg, hsl(var(--primary)/0.08) 0%, hsl(var(--background)) 100%);
         }
       `}</style>
 
       <Navbar />
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden min-h-[90vh] flex items-center">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-primary/10" />
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-20 relative z-10">
-          <div className="text-center max-w-4xl mx-auto space-y-8">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium scroll-animate">
-              <Zap className="h-4 w-4" />
+      <section className="relative overflow-hidden hero-gradient">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-24">
+          <div className="text-center space-y-8">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/20 bg-background text-sm font-medium scroll-animate">
+              <Zap className="h-4 w-4 text-primary" />
               Nouvelles Fonctionnalités
             </div>
             
-            <div className="space-y-4 scroll-animate stagger-1">
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
-                Encaissez vos clients en{" "}
-                <span className="gradient-text">30 secondes</span>
+            <div className="space-y-6 scroll-animate stagger-1">
+              <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight leading-tight">
+                Encaissez vos clients sur{" "}
+                <span key={currentPlatform} className={`platform-text inline-block ${platformColors[currentPlatform]}`}>
+                  {platforms[currentPlatform]}
+                </span>
+                <br />
+                en <span className="text-primary">30 secondes</span>
               </h1>
-              <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto">
+              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
                 Créez un lien de paiement, partagez-le et recevez l'argent immédiatement par Mobile Money.
               </p>
             </div>
 
-            <div className="flex flex-wrap justify-center gap-6 scroll-animate stagger-2">
+            <div className="flex flex-col items-center gap-4 scroll-animate stagger-2">
               <div className="flex items-center gap-2 text-sm">
-                <Shield className="h-5 w-5 text-green-500" />
+                <CheckCircle className="h-5 w-5 text-primary" />
                 <span>Sécurisé & conforme KYC</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
-                <Globe className="h-5 w-5 text-blue-500" />
+                <CheckCircle className="h-5 w-5 text-primary" />
                 <span>6 pays d'Afrique de l'Ouest</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
-                <Headphones className="h-5 w-5 text-purple-500" />
+                <CheckCircle className="h-5 w-5 text-primary" />
                 <span>Support local</span>
               </div>
             </div>
 
-            <div className="flex justify-center scroll-animate stagger-3">
+            <div className="scroll-animate stagger-3">
               <Link href="/auth?tab=register">
                 <Button 
                   size="lg" 
-                  className="gap-2 font-semibold shadow-lg shadow-primary/30 text-base px-8" 
+                  className="gap-2 font-semibold text-base px-8 py-6 rounded-xl bg-foreground text-background hover:bg-foreground/90" 
                   data-testid="button-hero-register"
                 >
-                  Créer un lien de paiement
+                  Créer un lien de paiement maintenant
                   <ArrowRight className="h-5 w-5" />
                 </Button>
               </Link>
             </div>
 
-            <div className="relative scroll-animate stagger-2 pt-8">
-              <div className="relative float-animation max-w-2xl mx-auto">
-                <img
-                  src={heroImage}
-                  alt="SendavaPay - Encaissez vos clients facilement"
-                  className="w-full h-auto object-cover rounded-2xl shadow-2xl"
-                  data-testid="img-hero"
-                />
+            {/* Mobile Money Providers */}
+            <div className="pt-8 scroll-animate stagger-4">
+              <p className="text-sm text-muted-foreground mb-4">Moyens de paiement acceptés</p>
+              <div className="flex flex-wrap justify-center items-center gap-6">
+                <div className="flex items-center justify-center h-12 w-20 rounded-lg bg-card border">
+                  <span className="text-xs font-bold text-yellow-500">MTN</span>
+                </div>
+                <div className="flex items-center justify-center h-12 w-20 rounded-lg bg-card border">
+                  <span className="text-xs font-bold text-blue-500">Moov</span>
+                </div>
+                <div className="flex items-center justify-center h-12 w-20 rounded-lg bg-card border">
+                  <span className="text-xs font-bold text-orange-500">Orange</span>
+                </div>
+                <div className="flex items-center justify-center h-12 w-20 rounded-lg bg-card border">
+                  <span className="text-xs font-bold text-green-600">TMoney</span>
+                </div>
+                <div className="flex items-center justify-center h-12 w-20 rounded-lg bg-card border">
+                  <span className="text-xs font-bold text-blue-400">Wave</span>
+                </div>
               </div>
             </div>
           </div>
@@ -260,30 +283,41 @@ export default function HomePage() {
       <section id="why-sendavapay" className="py-20 lg:py-28 bg-muted/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-16">
-            <p className="text-primary font-semibold mb-3 scroll-animate">POURQUOI SENDAVAPAY</p>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/20 bg-background text-sm font-medium mb-6 scroll-animate">
+              POURQUOI SENDAVAPAY
+            </div>
             <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-6 scroll-animate stagger-1">
-              Pensé pour vendre simplement en Afrique
+              Le meilleur choix pour votre business
             </h2>
             <p className="text-lg text-muted-foreground scroll-animate stagger-2">
-              SendavaPay est conçu pour les vendeurs africains qui vendent déjà en ligne, mais perdent du temps et des ventes à cause des paiements compliqués.
+              Que vous soyez étudiant, créateur de contenu, e-commerçant ou PME, SendavaPay s'adapte à vos objectifs.
             </p>
           </div>
 
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            <div className="scroll-animate-left scroll-animate">
-              <img
-                src={countriesImage}
-                alt="Vendez facilement avec SendavaPay"
-                className="rounded-2xl shadow-xl w-full max-w-md mx-auto"
-                data-testid="img-countries"
-              />
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-4 max-w-2xl mx-auto mb-16 scroll-animate">
+            <div className="text-center p-4">
+              <div className="text-3xl md:text-4xl font-bold text-foreground">150+</div>
+              <div className="text-sm text-muted-foreground mt-1">Avis positifs</div>
             </div>
-            <div className="space-y-6">
-              {benefits.map((benefit, index) => (
-                <div 
-                  key={index} 
-                  className={`flex items-start gap-4 p-6 rounded-xl bg-background shadow-sm hover-elevate transition-all scroll-animate stagger-${index + 1}`}
-                >
+            <div className="text-center p-4 border-x">
+              <div className="text-3xl md:text-4xl font-bold text-foreground">1000+</div>
+              <div className="text-sm text-muted-foreground mt-1">Clients satisfaits</div>
+            </div>
+            <div className="text-center p-4">
+              <div className="text-3xl md:text-4xl font-bold text-foreground">4.9/5</div>
+              <div className="text-sm text-muted-foreground mt-1">Notes globales</div>
+            </div>
+          </div>
+
+          {/* Benefits */}
+          <div className="space-y-4 max-w-2xl mx-auto">
+            {benefits.map((benefit, index) => (
+              <Card 
+                key={index} 
+                className={`hover-elevate transition-all scroll-animate stagger-${index + 1}`}
+              >
+                <CardContent className="flex items-start gap-4 p-6">
                   <div className="flex-shrink-0 h-12 w-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
                     <benefit.icon className="h-6 w-6" />
                   </div>
@@ -291,9 +325,9 @@ export default function HomePage() {
                     <h3 className="font-semibold text-lg mb-1">{benefit.title}</h3>
                     <p className="text-muted-foreground">{benefit.description}</p>
                   </div>
-                </div>
-              ))}
-            </div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </div>
       </section>
@@ -302,77 +336,32 @@ export default function HomePage() {
       <section id="how-it-works" className="py-20 lg:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-16">
-            <p className="text-primary font-semibold mb-3 scroll-animate">COMMENT ÇA MARCHE</p>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/20 bg-background text-sm font-medium mb-6 scroll-animate">
+              Comment ça marche
+            </div>
             <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-6 scroll-animate stagger-1">
-              Votre premier paiement en 3 étapes
+              VOTRE PREMIER PAIEMENT EN 3 ÉTAPES
             </h2>
             <p className="text-lg text-muted-foreground scroll-animate stagger-2">
               Encaissez dès aujourd'hui, sans site web
             </p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8 relative">
-            <div className="hidden md:block absolute top-24 left-1/4 right-1/4 h-0.5 bg-gradient-to-r from-primary/20 via-primary/40 to-primary/20" />
-            
+          <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
             {steps.map((item, index) => (
-              <div 
-                key={index} 
-                className={`relative text-center scroll-animate-scale scroll-animate stagger-${index + 1}`}
-              >
-                <div className="relative inline-flex items-center justify-center h-16 w-16 rounded-full bg-primary text-primary-foreground text-2xl font-bold mb-6 shadow-lg">
-                  {item.step}
-                </div>
-                <div className="inline-flex items-center justify-center h-12 w-12 rounded-xl bg-primary/10 text-primary mb-4">
-                  <item.icon className="h-6 w-6" />
-                </div>
-                <h3 className="text-xl font-semibold mb-3">{item.title}</h3>
-                <p className="text-muted-foreground">{item.description}</p>
-                {index === 2 && (
-                  <div className="mt-4 inline-flex items-center gap-2 text-green-500 font-medium">
-                    <CheckCircle className="h-5 w-5" />
-                    Terminé !
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          <div className="text-center mt-12 scroll-animate">
-            <Link href="/auth?tab=register">
-              <Button size="lg" className="gap-2 font-semibold shadow-lg shadow-primary/30 text-base px-8" data-testid="button-steps-register">
-                Créer un lien de paiement maintenant
-                <ArrowRight className="h-5 w-5" />
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section id="features" className="py-20 lg:py-28 bg-muted/30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <p className="text-primary font-semibold mb-3 scroll-animate">FONCTIONNALITÉS</p>
-            <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-6 scroll-animate stagger-1">
-              L'essentiel pour encaisser sans friction
-            </h2>
-            <p className="text-lg text-muted-foreground scroll-animate stagger-2">
-              Ce qu'il vous faut. Rien de plus.
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-8">
-            {features.map((feature, index) => (
               <Card 
                 key={index} 
-                className={`hover-elevate transition-all duration-300 border-2 border-transparent hover:border-primary/20 scroll-animate-scale scroll-animate stagger-${index + 1}`}
+                className={`hover-elevate transition-all scroll-animate-scale scroll-animate stagger-${index + 1}`}
               >
-                <CardContent className="p-8 text-center">
-                  <div className="inline-flex items-center justify-center h-16 w-16 rounded-2xl bg-primary/10 text-primary mb-6">
-                    <feature.icon className="h-8 w-8" />
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-sm text-muted-foreground font-medium">{item.step}</span>
+                    <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center">
+                      <item.icon className="h-5 w-5" />
+                    </div>
                   </div>
-                  <h3 className="font-semibold text-xl mb-3">{feature.title}</h3>
-                  <p className="text-muted-foreground">{feature.description}</p>
+                  <h3 className="text-xl font-bold mb-2">{item.title}</h3>
+                  <p className="text-muted-foreground text-sm">{item.description}</p>
                 </CardContent>
               </Card>
             ))}
@@ -380,7 +369,11 @@ export default function HomePage() {
 
           <div className="text-center mt-12 scroll-animate">
             <Link href="/auth?tab=register">
-              <Button size="lg" className="gap-2 font-semibold shadow-lg shadow-primary/30 text-base px-8" data-testid="button-features-register">
+              <Button 
+                size="lg" 
+                className="gap-2 font-semibold text-base px-8 py-6 rounded-xl bg-foreground text-background hover:bg-foreground/90" 
+                data-testid="button-steps-register"
+              >
                 Créer un lien de paiement maintenant
                 <ArrowRight className="h-5 w-5" />
               </Button>
@@ -389,49 +382,47 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Stats/Dashboard Section */}
-      <section className="py-20 lg:py-28">
+      {/* Features Grid Section */}
+      <section id="features" className="py-20 lg:py-28 bg-muted/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            <div className="space-y-6 scroll-animate-left scroll-animate">
-              <p className="text-primary font-semibold">TABLEAU DE BORD</p>
-              <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold">
-                Suivez vos ventes en temps réel
-              </h2>
-              <p className="text-lg text-muted-foreground">
-                Un tableau de bord simple et intuitif pour gérer vos paiements, suivre vos transactions et retirer vos fonds.
-              </p>
-              <div className="space-y-4">
-                {[
-                  "Historique de toutes vos transactions",
-                  "Notifications en temps réel",
-                  "Retraits rapides vers Mobile Money",
-                  "Statistiques de vos ventes",
-                ].map((item, index) => (
-                  <div key={index} className="flex items-center gap-3">
-                    <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
-                    <span>{item}</span>
+          <div className="text-center max-w-3xl mx-auto mb-16">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/20 bg-background text-sm font-medium mb-6 scroll-animate">
+              Fonctionnalités
+            </div>
+            <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-6 scroll-animate stagger-1">
+              Des fonctionnalités qui font la différence
+            </h2>
+            <p className="text-lg text-muted-foreground scroll-animate stagger-2">
+              Chaque fonctionnalité de SendavaPay a été conçue pour répondre aux réalités du marché africain.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-w-4xl mx-auto">
+            {features.map((feature, index) => (
+              <Card 
+                key={index} 
+                className={`hover-elevate transition-all scroll-animate-scale scroll-animate stagger-${Math.min(index + 1, 4)}`}
+              >
+                <CardContent className="p-6 text-center">
+                  <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-primary/10 text-primary mb-4">
+                    <feature.icon className="h-7 w-7" />
                   </div>
-                ))}
-              </div>
-            </div>
-            <div className="scroll-animate-right scroll-animate">
-              <img
-                src={transferImage}
-                alt="Tableau de bord SendavaPay"
-                className="rounded-2xl shadow-xl w-full"
-                data-testid="img-transfer"
-              />
-            </div>
+                  <h3 className="font-bold text-base mb-1">{feature.title}</h3>
+                  <p className="text-muted-foreground text-sm">{feature.description}</p>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </div>
       </section>
 
       {/* Pricing Section */}
-      <section id="pricing" className="py-20 lg:py-28 bg-muted/30">
+      <section id="pricing" className="py-20 lg:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-16">
-            <p className="text-primary font-semibold mb-3 scroll-animate">TARIFS</p>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/20 bg-background text-sm font-medium mb-6 scroll-animate">
+              Tarifs
+            </div>
             <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-6 scroll-animate stagger-1">
               Aucun abonnement. Aucun frais caché.
             </h2>
@@ -441,35 +432,37 @@ export default function HomePage() {
           </div>
 
           <div className="max-w-lg mx-auto scroll-animate-scale scroll-animate">
-            <Card className="border-2 border-primary shadow-xl">
-              <CardHeader className="text-center pb-2">
-                <div className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-primary/10 text-primary text-sm font-medium mx-auto mb-4">
-                  Populaire
-                </div>
-                <CardTitle className="text-2xl">Plan Unique</CardTitle>
-                <p className="text-muted-foreground">Parfait pour les indépendants et créateurs</p>
-              </CardHeader>
-              <CardContent className="pt-6">
+            <Card className="border-2 border-primary overflow-hidden">
+              <div className="bg-primary text-primary-foreground text-center py-2 text-sm font-medium">
+                Populaire
+              </div>
+              <CardContent className="p-8">
                 <div className="text-center mb-8">
+                  <h3 className="text-xl font-bold mb-2">Plan Unique</h3>
+                  <p className="text-muted-foreground text-sm mb-6">Parfait pour les indépendants et créateurs</p>
                   <span className="text-5xl font-bold">7%</span>
-                  <span className="text-muted-foreground"> / par transaction réussie</span>
+                  <span className="text-muted-foreground"> / par transaction</span>
                 </div>
                 <div className="space-y-4 mb-8">
                   {[
                     "Liens de paiement illimités",
-                    "Mobile Money & Cartes acceptés",
-                    "Retraits sous 1h à 24h (Mobile Money)",
+                    "Mobile Money accepté",
+                    "Retraits sous 1h à 24h",
                     "Frais de retrait : 0 FCFA",
                     "Support client disponible",
                   ].map((item, index) => (
                     <div key={index} className="flex items-center gap-3">
                       <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
-                      <span>{item}</span>
+                      <span className="text-sm">{item}</span>
                     </div>
                   ))}
                 </div>
                 <Link href="/auth?tab=register">
-                  <Button className="w-full gap-2 font-semibold text-base" size="lg" data-testid="button-pricing-register">
+                  <Button 
+                    className="w-full gap-2 font-semibold text-base py-6 rounded-xl bg-foreground text-background hover:bg-foreground/90" 
+                    size="lg" 
+                    data-testid="button-pricing-register"
+                  >
                     Créer un compte gratuit
                     <ArrowRight className="h-5 w-5" />
                   </Button>
@@ -481,10 +474,12 @@ export default function HomePage() {
       </section>
 
       {/* FAQ Section */}
-      <section id="faq" className="py-20 lg:py-28">
+      <section id="faq" className="py-20 lg:py-28 bg-muted/30">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <p className="text-primary font-semibold mb-3 scroll-animate">FAQ</p>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/20 bg-background text-sm font-medium mb-6 scroll-animate">
+              FAQ
+            </div>
             <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold scroll-animate stagger-1">
               Questions fréquemment posées
             </h2>
@@ -520,7 +515,7 @@ export default function HomePage() {
               <Button 
                 size="lg" 
                 variant="secondary" 
-                className="gap-2 font-semibold shadow-lg text-base px-8" 
+                className="gap-2 font-semibold shadow-lg text-base px-8 py-6 rounded-xl" 
                 data-testid="button-cta-register"
               >
                 Créer un compte gratuit
@@ -531,7 +526,7 @@ export default function HomePage() {
               <Button 
                 size="lg" 
                 variant="outline" 
-                className="bg-white/10 border-white/40 text-white font-medium backdrop-blur-sm text-base px-8" 
+                className="bg-white/10 border-white/40 text-white font-medium backdrop-blur-sm text-base px-8 py-6 rounded-xl" 
                 data-testid="button-cta-contact"
               >
                 Nous contacter
