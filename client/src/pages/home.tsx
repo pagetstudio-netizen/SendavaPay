@@ -192,54 +192,52 @@ export default function HomePage() {
       <section className="relative overflow-hidden min-h-[90vh] flex items-center">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-primary/10" />
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-20 relative z-10">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            <div className="space-y-8">
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium scroll-animate">
-                <Zap className="h-4 w-4" />
-                Nouvelles Fonctionnalités
-              </div>
-              
-              <div className="space-y-4 scroll-animate stagger-1">
-                <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
-                  Encaissez vos clients en{" "}
-                  <span className="gradient-text">30 secondes</span>
-                </h1>
-                <p className="text-lg md:text-xl text-muted-foreground max-w-xl">
-                  Créez un lien de paiement, partagez-le et recevez l'argent immédiatement par Mobile Money.
-                </p>
-              </div>
+          <div className="text-center max-w-4xl mx-auto space-y-8">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium scroll-animate">
+              <Zap className="h-4 w-4" />
+              Nouvelles Fonctionnalités
+            </div>
+            
+            <div className="space-y-4 scroll-animate stagger-1">
+              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
+                Encaissez vos clients en{" "}
+                <span className="gradient-text">30 secondes</span>
+              </h1>
+              <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto">
+                Créez un lien de paiement, partagez-le et recevez l'argent immédiatement par Mobile Money.
+              </p>
+            </div>
 
-              <div className="flex flex-wrap gap-4 scroll-animate stagger-2">
-                <div className="flex items-center gap-2 text-sm">
-                  <Shield className="h-5 w-5 text-green-500" />
-                  <span>Sécurisé & conforme KYC</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <Globe className="h-5 w-5 text-blue-500" />
-                  <span>6 pays d'Afrique de l'Ouest</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <Headphones className="h-5 w-5 text-purple-500" />
-                  <span>Support local</span>
-                </div>
+            <div className="flex flex-wrap justify-center gap-6 scroll-animate stagger-2">
+              <div className="flex items-center gap-2 text-sm">
+                <Shield className="h-5 w-5 text-green-500" />
+                <span>Sécurisé & conforme KYC</span>
               </div>
-
-              <div className="flex flex-col sm:flex-row gap-4 scroll-animate stagger-3">
-                <Link href="/auth?tab=register">
-                  <Button 
-                    size="lg" 
-                    className="gap-2 w-full sm:w-auto font-semibold shadow-lg shadow-primary/30 text-base px-8" 
-                    data-testid="button-hero-register"
-                  >
-                    Créer un lien de paiement
-                    <ArrowRight className="h-5 w-5" />
-                  </Button>
-                </Link>
+              <div className="flex items-center gap-2 text-sm">
+                <Globe className="h-5 w-5 text-blue-500" />
+                <span>6 pays d'Afrique de l'Ouest</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <Headphones className="h-5 w-5 text-purple-500" />
+                <span>Support local</span>
               </div>
             </div>
 
-            <div className="relative scroll-animate stagger-2">
-              <div className="relative float-animation">
+            <div className="flex justify-center scroll-animate stagger-3">
+              <Link href="/auth?tab=register">
+                <Button 
+                  size="lg" 
+                  className="gap-2 font-semibold shadow-lg shadow-primary/30 text-base px-8" 
+                  data-testid="button-hero-register"
+                >
+                  Créer un lien de paiement
+                  <ArrowRight className="h-5 w-5" />
+                </Button>
+              </Link>
+            </div>
+
+            <div className="relative scroll-animate stagger-2 pt-8">
+              <div className="relative float-animation max-w-2xl mx-auto">
                 <img
                   src={heroImage}
                   alt="SendavaPay - Encaissez vos clients facilement"
