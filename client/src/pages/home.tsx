@@ -27,6 +27,7 @@ import {
   ShoppingBag,
   Megaphone,
   MousePointer,
+  Check,
 } from "lucide-react";
 
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
