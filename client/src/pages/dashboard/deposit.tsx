@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,8 +7,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
-import { Info, ArrowLeft } from "lucide-react";
+import { Info, ArrowLeft, Globe } from "lucide-react";
 import { Link } from "wouter";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import comingSoonImage from "@assets/1767357766910-416405275_1769441573289.png";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
 import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
@@ -17,13 +24,23 @@ import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
 import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
 
+const countries = [
+  { id: "bj", name: "Bénin", currency: "XOF" },
+  { id: "bf", name: "Burkina Faso", currency: "XOF" },
+  { id: "tg", name: "Togo", currency: "XOF" },
+  { id: "cm", name: "Cameroun", currency: "XAF" },
+  { id: "ci", name: "Côte d'Ivoire", currency: "XOF" },
+  { id: "rdc", name: "RDC", currency: "CDF" },
+  { id: "cg", name: "Congo Brazzaville", currency: "XAF" },
+];
+
 const paymentMethods = [
-  { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo },
-  { id: "moov", name: "Moov Money", logo: moovLogo },
-  { id: "orange", name: "Orange Money", logo: orangeLogo },
-  { id: "tmoney", name: "TMoney", logo: tmoneyLogo },
-  { id: "airtel", name: "Airtel Money", logo: airtelLogo },
-  { id: "vodacom", name: "Vodacom M-Pesa", logo: vodacomLogo },
+  { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo, countries: ["bj", "cm", "ci", "cg"] },
+  { id: "moov", name: "Moov Money", logo: moovLogo, countries: ["bj", "bf", "tg", "ci"] },
+  { id: "orange", name: "Orange Money", logo: orangeLogo, countries: ["bf", "cm", "ci"] },
+  { id: "tmoney", name: "TMoney", logo: tmoneyLogo, countries: ["tg"] },
+  { id: "airtel", name: "Airtel Money", logo: airtelLogo, countries: ["rdc", "cg"] },
+  { id: "vodacom", name: "Vodacom M-Pesa", logo: vodacomLogo, countries: ["rdc"] },
 ];
 
 const quickAmounts = [5000, 10000, 25000, 50000, 100000];
@@ -32,9 +49,26 @@ export default function DepositPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [amount, setAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("mtn");
+  const [selectedCountry, setSelectedCountry] = useState("tg");
+  const [paymentMethod, setPaymentMethod] = useState("tmoney");
   const [mobileNumber, setMobileNumber] = useState(user?.phone || "");
   const [showComingSoon, setShowComingSoon] = useState(false);
+
+  const filteredMethods = useMemo(() => {
+    return paymentMethods.filter(m => m.countries.includes(selectedCountry));
+  }, [selectedCountry]);
+
+  // Update payment method when country changes
+  const handleCountryChange = (val: string) => {
+    setSelectedCountry(val);
+    const methodsForCountry = paymentMethods.filter(m => m.countries.includes(val));
+    if (methodsForCountry.length > 0) {
+      setPaymentMethod(methodsForCountry[0].id);
+    }
+  };
+
+  const currentCountry = countries.find(c => c.id === selectedCountry);
+  const currency = currentCountry?.currency || "XOF";
 
   const commissionRate = 7;
   const numericAmount = parseFloat(amount) || 0;
@@ -46,7 +80,7 @@ export default function DepositPage() {
     if (numericAmount < 100) {
       toast({
         title: "Montant invalide",
-        description: "Le montant minimum est de 100 XOF.",
+        description: `Le montant minimum est de 100 ${currency}.`,
         variant: "destructive",
       });
       return;
@@ -109,13 +143,29 @@ export default function DepositPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Montant à déposer</CardTitle>
-            <CardDescription>Choisissez le montant et le mode de paiement</CardDescription>
+            <CardTitle>Dépôt Mobile Money</CardTitle>
+            <CardDescription>Configurez votre dépôt par pays</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-4">
-                <Label htmlFor="amount">Montant (XOF)</Label>
+                <Label htmlFor="country">Choisir le pays</Label>
+                <Select value={selectedCountry} onValueChange={handleCountryChange}>
+                  <SelectTrigger id="country" className="h-12">
+                    <SelectValue placeholder="Sélectionnez un pays" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {countries.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name} ({c.currency})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-4">
+                <Label htmlFor="amount">Montant ({currency})</Label>
                 <Input
                   id="amount"
                   type="number"
@@ -136,38 +186,38 @@ export default function DepositPage() {
                       onClick={() => setAmount(qa.toString())}
                       data-testid={`button-quick-amount-${qa}`}
                     >
-                      {qa.toLocaleString()} XOF
+                      {qa.toLocaleString()} {currency}
                     </Button>
                   ))}
                 </div>
               </div>
 
               {numericAmount > 0 && (
-                <Card className="bg-muted/50">
+                <Card className="bg-muted/50 border-none">
                   <CardContent className="p-4 space-y-2">
                     <div className="flex justify-between text-sm">
                       <span>Montant</span>
-                      <span>{numericAmount.toLocaleString()} XOF</span>
+                      <span>{numericAmount.toLocaleString()} {currency}</span>
                     </div>
                     <div className="flex justify-between text-sm text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <Info className="h-3 w-3" />
                         Frais ({commissionRate}%)
                       </span>
-                      <span>-{fee.toLocaleString()} XOF</span>
+                      <span>-{fee.toLocaleString()} {currency}</span>
                     </div>
                     <div className="flex justify-between font-semibold pt-2 border-t">
                       <span>Vous recevez</span>
-                      <span className="text-green-600">{netAmount.toLocaleString()} XOF</span>
+                      <span className="text-green-600">{netAmount.toLocaleString()} {currency}</span>
                     </div>
                   </CardContent>
                 </Card>
               )}
 
               <div className="space-y-4">
-                <Label>Mode de paiement</Label>
-                <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {paymentMethods.map((method) => (
+                <Label>Moyen de paiement</Label>
+                <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="grid grid-cols-2 gap-4">
+                  {filteredMethods.map((method) => (
                     <div key={method.id}>
                       <RadioGroupItem
                         value={method.id}
@@ -176,11 +226,11 @@ export default function DepositPage() {
                       />
                       <Label
                         htmlFor={method.id}
-                        className="flex flex-col items-center gap-2 rounded-lg border-2 p-4 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all"
+                        className="flex flex-col items-center gap-2 rounded-xl border-2 p-4 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all"
                         data-testid={`radio-payment-${method.id}`}
                       >
-                        <img src={method.logo} alt={method.name} className="h-12 w-12 object-contain rounded-full" />
-                        <span className="text-xs font-medium text-center">{method.name}</span>
+                        <img src={method.logo} alt={method.name} className="h-12 w-12 object-contain rounded-full bg-white shadow-sm p-1" />
+                        <span className="text-xs font-bold text-center">{method.name}</span>
                       </Label>
                     </div>
                   ))}
@@ -188,25 +238,25 @@ export default function DepositPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="mobileNumber">Numéro de téléphone</Label>
+                <Label htmlFor="mobileNumber">Numéro de téléphone Mobile Money</Label>
                 <Input
                   id="mobileNumber"
                   type="tel"
-                  placeholder="+228 99 99 99 99"
+                  placeholder="Numéro sans l'indicatif"
                   value={mobileNumber}
                   onChange={(e) => setMobileNumber(e.target.value)}
                   data-testid="input-mobile-number"
+                  className="h-12"
                 />
               </div>
 
               <Button
                 type="submit"
-                className="w-full"
-                size="lg"
+                className="w-full h-12 text-lg font-bold shadow-lg shadow-primary/20"
                 disabled={numericAmount < 100}
                 data-testid="button-deposit-submit"
               >
-                {`Déposer ${numericAmount > 0 ? numericAmount.toLocaleString() + " XOF" : ""}`}
+                {`Déposer ${numericAmount > 0 ? numericAmount.toLocaleString() + " " + currency : ""}`}
               </Button>
             </form>
           </CardContent>
