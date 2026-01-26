@@ -154,7 +154,7 @@ export default function HomePage() {
     },
     {
       question: "SendavaPay est-il disponible dans mon pays ?",
-      answer: "SendavaPay est disponible au Togo, Bénin, Sénégal, Mali, Burkina Faso et Côte d'Ivoire.",
+      answer: "SendavaPay est disponible au Bénin, Burkina Faso, Togo, Cameroun, Côte d'Ivoire, RDC et Congo Brazzaville.",
     },
   ];
 
@@ -244,7 +244,7 @@ export default function HomePage() {
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle className="h-5 w-5 text-primary" />
-                <span>6 pays d'Afrique de l'Ouest</span>
+                <span>7 pays d'Afrique</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle className="h-5 w-5 text-primary" />

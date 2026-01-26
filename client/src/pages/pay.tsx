@@ -47,40 +47,44 @@ const methodLogos: Record<string, string> = {
 };
 
 const countries = [
-  { code: "TG", name: "Togo", flag: "\u{1F1F9}\u{1F1EC}", prefix: "+228" },
   { code: "BJ", name: "Bénin", flag: "\u{1F1E7}\u{1F1EF}", prefix: "+229" },
-  { code: "CI", name: "Côte d'Ivoire", flag: "\u{1F1E8}\u{1F1EE}", prefix: "+225" },
-  { code: "SN", name: "Sénégal", flag: "\u{1F1F8}\u{1F1F3}", prefix: "+221" },
-  { code: "ML", name: "Mali", flag: "\u{1F1F2}\u{1F1F1}", prefix: "+223" },
   { code: "BF", name: "Burkina Faso", flag: "\u{1F1E7}\u{1F1EB}", prefix: "+226" },
+  { code: "TG", name: "Togo", flag: "\u{1F1F9}\u{1F1EC}", prefix: "+228" },
+  { code: "CM", name: "Cameroun", flag: "\u{1F1E8}\u{1F1F2}", prefix: "+237" },
+  { code: "CI", name: "Côte d'Ivoire", flag: "\u{1F1E8}\u{1F1EE}", prefix: "+225" },
+  { code: "CD", name: "RDC", flag: "\u{1F1E8}\u{1F1E9}", prefix: "+243" },
+  { code: "CG", name: "Congo Brazzaville", flag: "\u{1F1E8}\u{1F1EC}", prefix: "+242" },
 ];
 
 const paymentMethodsByCountry: Record<string, { id: string; name: string; logo: string }[]> = {
-  TG: [
-    { id: "moov", name: "Moov Money", logo: moovLogo },
-    { id: "wave", name: "Wave", logo: waveLogo },
-    { id: "mixx", name: "Mixx by Yas", logo: mixxLogo },
-  ],
   BJ: [
     { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo },
     { id: "moov", name: "Moov Money", logo: moovLogo },
   ],
+  BF: [
+    { id: "orange", name: "Orange Money", logo: moovLogo },
+    { id: "moov", name: "Moov Money", logo: moovLogo },
+  ],
+  TG: [
+    { id: "moov", name: "Moov Money", logo: moovLogo },
+    { id: "tmoney", name: "TMoney (Mixx by Yas)", logo: mixxLogo },
+  ],
+  CM: [
+    { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo },
+    { id: "orange", name: "Orange Money", logo: moovLogo },
+  ],
   CI: [
     { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo },
     { id: "moov", name: "Moov Money", logo: moovLogo },
-    { id: "wave", name: "Wave", logo: waveLogo },
+    { id: "orange", name: "Orange Money", logo: moovLogo },
   ],
-  SN: [
-    { id: "wave", name: "Wave", logo: waveLogo },
-    { id: "moov", name: "Moov Money", logo: moovLogo },
+  CD: [
+    { id: "airtel", name: "Airtel Money", logo: moovLogo },
+    { id: "vodacom", name: "Vodacom M-Pesa", logo: mtnLogo },
   ],
-  ML: [
-    { id: "moov", name: "Moov Money", logo: moovLogo },
-    { id: "wave", name: "Wave", logo: waveLogo },
-  ],
-  BF: [
-    { id: "moov", name: "Moov Money", logo: moovLogo },
-    { id: "wave", name: "Wave", logo: waveLogo },
+  CG: [
+    { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo },
+    { id: "airtel", name: "Airtel Money", logo: moovLogo },
   ],
 };
 

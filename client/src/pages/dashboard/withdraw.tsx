@@ -32,60 +32,68 @@ const methodLogos: Record<string, string> = {
   wave: waveLogo,
   wizall: wizallLogo,
   mixx: mixxLogo,
-  tmoney: mtnLogo,
+  tmoney: mixxLogo,
   orange: moovLogo,
-  celtis: wizallLogo,
+  airtel: moovLogo,
+  vodacom: mtnLogo,
 };
 
 const countries = [
   { 
-    id: "togo", 
-    name: "Togo", 
-    methods: [
-      { id: "moov", name: "Moov Money" },
-      { id: "wave", name: "Wave" },
-      { id: "mixx", name: "Mixx by Yas" },
-    ]
-  },
-  { 
-    id: "cote_ivoire", 
-    name: "Côte d'Ivoire", 
-    methods: [
-      { id: "wave", name: "Wave" },
-      { id: "mtn", name: "MTN Mobile Money" },
-      { id: "moov", name: "Moov Money" },
-    ]
-  },
-  { 
     id: "benin", 
     name: "Bénin", 
     methods: [
-      { id: "moov", name: "Moov Money" },
       { id: "mtn", name: "MTN Mobile Money" },
-    ]
-  },
-  { 
-    id: "mali", 
-    name: "Mali", 
-    methods: [
       { id: "moov", name: "Moov Money" },
-      { id: "wave", name: "Wave" },
     ]
   },
   { 
     id: "burkina_faso", 
     name: "Burkina Faso", 
     methods: [
+      { id: "orange", name: "Orange Money" },
       { id: "moov", name: "Moov Money" },
-      { id: "wave", name: "Wave" },
     ]
   },
   { 
-    id: "senegal", 
-    name: "Sénégal", 
+    id: "togo", 
+    name: "Togo", 
     methods: [
       { id: "moov", name: "Moov Money" },
-      { id: "wave", name: "Wave" },
+      { id: "tmoney", name: "TMoney (Mixx by Yas)" },
+    ]
+  },
+  { 
+    id: "cameroun", 
+    name: "Cameroun", 
+    methods: [
+      { id: "mtn", name: "MTN Mobile Money" },
+      { id: "orange", name: "Orange Money" },
+    ]
+  },
+  { 
+    id: "cote_ivoire", 
+    name: "Côte d'Ivoire", 
+    methods: [
+      { id: "mtn", name: "MTN Mobile Money" },
+      { id: "moov", name: "Moov Money" },
+      { id: "orange", name: "Orange Money" },
+    ]
+  },
+  { 
+    id: "rdc", 
+    name: "RDC (Congo Kinshasa)", 
+    methods: [
+      { id: "airtel", name: "Airtel Money" },
+      { id: "vodacom", name: "Vodacom M-Pesa" },
+    ]
+  },
+  { 
+    id: "congo", 
+    name: "Congo Brazzaville", 
+    methods: [
+      { id: "mtn", name: "MTN Mobile Money" },
+      { id: "airtel", name: "Airtel Money" },
     ]
   },
 ];
