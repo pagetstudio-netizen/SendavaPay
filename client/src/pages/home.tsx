@@ -38,6 +38,9 @@ import orangeLogo from "@assets/images_1769443862827.png";
 import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
 import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
+import heroImage1 from "@assets/benefits-3_1769443912067.webp";
+import heroImage2 from "@assets/xJ3fjboUJLVolfGqf752ILN4_1769443912093.png";
+import heroImage3 from "@assets/20260126_143225_1769443932093.png";
 
 export default function HomePage() {
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -259,12 +262,12 @@ export default function HomePage() {
             <div className="scroll-animate stagger-3">
               <Link href="/auth?tab=register">
                 <Button 
-                  size="lg" 
-                  className="gap-2 font-semibold text-base px-8 py-6 rounded-xl bg-foreground text-background hover:bg-foreground/90" 
+                  size="sm" 
+                  className="gap-2 font-medium text-sm px-4 py-2 rounded-lg bg-foreground text-background hover:bg-foreground/90" 
                   data-testid="button-hero-register"
                 >
-                  Créer un lien de paiement maintenant
-                  <ArrowRight className="h-5 w-5" />
+                  Créer un lien de paiement
+                  <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
             </div>
@@ -296,8 +299,70 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* Hero Image 1 - Tailors/Entrepreneurs */}
+      <section className="py-16 lg:py-24">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid md:grid-cols-2 gap-12 items-center">
+            <div className="order-2 md:order-1 scroll-animate">
+              <h2 className="text-3xl md:text-4xl font-bold mb-6">
+                Transformez votre passion en revenus
+              </h2>
+              <p className="text-lg text-muted-foreground mb-6">
+                Artisans, créateurs, couturiers... Acceptez les paiements de vos clients en toute simplicité. Partagez votre lien et recevez l'argent directement sur Mobile Money.
+              </p>
+              <div className="flex flex-wrap gap-4">
+                <Link href="/auth?tab=register">
+                  <Button size="sm" className="gap-2 bg-foreground text-background hover:bg-foreground/90">
+                    Commencer maintenant
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </Link>
+              </div>
+            </div>
+            <div className="order-1 md:order-2 flex justify-center scroll-animate stagger-1">
+              <img 
+                src={heroImage1} 
+                alt="Entrepreneur africaine" 
+                className="max-w-sm w-full rounded-2xl"
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Hero Image 2 - Dashboard/Analytics */}
+      <section className="py-16 lg:py-24 bg-muted/30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid md:grid-cols-2 gap-12 items-center">
+            <div className="flex justify-center scroll-animate">
+              <img 
+                src={heroImage2} 
+                alt="Dashboard de ventes" 
+                className="max-w-md w-full"
+              />
+            </div>
+            <div className="scroll-animate stagger-1">
+              <h2 className="text-3xl md:text-4xl font-bold mb-6">
+                Suivez vos ventes en temps réel
+              </h2>
+              <p className="text-lg text-muted-foreground mb-6">
+                Tableau de bord intuitif pour visualiser vos revenus, vos transactions et la croissance de votre activité. Prenez des décisions éclairées.
+              </p>
+              <div className="flex flex-wrap gap-4">
+                <Link href="/auth?tab=register">
+                  <Button size="sm" className="gap-2 bg-foreground text-background hover:bg-foreground/90">
+                    Créer mon compte
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Why SendavaPay Section */}
-      <section id="why-sendavapay" className="py-20 lg:py-28 bg-muted/30">
+      <section id="why-sendavapay" className="py-20 lg:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-16">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/20 bg-background text-sm font-medium mb-6 scroll-animate">
@@ -345,6 +410,49 @@ export default function HomePage() {
                 </CardContent>
               </Card>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Hero Image 3 - Features Showcase */}
+      <section className="py-16 lg:py-24 bg-muted/30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid md:grid-cols-2 gap-12 items-center">
+            <div className="order-2 md:order-1 scroll-animate">
+              <h2 className="text-3xl md:text-4xl font-bold mb-6">
+                Tout ce dont vous avez besoin
+              </h2>
+              <p className="text-lg text-muted-foreground mb-6">
+                Vente de produits digitaux, création de liens de paiement, monétisation de votre audience. API de paiement bientôt disponible pour les développeurs.
+              </p>
+              <ul className="space-y-3 mb-6">
+                <li className="flex items-center gap-3 text-muted-foreground">
+                  <Check className="h-5 w-5 text-green-500" />
+                  Vente de produits digitaux
+                </li>
+                <li className="flex items-center gap-3 text-muted-foreground">
+                  <Check className="h-5 w-5 text-green-500" />
+                  Création de liens de paiement
+                </li>
+                <li className="flex items-center gap-3 text-muted-foreground">
+                  <Check className="h-5 w-5 text-green-500" />
+                  API de paiement (bientôt)
+                </li>
+              </ul>
+              <Link href="/auth?tab=register">
+                <Button size="sm" className="gap-2 bg-foreground text-background hover:bg-foreground/90">
+                  Rejoindre SendavaPay
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Link>
+            </div>
+            <div className="order-1 md:order-2 flex justify-center scroll-animate stagger-1">
+              <img 
+                src={heroImage3} 
+                alt="Fonctionnalités SendavaPay" 
+                className="max-w-lg w-full rounded-xl"
+              />
+            </div>
           </div>
         </div>
       </section>
