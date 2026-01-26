@@ -17,9 +17,25 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Smartphone, Info, ArrowLeft, Shield, Clock, CheckCircle, XCircle, Wallet } from "lucide-react";
+import { Loader2, Info, ArrowLeft, Shield, Clock, CheckCircle, XCircle, Wallet } from "lucide-react";
 import { Link } from "wouter";
 import comingSoonImage from "@assets/1767357766910-416405275_1769441573289.png";
+import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
+import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
+import waveLogo from "@assets/wave_(1)_1763835083242-BDJmxeWc_(1)_1769443204492.png";
+import wizallLogo from "@assets/wizall_1763835083090-BfalgIrK_1769443204592.png";
+import mixxLogo from "@assets/mixxByYas-web-page_1763835083140-t9C-E95C_1769443204464.png";
+
+const methodLogos: Record<string, string> = {
+  mtn: mtnLogo,
+  moov: moovLogo,
+  wave: waveLogo,
+  wizall: wizallLogo,
+  mixx: mixxLogo,
+  tmoney: mtnLogo,
+  orange: moovLogo,
+  celtis: wizallLogo,
+};
 
 const countries = [
   { 
@@ -27,7 +43,8 @@ const countries = [
     name: "Togo", 
     methods: [
       { id: "moov", name: "Moov Money" },
-      { id: "tmoney", name: "TMoney" },
+      { id: "wave", name: "Wave" },
+      { id: "mixx", name: "Mixx by Yas" },
     ]
   },
   { 
@@ -36,7 +53,6 @@ const countries = [
     methods: [
       { id: "wave", name: "Wave" },
       { id: "mtn", name: "MTN Mobile Money" },
-      { id: "orange", name: "Orange Money" },
       { id: "moov", name: "Moov Money" },
     ]
   },
@@ -44,7 +60,6 @@ const countries = [
     id: "benin", 
     name: "Bénin", 
     methods: [
-      { id: "celtis", name: "Celtis" },
       { id: "moov", name: "Moov Money" },
       { id: "mtn", name: "MTN Mobile Money" },
     ]
@@ -53,8 +68,8 @@ const countries = [
     id: "mali", 
     name: "Mali", 
     methods: [
-      { id: "orange", name: "Orange Money" },
       { id: "moov", name: "Moov Money" },
+      { id: "wave", name: "Wave" },
     ]
   },
   { 
@@ -62,6 +77,7 @@ const countries = [
     name: "Burkina Faso", 
     methods: [
       { id: "moov", name: "Moov Money" },
+      { id: "wave", name: "Wave" },
     ]
   },
   { 
@@ -69,7 +85,6 @@ const countries = [
     name: "Sénégal", 
     methods: [
       { id: "moov", name: "Moov Money" },
-      { id: "orange", name: "Orange Money" },
       { id: "wave", name: "Wave" },
     ]
   },
@@ -381,7 +396,7 @@ export default function WithdrawPage() {
               {availableMethods.length > 0 && (
                 <div className="space-y-4">
                   <Label>Moyen de paiement</Label>
-                  <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="grid grid-cols-2 gap-4">
+                  <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     {availableMethods.map((method) => (
                       <div key={method.id}>
                         <RadioGroupItem
@@ -391,10 +406,10 @@ export default function WithdrawPage() {
                         />
                         <Label
                           htmlFor={`withdraw-${method.id}`}
-                          className="flex items-center gap-3 rounded-lg border-2 p-4 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5"
+                          className="flex flex-col items-center gap-2 rounded-lg border-2 p-4 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all"
                         >
-                          <Smartphone className="h-5 w-5" />
-                          <span className="text-sm font-medium">{method.name}</span>
+                          <img src={methodLogos[method.id] || moovLogo} alt={method.name} className="h-12 w-12 object-contain rounded-full" />
+                          <span className="text-xs font-medium text-center">{method.name}</span>
                         </Label>
                       </div>
                     ))}

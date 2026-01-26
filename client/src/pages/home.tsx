@@ -29,6 +29,12 @@ import {
   MousePointer,
 } from "lucide-react";
 
+import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
+import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
+import waveLogo from "@assets/wave_(1)_1763835083242-BDJmxeWc_(1)_1769443204492.png";
+import wizallLogo from "@assets/wizall_1763835083090-BfalgIrK_1769443204592.png";
+import mixxLogo from "@assets/mixxByYas-web-page_1763835083140-t9C-E95C_1769443204464.png";
+
 export default function HomePage() {
   const observerRef = useRef<IntersectionObserver | null>(null);
   const [currentPlatform, setCurrentPlatform] = useState(0);
@@ -193,6 +199,17 @@ export default function HomePage() {
         .hero-gradient {
           background: linear-gradient(180deg, hsl(var(--primary)/0.08) 0%, hsl(var(--background)) 100%);
         }
+        .logo-marquee {
+          display: flex;
+          animation: marquee 20s linear infinite;
+        }
+        .logo-marquee:hover {
+          animation-play-state: paused;
+        }
+        @keyframes marquee {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
       `}</style>
 
       <Navbar />
@@ -248,24 +265,20 @@ export default function HomePage() {
               </Link>
             </div>
 
-            {/* Mobile Money Providers */}
+            {/* Mobile Money Providers - Scrolling Logos */}
             <div className="pt-8 scroll-animate stagger-4">
-              <p className="text-sm text-muted-foreground mb-4">Moyens de paiement acceptés</p>
-              <div className="flex flex-wrap justify-center items-center gap-6">
-                <div className="flex items-center justify-center h-12 w-20 rounded-lg bg-card border">
-                  <span className="text-xs font-bold text-yellow-500">MTN</span>
-                </div>
-                <div className="flex items-center justify-center h-12 w-20 rounded-lg bg-card border">
-                  <span className="text-xs font-bold text-blue-500">Moov</span>
-                </div>
-                <div className="flex items-center justify-center h-12 w-20 rounded-lg bg-card border">
-                  <span className="text-xs font-bold text-orange-500">Orange</span>
-                </div>
-                <div className="flex items-center justify-center h-12 w-20 rounded-lg bg-card border">
-                  <span className="text-xs font-bold text-green-600">TMoney</span>
-                </div>
-                <div className="flex items-center justify-center h-12 w-20 rounded-lg bg-card border">
-                  <span className="text-xs font-bold text-blue-400">Wave</span>
+              <p className="text-sm text-muted-foreground mb-6">Moyens de paiement acceptés</p>
+              <div className="overflow-hidden max-w-3xl mx-auto">
+                <div className="logo-marquee gap-8">
+                  {[mtnLogo, moovLogo, waveLogo, wizallLogo, mixxLogo, mtnLogo, moovLogo, waveLogo, wizallLogo, mixxLogo].map((logo, index) => (
+                    <div key={index} className="flex-shrink-0">
+                      <img 
+                        src={logo} 
+                        alt="Mobile Money" 
+                        className="h-16 w-16 object-contain rounded-full"
+                      />
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>

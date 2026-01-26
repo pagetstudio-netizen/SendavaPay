@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -19,7 +20,6 @@ import {
   Loader2,
   CheckCircle,
   XCircle,
-  Smartphone,
   Shield,
   Clock,
   ArrowRight,
@@ -28,7 +28,23 @@ import {
 } from "lucide-react";
 import logoPath from "@assets/20251211_105226_1765450558306.png";
 import comingSoonImage from "@assets/1767357766910-416405275_1769441573289.png";
+import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
+import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
+import waveLogo from "@assets/wave_(1)_1763835083242-BDJmxeWc_(1)_1769443204492.png";
+import wizallLogo from "@assets/wizall_1763835083090-BfalgIrK_1769443204592.png";
+import mixxLogo from "@assets/mixxByYas-web-page_1763835083140-t9C-E95C_1769443204464.png";
 import type { PaymentLink } from "@shared/schema";
+
+const methodLogos: Record<string, string> = {
+  mtn: mtnLogo,
+  moov: moovLogo,
+  wave: waveLogo,
+  wizall: wizallLogo,
+  mixx: mixxLogo,
+  tmoney: mtnLogo,
+  orange: moovLogo,
+  free: waveLogo,
+};
 
 const countries = [
   { code: "TG", name: "Togo", flag: "\u{1F1F9}\u{1F1EC}", prefix: "+228" },
@@ -39,33 +55,32 @@ const countries = [
   { code: "BF", name: "Burkina Faso", flag: "\u{1F1E7}\u{1F1EB}", prefix: "+226" },
 ];
 
-const paymentMethodsByCountry: Record<string, { id: string; name: string; color: string }[]> = {
+const paymentMethodsByCountry: Record<string, { id: string; name: string; logo: string }[]> = {
   TG: [
-    { id: "tmoney", name: "TMoney", color: "bg-blue-500" },
-    { id: "moov", name: "Moov Money", color: "bg-blue-600" },
+    { id: "moov", name: "Moov Money", logo: moovLogo },
+    { id: "wave", name: "Wave", logo: waveLogo },
+    { id: "mixx", name: "Mixx by Yas", logo: mixxLogo },
   ],
   BJ: [
-    { id: "mtn", name: "MTN Mobile Money", color: "bg-yellow-500" },
-    { id: "moov", name: "Moov Money", color: "bg-blue-600" },
+    { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo },
+    { id: "moov", name: "Moov Money", logo: moovLogo },
   ],
   CI: [
-    { id: "orange", name: "Orange Money", color: "bg-orange-500" },
-    { id: "mtn", name: "MTN Mobile Money", color: "bg-yellow-500" },
-    { id: "moov", name: "Moov Money", color: "bg-blue-600" },
-    { id: "wave", name: "Wave", color: "bg-cyan-500" },
+    { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo },
+    { id: "moov", name: "Moov Money", logo: moovLogo },
+    { id: "wave", name: "Wave", logo: waveLogo },
   ],
   SN: [
-    { id: "orange", name: "Orange Money", color: "bg-orange-500" },
-    { id: "wave", name: "Wave", color: "bg-cyan-500" },
-    { id: "free", name: "Free Money", color: "bg-red-500" },
+    { id: "wave", name: "Wave", logo: waveLogo },
+    { id: "moov", name: "Moov Money", logo: moovLogo },
   ],
   ML: [
-    { id: "orange", name: "Orange Money", color: "bg-orange-500" },
-    { id: "moov", name: "Moov Money", color: "bg-blue-600" },
+    { id: "moov", name: "Moov Money", logo: moovLogo },
+    { id: "wave", name: "Wave", logo: waveLogo },
   ],
   BF: [
-    { id: "orange", name: "Orange Money", color: "bg-orange-500" },
-    { id: "moov", name: "Moov Money", color: "bg-blue-600" },
+    { id: "moov", name: "Moov Money", logo: moovLogo },
+    { id: "wave", name: "Wave", logo: waveLogo },
   ],
 };
 
@@ -360,7 +375,7 @@ export default function PaymentPage() {
                     />
                   ) : (
                     <div className="w-16 h-16 rounded-lg bg-primary/10 flex items-center justify-center">
-                      <Smartphone className="h-8 w-8 text-primary" />
+                      <Shield className="h-8 w-8 text-primary" />
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
@@ -483,24 +498,28 @@ export default function PaymentPage() {
                     </Select>
                   </div>
 
-                  {country && (
-                    <div className="space-y-2">
+                  {country && availablePaymentMethods.length > 0 && (
+                    <div className="space-y-3">
                       <Label className="text-sm text-muted-foreground">Méthode de paiement</Label>
-                      <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                        <SelectTrigger data-testid="select-payment-method">
-                          <SelectValue placeholder="Choisissez un moyen de paiement" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availablePaymentMethods.map((method) => (
-                            <SelectItem key={method.id} value={method.id}>
-                              <span className="flex items-center gap-2">
-                                <span className={`w-3 h-3 rounded-full ${method.color}`}></span>
-                                <span>{method.name}</span>
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="grid grid-cols-3 gap-3">
+                        {availablePaymentMethods.map((method) => (
+                          <div key={method.id}>
+                            <RadioGroupItem
+                              value={method.id}
+                              id={`pay-${method.id}`}
+                              className="peer sr-only"
+                            />
+                            <Label
+                              htmlFor={`pay-${method.id}`}
+                              className="flex flex-col items-center gap-2 rounded-lg border-2 p-3 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all"
+                              data-testid={`radio-payment-${method.id}`}
+                            >
+                              <img src={method.logo} alt={method.name} className="h-10 w-10 object-contain rounded-full" />
+                              <span className="text-xs font-medium text-center">{method.name}</span>
+                            </Label>
+                          </div>
+                        ))}
+                      </RadioGroup>
                     </div>
                   )}
 
