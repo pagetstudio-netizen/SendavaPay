@@ -19,6 +19,8 @@ import ApiKeysPage from "@/pages/dashboard/api-keys";
 import SettingsPage from "@/pages/dashboard/settings";
 import ApiDocsPage from "@/pages/api-docs";
 import PaymentPage from "@/pages/pay";
+import SuccessPage from "@/pages/success";
+import PaymentSuccessPage from "@/pages/payment-success";
 import AdminDashboardPage from "@/pages/admin/index";
 import TermsPage from "@/pages/terms";
 import AboutPage from "@/pages/about";
@@ -31,6 +33,8 @@ function Router() {
       <Route path="/auth" component={AuthPage} />
       <Route path="/api-docs" component={ApiDocsPage} />
       <Route path="/pay/:code" component={PaymentPage} />
+      <Route path="/success" component={SuccessPage} />
+      <Route path="/payment-success" component={PaymentSuccessPage} />
       <Route path="/terms" component={TermsPage} />
       <Route path="/about" component={AboutPage} />
       <Route path="/help" component={HelpPage} />
