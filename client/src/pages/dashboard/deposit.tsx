@@ -54,11 +54,42 @@ export default function DepositPage() {
   const [selectedCountry, setSelectedCountry] = useState("tg");
   const [paymentMethod, setPaymentMethod] = useState("tmoney");
   const [showSuccess, setShowSuccess] = useState(false);
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState("");
 
   useEffect(() => {
     const params = new URLSearchParams(searchString);
     if (params.get("status") === "success") {
-      setShowSuccess(true);
+      // Récupérer le paymentId stocké
+      const storedPaymentId = localStorage.getItem("lastPaymentId");
+      if (storedPaymentId) {
+        setVerifyingPayment(true);
+        // Vérifier le statut du paiement
+        fetch("/api/verify-payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paymentId: storedPaymentId }),
+          credentials: "include",
+        })
+          .then(res => res.json())
+          .then(data => {
+            setVerifyingPayment(false);
+            if (data.status === "completed") {
+              setVerificationMessage(data.message || "Paiement crédité avec succès!");
+              localStorage.removeItem("lastPaymentId");
+            } else {
+              setVerificationMessage("Paiement en cours de traitement. Veuillez patienter quelques instants.");
+            }
+            setShowSuccess(true);
+          })
+          .catch(() => {
+            setVerifyingPayment(false);
+            setVerificationMessage("Vérification du paiement en cours...");
+            setShowSuccess(true);
+          });
+      } else {
+        setShowSuccess(true);
+      }
     }
   }, [searchString]);
 
@@ -89,6 +120,10 @@ export default function DepositPage() {
     },
     onSuccess: (data) => {
       if (data.paymentUrl) {
+        // Stocker le paymentId pour vérification au retour
+        if (data.paymentId) {
+          localStorage.setItem("lastPaymentId", data.paymentId);
+        }
         window.location.href = data.paymentUrl;
       } else {
         toast({
@@ -124,6 +159,40 @@ export default function DepositPage() {
     });
   };
 
+  if (verifyingPayment) {
+    return (
+      <DashboardLayout>
+        <div className="max-w-2xl mx-auto space-y-6">
+          <div className="flex items-center gap-4">
+            <Link href="/dashboard">
+              <Button variant="ghost" size="icon">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            </Link>
+            <div>
+              <h1 className="text-2xl font-bold">Dépôt</h1>
+              <p className="text-muted-foreground">Rechargez votre compte SendavaPay</p>
+            </div>
+          </div>
+
+          <Card>
+            <CardContent className="p-8 text-center space-y-6">
+              <div className="mx-auto w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-xl font-semibold">Vérification du paiement...</h2>
+                <p className="text-muted-foreground">
+                  Nous vérifions le statut de votre paiement. Veuillez patienter.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   if (showSuccess) {
     return (
       <DashboardLayout>
@@ -146,9 +215,11 @@ export default function DepositPage() {
                 <CheckCircle className="h-8 w-8 text-green-600" />
               </div>
               <div className="space-y-2">
-                <h2 className="text-xl font-semibold">Paiement en cours de traitement</h2>
+                <h2 className="text-xl font-semibold">
+                  {verificationMessage.includes("crédité") ? "Paiement réussi!" : "Paiement en cours de traitement"}
+                </h2>
                 <p className="text-muted-foreground">
-                  Votre dépôt a été initié avec succès. Votre solde sera mis à jour automatiquement une fois le paiement confirmé.
+                  {verificationMessage || "Votre dépôt a été initié avec succès. Votre solde sera mis à jour automatiquement une fois le paiement confirmé."}
                 </p>
               </div>
               <div className="flex flex-col gap-2">
