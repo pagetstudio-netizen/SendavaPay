@@ -1,6 +1,6 @@
 import crypto from "crypto";
 
-const LEEKPAY_API_URL = "https://leekpay.me/api/v1";
+const LEEKPAY_API_URL = "https://api.leekpay.me/api/v1";
 
 interface CheckoutParams {
   amount: number;
