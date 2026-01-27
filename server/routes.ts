@@ -1254,10 +1254,18 @@ export async function registerRoutes(
     }
   });
 
-  // LeekPay Webhook Test (GET)
+  // LeekPay Webhook - Route GET pour test uniquement
   app.get("/api/webhook/leekpay", (req, res) => {
-    console.log("LeekPay Webhook test - GET request received");
-    res.json({ status: "ok", message: "LeekPay webhook endpoint is accessible", timestamp: new Date().toISOString() });
+    console.log("=== LeekPay Webhook GET request received ===");
+    console.log("Timestamp:", new Date().toISOString());
+    console.log("Query params:", JSON.stringify(req.query));
+    console.log("Headers:", JSON.stringify(req.headers));
+    res.json({ 
+      status: "ok", 
+      message: "LeekPay webhook endpoint is accessible. Use POST method to send payment notifications.", 
+      timestamp: new Date().toISOString(),
+      method: "GET"
+    });
   });
 
   // Admin endpoint to manually process pending LeekPay payments
