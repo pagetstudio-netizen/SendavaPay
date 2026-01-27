@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
-import { Info, ArrowLeft, Loader2, CheckCircle } from "lucide-react";
+import { Info, ArrowLeft, Loader2, CheckCircle, XCircle, Clock } from "lucide-react";
 import { Link, useSearch } from "wouter";
+import { queryClient } from "@/lib/queryClient";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -56,42 +57,106 @@ export default function DepositPage() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [verifyingPayment, setVerifyingPayment] = useState(false);
   const [verificationMessage, setVerificationMessage] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState<"pending" | "completed" | "failed" | null>(null);
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const maxPollingAttempts = 60; // 3 minutes max (60 * 3 seconds)
+  const pollingAttemptsRef = useRef(0);
+
+  const checkPaymentStatus = useCallback(async (paymentId: string) => {
+    try {
+      const response = await fetch("/api/verify-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentId }),
+        credentials: "include",
+      });
+      const data = await response.json();
+      
+      if (data.status === "completed") {
+        // Paiement réussi - arrêter le polling
+        setPaymentStatus("completed");
+        setVerificationMessage(data.message || "Paiement crédité avec succès!");
+        setVerifyingPayment(false);
+        localStorage.removeItem("lastPaymentId");
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+        // Rafraîchir les données utilisateur
+        queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      } else if (data.status === "failed") {
+        // Paiement échoué - arrêter le polling
+        setPaymentStatus("failed");
+        setVerificationMessage(data.message || "Le paiement a échoué.");
+        setVerifyingPayment(false);
+        localStorage.removeItem("lastPaymentId");
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+      } else {
+        // Paiement en attente - continuer le polling
+        setPaymentStatus("pending");
+        pollingAttemptsRef.current += 1;
+        setVerificationMessage(`Vérification du paiement en cours... (${pollingAttemptsRef.current})`);
+        
+        // Arrêter après le nombre max de tentatives
+        if (pollingAttemptsRef.current >= maxPollingAttempts) {
+          setVerificationMessage("Le paiement est toujours en attente. Veuillez vérifier votre historique de transactions.");
+          setVerifyingPayment(false);
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error checking payment status:", error);
+      pollingAttemptsRef.current += 1;
+      if (pollingAttemptsRef.current >= maxPollingAttempts) {
+        setVerificationMessage("Impossible de vérifier le paiement. Veuillez vérifier votre historique.");
+        setVerifyingPayment(false);
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(searchString);
     if (params.get("status") === "success") {
-      // Récupérer le paymentId stocké
       const storedPaymentId = localStorage.getItem("lastPaymentId");
       if (storedPaymentId) {
         setVerifyingPayment(true);
-        // Vérifier le statut du paiement
-        fetch("/api/verify-payment", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ paymentId: storedPaymentId }),
-          credentials: "include",
-        })
-          .then(res => res.json())
-          .then(data => {
-            setVerifyingPayment(false);
-            if (data.status === "completed") {
-              setVerificationMessage(data.message || "Paiement crédité avec succès!");
-              localStorage.removeItem("lastPaymentId");
-            } else {
-              setVerificationMessage("Paiement en cours de traitement. Veuillez patienter quelques instants.");
-            }
-            setShowSuccess(true);
-          })
-          .catch(() => {
-            setVerifyingPayment(false);
-            setVerificationMessage("Vérification du paiement en cours...");
-            setShowSuccess(true);
-          });
+        setPaymentStatus("pending");
+        setShowSuccess(true);
+        pollingAttemptsRef.current = 0;
+        
+        // Vérifier immédiatement
+        checkPaymentStatus(storedPaymentId);
+        
+        // Puis vérifier toutes les 3 secondes
+        pollingRef.current = setInterval(() => {
+          checkPaymentStatus(storedPaymentId);
+        }, 3000);
       } else {
         setShowSuccess(true);
+        setPaymentStatus("pending");
+        setVerificationMessage("Paiement en cours de traitement...");
       }
     }
-  }, [searchString]);
+
+    // Cleanup: arrêter le polling quand le composant est démonté
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [searchString, checkPaymentStatus]);
 
   const filteredMethods = useMemo(() => {
     return paymentMethods.filter(m => m.countries.includes(selectedCountry));
@@ -159,7 +224,7 @@ export default function DepositPage() {
     });
   };
 
-  if (verifyingPayment) {
+  if (verifyingPayment || showSuccess) {
     return (
       <DashboardLayout>
         <div className="max-w-2xl mx-auto space-y-6">
@@ -177,65 +242,55 @@ export default function DepositPage() {
 
           <Card>
             <CardContent className="p-8 text-center space-y-6">
-              <div className="mx-auto w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-xl font-semibold">Vérification du paiement...</h2>
-                <p className="text-muted-foreground">
-                  Nous vérifions le statut de votre paiement. Veuillez patienter.
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  if (showSuccess) {
-    return (
-      <DashboardLayout>
-        <div className="max-w-2xl mx-auto space-y-6">
-          <div className="flex items-center gap-4">
-            <Link href="/dashboard">
-              <Button variant="ghost" size="icon">
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-2xl font-bold">Dépôt</h1>
-              <p className="text-muted-foreground">Rechargez votre compte SendavaPay</p>
-            </div>
-          </div>
-
-          <Card>
-            <CardContent className="p-8 text-center space-y-6">
-              <div className="mx-auto w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                <CheckCircle className="h-8 w-8 text-green-600" />
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-xl font-semibold">
-                  {verificationMessage.includes("crédité") ? "Paiement réussi!" : "Paiement en cours de traitement"}
-                </h2>
-                <p className="text-muted-foreground">
-                  {verificationMessage || "Votre dépôt a été initié avec succès. Votre solde sera mis à jour automatiquement une fois le paiement confirmé."}
-                </p>
-              </div>
-              <div className="flex flex-col gap-2">
-                <Link href="/dashboard">
-                  <Button className="w-full" data-testid="button-back-dashboard">
-                    Retour au tableau de bord
-                  </Button>
-                </Link>
-                <Button 
-                  variant="outline" 
-                  onClick={() => setShowSuccess(false)}
-                  data-testid="button-new-deposit"
-                >
-                  Faire un autre dépôt
-                </Button>
-              </div>
+              {paymentStatus === "completed" ? (
+                <>
+                  <div className="mx-auto w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                    <CheckCircle className="h-8 w-8 text-green-600" />
+                  </div>
+                  <div className="space-y-2">
+                    <h2 className="text-xl font-semibold text-green-600">Paiement réussi!</h2>
+                    <p className="text-muted-foreground">{verificationMessage}</p>
+                  </div>
+                  <Link href="/dashboard">
+                    <Button data-testid="button-back-dashboard">Retour au tableau de bord</Button>
+                  </Link>
+                </>
+              ) : paymentStatus === "failed" ? (
+                <>
+                  <div className="mx-auto w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                    <XCircle className="h-8 w-8 text-red-600" />
+                  </div>
+                  <div className="space-y-2">
+                    <h2 className="text-xl font-semibold text-red-600">Paiement échoué</h2>
+                    <p className="text-muted-foreground">{verificationMessage}</p>
+                  </div>
+                  <div className="flex gap-3 justify-center">
+                    <Button variant="outline" onClick={() => {
+                      setShowSuccess(false);
+                      setPaymentStatus(null);
+                    }} data-testid="button-retry-deposit">
+                      Réessayer
+                    </Button>
+                    <Link href="/dashboard">
+                      <Button data-testid="button-back-dashboard">Retour</Button>
+                    </Link>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="mx-auto w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                    <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
+                  </div>
+                  <div className="space-y-2">
+                    <h2 className="text-xl font-semibold">Vérification du paiement...</h2>
+                    <p className="text-muted-foreground">{verificationMessage || "Nous vérifions le statut de votre paiement toutes les 3 secondes."}</p>
+                  </div>
+                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Clock className="h-4 w-4" />
+                    <span>Vérification automatique en cours</span>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
