@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,10 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
-import { Info, ArrowLeft, Loader2, CheckCircle, XCircle, Clock } from "lucide-react";
-import { Link, useSearch } from "wouter";
+import { Info, ArrowLeft, Loader2, CheckCircle, XCircle, Clock, Phone } from "lucide-react";
+import { Link } from "wouter";
 import { queryClient } from "@/lib/queryClient";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
   Select,
@@ -26,85 +26,120 @@ import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
 import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
 
-const countries = [
-  { id: "bj", name: "Bénin", currency: "XOF" },
-  { id: "bf", name: "Burkina Faso", currency: "XOF" },
-  { id: "tg", name: "Togo", currency: "XOF" },
-  { id: "cm", name: "Cameroun", currency: "XAF" },
-  { id: "ci", name: "Côte d'Ivoire", currency: "XOF" },
-  { id: "rdc", name: "RDC", currency: "CDF" },
-  { id: "cg", name: "Congo Brazzaville", currency: "XAF" },
-];
+interface SoleasPayCountry {
+  code: string;
+  name: string;
+  flag: string;
+  currency: string;
+}
 
-const paymentMethods = [
-  { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo, countries: ["bj", "cm", "ci", "cg"] },
-  { id: "moov", name: "Moov Money", logo: moovLogo, countries: ["bj", "bf", "tg", "ci"] },
-  { id: "orange", name: "Orange Money", logo: orangeLogo, countries: ["bf", "cm", "ci"] },
-  { id: "tmoney", name: "TMoney", logo: tmoneyLogo, countries: ["tg"] },
-  { id: "airtel", name: "Airtel Money", logo: airtelLogo, countries: ["rdc", "cg"] },
-  { id: "vodacom", name: "Vodacom M-Pesa", logo: vodacomLogo, countries: ["rdc"] },
-];
+interface SoleasPayService {
+  id: number;
+  name: string;
+  description: string;
+  country: string;
+  countryCode: string;
+  currency: string;
+  operator: string;
+}
+
+const operatorLogos: Record<string, string> = {
+  "MTN": mtnLogo,
+  "Moov": moovLogo,
+  "Orange": orangeLogo,
+  "TMoney": tmoneyLogo,
+  "Airtel": airtelLogo,
+  "Vodacom": vodacomLogo,
+  "Wave": orangeLogo,
+};
 
 const quickAmounts = [5000, 10000, 25000, 50000, 100000];
 
 export default function DepositPage() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const searchString = useSearch();
   const [amount, setAmount] = useState("");
-  const [selectedCountry, setSelectedCountry] = useState("tg");
-  const [paymentMethod, setPaymentMethod] = useState("tmoney");
-  const [showSuccess, setShowSuccess] = useState(false);
-  const [verifyingPayment, setVerifyingPayment] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState("");
+  const [selectedServiceId, setSelectedServiceId] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState<"idle" | "processing" | "pending" | "completed" | "failed">("idle");
   const [verificationMessage, setVerificationMessage] = useState("");
-  const [paymentStatus, setPaymentStatus] = useState<"pending" | "completed" | "failed" | null>(null);
+  const [currentPayId, setCurrentPayId] = useState("");
+  const [currentOrderId, setCurrentOrderId] = useState("");
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
-  const maxPollingAttempts = 20; // 1 minute max (20 * 3 seconds)
   const pollingAttemptsRef = useRef(0);
+  const maxPollingAttempts = 40;
 
-  const checkPaymentStatus = useCallback(async (paymentId: string) => {
+  const { data: countries = [] } = useQuery<SoleasPayCountry[]>({
+    queryKey: ["/api/soleaspay/countries"],
+  });
+
+  const { data: services = [] } = useQuery<SoleasPayService[]>({
+    queryKey: ["/api/soleaspay/services", selectedCountry],
+    queryFn: async () => {
+      const res = await fetch(`/api/soleaspay/services/${selectedCountry}`);
+      if (!res.ok) throw new Error("Failed to fetch services");
+      return res.json();
+    },
+    enabled: !!selectedCountry,
+  });
+
+  useEffect(() => {
+    if (countries.length > 0 && !selectedCountry) {
+      setSelectedCountry(countries[0].code);
+    }
+  }, [countries, selectedCountry]);
+
+  useEffect(() => {
+    if (services.length > 0 && (!selectedServiceId || !services.find(s => s.id.toString() === selectedServiceId))) {
+      setSelectedServiceId(services[0].id.toString());
+    }
+  }, [services, selectedServiceId]);
+
+  const selectedService = services.find(s => s.id.toString() === selectedServiceId);
+  const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
+
+  const commissionRate = 7;
+  const numericAmount = parseFloat(amount) || 0;
+  const fee = Math.round(numericAmount * (commissionRate / 100));
+  const netAmount = numericAmount - fee;
+
+  const checkPaymentStatus = useCallback(async () => {
+    if (!currentOrderId || !currentPayId) return;
+
     try {
-      const response = await fetch("/api/verify-payment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentId }),
+      const response = await fetch(`/api/verify-soleaspay/${currentOrderId}/${currentPayId}`, {
         credentials: "include",
       });
       const data = await response.json();
-      
-      if (data.status === "completed") {
-        // Paiement réussi - arrêter le polling
+
+      console.log("Verification result:", data);
+
+      if (data.status === "SUCCESS") {
         setPaymentStatus("completed");
         setVerificationMessage(data.message || "Paiement crédité avec succès!");
-        setVerifyingPayment(false);
-        localStorage.removeItem("lastPaymentId");
+        localStorage.removeItem("soleaspay_payment");
         if (pollingRef.current) {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
         }
-        // Rafraîchir les données utilisateur
         queryClient.invalidateQueries({ queryKey: ["/api/user"] });
         queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-      } else if (data.status === "failed") {
-        // Paiement échoué - arrêter le polling
+      } else if (data.status === "FAILURE") {
         setPaymentStatus("failed");
         setVerificationMessage(data.message || "Le paiement a échoué.");
-        setVerifyingPayment(false);
-        localStorage.removeItem("lastPaymentId");
+        localStorage.removeItem("soleaspay_payment");
         if (pollingRef.current) {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
         }
       } else {
-        // Paiement en attente - continuer le polling
-        setPaymentStatus("pending");
         pollingAttemptsRef.current += 1;
-        setVerificationMessage(`Vérification du paiement en cours... (${pollingAttemptsRef.current})`);
-        
-        // Arrêter après le nombre max de tentatives
+        setVerificationMessage(`Vérification en cours... (${pollingAttemptsRef.current}/${maxPollingAttempts})`);
+
         if (pollingAttemptsRef.current >= maxPollingAttempts) {
-          setVerificationMessage("Le paiement est toujours en attente. Veuillez vérifier votre historique de transactions.");
-          setVerifyingPayment(false);
+          setPaymentStatus("pending");
+          setVerificationMessage("Le paiement est en attente. Veuillez confirmer sur votre téléphone et vérifier votre historique.");
           if (pollingRef.current) {
             clearInterval(pollingRef.current);
             pollingRef.current = null;
@@ -112,88 +147,73 @@ export default function DepositPage() {
         }
       }
     } catch (error) {
-      console.error("Error checking payment status:", error);
+      console.error("Error checking payment:", error);
       pollingAttemptsRef.current += 1;
       if (pollingAttemptsRef.current >= maxPollingAttempts) {
-        setVerificationMessage("Impossible de vérifier le paiement. Veuillez vérifier votre historique.");
-        setVerifyingPayment(false);
+        setVerificationMessage("Impossible de vérifier le paiement. Vérifiez votre historique.");
         if (pollingRef.current) {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
         }
       }
     }
+  }, [currentOrderId, currentPayId]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("soleaspay_payment");
+    if (saved) {
+      try {
+        const { orderId, payId } = JSON.parse(saved);
+        if (orderId && payId) {
+          setCurrentOrderId(orderId);
+          setCurrentPayId(payId);
+          setPaymentStatus("processing");
+          pollingAttemptsRef.current = 0;
+        }
+      } catch (e) {
+        localStorage.removeItem("soleaspay_payment");
+      }
+    }
   }, []);
 
   useEffect(() => {
-    const params = new URLSearchParams(searchString);
-    if (params.get("status") === "success") {
-      const storedPaymentId = localStorage.getItem("lastPaymentId");
-      if (storedPaymentId) {
-        setVerifyingPayment(true);
-        setPaymentStatus("pending");
-        setShowSuccess(true);
-        pollingAttemptsRef.current = 0;
-        
-        // Vérifier immédiatement
-        checkPaymentStatus(storedPaymentId);
-        
-        // Puis vérifier toutes les 3 secondes
-        pollingRef.current = setInterval(() => {
-          checkPaymentStatus(storedPaymentId);
-        }, 3000);
-      } else {
-        setShowSuccess(true);
-        setPaymentStatus("pending");
-        setVerificationMessage("Paiement en cours de traitement...");
-      }
+    if (paymentStatus === "processing" && currentOrderId && currentPayId) {
+      checkPaymentStatus();
+      pollingRef.current = setInterval(checkPaymentStatus, 3000);
     }
 
-    // Cleanup: arrêter le polling quand le composant est démonté
     return () => {
       if (pollingRef.current) {
         clearInterval(pollingRef.current);
         pollingRef.current = null;
       }
     };
-  }, [searchString, checkPaymentStatus]);
-
-  const filteredMethods = useMemo(() => {
-    return paymentMethods.filter(m => m.countries.includes(selectedCountry));
-  }, [selectedCountry]);
-
-  const handleCountryChange = (val: string) => {
-    setSelectedCountry(val);
-    const methodsForCountry = paymentMethods.filter(m => m.countries.includes(val));
-    if (methodsForCountry.length > 0) {
-      setPaymentMethod(methodsForCountry[0].id);
-    }
-  };
-
-  const currentCountry = countries.find(c => c.id === selectedCountry);
-  const currency = currentCountry?.currency || "XOF";
-
-  const commissionRate = 7;
-  const numericAmount = parseFloat(amount) || 0;
-  const fee = Math.round(numericAmount * (commissionRate / 100));
-  const netAmount = numericAmount - fee;
+  }, [paymentStatus, currentOrderId, currentPayId, checkPaymentStatus]);
 
   const depositMutation = useMutation({
-    mutationFn: async (data: { amount: number; paymentMethod: string; country: string }) => {
-      const response = await apiRequest("POST", "/api/deposit", data);
+    mutationFn: async (data: { amount: number; serviceId: string; phoneNumber: string }) => {
+      const response = await apiRequest("POST", "/api/deposit-soleaspay", data);
       return response.json();
     },
     onSuccess: (data) => {
-      if (data.paymentUrl) {
-        // Stocker le paymentId pour vérification au retour
-        if (data.paymentId) {
-          localStorage.setItem("lastPaymentId", data.paymentId);
-        }
-        window.location.href = data.paymentUrl;
+      if (data.success && data.payId && data.orderId) {
+        localStorage.setItem("soleaspay_payment", JSON.stringify({
+          orderId: data.orderId,
+          payId: data.payId,
+        }));
+        setCurrentOrderId(data.orderId);
+        setCurrentPayId(data.payId);
+        setPaymentStatus("processing");
+        pollingAttemptsRef.current = 0;
+        setVerificationMessage(data.message || "Veuillez confirmer le paiement sur votre téléphone.");
+        toast({
+          title: "Paiement initié",
+          description: "Veuillez confirmer le paiement sur votre téléphone.",
+        });
       } else {
         toast({
           title: "Erreur",
-          description: "URL de paiement non reçue",
+          description: data.message || "Erreur lors du paiement",
           variant: "destructive",
         });
       }
@@ -217,14 +237,35 @@ export default function DepositPage() {
       });
       return;
     }
+    if (!phoneNumber || phoneNumber.length < 8) {
+      toast({
+        title: "Numéro invalide",
+        description: "Veuillez entrer un numéro de téléphone valide.",
+        variant: "destructive",
+      });
+      return;
+    }
     depositMutation.mutate({
       amount: numericAmount,
-      paymentMethod,
-      country: selectedCountry,
+      serviceId: selectedServiceId,
+      phoneNumber: phoneNumber.replace(/\s/g, ""),
     });
   };
 
-  if (verifyingPayment || showSuccess) {
+  const resetPayment = () => {
+    setPaymentStatus("idle");
+    setVerificationMessage("");
+    setCurrentOrderId("");
+    setCurrentPayId("");
+    localStorage.removeItem("soleaspay_payment");
+    pollingAttemptsRef.current = 0;
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  };
+
+  if (paymentStatus !== "idle") {
     return (
       <DashboardLayout>
         <div className="max-w-2xl mx-auto space-y-6">
@@ -265,10 +306,7 @@ export default function DepositPage() {
                     <p className="text-muted-foreground">{verificationMessage}</p>
                   </div>
                   <div className="flex gap-3 justify-center">
-                    <Button variant="outline" onClick={() => {
-                      setShowSuccess(false);
-                      setPaymentStatus(null);
-                    }} data-testid="button-retry-deposit">
+                    <Button variant="outline" onClick={resetPayment} data-testid="button-retry-deposit">
                       Réessayer
                     </Button>
                     <Link href="/dashboard">
@@ -279,35 +317,31 @@ export default function DepositPage() {
               ) : (
                 <>
                   <div className="mx-auto w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                    {verifyingPayment ? (
-                      <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
-                    ) : (
-                      <Clock className="h-8 w-8 text-blue-600" />
-                    )}
+                    <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
                   </div>
                   <div className="space-y-2">
                     <h2 className="text-xl font-semibold">
-                      {verifyingPayment ? "Vérification du paiement..." : "Paiement en cours de traitement"}
+                      {paymentStatus === "pending" ? "Paiement en attente" : "Vérification du paiement..."}
                     </h2>
                     <p className="text-muted-foreground">
-                      {verificationMessage || "Nous vérifions le statut de votre paiement toutes les 3 secondes."}
+                      {verificationMessage || "Veuillez confirmer le paiement sur votre téléphone."}
                     </p>
                   </div>
-                  {verifyingPayment ? (
-                    <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                      <Clock className="h-4 w-4" />
-                      <span>Vérification automatique en cours</span>
-                    </div>
-                  ) : (
+                  {paymentStatus === "pending" ? (
                     <div className="flex flex-col gap-3">
-                      <p className="text-sm text-muted-foreground">
-                        Votre paiement a peut-être été traité. Vérifiez votre solde sur le tableau de bord.
-                      </p>
+                      <Button variant="outline" onClick={resetPayment} data-testid="button-new-deposit">
+                        Nouveau dépôt
+                      </Button>
                       <Link href="/dashboard">
                         <Button className="w-full" data-testid="button-back-dashboard-pending">
                           Retour au tableau de bord
                         </Button>
                       </Link>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                      <Clock className="h-4 w-4" />
+                      <span>Vérification automatique toutes les 3 secondes</span>
                     </div>
                   )}
                 </>
@@ -337,24 +371,76 @@ export default function DepositPage() {
         <Card>
           <CardHeader>
             <CardTitle>Dépôt Mobile Money</CardTitle>
-            <CardDescription>Configurez votre dépôt par pays</CardDescription>
+            <CardDescription>Configurez votre dépôt par pays et opérateur</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-4">
                 <Label htmlFor="country">Choisir le pays</Label>
-                <Select value={selectedCountry} onValueChange={handleCountryChange}>
-                  <SelectTrigger id="country" className="h-12">
+                <Select value={selectedCountry} onValueChange={setSelectedCountry}>
+                  <SelectTrigger id="country" className="h-12" data-testid="select-country">
                     <SelectValue placeholder="Sélectionnez un pays" />
                   </SelectTrigger>
                   <SelectContent>
                     {countries.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name} ({c.currency})
+                      <SelectItem key={c.code} value={c.code}>
+                        {c.flag} {c.name} ({c.currency})
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              {services.length > 0 && (
+                <div className="space-y-4">
+                  <Label>Opérateur Mobile Money</Label>
+                  <RadioGroup 
+                    value={selectedServiceId} 
+                    onValueChange={setSelectedServiceId} 
+                    className="grid grid-cols-2 gap-4"
+                  >
+                    {services.map((service) => (
+                      <div key={service.id}>
+                        <RadioGroupItem
+                          value={service.id.toString()}
+                          id={`service-${service.id}`}
+                          className="peer sr-only"
+                        />
+                        <Label
+                          htmlFor={`service-${service.id}`}
+                          className="flex flex-col items-center gap-2 rounded-xl border-2 p-4 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all"
+                          data-testid={`radio-service-${service.id}`}
+                        >
+                          <img 
+                            src={operatorLogos[service.operator] || mtnLogo} 
+                            alt={service.operator} 
+                            className="h-12 w-12 object-contain rounded-full bg-white shadow-sm p-1" 
+                          />
+                          <span className="text-xs font-bold text-center">{service.description}</span>
+                        </Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="phone">Numéro de téléphone Mobile Money</Label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input
+                    id="phone"
+                    type="tel"
+                    placeholder="Ex: 90123456"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    className="pl-10 h-12"
+                    data-testid="input-phone-number"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Entrez le numéro associé à votre compte {selectedService?.operator || "Mobile Money"}
+                </p>
               </div>
 
               <div className="space-y-4">
@@ -407,39 +493,16 @@ export default function DepositPage() {
                 </Card>
               )}
 
-              <div className="space-y-4">
-                <Label>Moyen de paiement</Label>
-                <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="grid grid-cols-2 gap-4">
-                  {filteredMethods.map((method) => (
-                    <div key={method.id}>
-                      <RadioGroupItem
-                        value={method.id}
-                        id={method.id}
-                        className="peer sr-only"
-                      />
-                      <Label
-                        htmlFor={method.id}
-                        className="flex flex-col items-center gap-2 rounded-xl border-2 p-4 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all"
-                        data-testid={`radio-payment-${method.id}`}
-                      >
-                        <img src={method.logo} alt={method.name} className="h-12 w-12 object-contain rounded-full bg-white shadow-sm p-1" />
-                        <span className="text-xs font-bold text-center">{method.name}</span>
-                      </Label>
-                    </div>
-                  ))}
-                </RadioGroup>
-              </div>
-
               <Button
                 type="submit"
                 className="w-full h-12 text-lg font-bold shadow-lg shadow-primary/20"
-                disabled={numericAmount < 100 || depositMutation.isPending}
+                disabled={numericAmount < 100 || !phoneNumber || depositMutation.isPending}
                 data-testid="button-deposit-submit"
               >
                 {depositMutation.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Redirection...
+                    Traitement...
                   </>
                 ) : (
                   `Déposer ${numericAmount > 0 ? numericAmount.toLocaleString() + " " + currency : ""}`
