@@ -269,7 +269,7 @@ export async function registerRoutes(
       }
 
       await storage.createLeekpayPayment({
-        leekpayPaymentId: checkoutResult.data.payment_id,
+        leekpayPaymentId: checkoutResult.data.id,
         userId: req.session.userId!,
         amount: numericAmount.toString(),
         currency,
@@ -284,7 +284,7 @@ export async function registerRoutes(
 
       res.json({ 
         paymentUrl: checkoutResult.data.payment_url,
-        paymentId: checkoutResult.data.payment_id,
+        paymentId: checkoutResult.data.id,
       });
     } catch (error) {
       console.error("Deposit error:", error);
@@ -659,7 +659,7 @@ export async function registerRoutes(
 
       // Store LeekPay payment record
       await storage.createLeekpayPayment({
-        leekpayPaymentId: checkoutResult.data.payment_id,
+        leekpayPaymentId: checkoutResult.data.id,
         paymentLinkId: link.id,
         amount: amount.toString(),
         currency,
@@ -677,7 +677,7 @@ export async function registerRoutes(
 
       res.json({ 
         paymentUrl: checkoutResult.data.payment_url,
-        paymentId: checkoutResult.data.payment_id,
+        paymentId: checkoutResult.data.id,
       });
     } catch (error) {
       console.error("Process payment error:", error);
