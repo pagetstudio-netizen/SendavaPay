@@ -291,7 +291,7 @@ export async function registerRoutes(
     }
   });
 
-  // Créditer instantanément un paiement LeekPay (appelé au retour de LeekPay)
+  // Vérifier et créditer un paiement LeekPay (appelé au retour de LeekPay)
   app.post("/api/verify-payment", requireAuth, async (req, res) => {
     try {
       const { paymentId } = req.body;
@@ -300,7 +300,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "paymentId requis" });
       }
 
-      console.log("Processing payment instantly for:", paymentId);
+      console.log("Verifying payment with LeekPay for:", paymentId);
 
       const leekpayPayment = await storage.getLeekpayPaymentById(paymentId);
       
@@ -313,8 +313,33 @@ export async function registerRoutes(
         return res.json({ status: "completed", message: "Paiement déjà traité" });
       }
 
-      // Créditer immédiatement - l'utilisateur revient de LeekPay donc le paiement est fait
-      console.log("Crediting payment instantly...");
+      // IMPORTANT: Vérifier le statut auprès de LeekPay pour éviter les fraudes
+      console.log("Checking payment status with LeekPay API...");
+      const statusResult = await leekpay.getPaymentStatus(paymentId);
+      console.log("LeekPay API response:", JSON.stringify(statusResult));
+      
+      if (!statusResult.success) {
+        console.log("LeekPay API error, payment not verified");
+        return res.json({ status: "pending", message: "Paiement en cours de vérification. Veuillez patienter." });
+      }
+
+      const leekpayStatus = statusResult.data?.status;
+      console.log("LeekPay payment status:", leekpayStatus);
+      
+      // Ne créditer que si LeekPay confirme que le paiement est complété
+      if (leekpayStatus !== "completed") {
+        // Mettre à jour le statut local si différent
+        if (leekpayStatus && leekpayStatus !== leekpayPayment.status) {
+          await storage.updateLeekpayPayment(paymentId, { status: leekpayStatus as any });
+        }
+        return res.json({ 
+          status: leekpayStatus || "pending", 
+          message: leekpayStatus === "failed" ? "Le paiement a échoué." : "Paiement en cours de traitement. Veuillez patienter." 
+        });
+      }
+
+      // LeekPay confirme que le paiement est complété - on peut créditer
+      console.log("LeekPay confirmed payment completed, crediting user...");
       
       const settings = await storage.getCommissionSettings();
       const commissionRate = parseFloat(settings?.depositRate || "7");
@@ -346,7 +371,7 @@ export async function registerRoutes(
         // Mettre à jour le solde
         await storage.updateUserBalance(leekpayPayment.userId, netAmount.toString());
         
-        console.log(`Payment credited instantly: user ${leekpayPayment.userId}, amount: ${netAmount}`);
+        console.log(`Payment verified and credited: user ${leekpayPayment.userId}, amount: ${netAmount}`);
         return res.json({ status: "completed", message: `Dépôt de ${netAmount} ${leekpayPayment.currency} crédité avec succès!` });
       } else if (leekpayPayment.type === "payment_link" && leekpayPayment.paymentLinkId) {
         const link = await storage.getPaymentLink(leekpayPayment.paymentLinkId);
@@ -374,15 +399,15 @@ export async function registerRoutes(
 
           await storage.updateUserBalance(link.userId, netAmount.toString());
           
-          console.log(`Payment link credited instantly: user ${link.userId}, amount: ${netAmount}`);
+          console.log(`Payment link verified and credited: user ${link.userId}, amount: ${netAmount}`);
           return res.json({ status: "completed", message: `Paiement de ${netAmount} ${leekpayPayment.currency} crédité avec succès!` });
         }
       }
 
       res.json({ status: "completed", message: "Paiement crédité avec succès!" });
     } catch (error) {
-      console.error("Credit payment error:", error);
-      res.status(500).json({ message: "Erreur lors du crédit" });
+      console.error("Verify payment error:", error);
+      res.status(500).json({ message: "Erreur lors de la vérification" });
     }
   });
 
@@ -778,7 +803,7 @@ export async function registerRoutes(
     }
   });
 
-  // Créditer instantanément un paiement par lien (public - pour les payeurs non authentifiés)
+  // Vérifier et créditer un paiement par lien (public - pour les payeurs non authentifiés)
   app.post("/api/verify-link-payment", async (req, res) => {
     try {
       const { paymentId } = req.body;
@@ -787,7 +812,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "paymentId requis" });
       }
 
-      console.log("Processing link payment instantly for:", paymentId);
+      console.log("Verifying link payment with LeekPay for:", paymentId);
 
       const leekpayPayment = await storage.getLeekpayPaymentById(paymentId);
       
@@ -799,8 +824,32 @@ export async function registerRoutes(
         return res.json({ status: "completed", message: "Paiement effectué avec succès!" });
       }
 
-      // Créditer immédiatement - l'utilisateur revient de LeekPay donc le paiement est fait
-      console.log("Crediting link payment instantly...");
+      // IMPORTANT: Vérifier le statut auprès de LeekPay pour éviter les fraudes
+      console.log("Checking link payment status with LeekPay API...");
+      const statusResult = await leekpay.getPaymentStatus(paymentId);
+      console.log("LeekPay API response:", JSON.stringify(statusResult));
+      
+      if (!statusResult.success) {
+        console.log("LeekPay API error, payment not verified");
+        return res.json({ status: "pending", message: "Paiement en cours de vérification. Veuillez patienter." });
+      }
+
+      const leekpayStatus = statusResult.data?.status;
+      console.log("LeekPay payment status:", leekpayStatus);
+      
+      // Ne créditer que si LeekPay confirme que le paiement est complété
+      if (leekpayStatus !== "completed") {
+        if (leekpayStatus && leekpayStatus !== leekpayPayment.status) {
+          await storage.updateLeekpayPayment(paymentId, { status: leekpayStatus as any });
+        }
+        return res.json({ 
+          status: leekpayStatus || "pending", 
+          message: leekpayStatus === "failed" ? "Le paiement a échoué." : "Paiement en cours de traitement. Veuillez patienter." 
+        });
+      }
+
+      // LeekPay confirme que le paiement est complété - on peut créditer
+      console.log("LeekPay confirmed link payment completed, crediting merchant...");
       
       const settings = await storage.getCommissionSettings();
       const commissionRate = parseFloat(settings?.depositRate || "7");
@@ -840,15 +889,15 @@ export async function registerRoutes(
 
           await storage.updateUserBalance(link.userId, netAmount.toString());
           
-          console.log(`Link payment credited instantly: user ${link.userId}, amount: ${netAmount}`);
+          console.log(`Link payment verified and credited: user ${link.userId}, amount: ${netAmount}`);
           return res.json({ status: "completed", message: "Paiement effectué avec succès!" });
         }
       }
 
       res.json({ status: "completed", message: "Paiement effectué avec succès!" });
     } catch (error) {
-      console.error("Credit link payment error:", error);
-      res.status(500).json({ message: "Erreur lors du crédit" });
+      console.error("Verify link payment error:", error);
+      res.status(500).json({ message: "Erreur lors de la vérification" });
     }
   });
 
