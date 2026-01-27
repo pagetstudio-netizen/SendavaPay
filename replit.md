@@ -74,11 +74,16 @@ shared/           # Shared code between client/server
 ## External Dependencies
 
 ### Payment Providers
-- Mobile Money integration targets: MTN, Moov, Orange Money, TMoney
-- Currency: XOF (West African CFA Franc)
+- **LeekPay** - Primary payment gateway for deposits and payment links
+  - API Endpoint: https://api.leekpay.com/api/v1/checkout
+  - Webhook URL: https://smart-glass.fun/api/webhook/leekpay
+  - Supported currencies: XOF, XAF, CDF, EUR, USD
+  - Flow: Create checkout → User redirected to LeekPay → Webhook notification on completion
+- Mobile Money integration: MTN, Moov, Orange Money, TMoney, Airtel, Vodacom
+- Currencies: XOF (Togo, Benin, Burkina Faso, Ivory Coast), XAF (Cameroun, Congo Brazzaville), CDF (RDC)
 
 ### Third-Party Services
-- **Stripe** (listed in build dependencies) - Potential card payment processing
+- **LeekPay** - Payment processing (API key in SLACK_LIVE_API_KEY secret)
 - **Nodemailer** - Email notifications
 - **OpenAI / Google Generative AI** - AI features (listed in dependencies)
 

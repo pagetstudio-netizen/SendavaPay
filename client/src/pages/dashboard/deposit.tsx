@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,8 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
-import { Info, ArrowLeft, Globe } from "lucide-react";
-import { Link } from "wouter";
+import { Info, ArrowLeft, Loader2, CheckCircle } from "lucide-react";
+import { Link, useSearch } from "wouter";
+import { useMutation } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import {
   Select,
   SelectContent,
@@ -16,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import comingSoonImage from "@assets/1767357766910-416405275_1769441573289.png";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
 import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
 import orangeLogo from "@assets/images_1769443862827.png";
@@ -48,17 +49,23 @@ const quickAmounts = [5000, 10000, 25000, 50000, 100000];
 export default function DepositPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const searchString = useSearch();
   const [amount, setAmount] = useState("");
   const [selectedCountry, setSelectedCountry] = useState("tg");
   const [paymentMethod, setPaymentMethod] = useState("tmoney");
-  const [mobileNumber, setMobileNumber] = useState(user?.phone || "");
-  const [showComingSoon, setShowComingSoon] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    if (params.get("status") === "success") {
+      setShowSuccess(true);
+    }
+  }, [searchString]);
 
   const filteredMethods = useMemo(() => {
     return paymentMethods.filter(m => m.countries.includes(selectedCountry));
   }, [selectedCountry]);
 
-  // Update payment method when country changes
   const handleCountryChange = (val: string) => {
     setSelectedCountry(val);
     const methodsForCountry = paymentMethods.filter(m => m.countries.includes(val));
@@ -75,6 +82,31 @@ export default function DepositPage() {
   const fee = Math.round(numericAmount * (commissionRate / 100));
   const netAmount = numericAmount - fee;
 
+  const depositMutation = useMutation({
+    mutationFn: async (data: { amount: number; paymentMethod: string; country: string }) => {
+      const response = await apiRequest("POST", "/api/deposit", data);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      if (data.paymentUrl) {
+        window.location.href = data.paymentUrl;
+      } else {
+        toast({
+          title: "Erreur",
+          description: "URL de paiement non reçue",
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Erreur",
+        description: error.message || "Une erreur est survenue",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (numericAmount < 100) {
@@ -85,17 +117,23 @@ export default function DepositPage() {
       });
       return;
     }
-    setShowComingSoon(true);
+    depositMutation.mutate({
+      amount: numericAmount,
+      paymentMethod,
+      country: selectedCountry,
+    });
   };
 
-  if (showComingSoon) {
+  if (showSuccess) {
     return (
       <DashboardLayout>
         <div className="max-w-2xl mx-auto space-y-6">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => setShowComingSoon(false)}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
+            <Link href="/dashboard">
+              <Button variant="ghost" size="icon">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+            </Link>
             <div>
               <h1 className="text-2xl font-bold">Dépôt</h1>
               <p className="text-muted-foreground">Rechargez votre compte SendavaPay</p>
@@ -104,21 +142,29 @@ export default function DepositPage() {
 
           <Card>
             <CardContent className="p-8 text-center space-y-6">
-              <img
-                src={comingSoonImage}
-                alt="Bientôt disponible"
-                className="max-w-sm mx-auto w-full h-auto"
-                data-testid="img-deposit-coming-soon"
-              />
+              <div className="mx-auto w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                <CheckCircle className="h-8 w-8 text-green-600" />
+              </div>
               <div className="space-y-2">
-                <h2 className="text-xl font-semibold">Fonctionnalité bientôt disponible</h2>
+                <h2 className="text-xl font-semibold">Paiement en cours de traitement</h2>
                 <p className="text-muted-foreground">
-                  Les dépôts via Mobile Money seront bientôt disponibles. Nous travaillons pour vous offrir cette fonctionnalité.
+                  Votre dépôt a été initié avec succès. Votre solde sera mis à jour automatiquement une fois le paiement confirmé.
                 </p>
               </div>
-              <Button onClick={() => setShowComingSoon(false)} data-testid="button-back-deposit">
-                Retour
-              </Button>
+              <div className="flex flex-col gap-2">
+                <Link href="/dashboard">
+                  <Button className="w-full" data-testid="button-back-dashboard">
+                    Retour au tableau de bord
+                  </Button>
+                </Link>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setShowSuccess(false)}
+                  data-testid="button-new-deposit"
+                >
+                  Faire un autre dépôt
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -237,26 +283,20 @@ export default function DepositPage() {
                 </RadioGroup>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="mobileNumber">Numéro de téléphone Mobile Money</Label>
-                <Input
-                  id="mobileNumber"
-                  type="tel"
-                  placeholder="Numéro sans l'indicatif"
-                  value={mobileNumber}
-                  onChange={(e) => setMobileNumber(e.target.value)}
-                  data-testid="input-mobile-number"
-                  className="h-12"
-                />
-              </div>
-
               <Button
                 type="submit"
                 className="w-full h-12 text-lg font-bold shadow-lg shadow-primary/20"
-                disabled={numericAmount < 100}
+                disabled={numericAmount < 100 || depositMutation.isPending}
                 data-testid="button-deposit-submit"
               >
-                {`Déposer ${numericAmount > 0 ? numericAmount.toLocaleString() + " " + currency : ""}`}
+                {depositMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Redirection...
+                  </>
+                ) : (
+                  `Déposer ${numericAmount > 0 ? numericAmount.toLocaleString() + " " + currency : ""}`
+                )}
               </Button>
             </form>
           </CardContent>

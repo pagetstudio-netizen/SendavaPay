@@ -15,6 +15,7 @@ import {
   type SocialLink,
   type WithdrawalRequest,
   type InsertWithdrawalRequest,
+  type LeekpayPayment,
   users,
   transactions,
   transfers,
@@ -24,6 +25,7 @@ import {
   commissionSettings,
   socialLinks,
   withdrawalRequests,
+  leekpayPayments,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, or, and, desc, sql } from "drizzle-orm";
@@ -95,6 +97,11 @@ export interface IStorage {
   getPendingWithdrawalRequests(): Promise<(WithdrawalRequest & { user?: User })[]>;
   getAllWithdrawalRequests(): Promise<(WithdrawalRequest & { user?: User })[]>;
   updateWithdrawalRequest(id: number, updates: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined>;
+  
+  createLeekpayPayment(payment: Partial<LeekpayPayment>): Promise<LeekpayPayment>;
+  getLeekpayPaymentById(leekpayPaymentId: string): Promise<LeekpayPayment | undefined>;
+  updateLeekpayPayment(leekpayPaymentId: string, updates: Partial<LeekpayPayment>): Promise<LeekpayPayment | undefined>;
+  getLeekpayPaymentsByUser(userId: number): Promise<LeekpayPayment[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -419,6 +426,25 @@ export class DatabaseStorage implements IStorage {
   async updateWithdrawalRequest(id: number, updates: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined> {
     const [updated] = await db.update(withdrawalRequests).set(updates).where(eq(withdrawalRequests.id, id)).returning();
     return updated;
+  }
+
+  async createLeekpayPayment(payment: Partial<LeekpayPayment>): Promise<LeekpayPayment> {
+    const [newPayment] = await db.insert(leekpayPayments).values(payment as any).returning();
+    return newPayment;
+  }
+
+  async getLeekpayPaymentById(leekpayPaymentId: string): Promise<LeekpayPayment | undefined> {
+    const [payment] = await db.select().from(leekpayPayments).where(eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId));
+    return payment;
+  }
+
+  async updateLeekpayPayment(leekpayPaymentId: string, updates: Partial<LeekpayPayment>): Promise<LeekpayPayment | undefined> {
+    const [updated] = await db.update(leekpayPayments).set(updates as any).where(eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId)).returning();
+    return updated;
+  }
+
+  async getLeekpayPaymentsByUser(userId: number): Promise<LeekpayPayment[]> {
+    return db.select().from(leekpayPayments).where(eq(leekpayPayments.userId, userId)).orderBy(desc(leekpayPayments.createdAt));
   }
 }
 
