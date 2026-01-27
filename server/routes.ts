@@ -251,9 +251,8 @@ export async function registerRoutes(
       }
 
       const currency = country === "rdc" ? "CDF" : (country === "cm" || country === "cg") ? "XAF" : "XOF";
-      const baseUrl = process.env.REPLIT_DEV_DOMAIN 
-        ? `https://${process.env.REPLIT_DEV_DOMAIN}` 
-        : "https://smart-glass.fun";
+      // Toujours utiliser l'URL de production pour les redirections LeekPay
+      const baseUrl = "https://smart-glass.fun";
 
       const checkoutResult = await leekpay.createCheckout({
         amount: numericAmount,
@@ -639,9 +638,8 @@ export async function registerRoutes(
       }
 
       const currency = payerCountry === "CD" ? "CDF" : (payerCountry === "CM" || payerCountry === "CG") ? "XAF" : "XOF";
-      const baseUrl = process.env.REPLIT_DEV_DOMAIN 
-        ? `https://${process.env.REPLIT_DEV_DOMAIN}` 
-        : "https://smart-glass.fun";
+      // Toujours utiliser l'URL de production pour les redirections LeekPay
+      const baseUrl = "https://smart-glass.fun";
 
       // Create LeekPay checkout
       const checkoutResult = await leekpay.createCheckout({
