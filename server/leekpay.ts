@@ -16,11 +16,13 @@ interface CheckoutParams {
 interface CheckoutResponse {
   success: boolean;
   data?: {
+    id: string;
     payment_url: string;
-    payment_id: string;
     status: string;
     amount: number;
     currency: string;
+    expires_at?: string;
+    return_url?: string;
   };
   error?: string;
 }
