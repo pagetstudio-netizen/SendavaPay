@@ -43,3 +43,8 @@ integrations = ["javascript_database:1.0.0", "javascript_object_storage:1.0.0", 
 
 [objectStorage]
 defaultBucketID = "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567"
+
+[userenv]
+
+[userenv.shared]
+SUPABASE_DATABASE_URL = "postgresql://postgres.vxucwodistvnlrieqmmq:2acrx5EbPVE3YvG8@aws-1-eu-west-1.pooler.supabase.com:6543/postgres"
