@@ -253,12 +253,13 @@ export async function registerRoutes(
       const currency = country === "rdc" ? "CDF" : (country === "cm" || country === "cg") ? "XAF" : "XOF";
       // Toujours utiliser l'URL de production pour les redirections LeekPay
       const baseUrl = "https://smart-glass.fun";
-
+      
+      // Créer le checkout LeekPay - l'ID sera retourné par LeekPay
       const checkoutResult = await leekpay.createCheckout({
         amount: numericAmount,
         currency: currency as "XOF" | "XAF" | "CDF" | "EUR" | "USD",
         description: `Dépôt SendavaPay - ${user.fullName}`,
-        return_url: `${baseUrl}/dashboard/deposit?status=success`,
+        return_url: `${baseUrl}/success`,
         customer_email: user.email,
       });
 
@@ -267,8 +268,11 @@ export async function registerRoutes(
         return res.status(500).json({ message: checkoutResult.error || "Erreur lors de la création du paiement" });
       }
 
+      // Stocker avec l'ID LeekPay comme référence principale
+      const leekpayId = checkoutResult.data.id;
+      
       await storage.createLeekpayPayment({
-        leekpayPaymentId: checkoutResult.data.id,
+        leekpayPaymentId: leekpayId,
         userId: req.session.userId!,
         amount: numericAmount.toString(),
         currency,
@@ -277,13 +281,16 @@ export async function registerRoutes(
         description: `Dépôt via ${paymentMethod}`,
         customerEmail: user.email,
         paymentMethod,
-        returnUrl: `${baseUrl}/dashboard/deposit?status=success`,
+        returnUrl: `${baseUrl}/success?reference=${leekpayId}`,
         paymentUrl: checkoutResult.data.payment_url,
       });
 
+      console.log(`📤 Dépôt initié: utilisateur=${req.session.userId}, montant=${numericAmount} ${currency}, ref=${leekpayId}`);
+
+      // Retourner l'ID LeekPay au frontend pour qu'il puisse vérifier le paiement
       res.json({ 
         paymentUrl: checkoutResult.data.payment_url,
-        paymentId: checkoutResult.data.id,
+        paymentId: leekpayId,
       });
     } catch (error) {
       console.error("Deposit error:", error);
@@ -408,6 +415,171 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Verify payment error:", error);
       res.status(500).json({ message: "Erreur lors de la vérification" });
+    }
+  });
+
+  // Vérification de paiement par référence (pour pages de succès après redirection LeekPay)
+  // Utilisé par /success et /payment-success
+  app.get("/api/verify-payment-by-reference/:reference", async (req, res) => {
+    try {
+      const { reference } = req.params;
+      const vendeurId = req.query.vendeur_id as string | undefined;
+      
+      console.log("🔍 Vérification paiement par référence:", reference);
+      console.log("🔍 Vendeur ID (si lien):", vendeurId || "N/A");
+      
+      if (!reference) {
+        return res.status(400).json({ status: "error", message: "Référence requise" });
+      }
+
+      // 1. Chercher dans notre base de données
+      let leekpayPayment = await storage.getLeekpayPaymentById(reference);
+      
+      // 2. Si déjà complété, retourner le statut
+      if (leekpayPayment?.status === "completed") {
+        console.log("✅ Paiement déjà traité:", reference);
+        return res.json({ 
+          status: "completed", 
+          message: "Paiement confirmé!",
+          amount: leekpayPayment.amount,
+          userId: leekpayPayment.userId
+        });
+      }
+
+      // 3. Vérifier le statut auprès de LeekPay API
+      console.log("📡 Appel API LeekPay pour vérifier:", reference);
+      const statusResult = await leekpay.getPaymentStatus(reference);
+      console.log("📡 Réponse LeekPay:", JSON.stringify(statusResult));
+      
+      if (!statusResult.success) {
+        console.log("⚠️ API LeekPay indisponible ou référence inconnue");
+        return res.json({ 
+          status: "pending", 
+          message: "Vérification en cours. Veuillez patienter..." 
+        });
+      }
+
+      const leekpayStatus = statusResult.data?.status;
+      const leekpayAmount = statusResult.data?.amount;
+      console.log("📊 Statut LeekPay:", leekpayStatus, "Montant:", leekpayAmount);
+      
+      // 4. Si le paiement n'est pas encore complété
+      if (leekpayStatus !== "completed") {
+        if (leekpayPayment && leekpayStatus && leekpayStatus !== leekpayPayment.status) {
+          await storage.updateLeekpayPayment(reference, { status: leekpayStatus as any });
+        }
+        return res.json({ 
+          status: leekpayStatus || "pending", 
+          message: leekpayStatus === "failed" ? "Le paiement a échoué." : "Paiement en cours de traitement..." 
+        });
+      }
+
+      // 5. LeekPay confirme le paiement - créditer le compte
+      console.log("✅ LeekPay confirme le paiement, traitement en cours...");
+      
+      const settings = await storage.getCommissionSettings();
+      const commissionRate = parseFloat(settings?.depositRate || "7");
+      const amount = leekpayAmount || (leekpayPayment ? parseFloat(leekpayPayment.amount) : 0);
+      const fee = Math.round(amount * (commissionRate / 100));
+      const netAmount = amount - fee;
+
+      // Si on a un paiement dans notre base
+      if (leekpayPayment) {
+        // Idempotence: Mettre à jour le statut immédiatement avant de créditer
+        // Si le statut était déjà "completed", on ne crédite pas à nouveau
+        await storage.updateLeekpayPayment(reference, {
+          status: "completed",
+          webhookReceived: true,
+          completedAt: new Date(),
+        });
+
+        // Vérifier si une transaction existe déjà avec cette référence
+        const existingTransactions = await storage.getTransactions(
+          leekpayPayment.userId || 0
+        );
+        const alreadyProcessed = existingTransactions.some(
+          (t: { externalRef: string | null; status: string }) => t.externalRef === reference && t.status === "completed"
+        );
+
+        if (alreadyProcessed) {
+          console.log("⚠️ Transaction déjà traitée, pas de double crédit");
+          return res.json({ 
+            status: "completed", 
+            message: "Paiement déjà traité!",
+            amount: netAmount
+          });
+        }
+
+        if (leekpayPayment.type === "deposit" && leekpayPayment.userId) {
+          // Créer la transaction
+          await storage.createTransaction({
+            userId: leekpayPayment.userId,
+            type: "deposit",
+            amount: amount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: leekpayPayment.description || "Dépôt via LeekPay",
+            externalRef: reference,
+            paymentMethod: leekpayPayment.paymentMethod || "leekpay",
+          });
+
+          await storage.updateUserBalance(leekpayPayment.userId, netAmount.toString());
+          console.log(`✅ Dépôt confirmé pour utilisateur #${leekpayPayment.userId}: ${netAmount} XOF`);
+          
+          return res.json({ 
+            status: "completed", 
+            message: `Paiement confirmé! ${netAmount} XOF ont été crédités sur votre compte.`,
+            amount: netAmount,
+            userId: leekpayPayment.userId
+          });
+        } else if (leekpayPayment.type === "payment_link" && leekpayPayment.paymentLinkId) {
+          const link = await storage.getPaymentLink(leekpayPayment.paymentLinkId);
+          if (link) {
+            await storage.updatePaymentLink(link.id, {
+              paidAt: new Date(),
+              paidAmount: amount.toString(),
+            });
+
+            await storage.updateUserBalance(link.userId, netAmount.toString());
+
+            await storage.createTransaction({
+              userId: link.userId,
+              type: "payment_received",
+              amount: amount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: `Paiement reçu: ${link.title}`,
+              paymentMethod: leekpayPayment.paymentMethod || "leekpay",
+              paymentLinkId: link.id,
+              externalRef: reference,
+            });
+
+            console.log(`✅ Paiement lien confirmé pour vendeur #${link.userId}: ${netAmount} XOF`);
+            
+            return res.json({ 
+              status: "completed", 
+              message: `Paiement confirmé! Le vendeur a reçu ${netAmount} XOF.`,
+              amount: netAmount,
+              vendeurId: link.userId
+            });
+          }
+        }
+      }
+      
+      // Sécurité: Ne jamais créditer sans avoir un enregistrement de paiement valide
+      // Le cas de secours avec vendeur_id a été supprimé pour éviter les fraudes
+      console.log("⚠️ Paiement confirmé par LeekPay mais aucun enregistrement local trouvé");
+      return res.json({ 
+        status: "completed", 
+        message: "Paiement confirmé!",
+        amount: netAmount
+      });
+      
+    } catch (error) {
+      console.error("❌ Erreur vérification par référence:", error);
+      res.status(500).json({ status: "error", message: "Erreur lors de la vérification" });
     }
   });
 
@@ -761,12 +933,12 @@ export async function registerRoutes(
       // Toujours utiliser l'URL de production pour les redirections LeekPay
       const baseUrl = "https://smart-glass.fun";
 
-      // Create LeekPay checkout
+      // Create LeekPay checkout - l'URL de retour inclut le vendeur_id
       const checkoutResult = await leekpay.createCheckout({
         amount,
         currency: currency as "XOF" | "XAF" | "CDF" | "EUR" | "USD",
         description: `Paiement: ${link.title}`,
-        return_url: `${baseUrl}/pay/${link.linkCode}?status=success`,
+        return_url: `${baseUrl}/payment-success?vendeur_id=${link.userId}`,
         customer_email: payerEmail,
       });
 
@@ -775,9 +947,12 @@ export async function registerRoutes(
         return res.status(500).json({ message: checkoutResult.error || "Erreur lors de la création du paiement" });
       }
 
+      const leekpayId = checkoutResult.data.id;
+      const returnUrl = `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${leekpayId}`;
+
       // Store LeekPay payment record
       await storage.createLeekpayPayment({
-        leekpayPaymentId: checkoutResult.data.id,
+        leekpayPaymentId: leekpayId,
         paymentLinkId: link.id,
         amount: amount.toString(),
         currency,
@@ -789,13 +964,15 @@ export async function registerRoutes(
         payerPhone,
         payerCountry,
         paymentMethod,
-        returnUrl: `${baseUrl}/pay/${link.linkCode}?status=success`,
+        returnUrl,
         paymentUrl: checkoutResult.data.payment_url,
       });
 
+      console.log(`📤 Paiement lien initié: vendeur=${link.userId}, montant=${amount} ${currency}, ref=${leekpayId}`);
+
       res.json({ 
         paymentUrl: checkoutResult.data.payment_url,
-        paymentId: checkoutResult.data.id,
+        paymentId: leekpayId,
       });
     } catch (error) {
       console.error("Process payment error:", error);
