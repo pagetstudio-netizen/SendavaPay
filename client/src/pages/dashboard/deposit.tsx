@@ -59,7 +59,7 @@ export default function DepositPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<"pending" | "completed" | "failed" | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
-  const maxPollingAttempts = 60; // 3 minutes max (60 * 3 seconds)
+  const maxPollingAttempts = 20; // 1 minute max (20 * 3 seconds)
   const pollingAttemptsRef = useRef(0);
 
   const checkPaymentStatus = useCallback(async (paymentId: string) => {
@@ -279,16 +279,37 @@ export default function DepositPage() {
               ) : (
                 <>
                   <div className="mx-auto w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                    <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
+                    {verifyingPayment ? (
+                      <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
+                    ) : (
+                      <Clock className="h-8 w-8 text-blue-600" />
+                    )}
                   </div>
                   <div className="space-y-2">
-                    <h2 className="text-xl font-semibold">Vérification du paiement...</h2>
-                    <p className="text-muted-foreground">{verificationMessage || "Nous vérifions le statut de votre paiement toutes les 3 secondes."}</p>
+                    <h2 className="text-xl font-semibold">
+                      {verifyingPayment ? "Vérification du paiement..." : "Paiement en cours de traitement"}
+                    </h2>
+                    <p className="text-muted-foreground">
+                      {verificationMessage || "Nous vérifions le statut de votre paiement toutes les 3 secondes."}
+                    </p>
                   </div>
-                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                    <Clock className="h-4 w-4" />
-                    <span>Vérification automatique en cours</span>
-                  </div>
+                  {verifyingPayment ? (
+                    <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                      <Clock className="h-4 w-4" />
+                      <span>Vérification automatique en cours</span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      <p className="text-sm text-muted-foreground">
+                        Votre paiement a peut-être été traité. Vérifiez votre solde sur le tableau de bord.
+                      </p>
+                      <Link href="/dashboard">
+                        <Button className="w-full" data-testid="button-back-dashboard-pending">
+                          Retour au tableau de bord
+                        </Button>
+                      </Link>
+                    </div>
+                  )}
                 </>
               )}
             </CardContent>
