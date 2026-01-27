@@ -458,7 +458,7 @@ export async function registerRoutes(
 
       // Débiter le solde immédiatement
       const newBalance = balance - numericAmount;
-      await storage.updateUserBalance(req.session.userId!, newBalance.toString());
+      await storage.setUserBalance(req.session.userId!, newBalance.toString());
 
       const withdrawalRequest = await storage.createWithdrawalRequest({
         userId: req.session.userId!,
@@ -577,7 +577,7 @@ export async function registerRoutes(
         const currentBalance = parseFloat(user.balance);
         const refundAmount = parseFloat(withdrawalRequest.amount);
         const newBalance = currentBalance + refundAmount;
-        await storage.updateUserBalance(withdrawalRequest.userId, newBalance.toString());
+        await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
       }
       
       await storage.updateWithdrawalRequest(requestId, {
