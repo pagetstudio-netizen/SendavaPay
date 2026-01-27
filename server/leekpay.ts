@@ -48,6 +48,10 @@ export class LeekPayService {
 
   async createCheckout(params: CheckoutParams): Promise<CheckoutResponse> {
     try {
+      console.log("LeekPay: Creating checkout with params:", JSON.stringify(params));
+      console.log("LeekPay: API URL:", `${LEEKPAY_API_URL}/checkout`);
+      console.log("LeekPay: Secret key configured:", this.secretKey ? "Yes (length: " + this.secretKey.length + ")" : "No");
+      
       const response = await fetch(`${LEEKPAY_API_URL}/checkout`, {
         method: "POST",
         headers: {
@@ -57,18 +61,31 @@ export class LeekPayService {
         body: JSON.stringify(params),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      console.log("LeekPay: Response status:", response.status);
+      console.log("LeekPay: Response body:", responseText);
+      
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error("LeekPay: Failed to parse response as JSON");
+        return {
+          success: false,
+          error: "Réponse invalide de LeekPay",
+        };
+      }
       
       if (!response.ok) {
         return {
           success: false,
-          error: data.message || "Erreur lors de la création du paiement",
+          error: data.message || data.error || "Erreur lors de la création du paiement",
         };
       }
 
       return {
         success: true,
-        data: data.data,
+        data: data.data || data,
       };
     } catch (error) {
       console.error("LeekPay createCheckout error:", error);
