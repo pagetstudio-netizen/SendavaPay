@@ -21,6 +21,7 @@ export const users = pgTable("users", {
   isVerified: boolean("is_verified").default(false).notNull(),
   isBlocked: boolean("is_blocked").default(false).notNull(),
   country: text("country"),
+  adminNote: text("admin_note"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -179,6 +180,67 @@ export const leekpayPayments = pgTable("leekpay_payments", {
   webhookData: text("webhook_data"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
+});
+
+export const withdrawalNumbers = pgTable("withdrawal_numbers", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  phoneNumber: text("phone_number").notNull(),
+  operator: text("operator").notNull(),
+  country: text("country").notNull(),
+  walletName: text("wallet_name"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const countries = pgTable("countries", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  code: text("code").notNull().unique(),
+  name: text("name").notNull(),
+  currency: text("currency").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const operators = pgTable("operators", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  code: text("code").notNull(),
+  countryId: integer("country_id").notNull().references(() => countries.id),
+  logo: text("logo"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const globalMessages = pgTable("global_messages", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  sentBy: integer("sent_by").notNull().references(() => users.id),
+  targetAudience: text("target_audience").default("all").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const adminNotificationTypeEnum = pgEnum("admin_notification_type", ["transaction", "kyc", "withdrawal", "user", "system"]);
+
+export const adminNotifications = pgTable("admin_notifications", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  type: adminNotificationTypeEnum("type").notNull(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  isRead: boolean("is_read").default(false).notNull(),
+  relatedId: integer("related_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const userNotifications = pgTable("user_notifications", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  isRead: boolean("is_read").default(false).notNull(),
+  globalMessageId: integer("global_message_id").references(() => globalMessages.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -341,3 +403,9 @@ export type SocialLink = typeof socialLinks.$inferSelect;
 export type WithdrawalRequest = typeof withdrawalRequests.$inferSelect;
 export type InsertWithdrawalRequest = z.infer<typeof insertWithdrawalRequestSchema>;
 export type LeekpayPayment = typeof leekpayPayments.$inferSelect;
+export type WithdrawalNumber = typeof withdrawalNumbers.$inferSelect;
+export type Country = typeof countries.$inferSelect;
+export type Operator = typeof operators.$inferSelect;
+export type GlobalMessage = typeof globalMessages.$inferSelect;
+export type AdminNotification = typeof adminNotifications.$inferSelect;
+export type UserNotification = typeof userNotifications.$inferSelect;

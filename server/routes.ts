@@ -2289,5 +2289,428 @@ export async function registerRoutes(
     }
   });
 
+  // ========== WITHDRAWAL NUMBERS ==========
+  app.get("/api/admin/withdrawal-numbers", requireAdmin, async (req, res) => {
+    try {
+      const numbers = await storage.getWithdrawalNumbers();
+      res.json(numbers);
+    } catch (error) {
+      console.error("Get withdrawal numbers error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/withdrawal-numbers", requireAdmin, async (req, res) => {
+    try {
+      const { phoneNumber, operator, country, label, isActive } = req.body;
+      if (!phoneNumber || !operator || !country) {
+        return res.status(400).json({ message: "Champs requis manquants" });
+      }
+      const number = await storage.createWithdrawalNumber({
+        phoneNumber,
+        operator,
+        country,
+        label: label || null,
+        isActive: isActive ?? true,
+      });
+      await storage.createAuditLog({
+        userId: req.session.userId,
+        action: "withdrawal_number_created",
+        details: `Numéro de retrait créé: ${phoneNumber} (${operator})`,
+        ipAddress: req.ip,
+      });
+      res.json(number);
+    } catch (error) {
+      console.error("Create withdrawal number error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.put("/api/admin/withdrawal-numbers/:id", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { phoneNumber, operator, country, label, isActive } = req.body;
+      const number = await storage.updateWithdrawalNumber(id, {
+        phoneNumber,
+        operator,
+        country,
+        label,
+        isActive,
+      });
+      res.json(number);
+    } catch (error) {
+      console.error("Update withdrawal number error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.delete("/api/admin/withdrawal-numbers/:id", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteWithdrawalNumber(id);
+      res.json({ message: "Numéro supprimé" });
+    } catch (error) {
+      console.error("Delete withdrawal number error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // ========== COUNTRIES ==========
+  app.get("/api/admin/countries", requireAdmin, async (req, res) => {
+    try {
+      const countries = await storage.getCountries();
+      res.json(countries);
+    } catch (error) {
+      console.error("Get countries error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/countries", requireAdmin, async (req, res) => {
+    try {
+      const { code, name, currency, isActive, flagEmoji } = req.body;
+      if (!code || !name) {
+        return res.status(400).json({ message: "Code et nom requis" });
+      }
+      const country = await storage.createCountry({
+        code,
+        name,
+        currency: currency || "XOF",
+        isActive: isActive ?? true,
+        flagEmoji: flagEmoji || null,
+      });
+      res.json(country);
+    } catch (error) {
+      console.error("Create country error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.put("/api/admin/countries/:id", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const country = await storage.updateCountry(id, req.body);
+      res.json(country);
+    } catch (error) {
+      console.error("Update country error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.delete("/api/admin/countries/:id", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteCountry(id);
+      res.json({ message: "Pays supprimé" });
+    } catch (error) {
+      console.error("Delete country error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // ========== OPERATORS ==========
+  app.get("/api/admin/operators", requireAdmin, async (req, res) => {
+    try {
+      const operators = await storage.getOperators();
+      res.json(operators);
+    } catch (error) {
+      console.error("Get operators error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/operators", requireAdmin, async (req, res) => {
+    try {
+      const { countryId, name, code, isActive } = req.body;
+      if (!countryId || !name || !code) {
+        return res.status(400).json({ message: "Champs requis manquants" });
+      }
+      const operator = await storage.createOperator({
+        countryId,
+        name,
+        code,
+        isActive: isActive ?? true,
+      });
+      res.json(operator);
+    } catch (error) {
+      console.error("Create operator error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.put("/api/admin/operators/:id", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const operator = await storage.updateOperator(id, req.body);
+      res.json(operator);
+    } catch (error) {
+      console.error("Update operator error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.delete("/api/admin/operators/:id", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteOperator(id);
+      res.json({ message: "Opérateur supprimé" });
+    } catch (error) {
+      console.error("Delete operator error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // ========== GLOBAL MESSAGES ==========
+  app.get("/api/admin/global-messages", requireAdmin, async (req, res) => {
+    try {
+      const messages = await storage.getGlobalMessages();
+      res.json(messages);
+    } catch (error) {
+      console.error("Get global messages error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/global-messages", requireAdmin, async (req, res) => {
+    try {
+      const { title, message, messageType, isActive, expiresAt } = req.body;
+      if (!title || !message) {
+        return res.status(400).json({ message: "Titre et message requis" });
+      }
+      const globalMessage = await storage.createGlobalMessage({
+        title,
+        message,
+        messageType: messageType || "info",
+        isActive: isActive ?? true,
+        expiresAt: expiresAt ? new Date(expiresAt) : null,
+        createdBy: req.session.userId,
+      });
+      await storage.createAuditLog({
+        userId: req.session.userId,
+        action: "global_message_created",
+        details: `Message global créé: ${title}`,
+        ipAddress: req.ip,
+      });
+      res.json(globalMessage);
+    } catch (error) {
+      console.error("Create global message error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // ========== ADMIN NOTIFICATIONS ==========
+  app.get("/api/admin/notifications", requireAdmin, async (req, res) => {
+    try {
+      const notifications = await storage.getAdminNotifications();
+      res.json(notifications);
+    } catch (error) {
+      console.error("Get admin notifications error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/admin/notifications/unread-count", requireAdmin, async (req, res) => {
+    try {
+      const count = await storage.getUnreadAdminNotificationsCount();
+      res.json({ count });
+    } catch (error) {
+      console.error("Get unread notifications count error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/notifications/:id/read", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.markAdminNotificationRead(id);
+      res.json({ message: "Notification marquée comme lue" });
+    } catch (error) {
+      console.error("Mark notification read error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/notifications/read-all", requireAdmin, async (req, res) => {
+    try {
+      await storage.markAllAdminNotificationsRead();
+      res.json({ message: "Toutes les notifications marquées comme lues" });
+    } catch (error) {
+      console.error("Mark all notifications read error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // ========== AUDIT LOGS ==========
+  app.get("/api/admin/audit-logs", requireAdmin, async (req, res) => {
+    try {
+      const logs = await storage.getAuditLogs();
+      res.json(logs);
+    } catch (error) {
+      console.error("Get audit logs error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // ========== PAYMENT LINKS (ADMIN) ==========
+  app.get("/api/admin/payment-links", requireAdmin, async (req, res) => {
+    try {
+      const links = await storage.getAllPaymentLinks();
+      res.json(links);
+    } catch (error) {
+      console.error("Get admin payment links error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // ========== USER MANAGEMENT (ADMIN) ==========
+  app.put("/api/admin/users/:id", requireAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const { fullName, email, phone, adminNote, role, isVerified } = req.body;
+      
+      const updates: any = {};
+      if (fullName !== undefined) updates.fullName = fullName;
+      if (email !== undefined) updates.email = email;
+      if (phone !== undefined) updates.phone = phone;
+      if (adminNote !== undefined) updates.adminNote = adminNote;
+      if (role !== undefined) updates.role = role;
+      if (isVerified !== undefined) updates.isVerified = isVerified;
+      
+      const user = await storage.updateUser(userId, updates);
+      
+      await storage.createAuditLog({
+        userId: req.session.userId,
+        action: "user_updated",
+        details: `Utilisateur #${userId} mis à jour: ${JSON.stringify(updates)}`,
+        ipAddress: req.ip,
+      });
+      
+      res.json(user);
+    } catch (error) {
+      console.error("Update user error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/users/:id/modify-balance", requireAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const { amount, operation, reason } = req.body;
+      
+      if (!amount || !operation || !reason) {
+        return res.status(400).json({ message: "Montant, opération et raison requis" });
+      }
+      
+      const numericAmount = parseFloat(amount);
+      if (isNaN(numericAmount) || numericAmount <= 0) {
+        return res.status(400).json({ message: "Montant invalide" });
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "Utilisateur non trouvé" });
+      }
+      
+      const currentBalance = parseFloat(user.balance);
+      let newBalance: number;
+      
+      if (operation === "add") {
+        newBalance = currentBalance + numericAmount;
+      } else if (operation === "subtract") {
+        if (numericAmount > currentBalance) {
+          return res.status(400).json({ message: "Solde insuffisant" });
+        }
+        newBalance = currentBalance - numericAmount;
+      } else {
+        return res.status(400).json({ message: "Opération invalide" });
+      }
+      
+      await storage.setUserBalance(userId, newBalance.toString());
+      
+      await storage.createTransaction({
+        userId,
+        type: operation === "add" ? "credit_admin" : "debit_admin",
+        amount: numericAmount.toString(),
+        fee: "0",
+        netAmount: numericAmount.toString(),
+        status: "completed",
+        description: `Modification admin: ${reason}`,
+      });
+      
+      await storage.createAuditLog({
+        userId: req.session.userId,
+        action: operation === "add" ? "balance_credit" : "balance_debit",
+        details: `Solde ${operation === "add" ? "crédité" : "débité"} de ${numericAmount} pour utilisateur #${userId}: ${reason}`,
+        ipAddress: req.ip,
+      });
+      
+      const highAmount = numericAmount >= 60000;
+      if (highAmount) {
+        await storage.createAdminNotification({
+          title: "Transaction importante",
+          message: `${operation === "add" ? "Crédit" : "Débit"} admin de ${numericAmount.toLocaleString()} F pour ${user.fullName}`,
+          notificationType: "alert",
+          relatedUserId: userId,
+        });
+      }
+      
+      res.json({ message: "Solde modifié avec succès", newBalance });
+    } catch (error) {
+      console.error("Modify balance error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.delete("/api/admin/users/:id", requireAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const user = await storage.getUser(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: "Utilisateur non trouvé" });
+      }
+      
+      if (user.role === "admin") {
+        return res.status(400).json({ message: "Impossible de supprimer un administrateur" });
+      }
+      
+      await storage.deleteUser(userId);
+      
+      await storage.createAuditLog({
+        userId: req.session.userId,
+        action: "user_deleted",
+        details: `Utilisateur supprimé: ${user.email} (${user.fullName})`,
+        ipAddress: req.ip,
+      });
+      
+      res.json({ message: "Utilisateur supprimé" });
+    } catch (error) {
+      console.error("Delete user error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // Create admin notification for high-value transactions
+  app.use(async (req, res, next) => {
+    const originalSend = res.send.bind(res);
+    res.send = function(body) {
+      if (req.path.includes('/withdraw') && res.statusCode === 200) {
+        try {
+          const data = JSON.parse(body);
+          if (data.request && parseFloat(data.request.amount) >= 60000) {
+            storage.createAdminNotification({
+              title: "Demande de retrait importante",
+              message: `Retrait de ${parseFloat(data.request.amount).toLocaleString()} F demandé`,
+              notificationType: "alert",
+              relatedUserId: data.request.userId,
+            });
+          }
+        } catch (e) {}
+      }
+      return originalSend(body);
+    };
+    next();
+  });
+
   return httpServer;
 }

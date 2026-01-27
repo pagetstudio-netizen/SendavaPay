@@ -1,7 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AdminLayout } from "@/components/admin-layout";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -22,7 +23,16 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
@@ -52,8 +62,30 @@ import {
   User,
   FileText,
   ExternalLink,
+  Plus,
+  Edit,
+  Globe,
+  Link as LinkIcon,
+  AlertTriangle,
+  Copy,
+  DollarSign,
+  StickyNote,
+  UserCog,
+  Calendar,
+  MessageSquare,
 } from "lucide-react";
-import type { User as UserType, Transaction, KycRequest, ApiKey } from "@shared/schema";
+import type { 
+  User as UserType, 
+  Transaction, 
+  KycRequest, 
+  ApiKey, 
+  WithdrawalNumber, 
+  Country, 
+  Operator, 
+  GlobalMessage, 
+  AuditLog,
+  PaymentLink,
+} from "@shared/schema";
 import { useState, useMemo } from "react";
 
 interface AdminStats {
@@ -135,6 +167,11 @@ function UsersContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
+  const [showBalanceDialog, setShowBalanceDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [balanceForm, setBalanceForm] = useState({ amount: "", operation: "add", reason: "" });
+  const [editForm, setEditForm] = useState({ fullName: "", email: "", phone: "", adminNote: "", role: "" });
 
   const { data: users, isLoading } = useQuery<UserType[]>({ queryKey: ["/api/admin/users"] });
 
@@ -149,7 +186,8 @@ function UsersContent() {
         statusFilter === "all" ||
         (statusFilter === "verified" && user.isVerified) ||
         (statusFilter === "unverified" && !user.isVerified) ||
-        (statusFilter === "blocked" && user.isBlocked);
+        (statusFilter === "blocked" && user.isBlocked) ||
+        (statusFilter === "admin" && user.role === "admin");
       return matchesSearch && matchesStatus;
     }) || [];
   }, [users, searchQuery, statusFilter]);
@@ -163,6 +201,73 @@ function UsersContent() {
       toast({ title: "Succès", description: "Statut utilisateur mis à jour" });
     },
   });
+
+  const modifyBalanceMutation = useMutation({
+    mutationFn: async ({ userId, data }: { userId: number; data: typeof balanceForm }) => {
+      await apiRequest("POST", `/api/admin/users/${userId}/modify-balance`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Succès", description: "Solde modifié avec succès" });
+      setShowBalanceDialog(false);
+      setBalanceForm({ amount: "", operation: "add", reason: "" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur", description: err.message || "Échec de la modification", variant: "destructive" });
+    },
+  });
+
+  const updateUserMutation = useMutation({
+    mutationFn: async ({ userId, data }: { userId: number; data: Partial<typeof editForm> }) => {
+      await apiRequest("PUT", `/api/admin/users/${userId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Succès", description: "Utilisateur mis à jour" });
+      setShowEditDialog(false);
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur", description: err.message || "Échec de la mise à jour", variant: "destructive" });
+    },
+  });
+
+  const deleteUserMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      await apiRequest("DELETE", `/api/admin/users/${userId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Succès", description: "Utilisateur supprimé" });
+      setShowDeleteDialog(false);
+      setSelectedUser(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur", description: err.message || "Échec de la suppression", variant: "destructive" });
+    },
+  });
+
+  const openBalanceDialog = (user: UserType) => {
+    setSelectedUser(user);
+    setBalanceForm({ amount: "", operation: "add", reason: "" });
+    setShowBalanceDialog(true);
+  };
+
+  const openEditDialog = (user: UserType) => {
+    setSelectedUser(user);
+    setEditForm({
+      fullName: user.fullName || "",
+      email: user.email || "",
+      phone: user.phone || "",
+      adminNote: (user as any).adminNote || "",
+      role: user.role || "user",
+    });
+    setShowEditDialog(true);
+  };
+
+  const openDeleteDialog = (user: UserType) => {
+    setSelectedUser(user);
+    setShowDeleteDialog(true);
+  };
 
   return (
     <div className="space-y-6">
@@ -193,6 +298,7 @@ function UsersContent() {
                 <SelectItem value="verified">Vérifiés</SelectItem>
                 <SelectItem value="unverified">Non vérifiés</SelectItem>
                 <SelectItem value="blocked">Bloqués</SelectItem>
+                <SelectItem value="admin">Admins</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -220,13 +326,25 @@ function UsersContent() {
                     <td className="p-4 font-mono text-sm">{user.id}</td>
                     <td className="p-4">
                       <p className="font-medium">{user.fullName}</p>
-                      <p className="text-sm text-muted-foreground">{user.role}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {user.role === "admin" ? <Badge variant="default" className="text-xs">Admin</Badge> : "Utilisateur"}
+                      </p>
                     </td>
                     <td className="p-4">
                       <p className="text-sm">{user.email}</p>
                       <p className="text-sm text-muted-foreground">{user.phone}</p>
                     </td>
-                    <td className="p-4 font-medium">{formatCurrency(user.balance)}</td>
+                    <td className="p-4">
+                      <p className="font-medium">{formatCurrency(user.balance)}</p>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => openBalanceDialog(user)}
+                        data-testid={`button-modify-balance-${user.id}`}
+                      >
+                        <DollarSign className="h-3 w-3 mr-1" /> Modifier
+                      </Button>
+                    </td>
                     <td className="p-4">
                       <div className="flex gap-1 flex-wrap">
                         {user.isVerified && <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30">Vérifié</Badge>}
@@ -235,17 +353,27 @@ function UsersContent() {
                       </div>
                     </td>
                     <td className="p-4">
-                      <div className="flex gap-2 flex-wrap">
-                        <Button size="sm" variant="outline" onClick={() => setSelectedUser(user)}>
-                          <Eye className="h-4 w-4" />
+                      <div className="flex gap-1 flex-wrap">
+                        <Button size="icon" variant="ghost" onClick={() => openEditDialog(user)} title="Modifier">
+                          <Edit className="h-4 w-4" />
                         </Button>
                         <Button
-                          size="sm"
-                          variant={user.isBlocked ? "default" : "destructive"}
+                          size="icon"
+                          variant="ghost"
                           onClick={() => blockMutation.mutate({ userId: user.id, block: !user.isBlocked })}
                           disabled={user.role === "admin"}
+                          title={user.isBlocked ? "Débloquer" : "Bloquer"}
                         >
-                          {user.isBlocked ? <Unlock className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
+                          {user.isBlocked ? <Unlock className="h-4 w-4 text-green-600" /> : <Ban className="h-4 w-4 text-orange-600" />}
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => openDeleteDialog(user)}
+                          disabled={user.role === "admin"}
+                          title="Supprimer"
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </div>
                     </td>
@@ -257,66 +385,147 @@ function UsersContent() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!selectedUser} onOpenChange={() => setSelectedUser(null)}>
+      <Dialog open={showBalanceDialog} onOpenChange={setShowBalanceDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Modifier le solde</DialogTitle>
+            <DialogDescription>
+              {selectedUser && `Utilisateur: ${selectedUser.fullName} (Solde actuel: ${formatCurrency(selectedUser.balance)})`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Opération</Label>
+              <Select value={balanceForm.operation} onValueChange={(v) => setBalanceForm({ ...balanceForm, operation: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="add">Créditer (+)</SelectItem>
+                  <SelectItem value="subtract">Débiter (-)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Montant (XOF)</Label>
+              <Input
+                type="number"
+                value={balanceForm.amount}
+                onChange={(e) => setBalanceForm({ ...balanceForm, amount: e.target.value })}
+                placeholder="1000"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Raison (obligatoire)</Label>
+              <Textarea
+                value={balanceForm.reason}
+                onChange={(e) => setBalanceForm({ ...balanceForm, reason: e.target.value })}
+                placeholder="Ex: Remboursement suite à réclamation"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBalanceDialog(false)}>Annuler</Button>
+            <Button
+              onClick={() => selectedUser && modifyBalanceMutation.mutate({ userId: selectedUser.id, data: balanceForm })}
+              disabled={!balanceForm.amount || !balanceForm.reason || modifyBalanceMutation.isPending}
+            >
+              {balanceForm.operation === "add" ? "Créditer" : "Débiter"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Détails de l'utilisateur</DialogTitle>
-            <DialogDescription>Informations complètes du compte</DialogDescription>
+            <DialogTitle>Modifier l'utilisateur</DialogTitle>
+            <DialogDescription>Modifiez les informations du profil</DialogDescription>
           </DialogHeader>
-          {selectedUser && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-3 rounded-lg bg-muted/30">
-                  <p className="text-xs text-muted-foreground mb-1">ID</p>
-                  <p className="font-mono font-medium">{selectedUser.id}</p>
-                </div>
-                <div className="p-3 rounded-lg bg-muted/30">
-                  <p className="text-xs text-muted-foreground mb-1">Rôle</p>
-                  <p className="font-medium">{selectedUser.role}</p>
-                </div>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Nom complet</Label>
+                <Input
+                  value={editForm.fullName}
+                  onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
+                />
               </div>
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <User className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Nom complet</p>
-                    <p className="font-medium">{selectedUser.fullName}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Mail className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Email</p>
-                    <p className="font-medium">{selectedUser.email}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Phone className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Téléphone</p>
-                    <p className="font-medium">{selectedUser.phone}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Wallet className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Solde</p>
-                    <p className="font-bold text-lg">{formatCurrency(selectedUser.balance)}</p>
-                  </div>
-                </div>
-              </div>
-              <div className="flex gap-2 flex-wrap pt-2">
-                {selectedUser.isVerified ? (
-                  <Badge className="bg-green-100 text-green-700">Compte vérifié</Badge>
-                ) : (
-                  <Badge className="bg-yellow-100 text-yellow-700">Non vérifié</Badge>
-                )}
-                {selectedUser.isBlocked && (
-                  <Badge className="bg-red-100 text-red-700">Bloqué</Badge>
-                )}
+              <div className="space-y-2">
+                <Label>Rôle</Label>
+                <Select value={editForm.role} onValueChange={(v) => setEditForm({ ...editForm, role: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="user">Utilisateur</SelectItem>
+                    <SelectItem value="admin">Administrateur</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-          )}
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input
+                type="email"
+                value={editForm.email}
+                onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Téléphone</Label>
+              <Input
+                value={editForm.phone}
+                onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2">
+                <StickyNote className="h-4 w-4" /> Note admin (privée)
+              </Label>
+              <Textarea
+                value={editForm.adminNote}
+                onChange={(e) => setEditForm({ ...editForm, adminNote: e.target.value })}
+                placeholder="Notes visibles uniquement par les administrateurs..."
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>Annuler</Button>
+            <Button
+              onClick={() => selectedUser && updateUserMutation.mutate({ userId: selectedUser.id, data: editForm })}
+              disabled={updateUserMutation.isPending}
+            >
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Supprimer l'utilisateur</DialogTitle>
+            <DialogDescription>
+              Êtes-vous sûr de vouloir supprimer {selectedUser?.fullName} ? Cette action est irréversible et supprimera toutes ses données.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-4 bg-destructive/10 rounded-lg border border-destructive/20">
+            <div className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              <span className="font-medium">Attention</span>
+            </div>
+            <p className="text-sm mt-2">
+              Cette action supprimera définitivement le compte, les transactions, les liens de paiement et toutes les données associées.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>Annuler</Button>
+            <Button
+              variant="destructive"
+              onClick={() => selectedUser && deleteUserMutation.mutate(selectedUser.id)}
+              disabled={deleteUserMutation.isPending}
+            >
+              Supprimer définitivement
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
@@ -327,6 +536,7 @@ function TransactionsContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [showHighValueOnly, setShowHighValueOnly] = useState(false);
 
   const { data: transactions, isLoading } = useQuery<Transaction[]>({ queryKey: ["/api/admin/transactions"] });
 
@@ -339,19 +549,67 @@ function TransactionsContent() {
         tx.payerName?.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesType = typeFilter === "all" || tx.type === typeFilter;
       const matchesStatus = statusFilter === "all" || tx.status === statusFilter;
-      return matchesSearch && matchesType && matchesStatus;
+      const matchesHighValue = !showHighValueOnly || parseFloat(tx.amount) >= 60000;
+      return matchesSearch && matchesType && matchesStatus && matchesHighValue;
     }) || [];
-  }, [transactions, searchQuery, typeFilter, statusFilter]);
+  }, [transactions, searchQuery, typeFilter, statusFilter, showHighValueOnly]);
+
+  const highValueCount = useMemo(() => {
+    return transactions?.filter(tx => parseFloat(tx.amount) >= 60000).length || 0;
+  }, [transactions]);
 
   const typeLabels: Record<string, string> = {
-    deposit: "Dépôt", withdrawal: "Retrait", transfer_in: "Reçu", transfer_out: "Envoyé", payment_received: "Paiement"
+    deposit: "Dépôt", withdrawal: "Retrait", transfer_in: "Reçu", transfer_out: "Envoyé", 
+    payment_received: "Paiement"
   };
+
+  const exportCSV = () => {
+    if (!filteredTransactions?.length) return;
+    const headers = ["ID", "User ID", "Type", "Montant", "Frais", "Net", "Statut", "Description", "Date"];
+    const rows = filteredTransactions.map((tx) => [
+      tx.id,
+      tx.userId,
+      typeLabels[tx.type] || tx.type,
+      tx.amount,
+      tx.fee,
+      tx.netAmount,
+      tx.status,
+      tx.description || "",
+      formatDate(tx.createdAt),
+    ]);
+    const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${c}"`).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `transactions-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+  };
+
+  const isHighValue = (amount: string) => parseFloat(amount) >= 60000;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Transactions</h1>
-        <p className="text-muted-foreground">Historique de toutes les transactions ({transactions?.length || 0} total)</p>
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Transactions</h1>
+          <p className="text-muted-foreground">Historique de toutes les transactions ({transactions?.length || 0} total)</p>
+        </div>
+        <div className="flex gap-2">
+          {highValueCount > 0 && (
+            <Button
+              variant={showHighValueOnly ? "default" : "outline"}
+              onClick={() => setShowHighValueOnly(!showHighValueOnly)}
+              className="gap-2"
+            >
+              <AlertTriangle className="h-4 w-4" />
+              {highValueCount} transactions &gt;60k
+            </Button>
+          )}
+          <Button variant="outline" onClick={exportCSV} disabled={!filteredTransactions?.length}>
+            <Download className="h-4 w-4 mr-2" /> Exporter CSV
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -394,42 +652,53 @@ function TransactionsContent() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b bg-muted/50">
-                <tr>
-                  <th className="text-left p-4 font-medium">ID</th>
-                  <th className="text-left p-4 font-medium">User ID</th>
-                  <th className="text-left p-4 font-medium">Type</th>
-                  <th className="text-left p-4 font-medium">Montant</th>
-                  <th className="text-left p-4 font-medium">Frais</th>
-                  <th className="text-left p-4 font-medium">Statut</th>
-                  <th className="text-left p-4 font-medium">Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <tr><td colSpan={7} className="p-8 text-center"><Skeleton className="h-8 w-full" /></td></tr>
-                ) : !filteredTransactions?.length ? (
-                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">Aucune transaction trouvée</td></tr>
-                ) : filteredTransactions.map((tx) => (
-                  <tr key={tx.id} className="border-b hover:bg-muted/30">
-                    <td className="p-4 font-mono text-sm">{tx.id}</td>
-                    <td className="p-4 font-mono text-sm">{tx.userId}</td>
-                    <td className="p-4">{typeLabels[tx.type] || tx.type}</td>
-                    <td className="p-4 font-medium">{formatCurrency(tx.amount)}</td>
-                    <td className="p-4 text-muted-foreground">{formatCurrency(tx.fee)}</td>
-                    <td className="p-4">
-                      <Badge className={tx.status === "completed" ? "bg-green-100 text-green-700" : tx.status === "pending" ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}>
-                        {tx.status}
-                      </Badge>
-                    </td>
-                    <td className="p-4 text-sm text-muted-foreground">{formatDate(tx.createdAt)}</td>
+          <ScrollArea className="h-[500px]">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="border-b bg-muted/50 sticky top-0">
+                  <tr>
+                    <th className="text-left p-4 font-medium">ID</th>
+                    <th className="text-left p-4 font-medium">User ID</th>
+                    <th className="text-left p-4 font-medium">Type</th>
+                    <th className="text-left p-4 font-medium">Montant</th>
+                    <th className="text-left p-4 font-medium">Frais</th>
+                    <th className="text-left p-4 font-medium">Statut</th>
+                    <th className="text-left p-4 font-medium">Date</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {isLoading ? (
+                    <tr><td colSpan={7} className="p-8 text-center"><Skeleton className="h-8 w-full" /></td></tr>
+                  ) : !filteredTransactions?.length ? (
+                    <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">Aucune transaction trouvée</td></tr>
+                  ) : filteredTransactions.map((tx) => (
+                    <tr key={tx.id} className={`border-b hover:bg-muted/30 ${isHighValue(tx.amount) ? "bg-orange-50 dark:bg-orange-950/20" : ""}`}>
+                      <td className="p-4 font-mono text-sm">{tx.id}</td>
+                      <td className="p-4 font-mono text-sm">{tx.userId}</td>
+                      <td className="p-4">{typeLabels[tx.type] || tx.type}</td>
+                      <td className="p-4">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{formatCurrency(tx.amount)}</span>
+                          {isHighValue(tx.amount) && (
+                            <Badge variant="destructive" className="text-xs">
+                              <AlertTriangle className="h-3 w-3 mr-1" /> Élevé
+                            </Badge>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-4 text-muted-foreground">{formatCurrency(tx.fee)}</td>
+                      <td className="p-4">
+                        <Badge className={tx.status === "completed" ? "bg-green-100 text-green-700 dark:bg-green-900/30" : tx.status === "pending" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30" : "bg-red-100 text-red-700 dark:bg-red-900/30"}>
+                          {tx.status}
+                        </Badge>
+                      </td>
+                      <td className="p-4 text-sm text-muted-foreground whitespace-nowrap">{formatDate(tx.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </ScrollArea>
         </CardContent>
       </Card>
     </div>
@@ -1185,68 +1454,133 @@ function CommissionsContent() {
 
 function MessagingContent() {
   const { toast } = useToast();
-  const [subject, setSubject] = useState("");
-  const [message, setMessage] = useState("");
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
   const [targetAudience, setTargetAudience] = useState("all");
 
+  const { data: messages, isLoading } = useQuery<GlobalMessage[]>({
+    queryKey: ["/api/admin/global-messages"],
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: { title: string; content: string; targetAudience: string }) => {
+      await apiRequest("POST", "/api/admin/global-messages", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/global-messages"] });
+      toast({ title: "Succès", description: "Message global créé" });
+      setTitle("");
+      setContent("");
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Échec de la création", variant: "destructive" });
+    },
+  });
+
   const handleSend = () => {
-    if (!subject || !message) {
+    if (!title || !content) {
       toast({ title: "Erreur", description: "Veuillez remplir tous les champs", variant: "destructive" });
       return;
     }
-    toast({ title: "Fonctionnalité à venir", description: "L'envoi de messages sera disponible prochainement" });
+    createMutation.mutate({ title, content, targetAudience });
+  };
+
+  const audienceLabels: Record<string, string> = {
+    all: "Tous les utilisateurs",
+    verified: "Utilisateurs vérifiés",
+    unverified: "Non vérifiés",
   };
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Messagerie</h1>
-        <p className="text-muted-foreground">Envoyez des notifications aux utilisateurs</p>
+        <h1 className="text-2xl font-bold">Message global</h1>
+        <p className="text-muted-foreground">Créez des annonces visibles par tous les utilisateurs</p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Nouveau message</CardTitle>
-          <CardDescription>Envoyez une notification par email à vos utilisateurs</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Destinataires</Label>
-            <Select value={targetAudience} onValueChange={setTargetAudience}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tous les utilisateurs</SelectItem>
-                <SelectItem value="verified">Utilisateurs vérifiés</SelectItem>
-                <SelectItem value="unverified">Utilisateurs non vérifiés</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="subject">Sujet</Label>
-            <Input
-              id="subject"
-              placeholder="Sujet du message..."
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="message">Message</Label>
-            <Textarea
-              id="message"
-              placeholder="Contenu du message..."
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              rows={6}
-            />
-          </div>
-          <Button onClick={handleSend}>
-            <Mail className="h-4 w-4 mr-2" /> Envoyer le message
-          </Button>
-        </CardContent>
-      </Card>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Nouveau message</CardTitle>
+            <CardDescription>Ce message s'affichera pour tous les utilisateurs connectés</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Destinataires</Label>
+              <Select value={targetAudience} onValueChange={setTargetAudience}>
+                <SelectTrigger data-testid="select-target-audience">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous les utilisateurs</SelectItem>
+                  <SelectItem value="verified">Utilisateurs vérifiés</SelectItem>
+                  <SelectItem value="unverified">Non vérifiés</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="title">Titre</Label>
+              <Input
+                id="title"
+                placeholder="Titre du message..."
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                data-testid="input-message-title"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="content">Contenu</Label>
+              <Textarea
+                id="content"
+                placeholder="Contenu du message..."
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                rows={4}
+                data-testid="textarea-message-content"
+              />
+            </div>
+            <Button onClick={handleSend} disabled={createMutation.isPending} className="w-full" data-testid="button-send-message">
+              <Mail className="h-4 w-4 mr-2" /> Publier le message
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Historique des messages</CardTitle>
+            <CardDescription>Messages publiés précédemment</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <ScrollArea className="h-[400px]">
+              {isLoading ? (
+                <div className="p-4"><Skeleton className="h-20 w-full" /></div>
+              ) : messages && messages.length > 0 ? (
+                <div className="divide-y">
+                  {messages.map((msg) => (
+                    <div key={msg.id} className="p-4 space-y-2" data-testid={`message-item-${msg.id}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <Badge variant="secondary">
+                          {audienceLabels[msg.targetAudience] || msg.targetAudience}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {formatDate(msg.createdAt)}
+                        </span>
+                      </div>
+                      <h4 className="font-medium">{msg.title}</h4>
+                      <p className="text-sm text-muted-foreground line-clamp-2">{msg.content}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-8 text-center text-muted-foreground">
+                  <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>Aucun message publié</p>
+                </div>
+              )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
@@ -1514,6 +1848,623 @@ function SocialLinkRow({
   );
 }
 
+function WithdrawalNumbersContent() {
+  const { toast } = useToast();
+  const [showDialog, setShowDialog] = useState(false);
+  const [editingNumber, setEditingNumber] = useState<WithdrawalNumber | null>(null);
+  const [formData, setFormData] = useState({
+    phoneNumber: "",
+    operator: "",
+    country: "",
+    label: "",
+    isActive: true,
+  });
+
+  const { data: numbers, isLoading } = useQuery<WithdrawalNumber[]>({
+    queryKey: ["/api/admin/withdrawal-numbers"],
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: typeof formData) => {
+      await apiRequest("POST", "/api/admin/withdrawal-numbers", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawal-numbers"] });
+      toast({ title: "Succès", description: "Numéro créé avec succès" });
+      setShowDialog(false);
+      resetForm();
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Échec de la création", variant: "destructive" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: typeof formData }) => {
+      await apiRequest("PUT", `/api/admin/withdrawal-numbers/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawal-numbers"] });
+      toast({ title: "Succès", description: "Numéro mis à jour" });
+      setShowDialog(false);
+      resetForm();
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/admin/withdrawal-numbers/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawal-numbers"] });
+      toast({ title: "Succès", description: "Numéro supprimé" });
+    },
+  });
+
+  const resetForm = () => {
+    setFormData({ phoneNumber: "", operator: "", country: "", label: "", isActive: true });
+    setEditingNumber(null);
+  };
+
+  const openEditDialog = (num: WithdrawalNumber) => {
+    setEditingNumber(num);
+    setFormData({
+      phoneNumber: num.phoneNumber,
+      operator: num.operator,
+      country: num.country,
+      label: num.label || "",
+      isActive: num.isActive,
+    });
+    setShowDialog(true);
+  };
+
+  const handleSubmit = () => {
+    if (editingNumber) {
+      updateMutation.mutate({ id: editingNumber.id, data: formData });
+    } else {
+      createMutation.mutate(formData);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Numéros de retrait</h1>
+          <p className="text-muted-foreground">Gérez les numéros utilisés pour les retraits</p>
+        </div>
+        <Button onClick={() => { resetForm(); setShowDialog(true); }} data-testid="button-add-number">
+          <Plus className="h-4 w-4 mr-2" /> Ajouter
+        </Button>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Numéro</TableHead>
+                <TableHead>Opérateur</TableHead>
+                <TableHead>Pays</TableHead>
+                <TableHead>Label</TableHead>
+                <TableHead>Statut</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow><TableCell colSpan={6}><Skeleton className="h-10 w-full" /></TableCell></TableRow>
+              ) : numbers && numbers.length > 0 ? (
+                numbers.map((num) => (
+                  <TableRow key={num.id}>
+                    <TableCell className="font-mono">{num.phoneNumber}</TableCell>
+                    <TableCell>{num.operator}</TableCell>
+                    <TableCell>{num.country}</TableCell>
+                    <TableCell>{num.label || "-"}</TableCell>
+                    <TableCell>
+                      <Badge variant={num.isActive ? "default" : "secondary"}>
+                        {num.isActive ? "Actif" : "Inactif"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button size="icon" variant="ghost" onClick={() => openEditDialog(num)}>
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" onClick={() => deleteMutation.mutate(num.id)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                    Aucun numéro configuré
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingNumber ? "Modifier le numéro" : "Ajouter un numéro"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Numéro de téléphone</Label>
+              <Input 
+                value={formData.phoneNumber} 
+                onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
+                placeholder="+228 90 00 00 00"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Opérateur</Label>
+                <Select value={formData.operator} onValueChange={(v) => setFormData({ ...formData, operator: v })}>
+                  <SelectTrigger><SelectValue placeholder="Choisir" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="moov">Moov</SelectItem>
+                    <SelectItem value="tmoney">T-Money</SelectItem>
+                    <SelectItem value="wave">Wave</SelectItem>
+                    <SelectItem value="mtn">MTN</SelectItem>
+                    <SelectItem value="orange">Orange</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Pays</Label>
+                <Select value={formData.country} onValueChange={(v) => setFormData({ ...formData, country: v })}>
+                  <SelectTrigger><SelectValue placeholder="Choisir" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="togo">Togo</SelectItem>
+                    <SelectItem value="benin">Bénin</SelectItem>
+                    <SelectItem value="cote_ivoire">Côte d'Ivoire</SelectItem>
+                    <SelectItem value="senegal">Sénégal</SelectItem>
+                    <SelectItem value="mali">Mali</SelectItem>
+                    <SelectItem value="burkina_faso">Burkina Faso</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Label (optionnel)</Label>
+              <Input 
+                value={formData.label} 
+                onChange={(e) => setFormData({ ...formData, label: e.target.value })}
+                placeholder="Ex: Principal"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch 
+                checked={formData.isActive} 
+                onCheckedChange={(v) => setFormData({ ...formData, isActive: v })} 
+              />
+              <Label>Actif</Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDialog(false)}>Annuler</Button>
+            <Button onClick={handleSubmit} disabled={createMutation.isPending || updateMutation.isPending}>
+              {editingNumber ? "Mettre à jour" : "Créer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function CountriesContent() {
+  const { toast } = useToast();
+  const [showCountryDialog, setShowCountryDialog] = useState(false);
+  const [showOperatorDialog, setShowOperatorDialog] = useState(false);
+  const [editingCountry, setEditingCountry] = useState<Country | null>(null);
+  const [editingOperator, setEditingOperator] = useState<Operator | null>(null);
+  const [countryForm, setCountryForm] = useState({ code: "", name: "", currency: "XOF", isActive: true, flagEmoji: "" });
+  const [operatorForm, setOperatorForm] = useState({ countryId: 0, name: "", code: "", isActive: true });
+
+  const { data: countries, isLoading: loadingCountries } = useQuery<Country[]>({ queryKey: ["/api/admin/countries"] });
+  const { data: operators, isLoading: loadingOperators } = useQuery<Operator[]>({ queryKey: ["/api/admin/operators"] });
+
+  const createCountryMutation = useMutation({
+    mutationFn: (data: typeof countryForm) => apiRequest("POST", "/api/admin/countries", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/countries"] });
+      toast({ title: "Pays créé" });
+      setShowCountryDialog(false);
+    },
+  });
+
+  const deleteCountryMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/countries/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/countries"] });
+      toast({ title: "Pays supprimé" });
+    },
+  });
+
+  const createOperatorMutation = useMutation({
+    mutationFn: (data: typeof operatorForm) => apiRequest("POST", "/api/admin/operators", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/operators"] });
+      toast({ title: "Opérateur créé" });
+      setShowOperatorDialog(false);
+    },
+  });
+
+  const deleteOperatorMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/operators/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/operators"] });
+      toast({ title: "Opérateur supprimé" });
+    },
+  });
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Pays & Opérateurs</h1>
+        <p className="text-muted-foreground">Configurez les pays et opérateurs mobiles disponibles</p>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <div>
+              <CardTitle>Pays</CardTitle>
+              <CardDescription>Liste des pays disponibles</CardDescription>
+            </div>
+            <Button size="sm" onClick={() => setShowCountryDialog(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Ajouter
+            </Button>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Code</TableHead>
+                  <TableHead>Nom</TableHead>
+                  <TableHead>Devise</TableHead>
+                  <TableHead>Statut</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loadingCountries ? (
+                  <TableRow><TableCell colSpan={5}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
+                ) : countries?.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell className="font-mono">{c.code}</TableCell>
+                    <TableCell>{c.flagEmoji} {c.name}</TableCell>
+                    <TableCell>{c.currency}</TableCell>
+                    <TableCell><Badge variant={c.isActive ? "default" : "secondary"}>{c.isActive ? "Actif" : "Inactif"}</Badge></TableCell>
+                    <TableCell>
+                      <Button size="icon" variant="ghost" onClick={() => deleteCountryMutation.mutate(c.id)}>
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <div>
+              <CardTitle>Opérateurs</CardTitle>
+              <CardDescription>Opérateurs mobiles par pays</CardDescription>
+            </div>
+            <Button size="sm" onClick={() => setShowOperatorDialog(true)} disabled={!countries?.length}>
+              <Plus className="h-4 w-4 mr-1" /> Ajouter
+            </Button>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Pays</TableHead>
+                  <TableHead>Nom</TableHead>
+                  <TableHead>Code</TableHead>
+                  <TableHead>Statut</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loadingOperators ? (
+                  <TableRow><TableCell colSpan={5}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
+                ) : operators?.map((op) => {
+                  const country = countries?.find(c => c.id === op.countryId);
+                  return (
+                    <TableRow key={op.id}>
+                      <TableCell>{country?.name || "-"}</TableCell>
+                      <TableCell>{op.name}</TableCell>
+                      <TableCell className="font-mono">{op.code}</TableCell>
+                      <TableCell><Badge variant={op.isActive ? "default" : "secondary"}>{op.isActive ? "Actif" : "Inactif"}</Badge></TableCell>
+                      <TableCell>
+                        <Button size="icon" variant="ghost" onClick={() => deleteOperatorMutation.mutate(op.id)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Dialog open={showCountryDialog} onOpenChange={setShowCountryDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Ajouter un pays</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Code (2 lettres)</Label>
+                <Input value={countryForm.code} onChange={(e) => setCountryForm({ ...countryForm, code: e.target.value.toUpperCase() })} maxLength={2} />
+              </div>
+              <div className="space-y-2">
+                <Label>Devise</Label>
+                <Select value={countryForm.currency} onValueChange={(v) => setCountryForm({ ...countryForm, currency: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="XOF">XOF</SelectItem>
+                    <SelectItem value="XAF">XAF</SelectItem>
+                    <SelectItem value="CDF">CDF</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Nom du pays</Label>
+              <Input value={countryForm.name} onChange={(e) => setCountryForm({ ...countryForm, name: e.target.value })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCountryDialog(false)}>Annuler</Button>
+            <Button onClick={() => createCountryMutation.mutate(countryForm)}>Créer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showOperatorDialog} onOpenChange={setShowOperatorDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Ajouter un opérateur</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Pays</Label>
+              <Select value={operatorForm.countryId.toString()} onValueChange={(v) => setOperatorForm({ ...operatorForm, countryId: parseInt(v) })}>
+                <SelectTrigger><SelectValue placeholder="Choisir un pays" /></SelectTrigger>
+                <SelectContent>
+                  {countries?.map((c) => (
+                    <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Nom</Label>
+                <Input value={operatorForm.name} onChange={(e) => setOperatorForm({ ...operatorForm, name: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>Code</Label>
+                <Input value={operatorForm.code} onChange={(e) => setOperatorForm({ ...operatorForm, code: e.target.value.toLowerCase() })} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowOperatorDialog(false)}>Annuler</Button>
+            <Button onClick={() => createOperatorMutation.mutate(operatorForm)}>Créer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function AdminPaymentLinksContent() {
+  const { toast } = useToast();
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const { data: links, isLoading } = useQuery<(PaymentLink & { user?: UserType })[]>({
+    queryKey: ["/api/admin/payment-links"],
+  });
+
+  const filteredLinks = useMemo(() => {
+    return links?.filter((link) =>
+      link.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      link.user?.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      link.linkCode.toLowerCase().includes(searchQuery.toLowerCase())
+    ) || [];
+  }, [links, searchQuery]);
+
+  const copyLink = (code: string) => {
+    navigator.clipboard.writeText(`${window.location.origin}/pay/${code}`);
+    toast({ title: "Lien copié" });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Liens de paiement</h1>
+        <p className="text-muted-foreground">Tous les liens de paiement créés par les utilisateurs</p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Rechercher par titre, utilisateur ou code..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Code</TableHead>
+                <TableHead>Titre</TableHead>
+                <TableHead>Utilisateur</TableHead>
+                <TableHead>Montant</TableHead>
+                <TableHead>Statut</TableHead>
+                <TableHead>Créé le</TableHead>
+                <TableHead></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow><TableCell colSpan={7}><Skeleton className="h-10 w-full" /></TableCell></TableRow>
+              ) : filteredLinks.map((link) => (
+                <TableRow key={link.id}>
+                  <TableCell className="font-mono text-xs">{link.linkCode}</TableCell>
+                  <TableCell className="max-w-[200px] truncate">{link.title}</TableCell>
+                  <TableCell>{link.user?.fullName || "-"}</TableCell>
+                  <TableCell>{formatCurrency(link.amount)}</TableCell>
+                  <TableCell>
+                    <Badge variant={link.paidAt ? "default" : "secondary"}>
+                      {link.paidAt ? "Payé" : "En attente"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {formatDate(link.createdAt)}
+                  </TableCell>
+                  <TableCell>
+                    <Button size="icon" variant="ghost" onClick={() => copyLink(link.linkCode)}>
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function LogsContent() {
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const { data: logs, isLoading } = useQuery<(AuditLog & { user?: UserType })[]>({
+    queryKey: ["/api/admin/audit-logs"],
+  });
+
+  const filteredLogs = useMemo(() => {
+    return logs?.filter((log) =>
+      log.action.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      log.details?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      log.user?.fullName?.toLowerCase().includes(searchQuery.toLowerCase())
+    ) || [];
+  }, [logs, searchQuery]);
+
+  const exportCSV = () => {
+    if (!logs?.length) return;
+    const headers = ["Date", "Utilisateur", "Action", "Détails", "IP"];
+    const rows = logs.map((log) => [
+      formatDate(log.createdAt),
+      log.user?.fullName || "Système",
+      log.action,
+      log.details || "",
+      log.ipAddress || "-",
+    ]);
+    const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${c}"`).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `audit-logs-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+  };
+
+  const actionLabels: Record<string, string> = {
+    withdrawal_number_created: "Numéro de retrait créé",
+    global_message_created: "Message global créé",
+    user_updated: "Utilisateur modifié",
+    balance_credit: "Solde crédité",
+    balance_debit: "Solde débité",
+    user_deleted: "Utilisateur supprimé",
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Logs & Sécurité</h1>
+          <p className="text-muted-foreground">Historique des actions administratives</p>
+        </div>
+        <Button variant="outline" onClick={exportCSV} disabled={!logs?.length}>
+          <Download className="h-4 w-4 mr-2" /> Exporter CSV
+        </Button>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Rechercher dans les logs..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <ScrollArea className="h-[500px]">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Utilisateur</TableHead>
+                  <TableHead>Action</TableHead>
+                  <TableHead>Détails</TableHead>
+                  <TableHead>IP</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableRow><TableCell colSpan={5}><Skeleton className="h-10 w-full" /></TableCell></TableRow>
+                ) : filteredLogs.map((log) => (
+                  <TableRow key={log.id}>
+                    <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                      {formatDate(log.createdAt)}
+                    </TableCell>
+                    <TableCell>{log.user?.fullName || "Système"}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{actionLabels[log.action] || log.action}</Badge>
+                    </TableCell>
+                    <TableCell className="max-w-[300px] truncate text-sm">
+                      {log.details || "-"}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {log.ipAddress || "-"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </ScrollArea>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function AdminDashboardPage() {
   const [location] = useLocation();
 
@@ -1528,8 +2479,12 @@ export default function AdminDashboardPage() {
     if (location === "/admin/messaging") return <MessagingContent />;
     if (location === "/admin/reports") return <ReportsContent />;
     if (location === "/admin/settings") return <SettingsContent />;
+    if (location === "/admin/withdrawal-numbers") return <WithdrawalNumbersContent />;
+    if (location === "/admin/countries") return <CountriesContent />;
+    if (location === "/admin/payment-links") return <AdminPaymentLinksContent />;
+    if (location === "/admin/logs") return <LogsContent />;
     return <DashboardContent />;
   };
 
-  return <DashboardLayout>{renderContent()}</DashboardLayout>;
+  return <AdminLayout>{renderContent()}</AdminLayout>;
 }
