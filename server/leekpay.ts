@@ -59,7 +59,7 @@ export class LeekPayService {
 
   constructor() {
     // Clé secrète pour l'authentification API (Bearer token)
-    this.secretKey = process.env.SK_LIVE || process.env.SLACK_LIVE_API_KEY || "";
+    this.secretKey = process.env.LEEKPAY_SECRET_KEY || process.env.SK_LIVE || "";
     // Clé publique pour vérifier les signatures webhook
     this.publicKey = LEEKPAY_PUBLIC_KEY;
     
