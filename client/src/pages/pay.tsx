@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useRoute, useSearch } from "wouter";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useRoute } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,9 +31,11 @@ import {
   Shield,
   Clock,
   ArrowRight,
+  ArrowLeft,
   Moon,
   Sun,
   Info,
+  Phone,
 } from "lucide-react";
 import logoPath from "@assets/20251211_105226_1765450558306.png";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
@@ -44,56 +46,32 @@ import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
 import type { PaymentLink } from "@shared/schema";
 
-const countries = [
-  { code: "BJ", name: "Bénin", flag: "\u{1F1E7}\u{1F1EF}", prefix: "+229" },
-  { code: "BF", name: "Burkina Faso", flag: "\u{1F1E7}\u{1F1EB}", prefix: "+226" },
-  { code: "TG", name: "Togo", flag: "\u{1F1F9}\u{1F1EC}", prefix: "+228" },
-  { code: "CM", name: "Cameroun", flag: "\u{1F1E8}\u{1F1F2}", prefix: "+237" },
-  { code: "CI", name: "Côte d'Ivoire", flag: "\u{1F1E8}\u{1F1EE}", prefix: "+225" },
-  { code: "CD", name: "RDC", flag: "\u{1F1E8}\u{1F1E9}", prefix: "+243" },
-  { code: "CG", name: "Congo Brazzaville", flag: "\u{1F1E8}\u{1F1EC}", prefix: "+242" },
-];
-
-const paymentMethodsByCountry: Record<string, { id: string; name: string; logo: string }[]> = {
-  BJ: [
-    { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo },
-    { id: "moov", name: "Moov Money", logo: moovLogo },
-  ],
-  BF: [
-    { id: "orange", name: "Orange Money", logo: orangeLogo },
-    { id: "moov", name: "Moov Money", logo: moovLogo },
-  ],
-  TG: [
-    { id: "moov", name: "Moov Money", logo: moovLogo },
-    { id: "tmoney", name: "TMoney", logo: tmoneyLogo },
-  ],
-  CM: [
-    { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo },
-    { id: "orange", name: "Orange Money", logo: orangeLogo },
-  ],
-  CI: [
-    { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo },
-    { id: "moov", name: "Moov Money", logo: moovLogo },
-    { id: "orange", name: "Orange Money", logo: orangeLogo },
-  ],
-  CD: [
-    { id: "airtel", name: "Airtel Money", logo: airtelLogo },
-    { id: "vodacom", name: "Vodacom M-Pesa", logo: vodacomLogo },
-  ],
-  CG: [
-    { id: "mtn", name: "MTN Mobile Money", logo: mtnLogo },
-    { id: "airtel", name: "Airtel Money", logo: airtelLogo },
-  ],
-};
-
-function getCurrencyForCountry(countryCode: string): string {
-  switch (countryCode) {
-    case "CD": return "CDF";
-    case "CM":
-    case "CG": return "XAF";
-    default: return "XOF";
-  }
+interface SoleasPayCountry {
+  code: string;
+  name: string;
+  flag: string;
+  currency: string;
 }
+
+interface SoleasPayService {
+  id: number;
+  name: string;
+  description: string;
+  country: string;
+  countryCode: string;
+  currency: string;
+  operator: string;
+}
+
+const operatorLogos: Record<string, string> = {
+  "MTN": mtnLogo,
+  "Moov": moovLogo,
+  "Orange": orangeLogo,
+  "TMoney": tmoneyLogo,
+  "Airtel": airtelLogo,
+  "Vodacom": vodacomLogo,
+  "Wave": orangeLogo,
+};
 
 function formatCurrency(amount: string | number, currency: string = "XOF") {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
@@ -102,52 +80,37 @@ function formatCurrency(amount: string | number, currency: string = "XOF") {
 
 export default function PaymentPage() {
   const [, params] = useRoute("/pay/:code");
-  const searchString = useSearch();
   const { toast } = useToast();
   const [isDarkMode, setIsDarkMode] = useState(false);
   
-  const [step, setStep] = useState<"info" | "payment" | "complete" | "processing" | "verifying">("info");
+  const [step, setStep] = useState<"info" | "payment" | "processing" | "complete" | "failed">("info");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
-  const [country, setCountry] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("");
+  const [selectedCountry, setSelectedCountry] = useState("");
+  const [selectedServiceId, setSelectedServiceId] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [customAmount, setCustomAmount] = useState("");
   const [verificationMessage, setVerificationMessage] = useState("");
+  const [currentPayId, setCurrentPayId] = useState("");
+  const [currentOrderId, setCurrentOrderId] = useState("");
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const pollingAttemptsRef = useRef(0);
+  const maxPollingAttempts = 40;
 
-  useEffect(() => {
-    const urlParams = new URLSearchParams(searchString);
-    if (urlParams.get("status") === "success") {
-      // Récupérer le paymentId stocké
-      const storedPaymentId = localStorage.getItem("lastLinkPaymentId");
-      if (storedPaymentId) {
-        setStep("verifying");
-        // Vérifier le statut du paiement
-        fetch("/api/verify-link-payment", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ paymentId: storedPaymentId }),
-        })
-          .then(res => res.json())
-          .then(data => {
-            if (data.status === "completed") {
-              setVerificationMessage(data.message || "Paiement effectué avec succès!");
-              localStorage.removeItem("lastLinkPaymentId");
-            } else {
-              setVerificationMessage("Paiement en cours de traitement. Vous recevrez une confirmation par email.");
-            }
-            setStep("complete");
-          })
-          .catch(() => {
-            setVerificationMessage("Vérification du paiement en cours...");
-            setStep("complete");
-          });
-      } else {
-        setStep("complete");
-      }
-    }
-  }, [searchString]);
+  const { data: countries = [] } = useQuery<SoleasPayCountry[]>({
+    queryKey: ["/api/soleaspay/countries"],
+  });
+
+  const { data: services = [] } = useQuery<SoleasPayService[]>({
+    queryKey: ["/api/soleaspay/services", selectedCountry],
+    queryFn: async () => {
+      const res = await fetch(`/api/soleaspay/services/${selectedCountry}`);
+      if (!res.ok) throw new Error("Failed to fetch services");
+      return res.json();
+    },
+    enabled: !!selectedCountry,
+  });
 
   const { data: paymentLink, isLoading, error } = useQuery<PaymentLink>({
     queryKey: ["/api/pay", params?.code],
@@ -161,29 +124,136 @@ export default function PaymentPage() {
     enabled: !!params?.code,
   });
 
+  useEffect(() => {
+    if (countries.length > 0 && !selectedCountry) {
+      setSelectedCountry(countries[0].code);
+    }
+  }, [countries, selectedCountry]);
+
+  useEffect(() => {
+    if (services.length > 0 && (!selectedServiceId || !services.find(s => s.id.toString() === selectedServiceId))) {
+      setSelectedServiceId(services[0].id.toString());
+    }
+  }, [services, selectedServiceId]);
+
+  const selectedService = services.find(s => s.id.toString() === selectedServiceId);
+  const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
+
+  const checkPaymentStatus = useCallback(async () => {
+    if (!currentOrderId || !currentPayId) return;
+
+    try {
+      const response = await fetch(`/api/verify-link-soleaspay/${currentOrderId}/${currentPayId}`);
+      const data = await response.json();
+
+      console.log("Payment verification result:", data);
+
+      if (data.status === "SUCCESS") {
+        setStep("complete");
+        setVerificationMessage(data.message || "Paiement effectué avec succès!");
+        localStorage.removeItem("soleaspay_link_payment");
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+      } else if (data.status === "FAILURE") {
+        setStep("failed");
+        setVerificationMessage(data.message || "Le paiement a échoué.");
+        localStorage.removeItem("soleaspay_link_payment");
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+      } else {
+        pollingAttemptsRef.current += 1;
+        setVerificationMessage(`Vérification en cours... (${pollingAttemptsRef.current}/${maxPollingAttempts})`);
+
+        if (pollingAttemptsRef.current >= maxPollingAttempts) {
+          setVerificationMessage("Le paiement est en attente. Veuillez confirmer sur votre téléphone.");
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error checking payment:", error);
+      pollingAttemptsRef.current += 1;
+      if (pollingAttemptsRef.current >= maxPollingAttempts) {
+        setVerificationMessage("Impossible de vérifier le paiement.");
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+      }
+    }
+  }, [currentOrderId, currentPayId]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("soleaspay_link_payment");
+    if (saved) {
+      try {
+        const { orderId, payId, linkCode } = JSON.parse(saved);
+        if (orderId && payId && linkCode === params?.code) {
+          setCurrentOrderId(orderId);
+          setCurrentPayId(payId);
+          setStep("processing");
+          pollingAttemptsRef.current = 0;
+        } else {
+          localStorage.removeItem("soleaspay_link_payment");
+        }
+      } catch (e) {
+        localStorage.removeItem("soleaspay_link_payment");
+      }
+    }
+  }, [params?.code]);
+
+  useEffect(() => {
+    if (step === "processing" && currentOrderId && currentPayId) {
+      checkPaymentStatus();
+      pollingRef.current = setInterval(checkPaymentStatus, 3000);
+    }
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [step, currentOrderId, currentPayId, checkPaymentStatus]);
+
   const payMutation = useMutation({
     mutationFn: async (data: { 
-      payerName: string; 
-      payerPhone: string; 
+      linkCode: string;
+      amount: number;
+      serviceId: string;
+      phoneNumber: string;
+      payerName: string;
       payerEmail?: string;
-      payerCountry: string;
-      paymentMethod: string;
-      paidAmount?: number;
     }) => {
-      const res = await apiRequest("POST", `/api/pay/${params?.code}`, data);
+      const res = await apiRequest("POST", "/api/pay-link-soleaspay", data);
       return await res.json();
     },
     onSuccess: (data) => {
-      if (data.paymentUrl) {
-        // Stocker le paymentId pour vérification au retour
-        if (data.paymentId) {
-          localStorage.setItem("lastLinkPaymentId", data.paymentId);
-        }
-        window.location.href = data.paymentUrl;
+      if (data.success && data.payId && data.orderId) {
+        localStorage.setItem("soleaspay_link_payment", JSON.stringify({
+          orderId: data.orderId,
+          payId: data.payId,
+          linkCode: params?.code,
+        }));
+        setCurrentOrderId(data.orderId);
+        setCurrentPayId(data.payId);
+        setStep("processing");
+        pollingAttemptsRef.current = 0;
+        setVerificationMessage(data.message || "Veuillez confirmer le paiement sur votre téléphone.");
+        toast({
+          title: "Paiement initié",
+          description: "Veuillez confirmer le paiement sur votre téléphone.",
+        });
       } else {
         toast({
           title: "Erreur",
-          description: "URL de paiement non reçue",
+          description: data.message || "Erreur lors du paiement",
           variant: "destructive",
         });
       }
@@ -196,10 +266,6 @@ export default function PaymentPage() {
       });
     },
   });
-
-  const selectedCountry = countries.find(c => c.code === country);
-  const availablePaymentMethods = country ? paymentMethodsByCountry[country] || [] : [];
-  const selectedMethod = availablePaymentMethods.find(m => m.id === paymentMethod);
 
   const getPaymentAmount = () => {
     if (paymentLink?.allowCustomAmount && customAmount) {
@@ -232,7 +298,7 @@ export default function PaymentPage() {
       if (minAmt > 0 && amt < minAmt) {
         toast({
           title: "Montant insuffisant",
-          description: `Le montant minimum est de ${formatCurrency(minAmt, "XOF")}.`,
+          description: `Le montant minimum est de ${formatCurrency(minAmt)}.`,
           variant: "destructive",
         });
         return;
@@ -243,7 +309,7 @@ export default function PaymentPage() {
   };
 
   const handleSubmitPayment = () => {
-    if (!country) {
+    if (!selectedCountry) {
       toast({
         title: "Informations manquantes",
         description: "Veuillez sélectionner votre pays.",
@@ -251,33 +317,44 @@ export default function PaymentPage() {
       });
       return;
     }
-    if (!paymentMethod) {
+    if (!selectedServiceId) {
       toast({
         title: "Informations manquantes",
-        description: "Veuillez sélectionner un moyen de paiement.",
+        description: "Veuillez sélectionner un opérateur.",
         variant: "destructive",
       });
       return;
     }
-    if (!phoneNumber.trim()) {
+    if (!phoneNumber.trim() || phoneNumber.length < 8) {
       toast({
         title: "Informations manquantes",
-        description: "Veuillez entrer votre numéro de paiement.",
+        description: "Veuillez entrer un numéro de téléphone valide.",
         variant: "destructive",
       });
       return;
     }
 
-    const fullPhone = `${selectedCountry?.prefix || ""}${phoneNumber}`;
-    
     payMutation.mutate({
+      linkCode: params?.code || "",
+      amount: getPaymentAmount(),
+      serviceId: selectedServiceId,
+      phoneNumber: phoneNumber.replace(/\s/g, ""),
       payerName: `${firstName} ${lastName}`,
-      payerPhone: fullPhone,
       payerEmail: email || undefined,
-      payerCountry: country,
-      paymentMethod,
-      paidAmount: paymentLink?.allowCustomAmount ? parseFloat(customAmount) : undefined,
     });
+  };
+
+  const resetPayment = () => {
+    setStep("info");
+    setVerificationMessage("");
+    setCurrentOrderId("");
+    setCurrentPayId("");
+    localStorage.removeItem("soleaspay_link_payment");
+    pollingAttemptsRef.current = 0;
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
   };
 
   if (isLoading) {
@@ -347,51 +424,94 @@ export default function PaymentPage() {
     );
   }
 
-  if (step === "verifying") {
+  if (step === "processing") {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md overflow-hidden">
-          <CardContent className="p-8 text-center">
-            <div className="h-20 w-20 mx-auto mb-6 rounded-full bg-blue-500 flex items-center justify-center">
-              <Loader2 className="h-10 w-10 text-white animate-spin" />
-            </div>
-            <h2 className="text-xl font-semibold mb-2">Vérification du paiement...</h2>
-            <p className="text-muted-foreground mb-6">
-              Nous vérifions le statut de votre paiement. Veuillez patienter.
-            </p>
-          </CardContent>
-        </Card>
+      <div className={`min-h-screen ${isDarkMode ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
+        <div className="max-w-md mx-auto p-4">
+          <div className="flex items-center justify-between mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
+            <img src={logoPath} alt="SendavaPay" className="h-8" />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsDarkMode(!isDarkMode)}
+            >
+              {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </Button>
+          </div>
+
+          <Card className="overflow-hidden shadow-lg">
+            <CardContent className="p-8 text-center space-y-6">
+              <div className="mx-auto w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-xl font-semibold">Vérification du paiement...</h2>
+                <p className="text-muted-foreground">
+                  {verificationMessage || "Veuillez confirmer le paiement sur votre téléphone."}
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                <Clock className="h-4 w-4" />
+                <span>Vérification automatique toutes les 3 secondes</span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
 
   if (step === "complete") {
-    const isCompleted = verificationMessage.includes("succès");
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md overflow-hidden">
-          <CardContent className="p-8 text-center">
-            <div className={`h-20 w-20 mx-auto mb-6 rounded-full ${isCompleted ? 'bg-green-500' : 'bg-yellow-500'} flex items-center justify-center`}>
-              {isCompleted ? (
+      <div className={`min-h-screen ${isDarkMode ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
+        <div className="max-w-md mx-auto p-4">
+          <div className="flex items-center justify-between mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
+            <img src={logoPath} alt="SendavaPay" className="h-8" />
+          </div>
+
+          <Card className="overflow-hidden shadow-lg">
+            <CardContent className="p-8 text-center space-y-6">
+              <div className="mx-auto w-20 h-20 rounded-full bg-green-500 flex items-center justify-center">
                 <CheckCircle className="h-10 w-10 text-white" />
-              ) : (
-                <Clock className="h-10 w-10 text-white" />
-              )}
-            </div>
-            <h2 className="text-xl font-semibold mb-2">
-              {isCompleted ? "Paiement réussi!" : "Paiement en cours de traitement"}
-            </h2>
-            <p className="text-muted-foreground mb-6">
-              {verificationMessage || "Votre paiement a été initié avec succès. Le vendeur sera notifié dès la confirmation."}
-            </p>
-            {paymentLink && (
-              <div className="bg-muted/50 rounded-lg p-4 mb-6">
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-xl font-semibold text-green-600">Paiement réussi!</h2>
+                <p className="text-muted-foreground">{verificationMessage}</p>
+              </div>
+              <div className="bg-muted/50 rounded-lg p-4">
                 <p className="text-sm text-muted-foreground">Produit</p>
                 <p className="text-lg font-bold">{paymentLink.title}</p>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === "failed") {
+    return (
+      <div className={`min-h-screen ${isDarkMode ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
+        <div className="max-w-md mx-auto p-4">
+          <div className="flex items-center justify-between mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
+            <img src={logoPath} alt="SendavaPay" className="h-8" />
+          </div>
+
+          <Card className="overflow-hidden shadow-lg">
+            <CardContent className="p-8 text-center space-y-6">
+              <div className="mx-auto w-20 h-20 rounded-full bg-red-500 flex items-center justify-center">
+                <XCircle className="h-10 w-10 text-white" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-xl font-semibold text-red-600">Paiement échoué</h2>
+                <p className="text-muted-foreground">{verificationMessage}</p>
+              </div>
+              <Button onClick={resetPayment} className="w-full" data-testid="button-retry-payment">
+                Réessayer
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
@@ -413,8 +533,8 @@ export default function PaymentPage() {
               {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </Button>
             <div className="flex items-center gap-1 px-2 py-1 bg-muted rounded-md text-sm">
-              <span>{selectedCountry?.flag || countries[0].flag}</span>
-              <span className="font-medium">{getCurrencyForCountry(country || "TG")}</span>
+              <span>{countries.find(c => c.code === selectedCountry)?.flag || "🌍"}</span>
+              <span className="font-medium">{currency}</span>
             </div>
           </div>
         </div>
@@ -478,14 +598,6 @@ export default function PaymentPage() {
                             <DialogDescription className="text-base leading-relaxed whitespace-pre-wrap">
                               {paymentLink.description}
                             </DialogDescription>
-                            <div className="mt-4 pt-4 border-t">
-                              <p className="text-lg font-bold text-primary">
-                                {paymentLink.allowCustomAmount 
-                                  ? `À partir de ${formatCurrency(paymentLink.minimumAmount || "100")}`
-                                  : formatCurrency(paymentLink.amount)
-                                }
-                              </p>
-                            </div>
                           </DialogContent>
                         </Dialog>
                       </div>
@@ -503,7 +615,7 @@ export default function PaymentPage() {
                 {paymentLink.allowCustomAmount && (
                   <div className="mb-6 p-4 border-2 border-primary/20 rounded-lg bg-primary/5">
                     <Label htmlFor="custom-amount" className="text-sm font-medium">
-                      Montant à payer (XOF)
+                      Montant à payer
                     </Label>
                     <Input
                       id="custom-amount"
@@ -558,11 +670,6 @@ export default function PaymentPage() {
                     />
                   </div>
 
-                  <p className="text-xs text-muted-foreground text-center mt-4">
-                    Vos informations sont utilisées uniquement pour votre commande.
-                    Aucun compte n'est créé automatiquement.
-                  </p>
-
                   <Button
                     onClick={handleContinueToPayment}
                     className="w-full"
@@ -578,51 +685,67 @@ export default function PaymentPage() {
 
             {step === "payment" && (
               <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setStep("info")}
+                  className="mb-4"
+                  data-testid="button-back"
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Retour
+                </Button>
+
                 <div className="text-center mb-6 p-4 bg-muted/50 rounded-lg">
-                  <p className="text-sm text-muted-foreground">Total dû aujourd'hui</p>
+                  <p className="text-sm text-muted-foreground">Total à payer</p>
                   <p className="text-3xl font-bold text-primary" data-testid="text-payment-amount">
-                    {formatCurrency(getPaymentAmount(), getCurrencyForCountry(country))}
+                    {formatCurrency(getPaymentAmount(), currency)}
                   </p>
                 </div>
 
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label className="text-sm text-muted-foreground">Pays</Label>
-                    <Select value={country} onValueChange={(val) => { setCountry(val); setPaymentMethod(""); }}>
+                    <Select value={selectedCountry} onValueChange={setSelectedCountry}>
                       <SelectTrigger data-testid="select-country">
                         <SelectValue placeholder="Sélectionnez votre pays" />
                       </SelectTrigger>
                       <SelectContent>
                         {countries.map((c) => (
                           <SelectItem key={c.code} value={c.code}>
-                            <span className="flex items-center gap-2">
-                              <span>{c.flag}</span>
-                              <span>{c.name}</span>
-                            </span>
+                            {c.flag} {c.name} ({c.currency})
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
 
-                  {country && availablePaymentMethods.length > 0 && (
-                    <div className="space-y-3">
-                      <Label className="text-sm text-muted-foreground">Méthode de paiement</Label>
-                      <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="grid grid-cols-3 gap-3">
-                        {availablePaymentMethods.map((method) => (
-                          <div key={method.id}>
+                  {services.length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="text-sm text-muted-foreground">Opérateur Mobile Money</Label>
+                      <RadioGroup
+                        value={selectedServiceId}
+                        onValueChange={setSelectedServiceId}
+                        className="grid grid-cols-2 gap-3"
+                      >
+                        {services.map((service) => (
+                          <div key={service.id}>
                             <RadioGroupItem
-                              value={method.id}
-                              id={`pay-${method.id}`}
+                              value={service.id.toString()}
+                              id={`service-${service.id}`}
                               className="peer sr-only"
                             />
                             <Label
-                              htmlFor={`pay-${method.id}`}
-                              className="flex flex-col items-center gap-2 rounded-lg border-2 p-3 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all"
-                              data-testid={`radio-payment-${method.id}`}
+                              htmlFor={`service-${service.id}`}
+                              className="flex flex-col items-center gap-2 rounded-xl border-2 p-3 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all"
+                              data-testid={`radio-service-${service.id}`}
                             >
-                              <img src={method.logo} alt={method.name} className="h-10 w-10 object-contain rounded-full" />
-                              <span className="text-xs font-medium text-center">{method.name}</span>
+                              <img
+                                src={operatorLogos[service.operator] || mtnLogo}
+                                alt={service.operator}
+                                className="h-10 w-10 object-contain rounded-full bg-white shadow-sm p-1"
+                              />
+                              <span className="text-xs font-bold text-center">{service.description}</span>
                             </Label>
                           </div>
                         ))}
@@ -630,68 +753,58 @@ export default function PaymentPage() {
                     </div>
                   )}
 
-                  {paymentMethod && (
-                    <div className="space-y-2">
-                      <Label className="text-sm text-muted-foreground">
-                        Numéro {selectedMethod?.name}
-                      </Label>
-                      <div className="flex gap-2">
-                        <div className="flex items-center gap-1 px-3 py-2 bg-muted rounded-md text-sm font-medium min-w-fit">
-                          <span>{selectedCountry?.flag}</span>
-                          <span>{selectedCountry?.prefix}</span>
-                        </div>
-                        <Input
-                          type="tel"
-                          placeholder="00 00 00 00"
-                          value={phoneNumber}
-                          onChange={(e) => setPhoneNumber(e.target.value)}
-                          className="flex-1"
-                          data-testid="input-phone"
-                        />
-                      </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone" className="text-sm text-muted-foreground">
+                      Numéro de téléphone {selectedService?.operator || "Mobile Money"}
+                    </Label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                      <Input
+                        id="phone"
+                        type="tel"
+                        placeholder="Ex: 90123456"
+                        value={phoneNumber}
+                        onChange={(e) => setPhoneNumber(e.target.value)}
+                        className="pl-10"
+                        data-testid="input-phone-number"
+                      />
                     </div>
-                  )}
-
-                  <div className="flex gap-2 mt-6">
-                    <Button
-                      variant="outline"
-                      onClick={() => setStep("info")}
-                      className="flex-1"
-                      data-testid="button-back"
-                    >
-                      Retour
-                    </Button>
-                    <Button
-                      onClick={handleSubmitPayment}
-                      disabled={payMutation.isPending || !country || !paymentMethod || !phoneNumber}
-                      className="flex-1"
-                      data-testid="button-pay"
-                    >
-                      {payMutation.isPending ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Redirection...
-                        </>
-                      ) : (
-                        `Payer ${formatCurrency(getPaymentAmount(), getCurrencyForCountry(country))}`
-                      )}
-                    </Button>
                   </div>
+
+                  <Button
+                    onClick={handleSubmitPayment}
+                    className="w-full"
+                    size="lg"
+                    disabled={payMutation.isPending}
+                    data-testid="button-pay"
+                  >
+                    {payMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Traitement...
+                      </>
+                    ) : (
+                      <>
+                        Payer {formatCurrency(getPaymentAmount(), currency)}
+                      </>
+                    )}
+                  </Button>
+
+                  <p className="text-xs text-center text-muted-foreground">
+                    En continuant, vous acceptez les conditions générales de SendavaPay.
+                  </p>
                 </div>
               </>
             )}
-
-            <a 
-              href="/" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 mt-6 text-xs text-muted-foreground hover:text-primary transition-colors cursor-pointer"
-            >
-              <Shield className="h-4 w-4" />
-              <span>Paiement sécurisé par SendavaPay</span>
-            </a>
           </CardContent>
         </Card>
+
+        <div className="mt-6 text-center">
+          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Shield className="h-4 w-4" />
+            <span>Paiement sécurisé par SendavaPay</span>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -74,16 +74,25 @@ shared/           # Shared code between client/server
 ## External Dependencies
 
 ### Payment Providers
-- **LeekPay** - Primary payment gateway for deposits and payment links
-  - API Endpoint: https://api.leekpay.com/api/v1/checkout
-  - Webhook URL: https://smart-glass.fun/api/webhook/leekpay
-  - Supported currencies: XOF, XAF, CDF, EUR, USD
-  - Flow: Create checkout → User redirected to LeekPay → Webhook notification on completion
-- Mobile Money integration: MTN, Moov, Orange Money, TMoney, Airtel, Vodacom
+- **SoleasPay** - Primary payment gateway for deposits and payment links (replaced LeekPay)
+  - API Endpoint: https://soleaspay.com/api/agent/bills/V3
+  - Verification: https://soleaspay.com/api/agent/verif-pay
+  - Webhook URL: https://smart-glass.fun/api/webhook/soleaspay
+  - Supported currencies: XOF, XAF, CDF
+  - Flow: Direct API call with wallet number → User confirms on phone → Polling verification every 3 seconds
+  - Service IDs by country/operator defined in server/soleaspay.ts
+- **Supported Countries/Operators**:
+  - Bénin (BJ): MTN (35), Moov (36)
+  - Burkina Faso (BF): Moov (33), Orange (34)
+  - Togo (TG): T-Money (37), Moov (38)
+  - Cameroun (CM): MTN (1), Orange (2)
+  - Côte d'Ivoire (CI): Orange (29), MTN (30), Moov (31), Wave (32)
+  - RDC (COD): Vodacom (52), Airtel (53), Orange (54)
+  - Congo Brazzaville (COG): Airtel (55), MTN (56)
 - Currencies: XOF (Togo, Benin, Burkina Faso, Ivory Coast), XAF (Cameroun, Congo Brazzaville), CDF (RDC)
 
 ### Third-Party Services
-- **LeekPay** - Payment processing (API key in SLACK_LIVE_API_KEY secret)
+- **SoleasPay** - Payment processing (API key in SOLEASPAY_API_KEY secret)
 - **Nodemailer** - Email notifications
 - **OpenAI / Google Generative AI** - AI features (listed in dependencies)
 

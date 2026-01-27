@@ -10,6 +10,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { leekpay } from "./leekpay";
+import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById } from "./soleaspay";
 
 declare module "express-session" {
   interface SessionData {
@@ -297,6 +298,467 @@ export async function registerRoutes(
       res.status(500).json({ message: "Erreur lors du dépôt" });
     }
   });
+
+  // ========== SOLEASPAY ROUTES ==========
+  
+  // Obtenir les pays et opérateurs disponibles
+  app.get("/api/soleaspay/countries", (req, res) => {
+    res.json(SOLEASPAY_COUNTRIES);
+  });
+
+  app.get("/api/soleaspay/services/:countryCode", (req, res) => {
+    const { countryCode } = req.params;
+    const services = getServicesByCountry(countryCode);
+    res.json(services);
+  });
+
+  // Dépôt via SoleasPay
+  app.post("/api/deposit-soleaspay", requireAuth, async (req, res) => {
+    try {
+      const { amount, serviceId, phoneNumber } = req.body;
+      const numericAmount = parseFloat(amount);
+
+      if (isNaN(numericAmount) || numericAmount < 100) {
+        return res.status(400).json({ message: "Montant minimum: 100" });
+      }
+
+      if (!serviceId || !phoneNumber) {
+        return res.status(400).json({ message: "Service et numéro de téléphone requis" });
+      }
+
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) {
+        return res.status(404).json({ message: "Utilisateur non trouvé" });
+      }
+
+      const service = getServiceById(parseInt(serviceId));
+      if (!service) {
+        return res.status(400).json({ message: "Service non trouvé" });
+      }
+
+      const orderId = `DEP-${Date.now()}-${req.session.userId}`;
+      const baseUrl = "https://smart-glass.fun";
+
+      console.log(`📤 SoleasPay: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
+
+      const result = await soleaspay.collectPayment({
+        wallet: phoneNumber,
+        amount: numericAmount,
+        currency: service.currency,
+        orderId,
+        description: `Dépôt SendavaPay - ${user.fullName}`,
+        payer: user.fullName,
+        payerEmail: user.email,
+        serviceId: service.id,
+        successUrl: `${baseUrl}/success`,
+        failureUrl: `${baseUrl}/deposit`,
+      });
+
+      if (!result.success) {
+        console.error("❌ SoleasPay error:", result.message);
+        return res.status(500).json({ message: result.message || "Erreur lors du paiement" });
+      }
+
+      const payId = result.data?.reference || orderId;
+
+      // Stocker le paiement en attente
+      await storage.createLeekpayPayment({
+        leekpayPaymentId: payId,
+        userId: req.session.userId!,
+        amount: numericAmount.toString(),
+        currency: service.currency,
+        type: "deposit",
+        status: "pending",
+        description: `Dépôt via ${service.operator} (${service.country})`,
+        customerEmail: user.email,
+        paymentMethod: `soleaspay_${service.name}`,
+        returnUrl: `${baseUrl}/success`,
+      });
+
+      console.log(`📤 SoleasPay: Paiement initié ref=${payId}, status=${result.status}`);
+
+      res.json({ 
+        success: true,
+        payId,
+        orderId,
+        status: result.status,
+        message: result.message || "Paiement initié. Veuillez confirmer sur votre téléphone.",
+      });
+    } catch (error) {
+      console.error("SoleasPay deposit error:", error);
+      res.status(500).json({ message: "Erreur lors du dépôt" });
+    }
+  });
+
+  // Vérifier le statut d'un paiement SoleasPay
+  app.get("/api/verify-soleaspay/:orderId/:payId", requireAuth, async (req, res) => {
+    try {
+      const { orderId, payId } = req.params;
+
+      console.log(`🔍 SoleasPay: Vérification paiement orderId=${orderId}, payId=${payId}`);
+
+      const result = await soleaspay.verifyPayment(orderId, payId);
+
+      console.log(`🔍 SoleasPay: Résultat vérification:`, JSON.stringify(result));
+
+      // Vérifier si déjà traité
+      const existingPayment = await storage.getLeekpayPaymentById(payId);
+      if (existingPayment?.status === "completed") {
+        return res.json({ 
+          status: "SUCCESS", 
+          message: "Paiement déjà traité",
+          amount: existingPayment.amount
+        });
+      }
+
+      if (result.success && result.status === "SUCCESS") {
+        // Paiement confirmé - créditer le compte
+        const amount = result.data?.amount || (existingPayment ? parseFloat(existingPayment.amount) : 0);
+        
+        if (existingPayment && existingPayment.userId) {
+          // Vérifier idempotence
+          const existingTransactions = await storage.getTransactions(existingPayment.userId);
+          const alreadyProcessed = existingTransactions.some(
+            (t: { externalRef: string | null; status: string }) => t.externalRef === payId && t.status === "completed"
+          );
+
+          if (alreadyProcessed) {
+            console.log("⚠️ Transaction déjà traitée, pas de double crédit");
+            return res.json({ 
+              status: "SUCCESS", 
+              message: "Paiement déjà traité",
+              amount
+            });
+          }
+
+          // Calculer les frais
+          const settings = await storage.getCommissionSettings();
+          const commissionRate = parseFloat(settings?.depositRate || "7");
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
+
+          // Mettre à jour le paiement
+          await storage.updateLeekpayPayment(payId, {
+            status: "completed",
+            webhookReceived: true,
+            completedAt: new Date(),
+          });
+
+          // Créer la transaction
+          await storage.createTransaction({
+            userId: existingPayment.userId,
+            type: "deposit",
+            amount: amount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: existingPayment.description || "Dépôt via SoleasPay",
+            externalRef: payId,
+            paymentMethod: existingPayment.paymentMethod || "soleaspay",
+          });
+
+          await storage.updateUserBalance(existingPayment.userId, netAmount.toString());
+
+          console.log(`✅ SoleasPay: Dépôt confirmé pour utilisateur #${existingPayment.userId}: ${netAmount} ${existingPayment.currency}`);
+
+          return res.json({ 
+            status: "SUCCESS", 
+            message: `Paiement confirmé! ${netAmount} ${existingPayment.currency} crédités sur votre compte.`,
+            amount: netAmount
+          });
+        }
+      }
+
+      // Retourner le statut actuel
+      res.json({ 
+        status: result.status || "PENDING",
+        message: result.message || "Paiement en cours de traitement",
+      });
+    } catch (error) {
+      console.error("SoleasPay verify error:", error);
+      res.status(500).json({ message: "Erreur lors de la vérification" });
+    }
+  });
+
+  // Paiement de lien via SoleasPay (pour les clients payant un vendeur)
+  app.post("/api/pay-link-soleaspay", async (req, res) => {
+    try {
+      const { linkCode, amount, serviceId, phoneNumber, payerName, payerEmail } = req.body;
+      const numericAmount = parseFloat(amount);
+
+      if (!linkCode || !serviceId || !phoneNumber || !payerName) {
+        return res.status(400).json({ message: "Tous les champs sont requis" });
+      }
+
+      const link = await storage.getPaymentLinkByCode(linkCode);
+      if (!link) {
+        return res.status(404).json({ message: "Lien de paiement non trouvé" });
+      }
+
+      const service = getServiceById(parseInt(serviceId));
+      if (!service) {
+        return res.status(400).json({ message: "Service non trouvé" });
+      }
+
+      const vendeur = await storage.getUser(link.userId);
+      if (!vendeur) {
+        return res.status(404).json({ message: "Vendeur non trouvé" });
+      }
+
+      const orderId = `PAY-${linkCode}-${Date.now()}`;
+      const baseUrl = "https://smart-glass.fun";
+
+      console.log(`📤 SoleasPay: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}`);
+
+      const result = await soleaspay.collectPayment({
+        wallet: phoneNumber,
+        amount: numericAmount,
+        currency: service.currency,
+        orderId,
+        description: `Paiement à ${vendeur.fullName} - ${link.title}`,
+        payer: payerName,
+        payerEmail: payerEmail || "",
+        serviceId: service.id,
+        successUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}`,
+        failureUrl: `${baseUrl}/pay/${linkCode}`,
+      });
+
+      if (!result.success) {
+        console.error("❌ SoleasPay pay-link error:", result.message);
+        return res.status(500).json({ message: result.message || "Erreur lors du paiement" });
+      }
+
+      const payId = result.data?.reference || orderId;
+
+      // Stocker le paiement en attente
+      await storage.createLeekpayPayment({
+        leekpayPaymentId: payId,
+        userId: null,
+        paymentLinkId: link.id,
+        amount: numericAmount.toString(),
+        currency: service.currency,
+        type: "payment_link",
+        status: "pending",
+        description: `Paiement ${link.title}`,
+        customerEmail: payerEmail,
+        payerName,
+        payerPhone: phoneNumber,
+        payerCountry: service.countryCode,
+        paymentMethod: `soleaspay_${service.name}`,
+        returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}`,
+      });
+
+      console.log(`📤 SoleasPay: Paiement lien initié ref=${payId}`);
+
+      res.json({ 
+        success: true,
+        payId,
+        orderId,
+        status: result.status,
+        message: result.message || "Paiement initié. Veuillez confirmer sur votre téléphone.",
+      });
+    } catch (error) {
+      console.error("SoleasPay pay-link error:", error);
+      res.status(500).json({ message: "Erreur lors du paiement" });
+    }
+  });
+
+  // Vérifier paiement de lien SoleasPay (pour créditer le vendeur)
+  app.get("/api/verify-link-soleaspay/:orderId/:payId", async (req, res) => {
+    try {
+      const { orderId, payId } = req.params;
+
+      console.log(`🔍 SoleasPay: Vérification paiement lien orderId=${orderId}, payId=${payId}`);
+
+      const result = await soleaspay.verifyPayment(orderId, payId);
+
+      const existingPayment = await storage.getLeekpayPaymentById(payId);
+      if (existingPayment?.status === "completed") {
+        return res.json({ 
+          status: "SUCCESS", 
+          message: "Paiement déjà traité",
+          amount: existingPayment.amount
+        });
+      }
+
+      if (result.success && result.status === "SUCCESS") {
+        const amount = result.data?.amount || (existingPayment ? parseFloat(existingPayment.amount) : 0);
+        
+        if (existingPayment && existingPayment.paymentLinkId) {
+          const link = await storage.getPaymentLink(existingPayment.paymentLinkId);
+          if (!link) {
+            return res.status(404).json({ message: "Lien de paiement non trouvé" });
+          }
+
+          // Vérifier idempotence
+          const existingTransactions = await storage.getTransactions(link.userId);
+          const alreadyProcessed = existingTransactions.some(
+            (t: { externalRef: string | null; status: string }) => t.externalRef === payId && t.status === "completed"
+          );
+
+          if (alreadyProcessed) {
+            console.log("⚠️ Transaction déjà traitée");
+            return res.json({ 
+              status: "SUCCESS", 
+              message: "Paiement déjà traité",
+              amount
+            });
+          }
+
+          // Calculer les frais
+          const settings = await storage.getCommissionSettings();
+          const commissionRate = parseFloat(settings?.depositRate || "7");
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
+
+          // Mettre à jour le paiement et le lien
+          await storage.updateLeekpayPayment(payId, {
+            status: "completed",
+            webhookReceived: true,
+            completedAt: new Date(),
+          });
+
+          await storage.updatePaymentLink(link.id, {
+            paidAt: new Date(),
+            paidAmount: amount.toString(),
+          });
+
+          // Créer la transaction
+          await storage.createTransaction({
+            userId: link.userId,
+            type: "payment_received",
+            amount: amount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: `Paiement reçu - ${link.title}`,
+            externalRef: payId,
+            paymentMethod: existingPayment.paymentMethod || "soleaspay",
+          });
+
+          await storage.updateUserBalance(link.userId, netAmount.toString());
+
+          console.log(`✅ SoleasPay: Paiement lien confirmé pour vendeur #${link.userId}: ${netAmount} ${existingPayment.currency}`);
+
+          return res.json({ 
+            status: "SUCCESS", 
+            message: `Paiement confirmé! Le vendeur a reçu ${netAmount} ${existingPayment.currency}.`,
+            amount: netAmount,
+            vendeurId: link.userId
+          });
+        }
+      }
+
+      res.json({ 
+        status: result.status || "PENDING",
+        message: result.message || "Paiement en cours de traitement",
+      });
+    } catch (error) {
+      console.error("SoleasPay verify-link error:", error);
+      res.status(500).json({ message: "Erreur lors de la vérification" });
+    }
+  });
+
+  // Callback webhook SoleasPay
+  app.post("/api/webhook/soleaspay", async (req, res) => {
+    try {
+      const privateKey = req.headers["x-private-key"] as string;
+      const data = req.body;
+
+      console.log("📥 === SoleasPay Webhook reçu ===");
+      console.log("📥 Data:", JSON.stringify(data));
+
+      if (!data || !data.data) {
+        console.error("❌ SoleasPay webhook: Données invalides");
+        return res.status(400).json({ message: "Invalid data" });
+      }
+
+      const { reference, external_reference, amount, currency } = data.data;
+      const status = data.status;
+      const success = data.success;
+
+      console.log(`📥 SoleasPay: ref=${reference}, ext_ref=${external_reference}, status=${status}, amount=${amount}`);
+
+      // Chercher le paiement
+      const payment = await storage.getLeekpayPaymentById(reference);
+      
+      if (!payment) {
+        console.log("⚠️ SoleasPay webhook: Paiement non trouvé");
+        return res.json({ received: true });
+      }
+
+      if (payment.status === "completed") {
+        console.log("⚠️ SoleasPay webhook: Paiement déjà traité");
+        return res.json({ received: true });
+      }
+
+      if (success && status === "SUCCESS") {
+        const numAmount = parseFloat(amount) || parseFloat(payment.amount);
+        
+        // Calculer les frais
+        const settings = await storage.getCommissionSettings();
+        const commissionRate = parseFloat(settings?.depositRate || "7");
+        const fee = Math.round(numAmount * (commissionRate / 100));
+        const netAmount = numAmount - fee;
+
+        await storage.updateLeekpayPayment(reference, {
+          status: "completed",
+          webhookReceived: true,
+          completedAt: new Date(),
+        });
+
+        if (payment.type === "deposit" && payment.userId) {
+          await storage.createTransaction({
+            userId: payment.userId,
+            type: "deposit",
+            amount: numAmount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: payment.description || "Dépôt via SoleasPay",
+            externalRef: reference,
+            paymentMethod: payment.paymentMethod || "soleaspay",
+          });
+
+          await storage.updateUserBalance(payment.userId, netAmount.toString());
+          console.log(`✅ SoleasPay webhook: Dépôt confirmé utilisateur #${payment.userId}: ${netAmount}`);
+        } else if (payment.type === "payment_link" && payment.paymentLinkId) {
+          const link = await storage.getPaymentLink(payment.paymentLinkId);
+          if (link) {
+            await storage.updatePaymentLink(link.id, {
+              paidAt: new Date(),
+              paidAmount: numAmount.toString(),
+            });
+
+            await storage.createTransaction({
+              userId: link.userId,
+              type: "payment_received",
+              amount: numAmount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: `Paiement reçu - ${link.title}`,
+              externalRef: reference,
+              paymentMethod: payment.paymentMethod || "soleaspay",
+            });
+
+            await storage.updateUserBalance(link.userId, netAmount.toString());
+            console.log(`✅ SoleasPay webhook: Paiement lien confirmé vendeur #${link.userId}: ${netAmount}`);
+          }
+        }
+      } else if (status === "FAILURE" || status === "REFUND") {
+        await storage.updateLeekpayPayment(reference, { status: "failed" });
+        console.log(`❌ SoleasPay webhook: Paiement échoué ref=${reference}`);
+      }
+
+      res.json({ received: true });
+    } catch (error) {
+      console.error("SoleasPay webhook error:", error);
+      res.status(500).json({ message: "Erreur webhook" });
+    }
+  });
+
+  // ========== FIN SOLEASPAY ROUTES ==========
 
   // Vérifier et créditer un paiement LeekPay (appelé au retour de LeekPay)
   app.post("/api/verify-payment", requireAuth, async (req, res) => {
