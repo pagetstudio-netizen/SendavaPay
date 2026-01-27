@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useRoute } from "wouter";
+import { useState, useEffect } from "react";
+import { useRoute, useSearch } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,7 +36,6 @@ import {
   Info,
 } from "lucide-react";
 import logoPath from "@assets/20251211_105226_1765450558306.png";
-import comingSoonImage from "@assets/1767357766910-416405275_1769441573289.png";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
 import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
 import orangeLogo from "@assets/images_1769443862827.png";
@@ -44,15 +43,6 @@ import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
 import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
 import type { PaymentLink } from "@shared/schema";
-
-const methodLogos: Record<string, string> = {
-  mtn: mtnLogo,
-  moov: moovLogo,
-  orange: orangeLogo,
-  tmoney: tmoneyLogo,
-  airtel: airtelLogo,
-  vodacom: vodacomLogo,
-};
 
 const countries = [
   { code: "BJ", name: "Bénin", flag: "\u{1F1E7}\u{1F1EF}", prefix: "+229" },
@@ -96,17 +86,27 @@ const paymentMethodsByCountry: Record<string, { id: string; name: string; logo: 
   ],
 };
 
-function formatCurrency(amount: string | number) {
+function getCurrencyForCountry(countryCode: string): string {
+  switch (countryCode) {
+    case "CD": return "CDF";
+    case "CM":
+    case "CG": return "XAF";
+    default: return "XOF";
+  }
+}
+
+function formatCurrency(amount: string | number, currency: string = "XOF") {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
-  return new Intl.NumberFormat("fr-FR").format(num) + " XOF";
+  return new Intl.NumberFormat("fr-FR").format(num) + " " + currency;
 }
 
 export default function PaymentPage() {
   const [, params] = useRoute("/pay/:code");
+  const searchString = useSearch();
   const { toast } = useToast();
   const [isDarkMode, setIsDarkMode] = useState(false);
   
-  const [step, setStep] = useState<"info" | "payment" | "complete" | "coming_soon">("info");
+  const [step, setStep] = useState<"info" | "payment" | "complete" | "processing">("info");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -114,6 +114,13 @@ export default function PaymentPage() {
   const [paymentMethod, setPaymentMethod] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [customAmount, setCustomAmount] = useState("");
+
+  useEffect(() => {
+    const urlParams = new URLSearchParams(searchString);
+    if (urlParams.get("status") === "success") {
+      setStep("complete");
+    }
+  }, [searchString]);
 
   const { data: paymentLink, isLoading, error } = useQuery<PaymentLink>({
     queryKey: ["/api/pay", params?.code],
@@ -139,8 +146,16 @@ export default function PaymentPage() {
       const res = await apiRequest("POST", `/api/pay/${params?.code}`, data);
       return await res.json();
     },
-    onSuccess: () => {
-      setStep("complete");
+    onSuccess: (data) => {
+      if (data.paymentUrl) {
+        window.location.href = data.paymentUrl;
+      } else {
+        toast({
+          title: "Erreur",
+          description: "URL de paiement non reçue",
+          variant: "destructive",
+        });
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -178,7 +193,7 @@ export default function PaymentPage() {
       if (!customAmount || isNaN(amt) || amt < 100) {
         toast({
           title: "Montant invalide",
-          description: "Veuillez entrer un montant valide (minimum 100 XOF).",
+          description: "Veuillez entrer un montant valide (minimum 100).",
           variant: "destructive",
         });
         return;
@@ -186,7 +201,7 @@ export default function PaymentPage() {
       if (minAmt > 0 && amt < minAmt) {
         toast({
           title: "Montant insuffisant",
-          description: `Le montant minimum est de ${formatCurrency(minAmt)}.`,
+          description: `Le montant minimum est de ${formatCurrency(minAmt, "XOF")}.`,
           variant: "destructive",
         });
         return;
@@ -222,7 +237,16 @@ export default function PaymentPage() {
       return;
     }
 
-    setStep("coming_soon");
+    const fullPhone = `${selectedCountry?.prefix || ""}${phoneNumber}`;
+    
+    payMutation.mutate({
+      payerName: `${firstName} ${lastName}`,
+      payerPhone: fullPhone,
+      payerEmail: email || undefined,
+      payerCountry: country,
+      paymentMethod,
+      paidAmount: paymentLink?.allowCustomAmount ? parseFloat(customAmount) : undefined,
+    });
   };
 
   if (isLoading) {
@@ -292,32 +316,6 @@ export default function PaymentPage() {
     );
   }
 
-  if (step === "coming_soon") {
-    return (
-      <div className={`min-h-screen ${isDarkMode ? 'dark bg-gray-900' : 'bg-gray-50'} flex items-center justify-center p-4`}>
-        <Card className="w-full max-w-md overflow-hidden">
-          <CardContent className="p-8 text-center space-y-6">
-            <img
-              src={comingSoonImage}
-              alt="Bientôt disponible"
-              className="max-w-xs mx-auto w-full h-auto"
-              data-testid="img-payment-coming-soon"
-            />
-            <div className="space-y-2">
-              <h2 className="text-xl font-semibold">Paiement bientôt disponible</h2>
-              <p className="text-muted-foreground">
-                Les paiements via Mobile Money seront bientôt disponibles. Nous travaillons pour vous offrir cette fonctionnalité.
-              </p>
-            </div>
-            <Button onClick={() => setStep("payment")} data-testid="button-back-payment">
-              Retour
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   if (step === "complete") {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
@@ -326,14 +324,13 @@ export default function PaymentPage() {
             <div className="h-20 w-20 mx-auto mb-6 rounded-full bg-green-500 flex items-center justify-center">
               <CheckCircle className="h-10 w-10 text-white" />
             </div>
-            <h2 className="text-xl font-semibold mb-2">Paiement confirmé</h2>
+            <h2 className="text-xl font-semibold mb-2">Paiement en cours de traitement</h2>
             <p className="text-muted-foreground mb-6">
-              Votre commande a été validée avec succès.
-              {email && " Vous allez recevoir un e-mail de confirmation."}
+              Votre paiement a été initié avec succès. Le vendeur sera notifié dès la confirmation.
             </p>
             <div className="bg-muted/50 rounded-lg p-4 mb-6">
-              <p className="text-sm text-muted-foreground">Montant payé</p>
-              <p className="text-2xl font-bold">{formatCurrency(getPaymentAmount())}</p>
+              <p className="text-sm text-muted-foreground">Produit</p>
+              <p className="text-lg font-bold">{paymentLink.title}</p>
             </div>
           </CardContent>
         </Card>
@@ -359,7 +356,7 @@ export default function PaymentPage() {
             </Button>
             <div className="flex items-center gap-1 px-2 py-1 bg-muted rounded-md text-sm">
               <span>{selectedCountry?.flag || countries[0].flag}</span>
-              <span className="font-medium">XOF</span>
+              <span className="font-medium">{getCurrencyForCountry(country || "TG")}</span>
             </div>
           </div>
         </div>
@@ -526,7 +523,7 @@ export default function PaymentPage() {
                 <div className="text-center mb-6 p-4 bg-muted/50 rounded-lg">
                   <p className="text-sm text-muted-foreground">Total dû aujourd'hui</p>
                   <p className="text-3xl font-bold text-primary" data-testid="text-payment-amount">
-                    {formatCurrency(getPaymentAmount())}
+                    {formatCurrency(getPaymentAmount(), getCurrencyForCountry(country))}
                   </p>
                 </div>
 
@@ -615,10 +612,10 @@ export default function PaymentPage() {
                       {payMutation.isPending ? (
                         <>
                           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Traitement...
+                          Redirection...
                         </>
                       ) : (
-                        `Payer ${formatCurrency(getPaymentAmount())}`
+                        `Payer ${formatCurrency(getPaymentAmount(), getCurrencyForCountry(country))}`
                       )}
                     </Button>
                   </div>

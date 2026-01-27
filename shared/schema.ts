@@ -156,6 +156,31 @@ export const withdrawalRequests = pgTable("withdrawal_requests", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const leekpayPaymentStatusEnum = pgEnum("leekpay_payment_status", ["pending", "processing", "completed", "failed", "cancelled", "expired"]);
+
+export const leekpayPayments = pgTable("leekpay_payments", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  leekpayPaymentId: text("leekpay_payment_id").notNull().unique(),
+  userId: integer("user_id").references(() => users.id),
+  paymentLinkId: integer("payment_link_id").references(() => paymentLinks.id),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  currency: text("currency").default("XOF").notNull(),
+  type: text("type").notNull(),
+  status: leekpayPaymentStatusEnum("status").default("pending").notNull(),
+  description: text("description"),
+  customerEmail: text("customer_email"),
+  payerName: text("payer_name"),
+  payerPhone: text("payer_phone"),
+  payerCountry: text("payer_country"),
+  paymentMethod: text("payment_method"),
+  returnUrl: text("return_url"),
+  paymentUrl: text("payment_url"),
+  webhookReceived: boolean("webhook_received").default(false).notNull(),
+  webhookData: text("webhook_data"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
 export const usersRelations = relations(users, ({ many }) => ({
   transactions: many(transactions),
   transfers: many(transfers, { relationName: "sender" }),
@@ -315,3 +340,4 @@ export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type SocialLink = typeof socialLinks.$inferSelect;
 export type WithdrawalRequest = typeof withdrawalRequests.$inferSelect;
 export type InsertWithdrawalRequest = z.infer<typeof insertWithdrawalRequestSchema>;
+export type LeekpayPayment = typeof leekpayPayments.$inferSelect;

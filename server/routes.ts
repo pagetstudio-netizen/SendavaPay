@@ -9,6 +9,7 @@ import { registerSchema, loginSchema } from "@shared/schema";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { leekpay } from "./leekpay";
 
 declare module "express-session" {
   interface SessionData {
@@ -237,35 +238,54 @@ export async function registerRoutes(
 
   app.post("/api/deposit", requireAuth, async (req, res) => {
     try {
-      const { amount, paymentMethod, mobileNumber } = req.body;
+      const { amount, paymentMethod, country } = req.body;
       const numericAmount = parseFloat(amount);
 
       if (isNaN(numericAmount) || numericAmount < 100) {
         return res.status(400).json({ message: "Montant minimum: 100 XOF" });
       }
 
-      const settings = await storage.getCommissionSettings();
-      const commissionRate = parseFloat(settings?.depositRate || "7");
-      const fee = Math.round(numericAmount * (commissionRate / 100));
-      const netAmount = numericAmount - fee;
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) {
+        return res.status(404).json({ message: "Utilisateur non trouvé" });
+      }
 
-      const transaction = await storage.createTransaction({
-        userId: req.session.userId!,
-        type: "deposit",
-        amount: numericAmount.toString(),
-        fee: fee.toString(),
-        netAmount: netAmount.toString(),
-        status: "pending",
-        description: `Dépôt via ${paymentMethod}`,
-        mobileNumber,
+      const currency = country === "rdc" ? "CDF" : (country === "cm" || country === "cg") ? "XAF" : "XOF";
+      const baseUrl = process.env.REPLIT_DEV_DOMAIN 
+        ? `https://${process.env.REPLIT_DEV_DOMAIN}` 
+        : "https://smart-glass.fun";
+
+      const checkoutResult = await leekpay.createCheckout({
+        amount: numericAmount,
+        currency: currency as "XOF" | "XAF" | "CDF" | "EUR" | "USD",
+        description: `Dépôt SendavaPay - ${user.fullName}`,
+        return_url: `${baseUrl}/dashboard/deposit?status=success`,
+        customer_email: user.email,
       });
 
-      setTimeout(async () => {
-        await storage.updateTransactionStatus(transaction.id, "completed");
-        await storage.updateUserBalance(req.session.userId!, netAmount.toString());
-      }, 3000);
+      if (!checkoutResult.success || !checkoutResult.data) {
+        console.error("LeekPay checkout error:", checkoutResult.error);
+        return res.status(500).json({ message: checkoutResult.error || "Erreur lors de la création du paiement" });
+      }
 
-      res.json(transaction);
+      await storage.createLeekpayPayment({
+        leekpayPaymentId: checkoutResult.data.payment_id,
+        userId: req.session.userId!,
+        amount: numericAmount.toString(),
+        currency,
+        type: "deposit",
+        status: "pending",
+        description: `Dépôt via ${paymentMethod}`,
+        customerEmail: user.email,
+        paymentMethod,
+        returnUrl: `${baseUrl}/dashboard/deposit?status=success`,
+        paymentUrl: checkoutResult.data.payment_url,
+      });
+
+      res.json({ 
+        paymentUrl: checkoutResult.data.payment_url,
+        paymentId: checkoutResult.data.payment_id,
+      });
     } catch (error) {
       console.error("Deposit error:", error);
       res.status(500).json({ message: "Erreur lors du dépôt" });
@@ -612,41 +632,53 @@ export async function registerRoutes(
         }
       }
       
-      const settings = await storage.getCommissionSettings();
-      const commissionRate = parseFloat(settings?.depositRate || "7");
-      const fee = Math.round(amount * (commissionRate / 100));
-      const netAmount = amount - fee;
+      // Get link owner details
+      const linkOwner = await storage.getUser(link.userId);
+      if (!linkOwner) {
+        return res.status(404).json({ message: "Propriétaire du lien introuvable" });
+      }
 
-      // Note: Le lien reste actif pour permettre des paiements multiples
-      // Les informations du dernier payeur sont mises à jour pour référence
-      await storage.updatePaymentLink(link.id, {
-        paidAt: new Date(),
+      const currency = payerCountry === "CD" ? "CDF" : (payerCountry === "CM" || payerCountry === "CG") ? "XAF" : "XOF";
+      const baseUrl = process.env.REPLIT_DEV_DOMAIN 
+        ? `https://${process.env.REPLIT_DEV_DOMAIN}` 
+        : "https://smart-glass.fun";
+
+      // Create LeekPay checkout
+      const checkoutResult = await leekpay.createCheckout({
+        amount,
+        currency: currency as "XOF" | "XAF" | "CDF" | "EUR" | "USD",
+        description: `Paiement: ${link.title}`,
+        return_url: `${baseUrl}/pay/${link.linkCode}?status=success`,
+        customer_email: payerEmail,
+      });
+
+      if (!checkoutResult.success || !checkoutResult.data) {
+        console.error("LeekPay checkout error:", checkoutResult.error);
+        return res.status(500).json({ message: checkoutResult.error || "Erreur lors de la création du paiement" });
+      }
+
+      // Store LeekPay payment record
+      await storage.createLeekpayPayment({
+        leekpayPaymentId: checkoutResult.data.payment_id,
+        paymentLinkId: link.id,
+        amount: amount.toString(),
+        currency,
+        type: "payment_link",
+        status: "pending",
+        description: `Paiement: ${link.title}`,
+        customerEmail: payerEmail,
         payerName,
-        payerEmail: payerEmail || null,
         payerPhone,
         payerCountry,
-        paidAmount: amount.toString(),
-      });
-
-      await storage.updateUserBalance(link.userId, netAmount.toString());
-
-      await storage.createTransaction({
-        userId: link.userId,
-        type: "payment_received",
-        amount: amount.toString(),
-        fee: fee.toString(),
-        netAmount: netAmount.toString(),
-        status: "completed",
-        description: `Paiement reçu: ${link.title}`,
-        mobileNumber: payerPhone,
-        payerName,
-        payerEmail: payerEmail || null,
-        payerCountry,
         paymentMethod,
-        paymentLinkId: link.id,
+        returnUrl: `${baseUrl}/pay/${link.linkCode}?status=success`,
+        paymentUrl: checkoutResult.data.payment_url,
       });
 
-      res.json({ message: "Paiement initié" });
+      res.json({ 
+        paymentUrl: checkoutResult.data.payment_url,
+        paymentId: checkoutResult.data.payment_id,
+      });
     } catch (error) {
       console.error("Process payment error:", error);
       res.status(500).json({ message: "Erreur lors du paiement" });
@@ -1003,6 +1035,167 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Update social link error:", error);
       res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // LeekPay Webhook
+  app.post("/api/webhook/leekpay", express.raw({ type: "application/json" }), async (req, res) => {
+    try {
+      const signature = req.headers["x-leekpay-signature"] as string;
+      const payload = req.body.toString();
+      
+      console.log("LeekPay Webhook received:", { signature: signature ? "present" : "missing", payloadLength: payload.length });
+      
+      // Verify signature
+      if (signature && !leekpay.verifyWebhookSignature(payload, signature)) {
+        console.error("LeekPay webhook: Invalid signature");
+        return res.status(401).json({ message: "Invalid signature" });
+      }
+
+      const data = JSON.parse(payload);
+      console.log("LeekPay Webhook data:", JSON.stringify(data, null, 2));
+      
+      const { event, transaction } = data;
+      
+      if (!transaction || !transaction.id) {
+        console.error("LeekPay webhook: Missing transaction data");
+        return res.status(400).json({ message: "Missing transaction data" });
+      }
+
+      // Find the LeekPay payment record
+      const leekpayPayment = await storage.getLeekpayPaymentById(transaction.id.toString());
+      
+      if (!leekpayPayment) {
+        console.error("LeekPay webhook: Payment not found for ID:", transaction.id);
+        return res.status(404).json({ message: "Payment not found" });
+      }
+
+      // Map LeekPay status to our status
+      let status: "pending" | "processing" | "completed" | "failed" | "cancelled" | "expired" = "pending";
+      if (event === "payment.success" || transaction.status === "completed") {
+        status = "completed";
+      } else if (transaction.status === "failed") {
+        status = "failed";
+      } else if (transaction.status === "cancelled") {
+        status = "cancelled";
+      } else if (transaction.status === "expired") {
+        status = "expired";
+      } else if (transaction.status === "processing") {
+        status = "processing";
+      }
+
+      // Update the LeekPay payment record
+      await storage.updateLeekpayPayment(transaction.id.toString(), {
+        status,
+        webhookReceived: true,
+        webhookData: JSON.stringify(data),
+        completedAt: status === "completed" ? new Date() : undefined,
+      });
+
+      // If payment is completed, process the deposit/payment
+      if (status === "completed") {
+        const settings = await storage.getCommissionSettings();
+        const commissionRate = parseFloat(settings?.depositRate || "7");
+        const amount = parseFloat(leekpayPayment.amount);
+        const fee = Math.round(amount * (commissionRate / 100));
+        const netAmount = amount - fee;
+
+        if (leekpayPayment.type === "deposit" && leekpayPayment.userId) {
+          // Create transaction record
+          await storage.createTransaction({
+            userId: leekpayPayment.userId,
+            type: "deposit",
+            amount: amount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: leekpayPayment.description || "Dépôt via LeekPay",
+            externalRef: transaction.id.toString(),
+            paymentMethod: leekpayPayment.paymentMethod || "leekpay",
+          });
+
+          // Update user balance
+          await storage.updateUserBalance(leekpayPayment.userId, netAmount.toString());
+          console.log(`LeekPay: Deposit completed for user ${leekpayPayment.userId}, amount: ${netAmount}`);
+        } else if (leekpayPayment.type === "payment_link" && leekpayPayment.paymentLinkId) {
+          // Get the payment link
+          const link = await storage.getPaymentLink(leekpayPayment.paymentLinkId);
+          if (link) {
+            // Update payment link with payer info
+            await storage.updatePaymentLink(link.id, {
+              paidAt: new Date(),
+              payerName: leekpayPayment.payerName,
+              payerEmail: leekpayPayment.customerEmail || null,
+              payerPhone: leekpayPayment.payerPhone,
+              payerCountry: leekpayPayment.payerCountry,
+              paidAmount: amount.toString(),
+            });
+
+            // Update user balance
+            await storage.updateUserBalance(link.userId, netAmount.toString());
+
+            // Create transaction for the payment link owner
+            await storage.createTransaction({
+              userId: link.userId,
+              type: "payment_received",
+              amount: amount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: `Paiement reçu: ${link.title}`,
+              mobileNumber: leekpayPayment.payerPhone,
+              payerName: leekpayPayment.payerName,
+              payerEmail: leekpayPayment.customerEmail,
+              payerCountry: leekpayPayment.payerCountry,
+              paymentMethod: leekpayPayment.paymentMethod || "leekpay",
+              paymentLinkId: link.id,
+              externalRef: transaction.id.toString(),
+            });
+            
+            console.log(`LeekPay: Payment received for link ${link.id}, amount: ${netAmount}`);
+          }
+        }
+      }
+
+      res.status(200).json({ received: true });
+    } catch (error) {
+      console.error("LeekPay webhook error:", error);
+      res.status(500).json({ message: "Webhook processing error" });
+    }
+  });
+
+  // Check LeekPay payment status
+  app.get("/api/leekpay/status/:paymentId", requireAuth, async (req, res) => {
+    try {
+      const { paymentId } = req.params;
+      
+      // First check our database
+      const payment = await storage.getLeekpayPaymentById(paymentId);
+      if (!payment) {
+        return res.status(404).json({ message: "Paiement introuvable" });
+      }
+
+      // If already completed, return from database
+      if (payment.status === "completed") {
+        return res.json({ status: payment.status, payment });
+      }
+
+      // Otherwise, check with LeekPay API
+      const statusResult = await leekpay.getPaymentStatus(paymentId);
+      if (statusResult.success && statusResult.data) {
+        // Update our record if status changed
+        if (statusResult.data.status !== payment.status) {
+          await storage.updateLeekpayPayment(paymentId, {
+            status: statusResult.data.status,
+          });
+        }
+        return res.json({ status: statusResult.data.status, payment: { ...payment, status: statusResult.data.status } });
+      }
+
+      res.json({ status: payment.status, payment });
+    } catch (error) {
+      console.error("Check LeekPay status error:", error);
+      res.status(500).json({ message: "Erreur lors de la vérification" });
     }
   });
 
