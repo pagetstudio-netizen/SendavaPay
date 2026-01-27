@@ -121,7 +121,7 @@ export class SoleasPayClient {
       console.log("📡 SoleasPay: Amount:", params.amount, params.currency);
       console.log("📡 SoleasPay: Order ID:", params.orderId);
 
-      const response = await fetch(`${SOLEASPAY_API_URL}/api/agent/bills/V3`, {
+      const response = await fetch(`${SOLEASPAY_API_URL}/api/agent/bills/v3`, {
         method: "POST",
         headers: {
           "x-api-key": this.apiKey,
