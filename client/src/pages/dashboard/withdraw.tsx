@@ -19,7 +19,6 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Loader2, Info, ArrowLeft, Shield, Clock, CheckCircle, XCircle, Wallet } from "lucide-react";
 import { Link } from "wouter";
-import comingSoonImage from "@assets/1767357766910-416405275_1769441573289.png";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
 import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
 import orangeLogo from "@assets/images_1769443862827.png";
@@ -124,7 +123,6 @@ export default function WithdrawPage() {
   const [paymentMethod, setPaymentMethod] = useState("");
   const [mobileNumber, setMobileNumber] = useState(user?.phone || "");
   const [walletName, setWalletName] = useState("");
-  const [showComingSoon, setShowComingSoon] = useState(false);
 
   const { data: withdrawalRequests = [], isLoading: requestsLoading } = useQuery<WithdrawalRequest[]>({
     queryKey: ["/api/withdrawal-requests"],
@@ -212,7 +210,13 @@ export default function WithdrawPage() {
       return;
     }
 
-    setShowComingSoon(true);
+    withdrawMutation.mutate({
+      amount: numericAmount,
+      paymentMethod,
+      mobileNumber,
+      country,
+      walletName,
+    });
   };
 
   const handleMaxAmount = () => {
@@ -234,43 +238,6 @@ export default function WithdrawPage() {
     }).format(new Date(date));
   };
 
-  if (showComingSoon) {
-    return (
-      <DashboardLayout>
-        <div className="max-w-2xl mx-auto space-y-6">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => setShowComingSoon(false)}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div>
-              <h1 className="text-2xl font-bold">Retrait</h1>
-              <p className="text-muted-foreground">Demandez un retrait vers votre Mobile Money</p>
-            </div>
-          </div>
-
-          <Card>
-            <CardContent className="p-8 text-center space-y-6">
-              <img
-                src={comingSoonImage}
-                alt="Bientôt disponible"
-                className="max-w-sm mx-auto w-full h-auto"
-                data-testid="img-withdraw-coming-soon"
-              />
-              <div className="space-y-2">
-                <h2 className="text-xl font-semibold">Fonctionnalité bientôt disponible</h2>
-                <p className="text-muted-foreground">
-                  Les retraits vers Mobile Money seront bientôt disponibles. Nous travaillons pour vous offrir cette fonctionnalité.
-                </p>
-              </div>
-              <Button onClick={() => setShowComingSoon(false)} data-testid="button-back-withdraw">
-                Retour
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </DashboardLayout>
-    );
-  }
 
   if (!user?.isVerified) {
     return (
