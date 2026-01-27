@@ -106,7 +106,7 @@ export default function PaymentPage() {
   const { toast } = useToast();
   const [isDarkMode, setIsDarkMode] = useState(false);
   
-  const [step, setStep] = useState<"info" | "payment" | "complete" | "processing">("info");
+  const [step, setStep] = useState<"info" | "payment" | "complete" | "processing" | "verifying">("info");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -114,11 +114,38 @@ export default function PaymentPage() {
   const [paymentMethod, setPaymentMethod] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [customAmount, setCustomAmount] = useState("");
+  const [verificationMessage, setVerificationMessage] = useState("");
 
   useEffect(() => {
     const urlParams = new URLSearchParams(searchString);
     if (urlParams.get("status") === "success") {
-      setStep("complete");
+      // Récupérer le paymentId stocké
+      const storedPaymentId = localStorage.getItem("lastLinkPaymentId");
+      if (storedPaymentId) {
+        setStep("verifying");
+        // Vérifier le statut du paiement
+        fetch("/api/verify-link-payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paymentId: storedPaymentId }),
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data.status === "completed") {
+              setVerificationMessage(data.message || "Paiement effectué avec succès!");
+              localStorage.removeItem("lastLinkPaymentId");
+            } else {
+              setVerificationMessage("Paiement en cours de traitement. Vous recevrez une confirmation par email.");
+            }
+            setStep("complete");
+          })
+          .catch(() => {
+            setVerificationMessage("Vérification du paiement en cours...");
+            setStep("complete");
+          });
+      } else {
+        setStep("complete");
+      }
     }
   }, [searchString]);
 
@@ -148,6 +175,10 @@ export default function PaymentPage() {
     },
     onSuccess: (data) => {
       if (data.paymentUrl) {
+        // Stocker le paymentId pour vérification au retour
+        if (data.paymentId) {
+          localStorage.setItem("lastLinkPaymentId", data.paymentId);
+        }
         window.location.href = data.paymentUrl;
       } else {
         toast({
@@ -316,22 +347,49 @@ export default function PaymentPage() {
     );
   }
 
-  if (step === "complete") {
+  if (step === "verifying") {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
         <Card className="w-full max-w-md overflow-hidden">
           <CardContent className="p-8 text-center">
-            <div className="h-20 w-20 mx-auto mb-6 rounded-full bg-green-500 flex items-center justify-center">
-              <CheckCircle className="h-10 w-10 text-white" />
+            <div className="h-20 w-20 mx-auto mb-6 rounded-full bg-blue-500 flex items-center justify-center">
+              <Loader2 className="h-10 w-10 text-white animate-spin" />
             </div>
-            <h2 className="text-xl font-semibold mb-2">Paiement en cours de traitement</h2>
+            <h2 className="text-xl font-semibold mb-2">Vérification du paiement...</h2>
             <p className="text-muted-foreground mb-6">
-              Votre paiement a été initié avec succès. Le vendeur sera notifié dès la confirmation.
+              Nous vérifions le statut de votre paiement. Veuillez patienter.
             </p>
-            <div className="bg-muted/50 rounded-lg p-4 mb-6">
-              <p className="text-sm text-muted-foreground">Produit</p>
-              <p className="text-lg font-bold">{paymentLink.title}</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (step === "complete") {
+    const isCompleted = verificationMessage.includes("succès");
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md overflow-hidden">
+          <CardContent className="p-8 text-center">
+            <div className={`h-20 w-20 mx-auto mb-6 rounded-full ${isCompleted ? 'bg-green-500' : 'bg-yellow-500'} flex items-center justify-center`}>
+              {isCompleted ? (
+                <CheckCircle className="h-10 w-10 text-white" />
+              ) : (
+                <Clock className="h-10 w-10 text-white" />
+              )}
             </div>
+            <h2 className="text-xl font-semibold mb-2">
+              {isCompleted ? "Paiement réussi!" : "Paiement en cours de traitement"}
+            </h2>
+            <p className="text-muted-foreground mb-6">
+              {verificationMessage || "Votre paiement a été initié avec succès. Le vendeur sera notifié dès la confirmation."}
+            </p>
+            {paymentLink && (
+              <div className="bg-muted/50 rounded-lg p-4 mb-6">
+                <p className="text-sm text-muted-foreground">Produit</p>
+                <p className="text-lg font-bold">{paymentLink.title}</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

@@ -291,6 +291,117 @@ export async function registerRoutes(
     }
   });
 
+  // Vérifier et traiter le statut d'un paiement LeekPay
+  app.post("/api/verify-payment", requireAuth, async (req, res) => {
+    try {
+      const { paymentId } = req.body;
+      
+      if (!paymentId) {
+        return res.status(400).json({ message: "paymentId requis" });
+      }
+
+      console.log("Verifying payment status for:", paymentId);
+
+      // Vérifier d'abord si le paiement existe dans notre base
+      const leekpayPayment = await storage.getLeekpayPaymentById(paymentId);
+      
+      if (!leekpayPayment) {
+        return res.status(404).json({ message: "Paiement non trouvé" });
+      }
+
+      // Si déjà complété, retourner le statut
+      if (leekpayPayment.status === "completed") {
+        return res.json({ status: "completed", message: "Paiement déjà traité" });
+      }
+
+      // Vérifier le statut auprès de LeekPay
+      const statusResult = await leekpay.getPaymentStatus(paymentId);
+      console.log("LeekPay status result:", JSON.stringify(statusResult));
+      
+      if (!statusResult.success || !statusResult.data) {
+        return res.json({ status: leekpayPayment.status, message: "Impossible de vérifier le statut" });
+      }
+
+      const leekpayStatus = statusResult.data.status;
+      
+      // Si le paiement est complété chez LeekPay mais pas chez nous
+      if (leekpayStatus === "completed" && leekpayPayment.status !== "completed") {
+        console.log("Payment completed at LeekPay, processing locally...");
+        
+        const settings = await storage.getCommissionSettings();
+        const commissionRate = parseFloat(settings?.depositRate || "7");
+        const amount = parseFloat(leekpayPayment.amount);
+        const fee = Math.round(amount * (commissionRate / 100));
+        const netAmount = amount - fee;
+
+        // Mettre à jour le paiement LeekPay
+        await storage.updateLeekpayPayment(paymentId, {
+          status: "completed",
+          webhookReceived: true,
+          completedAt: new Date(),
+        });
+
+        if (leekpayPayment.type === "deposit" && leekpayPayment.userId) {
+          // Créer la transaction
+          await storage.createTransaction({
+            userId: leekpayPayment.userId,
+            type: "deposit",
+            amount: amount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: leekpayPayment.description || "Dépôt via LeekPay",
+            externalRef: paymentId,
+            paymentMethod: leekpayPayment.paymentMethod || "leekpay",
+          });
+
+          // Mettre à jour le solde
+          await storage.updateUserBalance(leekpayPayment.userId, netAmount.toString());
+          
+          console.log(`Payment verified and credited: user ${leekpayPayment.userId}, amount: ${netAmount}`);
+          return res.json({ status: "completed", message: `Dépôt de ${netAmount} ${leekpayPayment.currency} crédité` });
+        } else if (leekpayPayment.type === "payment_link" && leekpayPayment.paymentLinkId) {
+          const link = await storage.getPaymentLink(leekpayPayment.paymentLinkId);
+          if (link) {
+            await storage.updatePaymentLink(link.id, {
+              paidAt: new Date(),
+              payerName: leekpayPayment.payerName,
+              payerEmail: leekpayPayment.customerEmail || null,
+              payerPhone: leekpayPayment.payerPhone,
+              payerCountry: leekpayPayment.payerCountry,
+              paidAmount: amount.toString(),
+            });
+
+            await storage.createTransaction({
+              userId: link.userId,
+              type: "payment_received",
+              amount: amount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: `Paiement reçu: ${link.title}`,
+              externalRef: paymentId,
+              paymentMethod: leekpayPayment.paymentMethod || "leekpay",
+            });
+
+            await storage.updateUserBalance(link.userId, netAmount.toString());
+            
+            console.log(`Payment link verified and credited: user ${link.userId}, amount: ${netAmount}`);
+            return res.json({ status: "completed", message: `Paiement de ${netAmount} ${leekpayPayment.currency} crédité` });
+          }
+        }
+      } else if (leekpayStatus !== leekpayPayment.status) {
+        // Mettre à jour le statut si différent
+        await storage.updateLeekpayPayment(paymentId, { status: leekpayStatus as any });
+      }
+
+      res.json({ status: leekpayStatus, message: "Statut vérifié" });
+    } catch (error) {
+      console.error("Verify payment error:", error);
+      res.status(500).json({ message: "Erreur lors de la vérification" });
+    }
+  });
+
   const countryPaymentMethods: Record<string, string[]> = {
     togo: ["moov", "tmoney"],
     cote_ivoire: ["wave", "mtn", "orange", "moov"],
@@ -680,6 +791,91 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Process payment error:", error);
       res.status(500).json({ message: "Erreur lors du paiement" });
+    }
+  });
+
+  // Vérifier le statut d'un paiement par lien (public - pour les payeurs non authentifiés)
+  app.post("/api/verify-link-payment", async (req, res) => {
+    try {
+      const { paymentId } = req.body;
+      
+      if (!paymentId) {
+        return res.status(400).json({ message: "paymentId requis" });
+      }
+
+      console.log("Verifying link payment status for:", paymentId);
+
+      const leekpayPayment = await storage.getLeekpayPaymentById(paymentId);
+      
+      if (!leekpayPayment) {
+        return res.status(404).json({ message: "Paiement non trouvé" });
+      }
+
+      if (leekpayPayment.status === "completed") {
+        return res.json({ status: "completed", message: "Paiement effectué avec succès!" });
+      }
+
+      // Vérifier le statut auprès de LeekPay
+      const statusResult = await leekpay.getPaymentStatus(paymentId);
+      console.log("LeekPay link payment status result:", JSON.stringify(statusResult));
+      
+      if (!statusResult.success || !statusResult.data) {
+        return res.json({ status: leekpayPayment.status, message: "Vérification en cours..." });
+      }
+
+      const leekpayStatus = statusResult.data.status;
+      
+      if (leekpayStatus === "completed" && leekpayPayment.status !== "completed") {
+        console.log("Link payment completed at LeekPay, processing locally...");
+        
+        const settings = await storage.getCommissionSettings();
+        const commissionRate = parseFloat(settings?.depositRate || "7");
+        const amount = parseFloat(leekpayPayment.amount);
+        const fee = Math.round(amount * (commissionRate / 100));
+        const netAmount = amount - fee;
+
+        await storage.updateLeekpayPayment(paymentId, {
+          status: "completed",
+          webhookReceived: true,
+          completedAt: new Date(),
+        });
+
+        if (leekpayPayment.paymentLinkId) {
+          const link = await storage.getPaymentLink(leekpayPayment.paymentLinkId);
+          if (link) {
+            await storage.updatePaymentLink(link.id, {
+              paidAt: new Date(),
+              payerName: leekpayPayment.payerName,
+              payerEmail: leekpayPayment.customerEmail || null,
+              payerPhone: leekpayPayment.payerPhone,
+              payerCountry: leekpayPayment.payerCountry,
+              paidAmount: amount.toString(),
+            });
+
+            await storage.createTransaction({
+              userId: link.userId,
+              type: "payment_received",
+              amount: amount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: `Paiement reçu: ${link.title}`,
+              externalRef: paymentId,
+              paymentMethod: leekpayPayment.paymentMethod || "leekpay",
+            });
+
+            await storage.updateUserBalance(link.userId, netAmount.toString());
+            
+            console.log(`Link payment verified and credited: user ${link.userId}, amount: ${netAmount}`);
+            return res.json({ status: "completed", message: "Paiement effectué avec succès!" });
+          }
+        }
+      }
+
+      res.json({ status: leekpayStatus, message: "Vérification en cours..." });
+    } catch (error) {
+      console.error("Verify link payment error:", error);
+      res.status(500).json({ message: "Erreur lors de la vérification" });
     }
   });
 
