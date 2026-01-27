@@ -102,6 +102,7 @@ export interface IStorage {
   getLeekpayPaymentById(leekpayPaymentId: string): Promise<LeekpayPayment | undefined>;
   updateLeekpayPayment(leekpayPaymentId: string, updates: Partial<LeekpayPayment>): Promise<LeekpayPayment | undefined>;
   getLeekpayPaymentsByUser(userId: number): Promise<LeekpayPayment[]>;
+  getPendingLeekpayPayments(): Promise<LeekpayPayment[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -445,6 +446,10 @@ export class DatabaseStorage implements IStorage {
 
   async getLeekpayPaymentsByUser(userId: number): Promise<LeekpayPayment[]> {
     return db.select().from(leekpayPayments).where(eq(leekpayPayments.userId, userId)).orderBy(desc(leekpayPayments.createdAt));
+  }
+
+  async getPendingLeekpayPayments(): Promise<LeekpayPayment[]> {
+    return db.select().from(leekpayPayments).where(eq(leekpayPayments.status, "pending")).orderBy(desc(leekpayPayments.createdAt));
   }
 }
 
