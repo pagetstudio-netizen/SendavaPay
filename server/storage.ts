@@ -16,6 +16,13 @@ import {
   type WithdrawalRequest,
   type InsertWithdrawalRequest,
   type LeekpayPayment,
+  type WithdrawalNumber,
+  type Country,
+  type Operator,
+  type GlobalMessage,
+  type AdminNotification,
+  type UserNotification,
+  type AuditLog,
   users,
   transactions,
   transfers,
@@ -26,6 +33,13 @@ import {
   socialLinks,
   withdrawalRequests,
   leekpayPayments,
+  withdrawalNumbers,
+  countries,
+  operators,
+  globalMessages,
+  adminNotifications,
+  userNotifications,
+  auditLogs,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, or, and, desc, sql } from "drizzle-orm";
@@ -460,6 +474,143 @@ export class DatabaseStorage implements IStorage {
 
   async getPendingLeekpayPayments(): Promise<LeekpayPayment[]> {
     return db.select().from(leekpayPayments).where(eq(leekpayPayments.status, "pending")).orderBy(desc(leekpayPayments.createdAt));
+  }
+
+  async getWithdrawalNumbers(): Promise<WithdrawalNumber[]> {
+    return db.select().from(withdrawalNumbers).orderBy(desc(withdrawalNumbers.createdAt));
+  }
+
+  async createWithdrawalNumber(data: Partial<WithdrawalNumber>): Promise<WithdrawalNumber> {
+    const [newNumber] = await db.insert(withdrawalNumbers).values(data as any).returning();
+    return newNumber;
+  }
+
+  async updateWithdrawalNumber(id: number, updates: Partial<WithdrawalNumber>): Promise<WithdrawalNumber | undefined> {
+    const [updated] = await db.update(withdrawalNumbers).set({ ...updates, updatedAt: new Date() }).where(eq(withdrawalNumbers.id, id)).returning();
+    return updated;
+  }
+
+  async deleteWithdrawalNumber(id: number): Promise<void> {
+    await db.delete(withdrawalNumbers).where(eq(withdrawalNumbers.id, id));
+  }
+
+  async getCountries(): Promise<Country[]> {
+    return db.select().from(countries).orderBy(countries.name);
+  }
+
+  async createCountry(data: Partial<Country>): Promise<Country> {
+    const [newCountry] = await db.insert(countries).values(data as any).returning();
+    return newCountry;
+  }
+
+  async updateCountry(id: number, updates: Partial<Country>): Promise<Country | undefined> {
+    const [updated] = await db.update(countries).set(updates).where(eq(countries.id, id)).returning();
+    return updated;
+  }
+
+  async deleteCountry(id: number): Promise<void> {
+    await db.delete(countries).where(eq(countries.id, id));
+  }
+
+  async getOperators(): Promise<Operator[]> {
+    return db.select().from(operators).orderBy(operators.name);
+  }
+
+  async getOperatorsByCountry(countryId: number): Promise<Operator[]> {
+    return db.select().from(operators).where(eq(operators.countryId, countryId)).orderBy(operators.name);
+  }
+
+  async createOperator(data: Partial<Operator>): Promise<Operator> {
+    const [newOperator] = await db.insert(operators).values(data as any).returning();
+    return newOperator;
+  }
+
+  async updateOperator(id: number, updates: Partial<Operator>): Promise<Operator | undefined> {
+    const [updated] = await db.update(operators).set(updates).where(eq(operators.id, id)).returning();
+    return updated;
+  }
+
+  async deleteOperator(id: number): Promise<void> {
+    await db.delete(operators).where(eq(operators.id, id));
+  }
+
+  async getGlobalMessages(): Promise<GlobalMessage[]> {
+    return db.select().from(globalMessages).orderBy(desc(globalMessages.createdAt));
+  }
+
+  async createGlobalMessage(data: Partial<GlobalMessage>): Promise<GlobalMessage> {
+    const [newMessage] = await db.insert(globalMessages).values(data as any).returning();
+    return newMessage;
+  }
+
+  async getAdminNotifications(): Promise<AdminNotification[]> {
+    return db.select().from(adminNotifications).orderBy(desc(adminNotifications.createdAt)).limit(50);
+  }
+
+  async getUnreadAdminNotificationsCount(): Promise<number> {
+    const result = await db.select().from(adminNotifications).where(eq(adminNotifications.isRead, false));
+    return result.length;
+  }
+
+  async createAdminNotification(data: Partial<AdminNotification>): Promise<AdminNotification> {
+    const [newNotification] = await db.insert(adminNotifications).values(data as any).returning();
+    return newNotification;
+  }
+
+  async markAdminNotificationRead(id: number): Promise<void> {
+    await db.update(adminNotifications).set({ isRead: true }).where(eq(adminNotifications.id, id));
+  }
+
+  async markAllAdminNotificationsRead(): Promise<void> {
+    await db.update(adminNotifications).set({ isRead: true });
+  }
+
+  async getUserNotifications(userId: number): Promise<UserNotification[]> {
+    return db.select().from(userNotifications).where(eq(userNotifications.userId, userId)).orderBy(desc(userNotifications.createdAt)).limit(50);
+  }
+
+  async createUserNotification(data: Partial<UserNotification>): Promise<UserNotification> {
+    const [newNotification] = await db.insert(userNotifications).values(data as any).returning();
+    return newNotification;
+  }
+
+  async markUserNotificationRead(id: number): Promise<void> {
+    await db.update(userNotifications).set({ isRead: true }).where(eq(userNotifications.id, id));
+  }
+
+  async getAuditLogs(): Promise<(AuditLog & { user?: User })[]> {
+    const logs = await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(500);
+    const result: (AuditLog & { user?: User })[] = [];
+    for (const log of logs) {
+      const user = log.userId ? await this.getUser(log.userId) : undefined;
+      result.push({ ...log, user });
+    }
+    return result;
+  }
+
+  async createAuditLog(data: { userId?: number; action: string; details?: string; ipAddress?: string }): Promise<AuditLog> {
+    const [newLog] = await db.insert(auditLogs).values(data as any).returning();
+    return newLog;
+  }
+
+  async getAllPaymentLinks(): Promise<(PaymentLink & { user?: User })[]> {
+    const links = await db.select().from(paymentLinks).orderBy(desc(paymentLinks.createdAt));
+    const result: (PaymentLink & { user?: User })[] = [];
+    for (const link of links) {
+      const user = await this.getUser(link.userId);
+      result.push({ ...link, user });
+    }
+    return result;
+  }
+
+  async deleteUser(id: number): Promise<void> {
+    await db.delete(transactions).where(eq(transactions.userId, id));
+    await db.delete(paymentLinks).where(eq(paymentLinks.userId, id));
+    await db.delete(apiKeys).where(eq(apiKeys.userId, id));
+    await db.delete(kycRequests).where(eq(kycRequests.userId, id));
+    await db.delete(withdrawalRequests).where(eq(withdrawalRequests.userId, id));
+    await db.delete(userNotifications).where(eq(userNotifications.userId, id));
+    await db.delete(users).where(eq(users.id, id));
   }
 }
 
