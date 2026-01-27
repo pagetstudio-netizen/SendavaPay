@@ -1,6 +1,9 @@
 import crypto from "crypto";
 
-const LEEKPAY_API_URL = "https://api.leekpay.me/api/v1";
+const LEEKPAY_API_URL = "https://leekpay.fr/api/v1";
+
+// Clé publique pour vérifier les signatures webhook
+const LEEKPAY_PUBLIC_KEY = "pk_live_FhkRT29oZFuAr4WnhMqKFvmT3bwPyYrb";
 
 interface CheckoutParams {
   amount: number;
@@ -36,13 +39,32 @@ interface PaymentStatusResponse {
   error?: string;
 }
 
+// Format du webhook LeekPay
+export interface LeekPayWebhookPayload {
+  event: "payment.success" | "payment.failed" | "payment.cancelled" | "payment.expired";
+  transaction: {
+    id: number;
+    amount: number;
+    currency: string;
+    status: string;
+    customer_email?: string;
+    description?: string;
+    created_at: string;
+  };
+}
+
 export class LeekPayService {
   private secretKey: string;
+  private publicKey: string;
 
   constructor() {
-    this.secretKey = process.env.SLACK_LIVE_API_KEY || "";
+    // Clé secrète pour l'authentification API (Bearer token)
+    this.secretKey = process.env.SK_LIVE || process.env.SLACK_LIVE_API_KEY || "";
+    // Clé publique pour vérifier les signatures webhook
+    this.publicKey = LEEKPAY_PUBLIC_KEY;
+    
     if (!this.secretKey) {
-      console.warn("LeekPay: Clé secrète non configurée");
+      console.warn("LeekPay: Clé secrète non configurée (SK_LIVE)");
     }
   }
 
@@ -127,12 +149,24 @@ export class LeekPayService {
     }
   }
 
+  // Vérifier la signature du webhook avec la clé publique
   verifyWebhookSignature(payload: string, signature: string): boolean {
     try {
+      // Selon la documentation, la signature est calculée avec la clé publique
       const expectedSignature = crypto
-        .createHmac("sha256", this.secretKey)
+        .createHmac("sha256", this.publicKey)
         .update(payload)
         .digest("hex");
+      
+      console.log("LeekPay: Verifying webhook signature");
+      console.log("LeekPay: Received signature:", signature);
+      console.log("LeekPay: Expected signature:", expectedSignature);
+      
+      // Comparaison sécurisée des signatures
+      if (signature.length !== expectedSignature.length) {
+        console.log("LeekPay: Signature length mismatch");
+        return false;
+      }
       
       return crypto.timingSafeEqual(
         Buffer.from(signature),
