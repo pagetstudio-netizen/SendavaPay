@@ -1381,138 +1381,222 @@ export async function registerRoutes(
     }
   });
 
-  // LeekPay Webhook
-  app.post("/api/webhook/leekpay", express.raw({ type: "application/json" }), async (req, res) => {
+  // LeekPay Webhook - Supporte plusieurs formats de données
+  app.post("/api/webhook/leekpay", express.json(), async (req, res) => {
     try {
       const signature = req.headers["x-leekpay-signature"] as string;
-      const payload = req.body.toString();
+      const data = req.body;
       
       console.log("=== LeekPay Webhook received ===");
+      console.log("Timestamp:", new Date().toISOString());
       console.log("Signature:", signature ? "present" : "missing");
-      console.log("Payload length:", payload.length);
-      console.log("Payload:", payload);
+      console.log("Data:", JSON.stringify(data, null, 2));
       console.log("Headers:", JSON.stringify(req.headers));
       
-      // Verify signature (log but don't reject for now to debug)
+      // Vérifier que les données ne sont pas vides ou malformées
+      if (!data || Object.keys(data).length === 0) {
+        console.error("LeekPay webhook: Empty or malformed request");
+        return res.status(400).json({ status: "error", message: "Requête vide ou malformée" });
+      }
+
+      // Vérifier la signature si présente
       if (signature) {
-        const isValid = leekpay.verifyWebhookSignature(payload, signature);
+        const isValid = leekpay.verifyWebhookSignature(JSON.stringify(data), signature);
         console.log("Signature verification:", isValid ? "VALID" : "INVALID");
         if (!isValid) {
-          console.warn("LeekPay webhook: Signature mismatch - continuing anyway for debugging");
+          console.warn("LeekPay webhook: Signature mismatch - continuing for debugging");
         }
       } else {
-        console.warn("LeekPay webhook: No signature provided - continuing anyway for debugging");
+        console.warn("LeekPay webhook: No signature provided");
       }
 
-      const data = JSON.parse(payload);
-      console.log("LeekPay Webhook data:", JSON.stringify(data, null, 2));
+      // Extraire les données selon le format reçu
+      // Format 1: { event, data: { reference, amount, status, currency, metadata: { user_id } } }
+      // Format 2: { event, transaction: { id, status, ... } }
       
-      const { event, transaction } = data;
+      let paymentReference: string | null = null;
+      let paymentStatus: string | null = null;
+      let paymentAmount: number | null = null;
+      let paymentCurrency: string | null = null;
+      let userId: number | null = null;
+      let eventType: string = data.event || "";
+
+      // Format avec "data" (nouveau format)
+      if (data.data) {
+        paymentReference = data.data.reference || data.data.id || null;
+        paymentStatus = data.data.status || null;
+        paymentAmount = parseFloat(data.data.amount) || null;
+        paymentCurrency = data.data.currency || "XOF";
+        
+        // Récupérer l'user_id depuis metadata
+        if (data.data.metadata && data.data.metadata.user_id) {
+          userId = parseInt(data.data.metadata.user_id);
+        }
+      }
       
-      if (!transaction || !transaction.id) {
-        console.error("LeekPay webhook: Missing transaction data");
-        return res.status(400).json({ message: "Missing transaction data" });
+      // Format avec "transaction" (ancien format)
+      if (data.transaction) {
+        paymentReference = data.transaction.id?.toString() || data.transaction.reference || null;
+        paymentStatus = data.transaction.status || null;
+        paymentAmount = parseFloat(data.transaction.amount) || null;
+        paymentCurrency = data.transaction.currency || "XOF";
       }
 
-      // Find the LeekPay payment record
-      const leekpayPayment = await storage.getLeekpayPaymentById(transaction.id.toString());
+      console.log("Parsed data:", { paymentReference, paymentStatus, paymentAmount, eventType, userId });
+
+      // Vérifier que nous avons au moins une référence
+      if (!paymentReference) {
+        console.error("LeekPay webhook: Missing payment reference");
+        return res.status(400).json({ status: "error", message: "Référence de paiement manquante" });
+      }
+
+      // Déterminer si le paiement est réussi
+      const isSuccess = 
+        eventType === "payment_successful" || 
+        eventType === "payment.success" || 
+        paymentStatus === "success" || 
+        paymentStatus === "completed";
+
+      const isFailed = 
+        eventType === "payment_failed" || 
+        eventType === "payment.failed" || 
+        paymentStatus === "failed" || 
+        paymentStatus === "error";
+
+      // Chercher le paiement dans notre base de données
+      let leekpayPayment = await storage.getLeekpayPaymentById(paymentReference);
       
-      if (!leekpayPayment) {
-        console.error("LeekPay webhook: Payment not found for ID:", transaction.id);
-        return res.status(404).json({ message: "Payment not found" });
+      // Si pas trouvé par référence et qu'on a un user_id, essayer de trouver le dernier paiement en attente
+      if (!leekpayPayment && userId) {
+        console.log(`LeekPay webhook: Payment not found by reference, checking pending payments for user ${userId}`);
+        // On continue quand même pour traiter le paiement
       }
 
-      // Map LeekPay status to our status
-      let status: "pending" | "processing" | "completed" | "failed" | "cancelled" | "expired" = "pending";
-      if (event === "payment.success" || transaction.status === "completed") {
-        status = "completed";
-      } else if (transaction.status === "failed") {
-        status = "failed";
-      } else if (transaction.status === "cancelled") {
-        status = "cancelled";
-      } else if (transaction.status === "expired") {
-        status = "expired";
-      } else if (transaction.status === "processing") {
-        status = "processing";
-      }
+      if (leekpayPayment) {
+        // Mapper le statut
+        let status: "pending" | "processing" | "completed" | "failed" | "cancelled" | "expired" = "pending";
+        if (isSuccess) {
+          status = "completed";
+        } else if (isFailed) {
+          status = "failed";
+        } else if (paymentStatus === "cancelled") {
+          status = "cancelled";
+        } else if (paymentStatus === "expired") {
+          status = "expired";
+        } else if (paymentStatus === "processing") {
+          status = "processing";
+        }
 
-      // Update the LeekPay payment record
-      await storage.updateLeekpayPayment(transaction.id.toString(), {
-        status,
-        webhookReceived: true,
-        webhookData: JSON.stringify(data),
-        completedAt: status === "completed" ? new Date() : undefined,
-      });
+        // Mettre à jour le paiement LeekPay
+        await storage.updateLeekpayPayment(paymentReference, {
+          status,
+          webhookReceived: true,
+          webhookData: JSON.stringify(data),
+          completedAt: status === "completed" ? new Date() : undefined,
+        });
 
-      // If payment is completed, process the deposit/payment
-      if (status === "completed") {
-        const settings = await storage.getCommissionSettings();
-        const commissionRate = parseFloat(settings?.depositRate || "7");
-        const amount = parseFloat(leekpayPayment.amount);
-        const fee = Math.round(amount * (commissionRate / 100));
-        const netAmount = amount - fee;
+        // Si le paiement est réussi, créditer le compte
+        if (status === "completed") {
+          const settings = await storage.getCommissionSettings();
+          const commissionRate = parseFloat(settings?.depositRate || "7");
+          const amount = paymentAmount || parseFloat(leekpayPayment.amount);
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
 
-        if (leekpayPayment.type === "deposit" && leekpayPayment.userId) {
-          // Create transaction record
-          await storage.createTransaction({
-            userId: leekpayPayment.userId,
-            type: "deposit",
-            amount: amount.toString(),
-            fee: fee.toString(),
-            netAmount: netAmount.toString(),
-            status: "completed",
-            description: leekpayPayment.description || "Dépôt via LeekPay",
-            externalRef: transaction.id.toString(),
-            paymentMethod: leekpayPayment.paymentMethod || "leekpay",
-          });
-
-          // Update user balance
-          await storage.updateUserBalance(leekpayPayment.userId, netAmount.toString());
-          console.log(`LeekPay: Deposit completed for user ${leekpayPayment.userId}, amount: ${netAmount}`);
-        } else if (leekpayPayment.type === "payment_link" && leekpayPayment.paymentLinkId) {
-          // Get the payment link
-          const link = await storage.getPaymentLink(leekpayPayment.paymentLinkId);
-          if (link) {
-            // Update payment link with payer info
-            await storage.updatePaymentLink(link.id, {
-              paidAt: new Date(),
-              payerName: leekpayPayment.payerName,
-              payerEmail: leekpayPayment.customerEmail || null,
-              payerPhone: leekpayPayment.payerPhone,
-              payerCountry: leekpayPayment.payerCountry,
-              paidAmount: amount.toString(),
-            });
-
-            // Update user balance
-            await storage.updateUserBalance(link.userId, netAmount.toString());
-
-            // Create transaction for the payment link owner
+          if (leekpayPayment.type === "deposit" && leekpayPayment.userId) {
+            // Créer la transaction
             await storage.createTransaction({
-              userId: link.userId,
-              type: "payment_received",
+              userId: leekpayPayment.userId,
+              type: "deposit",
               amount: amount.toString(),
               fee: fee.toString(),
               netAmount: netAmount.toString(),
               status: "completed",
-              description: `Paiement reçu: ${link.title}`,
-              mobileNumber: leekpayPayment.payerPhone,
-              payerName: leekpayPayment.payerName,
-              payerEmail: leekpayPayment.customerEmail,
-              payerCountry: leekpayPayment.payerCountry,
+              description: leekpayPayment.description || "Dépôt via LeekPay",
+              externalRef: paymentReference,
               paymentMethod: leekpayPayment.paymentMethod || "leekpay",
-              paymentLinkId: link.id,
-              externalRef: transaction.id.toString(),
             });
+
+            // Créditer le solde de l'utilisateur
+            await storage.updateUserBalance(leekpayPayment.userId, netAmount.toString());
             
-            console.log(`LeekPay: Payment received for link ${link.id}, amount: ${netAmount}`);
+            console.log(`Paiement confirmé: référence=${paymentReference}, montant=${netAmount} ${paymentCurrency}, utilisateur=${leekpayPayment.userId}`);
+          } else if (leekpayPayment.type === "payment_link" && leekpayPayment.paymentLinkId) {
+            const link = await storage.getPaymentLink(leekpayPayment.paymentLinkId);
+            if (link) {
+              await storage.updatePaymentLink(link.id, {
+                paidAt: new Date(),
+                payerName: leekpayPayment.payerName,
+                payerEmail: leekpayPayment.customerEmail || null,
+                payerPhone: leekpayPayment.payerPhone,
+                payerCountry: leekpayPayment.payerCountry,
+                paidAmount: amount.toString(),
+              });
+
+              // Créditer le solde du marchand
+              await storage.updateUserBalance(link.userId, netAmount.toString());
+
+              await storage.createTransaction({
+                userId: link.userId,
+                type: "payment_received",
+                amount: amount.toString(),
+                fee: fee.toString(),
+                netAmount: netAmount.toString(),
+                status: "completed",
+                description: `Paiement reçu: ${link.title}`,
+                mobileNumber: leekpayPayment.payerPhone,
+                payerName: leekpayPayment.payerName,
+                payerEmail: leekpayPayment.customerEmail,
+                payerCountry: leekpayPayment.payerCountry,
+                paymentMethod: leekpayPayment.paymentMethod || "leekpay",
+                paymentLinkId: link.id,
+                externalRef: paymentReference,
+              });
+              
+              console.log(`Paiement confirmé: référence=${paymentReference}, montant=${netAmount} ${paymentCurrency}, marchand=${link.userId}`);
+            }
+          }
+        } else if (status === "failed") {
+          console.log(`Paiement échoué: référence=${paymentReference}`);
+        }
+
+        return res.status(200).json({ status: "ok", message: "Paiement traité avec succès" });
+      } else {
+        // Paiement non trouvé mais on peut quand même créditer si on a le user_id
+        if (isSuccess && userId && paymentAmount) {
+          const settings = await storage.getCommissionSettings();
+          const commissionRate = parseFloat(settings?.depositRate || "7");
+          const fee = Math.round(paymentAmount * (commissionRate / 100));
+          const netAmount = paymentAmount - fee;
+
+          // Vérifier que l'utilisateur existe
+          const user = await storage.getUser(userId);
+          if (user) {
+            await storage.createTransaction({
+              userId: userId,
+              type: "deposit",
+              amount: paymentAmount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: "Dépôt via LeekPay (webhook)",
+              externalRef: paymentReference,
+              paymentMethod: "leekpay",
+            });
+
+            await storage.updateUserBalance(userId, netAmount.toString());
+            
+            console.log(`Paiement confirmé: référence=${paymentReference}, montant=${netAmount} ${paymentCurrency}, utilisateur=${userId}`);
+            return res.status(200).json({ status: "ok", message: "Paiement traité avec succès" });
           }
         }
-      }
 
-      res.status(200).json({ received: true });
+        console.warn(`LeekPay webhook: Payment reference ${paymentReference} not found in database`);
+        return res.status(200).json({ status: "ok", message: "Webhook reçu" });
+      }
     } catch (error) {
       console.error("LeekPay webhook error:", error);
-      res.status(500).json({ message: "Webhook processing error" });
+      return res.status(500).json({ status: "error", message: "Erreur lors du traitement du webhook" });
     }
   });
 
