@@ -32,6 +32,7 @@ import {
   CreditCard,
   Mail,
   Hash,
+  ShoppingBag,
 } from "lucide-react";
 import type { Transaction } from "@shared/schema";
 
@@ -57,6 +58,9 @@ const countryNames: Record<string, string> = {
   SN: "Sénégal",
   ML: "Mali",
   BF: "Burkina Faso",
+  CM: "Cameroun",
+  COD: "RDC",
+  COG: "Congo Brazzaville",
 };
 
 const paymentMethodNames: Record<string, string> = {
@@ -66,6 +70,27 @@ const paymentMethodNames: Record<string, string> = {
   orange: "Orange Money",
   wave: "Wave",
   free: "Free Money",
+  soleaspay: "SoleasPay",
+  leekpay: "LeekPay",
+  vodacom: "Vodacom",
+  airtel: "Airtel Money",
+  "37": "T-Money",
+  "38": "Moov Money",
+  "35": "MTN Mobile Money",
+  "36": "Moov Money",
+  "33": "Moov Money",
+  "34": "Orange Money",
+  "29": "Orange Money",
+  "30": "MTN Mobile Money",
+  "31": "Moov Money",
+  "32": "Wave",
+  "1": "MTN Mobile Money",
+  "2": "Orange Money",
+  "52": "Vodacom",
+  "53": "Airtel Money",
+  "54": "Orange Money",
+  "55": "Airtel Money",
+  "56": "MTN Mobile Money",
 };
 
 const transactionTypeLabels: Record<string, { label: string; icon: typeof ArrowDownLeft; incoming: boolean }> = {
@@ -274,6 +299,18 @@ export default function HistoryPage() {
               {selectedTransaction.type === "payment_received" && (
                 <div className="space-y-3 pt-2 border-t">
                   <h4 className="font-semibold text-sm">Informations du payeur</h4>
+
+                  {selectedTransaction.description && (
+                    <div className="flex items-center gap-3">
+                      <ShoppingBag className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Produit acheté</p>
+                        <p className="font-medium">
+                          {selectedTransaction.description.replace(/Paiement reçu[:\-\s]+/i, '')}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   
                   {selectedTransaction.payerName && (
                     <div className="flex items-center gap-3">
