@@ -1250,17 +1250,35 @@ export async function registerRoutes(
       const fee = Math.round(numericAmount * (commissionRate / 100));
       const netAmount = numericAmount - fee;
 
+      // Pays avec retraits instantanés automatiques
+      const INSTANT_WITHDRAWAL_COUNTRIES = ["TG", "BJ", "CM", "CI"];
+      const isInstantCountry = INSTANT_WITHDRAWAL_COUNTRIES.includes(selectedCountry.code.toUpperCase());
+
       // Trouver le service SoleasPay correspondant pour le retrait
       const { getWithdrawableServiceByCountryAndOperator, getCurrencyByCountry } = await import("./soleaspay");
       const withdrawService = getWithdrawableServiceByCountryAndOperator(selectedCountry.code, paymentMethod);
       
-      if (!withdrawService) {
-        return res.status(400).json({ 
-          message: "Ce moyen de paiement n'est pas disponible pour les retraits automatiques dans ce pays" 
+      // Si pas de service disponible OU pays sans retrait instantané, créer une demande manuelle
+      if (!withdrawService || !isInstantCountry) {
+        // Créer la demande de retrait avec statut "pending" pour validation admin
+        const withdrawalRequest = await storage.createWithdrawalRequest({
+          userId: req.session.userId!,
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          paymentMethod,
+          mobileNumber,
+          country,
+          walletName: walletName || null,
+        });
+
+        return res.json({ 
+          message: "Votre demande de retrait a été soumise. Un administrateur la traitera dans les plus brefs délais.",
+          request: withdrawalRequest
         });
       }
 
-      // Créer la demande de retrait avec le statut "processing"
+      // Pour les pays avec retrait instantané, traiter automatiquement
       const withdrawalRequest = await storage.createWithdrawalRequest({
         userId: req.session.userId!,
         amount: numericAmount.toString(),
