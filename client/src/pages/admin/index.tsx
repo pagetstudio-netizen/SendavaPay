@@ -720,9 +720,9 @@ function TransactionsContent() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <ScrollArea className="h-[500px]">
-            <div className="overflow-x-auto">
-              <table className="w-full">
+          <div className="overflow-x-auto">
+            <div className="max-h-[500px] overflow-y-auto">
+              <table className="w-full min-w-[800px]">
                 <thead className="border-b bg-muted/50 sticky top-0">
                   <tr>
                     <th className="text-left p-4 font-medium">ID</th>
@@ -766,7 +766,7 @@ function TransactionsContent() {
                 </tbody>
               </table>
             </div>
-          </ScrollArea>
+          </div>
         </CardContent>
       </Card>
     </div>
