@@ -13,6 +13,7 @@ import DepositPage from "@/pages/dashboard/deposit";
 import WithdrawPage from "@/pages/dashboard/withdraw";
 import PaymentLinksPage from "@/pages/dashboard/payment-links";
 import CreatePaymentLinkPage from "@/pages/dashboard/create-payment-link";
+import EditPaymentLinkPage from "@/pages/dashboard/edit-payment-link";
 import HistoryPage from "@/pages/dashboard/history";
 import KycPage from "@/pages/dashboard/kyc";
 import ApiKeysPage from "@/pages/dashboard/api-keys";
@@ -45,6 +46,7 @@ function Router() {
       <ProtectedRoute path="/dashboard/withdraw" component={WithdrawPage} />
             <ProtectedRoute path="/dashboard/payment-links" component={PaymentLinksPage} />
       <ProtectedRoute path="/dashboard/payment-links/create" component={CreatePaymentLinkPage} />
+      <ProtectedRoute path="/dashboard/payment-links/edit/:id" component={EditPaymentLinkPage} />
       <ProtectedRoute path="/dashboard/history" component={HistoryPage} />
       <ProtectedRoute path="/dashboard/kyc" component={KycPage} />
       <ProtectedRoute path="/dashboard/api-keys" component={ApiKeysPage} />

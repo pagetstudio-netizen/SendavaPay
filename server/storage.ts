@@ -249,6 +249,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deletePaymentLink(id: number): Promise<void> {
+    // Set paymentLinkId to null in related tables to avoid foreign key constraint errors
+    await getDb().update(transactions).set({ paymentLinkId: null }).where(eq(transactions.paymentLinkId, id));
+    await getDb().update(leekpayPayments).set({ paymentLinkId: null }).where(eq(leekpayPayments.paymentLinkId, id));
     await getDb().delete(paymentLinks).where(eq(paymentLinks.id, id));
   }
 
