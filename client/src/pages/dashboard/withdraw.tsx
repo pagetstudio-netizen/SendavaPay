@@ -267,27 +267,11 @@ export default function WithdrawPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 mb-4">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <CheckCircle className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-semibold text-green-800 dark:text-green-200">
-                  NB : LES RETRAITS DE CES PAYS SONT CRÉDITÉS INSTANTANÉMENT
-                </p>
-                <p className="text-sm text-green-700 dark:text-green-300 mt-1">
-                  TOGO, BÉNIN, CAMEROUN, CÔTE D'IVOIRE
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         <Card>
           <CardHeader>
             <CardTitle>Nouvelle demande de retrait</CardTitle>
             <CardDescription>
-              Minimum: {minWithdrawal.toLocaleString()} XOF. Les retraits sont crédités instantanément pour le Togo, Bénin, Cameroun et Côte d'Ivoire.
+              Minimum: {minWithdrawal.toLocaleString()} XOF. Tous les retraits nécessitent une validation par un administrateur.
             </CardDescription>
           </CardHeader>
           <CardContent>
