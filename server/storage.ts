@@ -31,6 +31,7 @@ import {
   kycRequests,
   commissionSettings,
   socialLinks,
+  siteSettings,
   withdrawalRequests,
   leekpayPayments,
   withdrawalNumbers,
@@ -105,6 +106,9 @@ export interface IStorage {
   getSocialLinks(): Promise<SocialLink[]>;
   updateSocialLink(platform: string, url: string | null, isActive: boolean): Promise<SocialLink>;
   initializeSocialLinks(): Promise<void>;
+  
+  getSetting(key: string): Promise<string | null>;
+  setSetting(key: string, value: string): Promise<void>;
   
   createWithdrawalRequest(request: InsertWithdrawalRequest): Promise<WithdrawalRequest>;
   getWithdrawalRequests(userId: number): Promise<WithdrawalRequest[]>;
@@ -411,6 +415,22 @@ export class DatabaseStorage implements IStorage {
           updatedAt: new Date(),
         });
       }
+    }
+  }
+
+  async getSetting(key: string): Promise<string | null> {
+    const [setting] = await db.select().from(siteSettings).where(eq(siteSettings.key, key));
+    return setting?.value || null;
+  }
+
+  async setSetting(key: string, value: string): Promise<void> {
+    const existing = await db.select().from(siteSettings).where(eq(siteSettings.key, key));
+    if (existing.length > 0) {
+      await db.update(siteSettings)
+        .set({ value, updatedAt: new Date() })
+        .where(eq(siteSettings.key, key));
+    } else {
+      await db.insert(siteSettings).values({ key, value, updatedAt: new Date() });
     }
   }
 

@@ -1893,6 +1893,34 @@ export async function registerRoutes(
     }
   });
 
+  // ========== MAINTENANCE MODE ==========
+  app.get("/api/admin/maintenance", requireAdmin, async (req, res) => {
+    try {
+      const value = await storage.getSetting("maintenance_mode");
+      res.json({ enabled: value === "true" });
+    } catch (error) {
+      console.error("Get maintenance mode error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.put("/api/admin/maintenance", requireAdmin, async (req, res) => {
+    try {
+      const { enabled } = req.body;
+      await storage.setSetting("maintenance_mode", enabled ? "true" : "false");
+      await storage.createAuditLog({
+        userId: req.session.userId,
+        action: enabled ? "maintenance_enabled" : "maintenance_disabled",
+        details: `Mode maintenance ${enabled ? "activé" : "désactivé"}`,
+        ipAddress: req.ip,
+      });
+      res.json({ enabled, message: `Mode maintenance ${enabled ? "activé" : "désactivé"}` });
+    } catch (error) {
+      console.error("Update maintenance mode error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   // LeekPay Webhook - Route GET pour test uniquement
   app.get("/api/webhook/leekpay", (req, res) => {
     console.log("=== LeekPay Webhook GET request received ===");
