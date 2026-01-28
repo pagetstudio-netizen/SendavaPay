@@ -10,7 +10,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { leekpay } from "./leekpay";
-import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById } from "./soleaspay";
+import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById, getWithdrawableServicesByCountry, WITHDRAWABLE_SERVICES } from "./soleaspay";
 import { isDatabaseConnected } from "./db";
 
 function requireDatabase(req: Request, res: Response, next: NextFunction) {
@@ -352,20 +352,33 @@ export async function registerRoutes(
   });
 
   // Get operators for withdraw with maintenance status
+  // Only returns operators that support withdrawal according to SoleasPay API (withdrawable: true)
   app.get("/api/withdraw/operators", async (req, res) => {
     try {
       const operators = await storage.getOperators();
       const countries = await storage.getCountries();
       
-      // Build country list with operators
+      // Build country list with only withdrawable operators
       const countryOperators = countries.map(country => {
-        const countryOps = operators
-          .filter(op => op.countryId === country.id)
-          .map(op => ({
-            id: op.code,
-            name: op.name,
-            inMaintenance: op.inMaintenance ?? false,
-          }));
+        const countryCode = country.code.toUpperCase();
+        // Get only withdrawable services for this country from SoleasPay mapping
+        const withdrawableForCountry = getWithdrawableServicesByCountry(countryCode);
+        
+        // Map withdrawable services directly
+        const countryOps = withdrawableForCountry.map(ws => {
+          // Check if operator is in maintenance from DB
+          const dbOperator = operators.find(op => 
+            op.countryId === country.id && 
+            (op.name.toLowerCase() === ws.operator.toLowerCase() ||
+             op.name.toLowerCase().includes(ws.operator.toLowerCase()) ||
+             ws.operator.toLowerCase().includes(op.name.toLowerCase()))
+          );
+          return {
+            id: ws.id.toString(),
+            name: ws.operator,
+            inMaintenance: dbOperator?.inMaintenance ?? false,
+          };
+        });
         
         return {
           id: country.code.toLowerCase(),
