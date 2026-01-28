@@ -27,7 +27,6 @@ import AdminDashboardPage from "@/pages/admin/index";
 import TermsPage from "@/pages/terms";
 import AboutPage from "@/pages/about";
 import HelpPage from "@/pages/help";
-import MerchantAuth from "@/pages/merchant/auth";
 import MerchantDashboard from "@/pages/merchant/dashboard";
 import DocsPage from "@/pages/docs";
 
@@ -44,8 +43,8 @@ function Router() {
       <Route path="/about" component={AboutPage} />
       <Route path="/help" component={HelpPage} />
       <Route path="/docs" component={DocsPage} />
-      <Route path="/merchant" component={MerchantAuth} />
       <Route path="/merchant/dashboard" component={MerchantDashboard} />
+      <Route path="/merchant">{() => { window.location.href = "/merchant/dashboard"; return null; }}</Route>
       
       <ProtectedRoute path="/dashboard" component={DashboardPage} />
       <ProtectedRoute path="/dashboard/deposit" component={DepositPage} />

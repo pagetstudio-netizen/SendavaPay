@@ -99,34 +99,43 @@ export default function MerchantDashboard() {
 
   const loadMerchantData = async () => {
     try {
-      const [merchantRes, transactionsRes, webhooksRes] = await Promise.all([
-        fetch("/api/merchant/me"),
+      const merchantRes = await fetch("/api/merchant/me");
+      const merchantData = await merchantRes.json();
+
+      if (!merchantData.success) {
+        if (merchantData.requireAuth) {
+          toast({ title: "Connexion requise", description: "Veuillez vous connecter pour accéder à l'API" });
+          setLocation("/auth");
+        } else if (merchantData.requireVerification) {
+          toast({ title: "Vérification requise", description: merchantData.error, variant: "destructive" });
+          setLocation("/dashboard/kyc");
+        } else {
+          toast({ title: "Erreur", description: merchantData.error, variant: "destructive" });
+          setLocation("/dashboard");
+        }
+        return;
+      }
+
+      const [transactionsRes, webhooksRes] = await Promise.all([
         fetch("/api/merchant/transactions"),
         fetch("/api/merchant/webhooks"),
       ]);
 
-      const merchantData = await merchantRes.json();
       const transactionsData = await transactionsRes.json();
       const webhooksData = await webhooksRes.json();
-
-      if (!merchantData.success) {
-        setLocation("/merchant");
-        return;
-      }
 
       setMerchant(merchantData.merchant);
       setTransactions(transactionsData.transactions || []);
       setWebhooks(webhooksData.webhooks || []);
     } catch (error) {
-      toast({ title: "Erreur", description: "Impossible de charger les donn\u00e9es", variant: "destructive" });
+      toast({ title: "Erreur", description: "Impossible de charger les données", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleLogout = async () => {
-    await fetch("/api/merchant/logout", { method: "POST" });
-    setLocation("/merchant");
+  const handleLogout = () => {
+    setLocation("/dashboard");
   };
 
   const copyToClipboard = (text: string, label: string) => {

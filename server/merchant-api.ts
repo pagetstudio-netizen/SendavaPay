@@ -138,137 +138,62 @@ async function sendWebhook(merchant: Merchant, event: string, data: any) {
   }
 }
 
-// ==================== MERCHANT AUTH ROUTES ====================
+// ==================== MERCHANT ROUTES (Using User Authentication) ====================
 
-router.post("/merchant/register", async (req: Request, res: Response) => {
-  const startTime = Date.now();
-  try {
-    const schema = z.object({
-      name: z.string().min(2),
-      email: z.string().email(),
-      password: z.string().min(6),
-      companyName: z.string().optional(),
-      website: z.string().url().optional().or(z.literal("")),
-      description: z.string().optional(),
-    });
+// Helper: Get or create merchant record for verified user
+async function getOrCreateMerchantForUser(userId: number): Promise<Merchant | null> {
+  const user = await storage.getUser(userId);
+  if (!user || !user.isVerified) {
+    return null;
+  }
 
-    const data = schema.parse(req.body);
-
-    const existingMerchant = await storage.getMerchantByEmail(data.email);
-    if (existingMerchant) {
-      const response = { success: false, error: "Email already registered" };
-      await logApiRequest(null, req.path, req.method, { ...req.body, password: "[REDACTED]" }, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
-      return res.status(400).json(response);
-    }
-
-    const hashedPassword = await bcrypt.hash(data.password, 10);
+  const userEmail = user.email || `${user.phone}@sendavapay.com`;
+  let merchant = await storage.getMerchantByEmail(userEmail);
+  
+  if (!merchant) {
     const apiKey = generateApiKey();
     const apiSecret = generateApiSecret();
     const webhookSecret = generateWebhookSecret();
 
-    const merchant = await storage.createMerchant({
-      name: data.name,
-      email: data.email,
-      password: hashedPassword,
+    merchant = await storage.createMerchant({
+      name: user.fullName || user.phone,
+      email: userEmail,
+      password: user.password,
       apiKey,
       apiSecret,
       webhookSecret,
-      companyName: data.companyName || null,
-      website: data.website || null,
-      description: data.description || null,
+      companyName: null,
+      website: null,
+      description: null,
     });
-
-    const response = {
-      success: true,
-      merchant: {
-        id: merchant.id,
-        name: merchant.name,
-        email: merchant.email,
-        apiKey: merchant.apiKey,
-      },
-      message: "Compte cr\u00e9\u00e9 avec succ\u00e8s. Connectez-vous pour acc\u00e9der \u00e0 votre tableau de bord.",
-    };
-
-    await logApiRequest(merchant.id, req.path, req.method, { ...req.body, password: "[REDACTED]" }, { success: true }, 201, req.ip, req.get('User-Agent'), Date.now() - startTime);
-    res.status(201).json(response);
-  } catch (error: any) {
-    const response = { success: false, error: error.message || "Registration failed" };
-    await logApiRequest(null, req.path, req.method, { ...req.body, password: "[REDACTED]" }, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
-    res.status(400).json(response);
   }
-});
 
-router.post("/merchant/login", async (req: Request, res: Response) => {
-  const startTime = Date.now();
-  try {
-    const schema = z.object({
-      email: z.string().email(),
-      password: z.string().min(1),
-    });
+  return merchant;
+}
 
-    const data = schema.parse(req.body);
-    const merchant = await storage.getMerchantByEmail(data.email);
-
-    if (!merchant) {
-      const response = { success: false, error: "Invalid credentials" };
-      await logApiRequest(null, req.path, req.method, { email: data.email }, response, 401, req.ip, req.get('User-Agent'), Date.now() - startTime);
-      return res.status(401).json(response);
-    }
-
-    const validPassword = await bcrypt.compare(data.password, merchant.password);
-    if (!validPassword) {
-      const response = { success: false, error: "Invalid credentials" };
-      await logApiRequest(merchant.id, req.path, req.method, { email: data.email }, response, 401, req.ip, req.get('User-Agent'), Date.now() - startTime);
-      return res.status(401).json(response);
-    }
-
-    if (merchant.status !== 'active') {
-      const response = { success: false, error: "Account suspended" };
-      await logApiRequest(merchant.id, req.path, req.method, { email: data.email }, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime);
-      return res.status(403).json(response);
-    }
-
-    await storage.updateMerchant(merchant.id, { lastLoginAt: new Date() });
-
-    (req.session as any).merchantId = merchant.id;
-
-    const response = {
-      success: true,
-      merchant: {
-        id: merchant.id,
-        name: merchant.name,
-        email: merchant.email,
-        companyName: merchant.companyName,
-        balance: merchant.balance,
-        status: merchant.status,
-        isVerified: merchant.isVerified,
-        apiKey: merchant.apiKey,
-      },
-    };
-
-    await logApiRequest(merchant.id, req.path, req.method, { email: data.email }, { success: true }, 200, req.ip, req.get('User-Agent'), Date.now() - startTime);
-    res.json(response);
-  } catch (error: any) {
-    const response = { success: false, error: error.message || "Login failed" };
-    await logApiRequest(null, req.path, req.method, { email: req.body?.email }, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
-    res.status(400).json(response);
-  }
-});
-
-router.post("/merchant/logout", (req: Request, res: Response) => {
-  (req.session as any).merchantId = null;
-  res.json({ success: true });
-});
-
+// Get merchant info for current user (uses user session)
 router.get("/merchant/me", async (req: Request, res: Response) => {
-  const merchantId = (req.session as any)?.merchantId;
-  if (!merchantId) {
-    return res.status(401).json({ success: false, error: "Not authenticated" });
+  const userId = (req.session as any)?.userId;
+  if (!userId) {
+    return res.status(401).json({ success: false, error: "Veuillez vous connecter", requireAuth: true });
   }
 
-  const merchant = await storage.getMerchant(merchantId);
+  const user = await storage.getUser(userId);
+  if (!user) {
+    return res.status(404).json({ success: false, error: "Utilisateur non trouv\u00e9" });
+  }
+
+  if (!user.isVerified) {
+    return res.status(403).json({ 
+      success: false, 
+      error: "Votre compte doit \u00eatre v\u00e9rifi\u00e9 pour acc\u00e9der \u00e0 l'API marchand", 
+      requireVerification: true 
+    });
+  }
+
+  const merchant = await getOrCreateMerchantForUser(userId);
   if (!merchant) {
-    return res.status(404).json({ success: false, error: "Merchant not found" });
+    return res.status(500).json({ success: false, error: "Erreur lors de la cr\u00e9ation du compte API" });
   }
 
   res.json({
@@ -287,33 +212,53 @@ router.get("/merchant/me", async (req: Request, res: Response) => {
       webhookUrl: merchant.webhookUrl,
       createdAt: merchant.createdAt,
     },
+    user: {
+      fullName: user.fullName,
+      phone: user.phone,
+      isVerified: user.isVerified,
+    },
   });
 });
 
 router.get("/merchant/transactions", async (req: Request, res: Response) => {
-  const merchantId = (req.session as any)?.merchantId;
-  if (!merchantId) {
-    return res.status(401).json({ success: false, error: "Not authenticated" });
+  const userId = (req.session as any)?.userId;
+  if (!userId) {
+    return res.status(401).json({ success: false, error: "Non authentifi\u00e9" });
   }
 
-  const transactions = await storage.getApiTransactionsByMerchant(merchantId);
+  const merchant = await getOrCreateMerchantForUser(userId);
+  if (!merchant) {
+    return res.status(403).json({ success: false, error: "Compte non v\u00e9rifi\u00e9" });
+  }
+
+  const transactions = await storage.getApiTransactionsByMerchant(merchant.id);
   res.json({ success: true, transactions });
 });
 
 router.get("/merchant/webhooks", async (req: Request, res: Response) => {
-  const merchantId = (req.session as any)?.merchantId;
-  if (!merchantId) {
-    return res.status(401).json({ success: false, error: "Not authenticated" });
+  const userId = (req.session as any)?.userId;
+  if (!userId) {
+    return res.status(401).json({ success: false, error: "Non authentifi\u00e9" });
   }
 
-  const webhooks = await storage.getMerchantWebhooks(merchantId);
+  const merchant = await getOrCreateMerchantForUser(userId);
+  if (!merchant) {
+    return res.status(403).json({ success: false, error: "Compte non v\u00e9rifi\u00e9" });
+  }
+
+  const webhooks = await storage.getMerchantWebhooks(merchant.id);
   res.json({ success: true, webhooks });
 });
 
 router.post("/merchant/webhooks", async (req: Request, res: Response) => {
-  const merchantId = (req.session as any)?.merchantId;
-  if (!merchantId) {
-    return res.status(401).json({ success: false, error: "Not authenticated" });
+  const userId = (req.session as any)?.userId;
+  if (!userId) {
+    return res.status(401).json({ success: false, error: "Non authentifi\u00e9" });
+  }
+
+  const merchant = await getOrCreateMerchantForUser(userId);
+  if (!merchant) {
+    return res.status(403).json({ success: false, error: "Compte non v\u00e9rifi\u00e9" });
   }
 
   try {
@@ -326,7 +271,7 @@ router.post("/merchant/webhooks", async (req: Request, res: Response) => {
     const secret = generateWebhookSecret();
 
     const webhook = await storage.createMerchantWebhook({
-      merchantId,
+      merchantId: merchant.id,
       url: data.url,
       events: data.events,
       secret,
@@ -339,9 +284,14 @@ router.post("/merchant/webhooks", async (req: Request, res: Response) => {
 });
 
 router.delete("/merchant/webhooks/:id", async (req: Request, res: Response) => {
-  const merchantId = (req.session as any)?.merchantId;
-  if (!merchantId) {
-    return res.status(401).json({ success: false, error: "Not authenticated" });
+  const userId = (req.session as any)?.userId;
+  if (!userId) {
+    return res.status(401).json({ success: false, error: "Non authentifi\u00e9" });
+  }
+
+  const merchant = await getOrCreateMerchantForUser(userId);
+  if (!merchant) {
+    return res.status(403).json({ success: false, error: "Compte non v\u00e9rifi\u00e9" });
   }
 
   await storage.deleteMerchantWebhook(parseInt(req.params.id));
@@ -349,34 +299,43 @@ router.delete("/merchant/webhooks/:id", async (req: Request, res: Response) => {
 });
 
 router.post("/merchant/regenerate-keys", async (req: Request, res: Response) => {
-  const merchantId = (req.session as any)?.merchantId;
-  if (!merchantId) {
-    return res.status(401).json({ success: false, error: "Not authenticated" });
+  const userId = (req.session as any)?.userId;
+  if (!userId) {
+    return res.status(401).json({ success: false, error: "Non authentifi\u00e9" });
+  }
+
+  const merchant = await getOrCreateMerchantForUser(userId);
+  if (!merchant) {
+    return res.status(403).json({ success: false, error: "Compte non v\u00e9rifi\u00e9" });
   }
 
   const newApiKey = generateApiKey();
   const newApiSecret = generateApiSecret();
 
-  const merchant = await storage.updateMerchant(merchantId, {
+  const updatedMerchant = await storage.updateMerchant(merchant.id, {
     apiKey: newApiKey,
     apiSecret: newApiSecret,
   });
 
   res.json({
     success: true,
-    apiKey: merchant?.apiKey,
-    apiSecret: merchant?.apiSecret,
+    apiKey: updatedMerchant?.apiKey,
   });
 });
 
 router.put("/merchant/webhook-url", async (req: Request, res: Response) => {
-  const merchantId = (req.session as any)?.merchantId;
-  if (!merchantId) {
-    return res.status(401).json({ success: false, error: "Not authenticated" });
+  const userId = (req.session as any)?.userId;
+  if (!userId) {
+    return res.status(401).json({ success: false, error: "Non authentifi\u00e9" });
+  }
+
+  const merchant = await getOrCreateMerchantForUser(userId);
+  if (!merchant) {
+    return res.status(403).json({ success: false, error: "Compte non v\u00e9rifi\u00e9" });
   }
 
   const { webhookUrl } = req.body;
-  await storage.updateMerchant(merchantId, { webhookUrl });
+  await storage.updateMerchant(merchant.id, { webhookUrl });
   res.json({ success: true });
 });
 
