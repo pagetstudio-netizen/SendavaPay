@@ -243,6 +243,13 @@ export const userNotifications = pgTable("user_notifications", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const siteSettings = pgTable("site_settings", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  key: text("key").notNull().unique(),
+  value: text("value"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const usersRelations = relations(users, ({ many }) => ({
   transactions: many(transactions),
   transfers: many(transfers, { relationName: "sender" }),
@@ -409,3 +416,4 @@ export type Operator = typeof operators.$inferSelect;
 export type GlobalMessage = typeof globalMessages.$inferSelect;
 export type AdminNotification = typeof adminNotifications.$inferSelect;
 export type UserNotification = typeof userNotifications.$inferSelect;
+export type SiteSetting = typeof siteSettings.$inferSelect;

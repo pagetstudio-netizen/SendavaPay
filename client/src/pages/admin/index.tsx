@@ -1688,6 +1688,10 @@ function SettingsContent() {
     queryKey: ['/api/admin/social-links'],
   });
 
+  const { data: maintenanceData, refetch: refetchMaintenance } = useQuery<{ enabled: boolean }>({
+    queryKey: ['/api/admin/maintenance'],
+  });
+
   const updateSocialMutation = useMutation({
     mutationFn: async ({ platform, url, isActive }: { platform: string; url: string; isActive: boolean }) => {
       const res = await apiRequest("PUT", `/api/admin/social-links/${platform}`, { url, isActive });
@@ -1699,6 +1703,23 @@ function SettingsContent() {
     },
     onError: () => {
       toast({ title: "Erreur", description: "Impossible de mettre à jour le lien", variant: "destructive" });
+    }
+  });
+
+  const maintenanceMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("PUT", "/api/admin/maintenance", { enabled });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      refetchMaintenance();
+      toast({ 
+        title: data.enabled ? "Mode maintenance activé" : "Mode maintenance désactivé",
+        description: data.enabled ? "La plateforme est maintenant en maintenance" : "La plateforme est maintenant accessible"
+      });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Impossible de modifier le mode maintenance", variant: "destructive" });
     }
   });
 
@@ -1787,7 +1808,17 @@ function SettingsContent() {
               <p className="font-medium">Mode maintenance</p>
               <p className="text-sm text-muted-foreground">Désactiver temporairement la plateforme</p>
             </div>
-            <Badge>Désactivé</Badge>
+            <div className="flex items-center gap-3">
+              <Badge variant={maintenanceData?.enabled ? "destructive" : "secondary"}>
+                {maintenanceData?.enabled ? "Activé" : "Désactivé"}
+              </Badge>
+              <Switch
+                checked={maintenanceData?.enabled ?? false}
+                onCheckedChange={(checked) => maintenanceMutation.mutate(checked)}
+                disabled={maintenanceMutation.isPending}
+                data-testid="switch-maintenance-mode"
+              />
+            </div>
           </div>
         </CardContent>
       </Card>
