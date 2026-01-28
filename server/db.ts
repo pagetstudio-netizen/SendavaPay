@@ -6,11 +6,59 @@ const { Pool } = pg;
 
 const databaseUrl = process.env.SUPABASE_DATABASE_URL;
 
+let dbConnected = false;
+let pool: pg.Pool | null = null;
+let db: ReturnType<typeof drizzle> | null = null;
+
 if (!databaseUrl) {
-  throw new Error(
-    "SUPABASE_DATABASE_URL must be set. Please configure your Supabase connection.",
-  );
+  console.error("SUPABASE_DATABASE_URL is not configured. Database features will be unavailable.");
+} else {
+  pool = new Pool({ 
+    connectionString: databaseUrl,
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  });
+
+  pool.on('error', (err) => {
+    console.error('Database pool error:', err.message);
+    dbConnected = false;
+  });
+
+  pool.on('connect', () => {
+    dbConnected = true;
+  });
+
+  db = drizzle(pool, { schema });
 }
 
-export const pool = new Pool({ connectionString: databaseUrl });
-export const db = drizzle(pool, { schema });
+export { pool, db };
+
+export function isDatabaseConnected(): boolean {
+  return dbConnected && pool !== null;
+}
+
+export async function testDatabaseConnection(retries = 3, delayMs = 2000): Promise<boolean> {
+  if (!pool) {
+    console.error('Database pool not initialized - SUPABASE_DATABASE_URL may be missing');
+    dbConnected = false;
+    return false;
+  }
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const client = await pool.connect();
+      await client.query('SELECT 1');
+      client.release();
+      dbConnected = true;
+      return true;
+    } catch (error) {
+      console.error(`Database connection attempt ${attempt}/${retries} failed:`, (error as Error).message);
+      dbConnected = false;
+      if (attempt < retries) {
+        await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
+      }
+    }
+  }
+  return false;
+}

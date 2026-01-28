@@ -104,3 +104,17 @@ shared/           # Shared code between client/server
 - Replit-specific Vite plugins for development
 - TypeScript strict mode enabled
 - Path aliases: `@/` for client source, `@shared/` for shared code
+
+## Deployment Requirements
+
+### Required Secrets
+The following secrets must be configured in deployment environment:
+- **SUPABASE_DATABASE_URL** - PostgreSQL connection string for Supabase database
+- **LEEKPAY_SECRET_KEY** or **SK_LIVE** - LeekPay payment gateway secret key
+- **SOLEASPAY_API_KEY** - SoleasPay payment gateway API key
+
+### Server Configuration
+- The server includes connection retry logic (3 attempts with exponential backoff)
+- Database connection pooling with 10 max connections
+- Health check endpoint available at `/api/health`
+- Server will start even if database connection fails (degraded mode)
