@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,8 +33,29 @@ import {
   Mail,
   Hash,
   ShoppingBag,
+  Hourglass,
 } from "lucide-react";
-import type { Transaction } from "@shared/schema";
+import type { Transaction, WithdrawalRequest } from "@shared/schema";
+
+interface CombinedHistoryItem {
+  id: number;
+  type: string;
+  amount: string;
+  fee: string;
+  netAmount: string;
+  status: string;
+  description?: string;
+  mobileNumber?: string | null;
+  paymentMethod?: string | null;
+  createdAt: string | Date;
+  payerName?: string | null;
+  payerEmail?: string | null;
+  payerCountry?: string | null;
+  isWithdrawalRequest?: boolean;
+  country?: string | null;
+  walletName?: string | null;
+  rejectionReason?: string | null;
+}
 
 function formatCurrency(amount: string | number) {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
@@ -116,6 +137,7 @@ function formatPaymentMethod(method: string): string {
 const transactionTypeLabels: Record<string, { label: string; icon: typeof ArrowDownLeft; incoming: boolean }> = {
   deposit: { label: "Dépôt", icon: ArrowDownLeft, incoming: true },
   withdrawal: { label: "Retrait", icon: ArrowUpRight, incoming: false },
+  withdrawal_request: { label: "Demande de retrait", icon: Hourglass, incoming: false },
   transfer_in: { label: "Transfert reçu", icon: ArrowDownLeft, incoming: true },
   transfer_out: { label: "Transfert envoyé", icon: ArrowUpRight, incoming: false },
   payment_received: { label: "Paiement reçu", icon: ArrowDownLeft, incoming: true },
@@ -123,7 +145,9 @@ const transactionTypeLabels: Record<string, { label: string; icon: typeof ArrowD
 
 const statusBadges: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   completed: { label: "Terminé", variant: "default" },
+  approved: { label: "Approuvé", variant: "default" },
   pending: { label: "En attente", variant: "secondary" },
+  processing: { label: "En cours", variant: "secondary" },
   failed: { label: "Échoué", variant: "destructive" },
   cancelled: { label: "Annulé", variant: "outline" },
   rejected: { label: "Rejeté", variant: "destructive" },
@@ -133,22 +157,81 @@ export default function HistoryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [selectedItem, setSelectedItem] = useState<CombinedHistoryItem | null>(null);
 
-  const { data: transactions, isLoading } = useQuery<Transaction[]>({
+  const { data: transactions, isLoading: loadingTransactions } = useQuery<Transaction[]>({
     queryKey: ["/api/transactions"],
   });
 
-  const filteredTransactions = transactions?.filter((tx) => {
+  const { data: withdrawalRequests, isLoading: loadingWithdrawals } = useQuery<WithdrawalRequest[]>({
+    queryKey: ["/api/withdrawal-requests"],
+  });
+
+  const isLoading = loadingTransactions || loadingWithdrawals;
+
+  const combinedHistory = useMemo(() => {
+    const items: CombinedHistoryItem[] = [];
+
+    // Add transactions
+    transactions?.forEach((tx) => {
+      items.push({
+        id: tx.id,
+        type: tx.type,
+        amount: tx.amount,
+        fee: tx.fee,
+        netAmount: tx.netAmount,
+        status: tx.status,
+        description: tx.description || undefined,
+        mobileNumber: tx.mobileNumber,
+        paymentMethod: tx.paymentMethod,
+        createdAt: tx.createdAt,
+        payerName: tx.payerName,
+        payerEmail: tx.payerEmail,
+        payerCountry: tx.payerCountry,
+        isWithdrawalRequest: false,
+      });
+    });
+
+    // Add withdrawal requests (only pending ones that aren't in transactions yet)
+    withdrawalRequests?.forEach((wr) => {
+      // Only add pending/processing withdrawal requests (approved ones become transactions)
+      if (wr.status === "pending" || wr.status === "processing" || wr.status === "rejected") {
+        items.push({
+          id: wr.id,
+          type: "withdrawal_request",
+          amount: wr.amount,
+          fee: wr.fee,
+          netAmount: wr.netAmount,
+          status: wr.status,
+          description: `Retrait ${wr.paymentMethod} - ${wr.mobileNumber}`,
+          mobileNumber: wr.mobileNumber,
+          paymentMethod: wr.paymentMethod,
+          createdAt: wr.createdAt,
+          isWithdrawalRequest: true,
+          country: wr.country,
+          walletName: wr.walletName,
+          rejectionReason: wr.rejectionReason,
+        });
+      }
+    });
+
+    // Sort by date (newest first)
+    return items.sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [transactions, withdrawalRequests]);
+
+  const filteredHistory = combinedHistory.filter((item) => {
     const matchesSearch = 
-      tx.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tx.id.toString().includes(searchQuery) ||
-      tx.payerName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      tx.mobileNumber?.includes(searchQuery);
-    const matchesType = typeFilter === "all" || tx.type === typeFilter;
-    const matchesStatus = statusFilter === "all" || tx.status === statusFilter;
+      item.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.id.toString().includes(searchQuery) ||
+      item.payerName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.mobileNumber?.includes(searchQuery);
+    const matchesType = typeFilter === "all" || item.type === typeFilter || 
+      (typeFilter === "withdrawal" && item.type === "withdrawal_request");
+    const matchesStatus = statusFilter === "all" || item.status === statusFilter;
     return matchesSearch && matchesType && matchesStatus;
-  }) || [];
+  });
 
   return (
     <DashboardLayout>
@@ -214,27 +297,28 @@ export default function HistoryPage() {
                   </div>
                 ))}
               </div>
-            ) : filteredTransactions.length === 0 ? (
+            ) : filteredHistory.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <Clock className="h-16 w-16 mx-auto mb-4 opacity-50" />
                 <p className="text-lg font-medium">Aucune transaction trouvée</p>
                 <p className="text-sm">
-                  {transactions?.length ? "Essayez de modifier vos filtres" : "Effectuez votre premier dépôt"}
+                  {combinedHistory.length ? "Essayez de modifier vos filtres" : "Effectuez votre premier dépôt"}
                 </p>
               </div>
             ) : (
               <div className="space-y-3">
-                {filteredTransactions.map((tx) => {
-                  const typeInfo = transactionTypeLabels[tx.type] || { label: tx.type, icon: Clock, incoming: true };
-                  const statusInfo = statusBadges[tx.status] || { label: tx.status, variant: "secondary" as const };
+                {filteredHistory.map((item) => {
+                  const typeInfo = transactionTypeLabels[item.type] || { label: item.type, icon: Clock, incoming: true };
+                  const statusInfo = statusBadges[item.status] || { label: item.status, variant: "secondary" as const };
                   const TypeIcon = typeInfo.icon;
+                  const uniqueKey = item.isWithdrawalRequest ? `wr-${item.id}` : `tx-${item.id}`;
 
                   return (
                     <div 
-                      key={tx.id} 
+                      key={uniqueKey} 
                       className="flex items-center gap-4 p-4 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer"
-                      onClick={() => setSelectedTransaction(tx)}
-                      data-testid={`transaction-row-${tx.id}`}
+                      onClick={() => setSelectedItem(item)}
+                      data-testid={`history-row-${uniqueKey}`}
                     >
                       <div className={`h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 ${
                         typeInfo.incoming 
@@ -251,23 +335,23 @@ export default function HistoryPage() {
                           </Badge>
                         </div>
                         <div className="text-sm text-muted-foreground truncate">
-                          {tx.type === "payment_received" && tx.payerName ? (
-                            <span>De: {tx.payerName}</span>
+                          {item.type === "payment_received" && item.payerName ? (
+                            <span>De: {item.payerName}</span>
                           ) : (
-                            <span>{tx.description || `Transaction #${tx.id}`}</span>
+                            <span>{item.description || `Transaction #${item.id}`}</span>
                           )}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {formatDate(tx.createdAt)}
+                          {formatDate(item.createdAt)}
                         </div>
                       </div>
                       <div className="text-right flex-shrink-0">
                         <p className={`font-bold ${typeInfo.incoming ? "text-green-600" : "text-orange-600"}`}>
-                          {typeInfo.incoming ? "+" : "-"}{formatCurrency(tx.netAmount)}
+                          {typeInfo.incoming ? "+" : "-"}{formatCurrency(item.amount)}
                         </p>
-                        {parseFloat(tx.fee) > 0 && (
+                        {parseFloat(item.fee) > 0 && (
                           <p className="text-xs text-muted-foreground">
-                            Frais: {formatCurrency(tx.fee)}
+                            Frais: {formatCurrency(item.fee)}
                           </p>
                         )}
                       </div>
@@ -283,7 +367,7 @@ export default function HistoryPage() {
         </Card>
       </div>
 
-      <Dialog open={!!selectedTransaction} onOpenChange={() => setSelectedTransaction(null)}>
+      <Dialog open={!!selectedItem} onOpenChange={() => setSelectedItem(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Détails de la transaction</DialogTitle>
@@ -291,105 +375,124 @@ export default function HistoryPage() {
               Informations complètes sur cette transaction
             </DialogDescription>
           </DialogHeader>
-          {selectedTransaction && (
+          {selectedItem && (
             <div className="space-y-4">
               <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50">
                 <Hash className="h-5 w-5 text-muted-foreground" />
                 <div>
-                  <p className="text-sm text-muted-foreground">ID Transaction</p>
-                  <p className="font-mono font-medium">#{selectedTransaction.id}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {selectedItem.isWithdrawalRequest ? "ID Demande de retrait" : "ID Transaction"}
+                  </p>
+                  <p className="font-mono font-medium">#{selectedItem.id}</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-3 rounded-lg bg-muted/30">
                   <p className="text-xs text-muted-foreground mb-1">Montant brut</p>
-                  <p className="font-bold">{formatCurrency(selectedTransaction.amount)}</p>
+                  <p className="font-bold">{formatCurrency(selectedItem.amount)}</p>
                 </div>
                 <div className="p-3 rounded-lg bg-muted/30">
                   <p className="text-xs text-muted-foreground mb-1">Frais</p>
-                  <p className="font-bold">{formatCurrency(selectedTransaction.fee)}</p>
+                  <p className="font-bold">{formatCurrency(selectedItem.fee)}</p>
                 </div>
                 <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/20 col-span-2">
-                  <p className="text-xs text-muted-foreground mb-1">Montant net reçu</p>
-                  <p className="font-bold text-green-600 text-xl">{formatCurrency(selectedTransaction.netAmount)}</p>
+                  <p className="text-xs text-muted-foreground mb-1">Montant net</p>
+                  <p className="font-bold text-green-600 text-xl">{formatCurrency(selectedItem.netAmount)}</p>
                 </div>
               </div>
 
-              {selectedTransaction.type === "payment_received" && (
+              {selectedItem.isWithdrawalRequest && selectedItem.rejectionReason && (
+                <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                  <p className="text-xs text-muted-foreground mb-1">Raison du rejet</p>
+                  <p className="font-medium text-red-600">{selectedItem.rejectionReason}</p>
+                </div>
+              )}
+
+              {selectedItem.type === "payment_received" && (
                 <div className="space-y-3 pt-2 border-t">
                   <h4 className="font-semibold text-sm">Informations du payeur</h4>
 
-                  {selectedTransaction.description && (
+                  {selectedItem.description && (
                     <div className="flex items-center gap-3">
                       <ShoppingBag className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-xs text-muted-foreground">Produit acheté</p>
                         <p className="font-medium">
-                          {selectedTransaction.description.replace(/Paiement reçu[:\-\s]+/i, '')}
+                          {selectedItem.description.replace(/Paiement reçu[:\-\s]+/i, '')}
                         </p>
                       </div>
                     </div>
                   )}
                   
-                  {selectedTransaction.payerName && (
+                  {selectedItem.payerName && (
                     <div className="flex items-center gap-3">
                       <User className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-xs text-muted-foreground">Nom complet</p>
-                        <p className="font-medium">{selectedTransaction.payerName}</p>
+                        <p className="font-medium">{selectedItem.payerName}</p>
                       </div>
                     </div>
                   )}
 
-                  {selectedTransaction.mobileNumber && (
+                  {selectedItem.mobileNumber && (
                     <div className="flex items-center gap-3">
                       <Phone className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-xs text-muted-foreground">Numéro de téléphone</p>
-                        <p className="font-medium">{selectedTransaction.mobileNumber}</p>
+                        <p className="font-medium">{selectedItem.mobileNumber}</p>
                       </div>
                     </div>
                   )}
 
-                  {selectedTransaction.payerEmail && (
+                  {selectedItem.payerEmail && (
                     <div className="flex items-center gap-3">
                       <Mail className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-xs text-muted-foreground">Email</p>
-                        <p className="font-medium">{selectedTransaction.payerEmail}</p>
+                        <p className="font-medium">{selectedItem.payerEmail}</p>
                       </div>
                     </div>
                   )}
 
-                  {selectedTransaction.payerCountry && (
+                  {selectedItem.payerCountry && (
                     <div className="flex items-center gap-3">
                       <MapPin className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-xs text-muted-foreground">Pays</p>
-                        <p className="font-medium">{countryNames[selectedTransaction.payerCountry] || selectedTransaction.payerCountry}</p>
+                        <p className="font-medium">{countryNames[selectedItem.payerCountry] || selectedItem.payerCountry}</p>
                       </div>
                     </div>
                   )}
 
-                  {selectedTransaction.paymentMethod && (
+                  {selectedItem.paymentMethod && (
                     <div className="flex items-center gap-3">
                       <CreditCard className="h-4 w-4 text-muted-foreground" />
                       <div>
                         <p className="text-xs text-muted-foreground">Opérateur</p>
-                        <p className="font-medium">{formatPaymentMethod(selectedTransaction.paymentMethod)}</p>
+                        <p className="font-medium">{formatPaymentMethod(selectedItem.paymentMethod)}</p>
                       </div>
                     </div>
                   )}
                 </div>
               )}
 
-              {selectedTransaction.mobileNumber && selectedTransaction.type !== "payment_received" && (
+              {selectedItem.mobileNumber && selectedItem.type !== "payment_received" && (
                 <div className="flex items-center gap-3 pt-2 border-t">
                   <Phone className="h-4 w-4 text-muted-foreground" />
                   <div>
                     <p className="text-xs text-muted-foreground">Numéro Mobile Money</p>
-                    <p className="font-medium">{selectedTransaction.mobileNumber}</p>
+                    <p className="font-medium">{selectedItem.mobileNumber}</p>
+                  </div>
+                </div>
+              )}
+
+              {selectedItem.isWithdrawalRequest && selectedItem.country && (
+                <div className="flex items-center gap-3 pt-2 border-t">
+                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Pays</p>
+                    <p className="font-medium">{countryNames[selectedItem.country.toUpperCase()] || selectedItem.country}</p>
                   </div>
                 </div>
               )}
@@ -398,14 +501,14 @@ export default function HistoryPage() {
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="text-xs text-muted-foreground">Date et heure</p>
-                  <p className="font-medium">{formatDate(selectedTransaction.createdAt)}</p>
+                  <p className="font-medium">{formatDate(selectedItem.createdAt)}</p>
                 </div>
               </div>
 
-              {selectedTransaction.description && (
+              {selectedItem.description && !selectedItem.isWithdrawalRequest && (
                 <div className="pt-2 border-t">
                   <p className="text-xs text-muted-foreground mb-1">Description</p>
-                  <p className="text-sm">{selectedTransaction.description}</p>
+                  <p className="text-sm">{selectedItem.description}</p>
                 </div>
               )}
             </div>
