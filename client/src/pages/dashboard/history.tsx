@@ -227,8 +227,7 @@ export default function HistoryPage() {
       item.id.toString().includes(searchQuery) ||
       item.payerName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.mobileNumber?.includes(searchQuery);
-    const matchesType = typeFilter === "all" || item.type === typeFilter || 
-      (typeFilter === "withdrawal" && item.type === "withdrawal_request");
+    const matchesType = typeFilter === "all" || item.type === typeFilter;
     const matchesStatus = statusFilter === "all" || item.status === statusFilter;
     return matchesSearch && matchesType && matchesStatus;
   });
@@ -256,13 +255,14 @@ export default function HistoryPage() {
               </div>
               <div className="flex gap-2 flex-wrap">
                 <Select value={typeFilter} onValueChange={setTypeFilter}>
-                  <SelectTrigger className="w-40" data-testid="select-type-filter">
+                  <SelectTrigger className="w-48" data-testid="select-type-filter">
                     <SelectValue placeholder="Type" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Tous les types</SelectItem>
                     <SelectItem value="deposit">Dépôt</SelectItem>
-                    <SelectItem value="withdrawal">Retrait</SelectItem>
+                    <SelectItem value="withdrawal">Retrait (terminé)</SelectItem>
+                    <SelectItem value="withdrawal_request">Demande de retrait</SelectItem>
                     <SelectItem value="transfer_in">Transfert reçu</SelectItem>
                     <SelectItem value="transfer_out">Transfert envoyé</SelectItem>
                     <SelectItem value="payment_received">Paiement reçu</SelectItem>
@@ -275,8 +275,11 @@ export default function HistoryPage() {
                   <SelectContent>
                     <SelectItem value="all">Tous les statuts</SelectItem>
                     <SelectItem value="completed">Terminé</SelectItem>
+                    <SelectItem value="approved">Approuvé</SelectItem>
                     <SelectItem value="pending">En attente</SelectItem>
+                    <SelectItem value="processing">En cours</SelectItem>
                     <SelectItem value="failed">Échoué</SelectItem>
+                    <SelectItem value="rejected">Rejeté</SelectItem>
                     <SelectItem value="cancelled">Annulé</SelectItem>
                   </SelectContent>
                 </Select>
@@ -347,7 +350,7 @@ export default function HistoryPage() {
                       </div>
                       <div className="text-right flex-shrink-0">
                         <p className={`font-bold ${typeInfo.incoming ? "text-green-600" : "text-orange-600"}`}>
-                          {typeInfo.incoming ? "+" : "-"}{formatCurrency(item.amount)}
+                          {typeInfo.incoming ? "+" : "-"}{formatCurrency(item.netAmount)}
                         </p>
                         {parseFloat(item.fee) > 0 && (
                           <p className="text-xs text-muted-foreground">
