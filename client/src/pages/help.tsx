@@ -32,6 +32,12 @@ interface SocialLink {
   isActive: boolean;
 }
 
+interface SiteSettings {
+  supportEmail: string;
+  supportPhone: string;
+  platformName: string;
+}
+
 const faqCategories = [
   {
     title: "Compte et Inscription",
@@ -187,6 +193,13 @@ export default function HelpPage() {
     queryKey: ['/api/social-links'],
   });
 
+  const { data: siteSettings } = useQuery<SiteSettings>({
+    queryKey: ['/api/site-settings'],
+  });
+
+  const supportEmail = siteSettings?.supportEmail || "support@sendavapay.com";
+  const supportPhone = siteSettings?.supportPhone || "+228 92 29 97 72";
+
   const activeLinks = socialLinks.filter(link => link.isActive && link.url);
   const telegramLink = activeLinks.find(link => link.platform === 'telegram');
 
@@ -238,7 +251,7 @@ export default function HelpPage() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Appelez-nous</p>
-                  <p className="font-semibold">+228 92 29 97 72</p>
+                  <p className="font-semibold" data-testid="text-support-phone">{supportPhone}</p>
                 </div>
               </div>
               
@@ -248,7 +261,7 @@ export default function HelpPage() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Écrivez-nous</p>
-                  <p className="font-semibold">support@sendavapay.com</p>
+                  <p className="font-semibold" data-testid="text-support-email">{supportEmail}</p>
                 </div>
               </div>
             </div>

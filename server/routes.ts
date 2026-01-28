@@ -1939,6 +1939,52 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/site-settings", async (req, res) => {
+    try {
+      const supportEmail = await storage.getSetting("support_email") || "support@sendavapay.com";
+      const supportPhone = await storage.getSetting("support_phone") || "+228 92 29 97 72";
+      const platformName = await storage.getSetting("platform_name") || "SendavaPay";
+      res.json({ supportEmail, supportPhone, platformName });
+    } catch (error) {
+      console.error("Get site settings error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/admin/site-settings", requireAdmin, async (req, res) => {
+    try {
+      const supportEmail = await storage.getSetting("support_email") || "support@sendavapay.com";
+      const supportPhone = await storage.getSetting("support_phone") || "+228 92 29 97 72";
+      const platformName = await storage.getSetting("platform_name") || "SendavaPay";
+      res.json({ supportEmail, supportPhone, platformName });
+    } catch (error) {
+      console.error("Get admin site settings error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.put("/api/admin/site-settings", requireAdmin, async (req, res) => {
+    try {
+      const { supportEmail, supportPhone, platformName } = req.body;
+      
+      if (supportEmail) await storage.setSetting("support_email", supportEmail);
+      if (supportPhone) await storage.setSetting("support_phone", supportPhone);
+      if (platformName) await storage.setSetting("platform_name", platformName);
+      
+      await storage.createAuditLog({
+        userId: req.session.userId,
+        action: "site_settings_updated",
+        details: "Paramètres du site mis à jour",
+        ipAddress: req.ip,
+      });
+      
+      res.json({ message: "Paramètres enregistrés avec succès", supportEmail, supportPhone, platformName });
+    } catch (error) {
+      console.error("Update site settings error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   // LeekPay Webhook - Route GET pour test uniquement
   app.get("/api/webhook/leekpay", (req, res) => {
     console.log("=== LeekPay Webhook GET request received ===");
