@@ -54,6 +54,7 @@ export default function KycPage() {
   const [documentFront, setDocumentFront] = useState<File | null>(null);
   const [documentBack, setDocumentBack] = useState<File | null>(null);
   const [selfie, setSelfie] = useState<File | null>(null);
+  const [showRetryForm, setShowRetryForm] = useState(false);
 
   const { data: kycRequest, isLoading } = useQuery<KycRequest>({
     queryKey: ["/api/kyc"],
@@ -77,6 +78,10 @@ export default function KycPage() {
         title: "Demande envoyée",
         description: "Votre demande de vérification a été soumise avec succès.",
       });
+      setShowRetryForm(false);
+      setDocumentFront(null);
+      setDocumentBack(null);
+      setSelfie(null);
       queryClient.invalidateQueries({ queryKey: ["/api/kyc"] });
       queryClient.invalidateQueries({ queryKey: ["/api/user"] });
     },
@@ -187,7 +192,7 @@ export default function KycPage() {
     );
   }
 
-  if (kycRequest?.status === "rejected") {
+  if (kycRequest?.status === "rejected" && !showRetryForm) {
     return (
       <DashboardLayout>
         <div className="max-w-2xl mx-auto space-y-6">
@@ -204,7 +209,10 @@ export default function KycPage() {
                   <p className="text-red-600 dark:text-red-400 mb-4">
                     {kycRequest.rejectionReason || "Votre demande de vérification a été refusée. Veuillez vérifier vos informations et réessayer."}
                   </p>
-                  <Button onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/kyc"] })}>
+                  <Button 
+                    onClick={() => setShowRetryForm(true)}
+                    data-testid="button-kyc-retry"
+                  >
                     Soumettre une nouvelle demande
                   </Button>
                 </div>
