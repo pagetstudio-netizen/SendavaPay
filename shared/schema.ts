@@ -208,6 +208,10 @@ export const operators = pgTable("operators", {
   code: text("code").notNull(),
   countryId: integer("country_id").notNull().references(() => countries.id),
   logo: text("logo"),
+  type: text("type").default("mobile_money").notNull(),
+  dailyLimit: text("daily_limit").default("1000000"),
+  paymentGateway: text("payment_gateway").default("soleaspay"),
+  inMaintenance: boolean("in_maintenance").default(false).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
