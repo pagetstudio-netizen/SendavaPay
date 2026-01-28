@@ -17,20 +17,21 @@ import {
 } from "lucide-react";
 import { SiWhatsapp, SiTelegram, SiFacebook, SiYoutube } from "react-icons/si";
 
-const contactChannels = [
-  {
-    id: "whatsapp",
-    title: "WhatsApp",
-    description: "Discuter avec un agent SendavaPay",
-    url: "https://wa.me/22892299772",
-    icon: SiWhatsapp,
-    bgColor: "bg-green-500 dark:bg-green-600",
-    textColor: "text-white",
-  },
+const mainContact = {
+  id: "whatsapp",
+  title: "WhatsApp",
+  description: "Discuter avec un agent SendavaPay",
+  url: "https://wa.me/22892299772",
+  icon: SiWhatsapp,
+  bgColor: "bg-green-500 dark:bg-green-600",
+  textColor: "text-white",
+};
+
+const otherChannels = [
   {
     id: "telegram",
-    title: "Chaîne Telegram",
-    description: "Rejoindre notre communauté Telegram",
+    title: "Telegram",
+    description: "Rejoindre notre communauté",
     url: "https://t.me/sendavapay",
     icon: SiTelegram,
     bgColor: "bg-blue-500 dark:bg-blue-600",
@@ -39,7 +40,7 @@ const contactChannels = [
   {
     id: "whatsapp-channel",
     title: "WhatsApp Channel",
-    description: "Recevoir les notifications et infos SendavaPay",
+    description: "Notifications SendavaPay",
     url: "https://whatsapp.com/channel/0029Vb64HLEIyPtOIDeXDE1C",
     icon: SiWhatsapp,
     bgColor: "bg-green-600 dark:bg-green-700",
@@ -48,7 +49,7 @@ const contactChannels = [
   {
     id: "facebook",
     title: "Facebook",
-    description: "Suivez-nous sur Facebook",
+    description: "Suivez-nous",
     url: "https://www.facebook.com/profile.php?id=61585147104734",
     icon: SiFacebook,
     bgColor: "bg-blue-600 dark:bg-blue-700",
@@ -57,7 +58,7 @@ const contactChannels = [
   {
     id: "youtube",
     title: "YouTube",
-    description: "Abonnez-vous à notre chaîne YouTube",
+    description: "Notre chaîne",
     url: "https://youtube.com/@sendavapay?si=WsRg7LidP3nf01Kr",
     icon: SiYoutube,
     bgColor: "bg-red-600 dark:bg-red-700",
@@ -115,9 +116,28 @@ export default function DashboardHelpPage() {
               Nos canaux de contact
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {contactChannels.map((channel) => (
+          <CardContent className="space-y-6">
+            <a
+              href={mainContact.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block"
+              data-testid={`link-contact-${mainContact.id}`}
+            >
+              <Button
+                className={`w-full h-auto py-6 flex flex-col items-center gap-3 ${mainContact.bgColor} ${mainContact.textColor}`}
+                data-testid={`button-contact-${mainContact.id}`}
+              >
+                <mainContact.icon className="h-10 w-10" />
+                <span className="text-lg font-semibold">{mainContact.title}</span>
+                <span className="text-sm opacity-90 text-center">
+                  {mainContact.description}
+                </span>
+              </Button>
+            </a>
+
+            <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
+              {otherChannels.map((channel) => (
                 <a
                   key={channel.id}
                   href={channel.url}
@@ -127,14 +147,11 @@ export default function DashboardHelpPage() {
                   data-testid={`link-contact-${channel.id}`}
                 >
                   <Button
-                    className={`w-full h-auto py-4 flex flex-col items-center gap-2 ${channel.bgColor} ${channel.textColor}`}
+                    className={`w-full h-auto py-3 flex flex-col items-center gap-1 ${channel.bgColor} ${channel.textColor}`}
                     data-testid={`button-contact-${channel.id}`}
                   >
-                    <channel.icon className="h-6 w-6" />
-                    <span className="font-semibold">{channel.title}</span>
-                    <span className="text-xs opacity-90 text-center">
-                      {channel.description}
-                    </span>
+                    <channel.icon className="h-5 w-5" />
+                    <span className="text-xs font-medium">{channel.title}</span>
                   </Button>
                 </a>
               ))}
