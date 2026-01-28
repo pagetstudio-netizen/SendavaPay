@@ -41,6 +41,7 @@ interface SoleasPayService {
   countryCode: string;
   currency: string;
   operator: string;
+  inMaintenance?: boolean;
 }
 
 const operatorLogos: Record<string, string> = {
@@ -92,7 +93,13 @@ export default function DepositPage() {
 
   useEffect(() => {
     if (services.length > 0 && (!selectedServiceId || !services.find(s => s.id.toString() === selectedServiceId))) {
-      setSelectedServiceId(services[0].id.toString());
+      // Select first non-maintenance service
+      const availableService = services.find(s => !s.inMaintenance);
+      if (availableService) {
+        setSelectedServiceId(availableService.id.toString());
+      } else {
+        setSelectedServiceId("");
+      }
     }
   }, [services, selectedServiceId]);
 
@@ -396,19 +403,29 @@ export default function DepositPage() {
                   <Label>Opérateur Mobile Money</Label>
                   <RadioGroup 
                     value={selectedServiceId} 
-                    onValueChange={setSelectedServiceId} 
+                    onValueChange={(val) => {
+                      const srv = services.find(s => s.id.toString() === val);
+                      if (!srv?.inMaintenance) {
+                        setSelectedServiceId(val);
+                      }
+                    }} 
                     className="grid grid-cols-2 gap-4"
                   >
                     {services.map((service) => (
-                      <div key={service.id}>
+                      <div key={service.id} className="relative">
                         <RadioGroupItem
                           value={service.id.toString()}
                           id={`service-${service.id}`}
                           className="peer sr-only"
+                          disabled={service.inMaintenance}
                         />
                         <Label
                           htmlFor={`service-${service.id}`}
-                          className="flex flex-col items-center gap-2 rounded-xl border-2 p-4 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all"
+                          className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all ${
+                            service.inMaintenance 
+                              ? "opacity-50 cursor-not-allowed bg-muted" 
+                              : "cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5"
+                          }`}
                           data-testid={`radio-service-${service.id}`}
                         >
                           <img 
@@ -417,6 +434,9 @@ export default function DepositPage() {
                             className="h-12 w-12 object-contain rounded-full bg-white shadow-sm p-1" 
                           />
                           <span className="text-xs font-bold text-center">{service.description}</span>
+                          {service.inMaintenance && (
+                            <span className="text-xs text-orange-600 font-medium">En maintenance</span>
+                          )}
                         </Label>
                       </div>
                     ))}

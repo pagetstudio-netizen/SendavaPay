@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -26,74 +26,29 @@ import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
 import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
 
+interface WithdrawOperator {
+  id: string;
+  name: string;
+  inMaintenance?: boolean;
+}
+
+interface WithdrawCountry {
+  id: string;
+  name: string;
+  currency: string;
+  methods: WithdrawOperator[];
+}
+
 const methodLogos: Record<string, string> = {
   mtn: mtnLogo,
   moov: moovLogo,
   orange: orangeLogo,
   tmoney: tmoneyLogo,
+  "t-money": tmoneyLogo,
   airtel: airtelLogo,
   vodacom: vodacomLogo,
+  wave: orangeLogo,
 };
-
-const countries = [
-  { 
-    id: "benin", 
-    name: "Bénin", 
-    methods: [
-      { id: "mtn", name: "MTN Mobile Money" },
-      { id: "moov", name: "Moov Money" },
-    ]
-  },
-  { 
-    id: "burkina_faso", 
-    name: "Burkina Faso", 
-    methods: [
-      { id: "orange", name: "Orange Money" },
-      { id: "moov", name: "Moov Money" },
-    ]
-  },
-  { 
-    id: "togo", 
-    name: "Togo", 
-    methods: [
-      { id: "moov", name: "Moov Money" },
-      { id: "tmoney", name: "TMoney (Mixx by Yas)" },
-    ]
-  },
-  { 
-    id: "cameroun", 
-    name: "Cameroun", 
-    methods: [
-      { id: "mtn", name: "MTN Mobile Money" },
-      { id: "orange", name: "Orange Money" },
-    ]
-  },
-  { 
-    id: "cote_ivoire", 
-    name: "Côte d'Ivoire", 
-    methods: [
-      { id: "mtn", name: "MTN Mobile Money" },
-      { id: "moov", name: "Moov Money" },
-      { id: "orange", name: "Orange Money" },
-    ]
-  },
-  { 
-    id: "rdc", 
-    name: "RDC (Congo Kinshasa)", 
-    methods: [
-      { id: "airtel", name: "Airtel Money" },
-      { id: "vodacom", name: "Vodacom M-Pesa" },
-    ]
-  },
-  { 
-    id: "congo", 
-    name: "Congo Brazzaville", 
-    methods: [
-      { id: "mtn", name: "MTN Mobile Money" },
-      { id: "airtel", name: "Airtel Money" },
-    ]
-  },
-];
 
 interface WithdrawalRequest {
   id: number;
@@ -124,12 +79,21 @@ export default function WithdrawPage() {
   const [mobileNumber, setMobileNumber] = useState(user?.phone || "");
   const [walletName, setWalletName] = useState("");
 
+  const { data: countries = [], isLoading: countriesLoading } = useQuery<WithdrawCountry[]>({
+    queryKey: ["/api/withdraw/operators"],
+  });
+
   const { data: withdrawalRequests = [], isLoading: requestsLoading } = useQuery<WithdrawalRequest[]>({
     queryKey: ["/api/withdrawal-requests"],
   });
 
   const selectedCountry = countries.find(c => c.id === country);
   const availableMethods = selectedCountry?.methods || [];
+  
+  // Reset payment method when country changes
+  useEffect(() => {
+    setPaymentMethod("");
+  }, [country]);
 
   const commissionRate = 7;
   const balance = parseFloat(user?.balance || "0");
@@ -369,23 +333,47 @@ export default function WithdrawPage() {
               {availableMethods.length > 0 && (
                 <div className="space-y-4">
                   <Label>Moyen de paiement</Label>
-                  <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {availableMethods.map((method) => (
-                      <div key={method.id}>
-                        <RadioGroupItem
-                          value={method.id}
-                          id={`withdraw-${method.id}`}
-                          className="peer sr-only"
-                        />
-                        <Label
-                          htmlFor={`withdraw-${method.id}`}
-                          className="flex flex-col items-center gap-2 rounded-lg border-2 p-4 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all"
-                        >
-                          <img src={methodLogos[method.id] || moovLogo} alt={method.name} className="h-12 w-12 object-contain rounded-full" />
-                          <span className="text-xs font-medium text-center">{method.name}</span>
-                        </Label>
-                      </div>
-                    ))}
+                  <RadioGroup 
+                    value={paymentMethod} 
+                    onValueChange={(val) => {
+                      const method = availableMethods.find(m => m.id === val);
+                      if (!method?.inMaintenance) {
+                        setPaymentMethod(val);
+                      }
+                    }} 
+                    className="grid grid-cols-2 md:grid-cols-3 gap-4"
+                  >
+                    {availableMethods.map((method) => {
+                      const logoKey = method.name.toLowerCase().replace(/\s+/g, "").replace("-", "");
+                      return (
+                        <div key={method.id} className="relative">
+                          <RadioGroupItem
+                            value={method.id}
+                            id={`withdraw-${method.id}`}
+                            className="peer sr-only"
+                            disabled={method.inMaintenance}
+                          />
+                          <Label
+                            htmlFor={`withdraw-${method.id}`}
+                            className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-all ${
+                              method.inMaintenance
+                                ? "opacity-50 cursor-not-allowed bg-muted"
+                                : "cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5"
+                            }`}
+                          >
+                            <img 
+                              src={methodLogos[logoKey] || methodLogos[method.name.toLowerCase()] || moovLogo} 
+                              alt={method.name} 
+                              className="h-12 w-12 object-contain rounded-full" 
+                            />
+                            <span className="text-xs font-medium text-center">{method.name}</span>
+                            {method.inMaintenance && (
+                              <span className="text-xs text-orange-600 font-medium">En maintenance</span>
+                            )}
+                          </Label>
+                        </div>
+                      );
+                    })}
                   </RadioGroup>
                 </div>
               )}

@@ -324,10 +324,62 @@ export async function registerRoutes(
     res.json(SOLEASPAY_COUNTRIES);
   });
 
-  app.get("/api/soleaspay/services/:countryCode", (req, res) => {
-    const { countryCode } = req.params;
-    const services = getServicesByCountry(countryCode);
-    res.json(services);
+  app.get("/api/soleaspay/services/:countryCode", async (req, res) => {
+    try {
+      const { countryCode } = req.params;
+      const services = getServicesByCountry(countryCode);
+      
+      // Get operators from database to check maintenance status
+      const operators = await storage.getOperators();
+      
+      // Filter out services that are in maintenance
+      const availableServices = services.map(service => {
+        const operator = operators.find(op => op.code === service.id.toString());
+        const inMaintenance = operator?.inMaintenance ?? false;
+        return {
+          ...service,
+          inMaintenance,
+        };
+      });
+      
+      res.json(availableServices);
+    } catch (error) {
+      console.error("Get services error:", error);
+      const { countryCode } = req.params;
+      const services = getServicesByCountry(countryCode);
+      res.json(services);
+    }
+  });
+
+  // Get operators for withdraw with maintenance status
+  app.get("/api/withdraw/operators", async (req, res) => {
+    try {
+      const operators = await storage.getOperators();
+      const countries = await storage.getCountries();
+      
+      // Build country list with operators
+      const countryOperators = countries.map(country => {
+        const countryOps = operators
+          .filter(op => op.countryId === country.id)
+          .map(op => ({
+            id: op.code,
+            name: op.name,
+            inMaintenance: op.inMaintenance ?? false,
+          }));
+        
+        return {
+          id: country.code.toLowerCase(),
+          name: country.name,
+          currency: country.currency,
+          methods: countryOps,
+        };
+      }).filter(c => c.methods.length > 0);
+      
+      res.json(countryOperators);
+    } catch (error) {
+      console.error("Get withdraw operators error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
   });
 
   // Dépôt via SoleasPay
@@ -352,6 +404,13 @@ export async function registerRoutes(
       const service = getServiceById(parseInt(serviceId));
       if (!service) {
         return res.status(400).json({ message: "Service non trouvé" });
+      }
+
+      // Check if operator is in maintenance
+      const operators = await storage.getOperators();
+      const operator = operators.find(op => op.code === serviceId.toString());
+      if (operator?.inMaintenance) {
+        return res.status(400).json({ message: "Ce moyen de paiement est actuellement en maintenance" });
       }
 
       const orderId = `DEP-${Date.now()}-${req.session.userId}`;
@@ -1063,15 +1122,6 @@ export async function registerRoutes(
     }
   });
 
-  const countryPaymentMethods: Record<string, string[]> = {
-    togo: ["moov", "tmoney"],
-    cote_ivoire: ["wave", "mtn", "orange", "moov"],
-    benin: ["celtis", "moov", "mtn"],
-    mali: ["orange", "moov"],
-    burkina_faso: ["moov"],
-    senegal: ["moov", "orange", "wave"],
-  };
-
   app.post("/api/withdraw", requireAuth, async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
@@ -1091,12 +1141,24 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Solde insuffisant" });
       }
 
-      if (!country || !countryPaymentMethods[country]) {
+      // Validate country and payment method using database operators
+      const countries = await storage.getCountries();
+      const operators = await storage.getOperators();
+      
+      const selectedCountry = countries.find(c => c.code.toLowerCase() === country.toLowerCase());
+      if (!selectedCountry) {
         return res.status(400).json({ message: "Pays invalide" });
       }
-
-      if (!paymentMethod || !countryPaymentMethods[country].includes(paymentMethod)) {
+      
+      const countryOperators = operators.filter(op => op.countryId === selectedCountry.id);
+      const selectedOperator = countryOperators.find(op => op.code === paymentMethod || op.name.toLowerCase() === paymentMethod.toLowerCase());
+      
+      if (!selectedOperator) {
         return res.status(400).json({ message: "Moyen de paiement invalide pour ce pays" });
+      }
+      
+      if (selectedOperator.inMaintenance) {
+        return res.status(400).json({ message: "Ce moyen de paiement est actuellement en maintenance" });
       }
 
       if (!mobileNumber) {
