@@ -258,6 +258,83 @@ export const siteSettings = pgTable("site_settings", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const merchantStatusEnum = pgEnum("merchant_status", ["active", "suspended", "pending"]);
+
+export const merchants = pgTable("merchants", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  apiKey: text("api_key").notNull().unique(),
+  apiSecret: text("api_secret").notNull(),
+  balance: decimal("balance", { precision: 15, scale: 2 }).default("0").notNull(),
+  webhookUrl: text("webhook_url"),
+  webhookSecret: text("webhook_secret"),
+  status: merchantStatusEnum("status").default("active").notNull(),
+  companyName: text("company_name"),
+  website: text("website"),
+  description: text("description"),
+  logoUrl: text("logo_url"),
+  isVerified: boolean("is_verified").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  lastLoginAt: timestamp("last_login_at"),
+});
+
+export const apiTransactionStatusEnum = pgEnum("api_transaction_status", ["pending", "processing", "completed", "failed", "cancelled"]);
+export const apiTransactionTypeEnum = pgEnum("api_transaction_type", ["payment", "credit", "refund", "payout"]);
+
+export const apiTransactions = pgTable("api_transactions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  merchantId: integer("merchant_id").notNull().references(() => merchants.id),
+  reference: text("reference").notNull().unique(),
+  externalReference: text("external_reference"),
+  type: apiTransactionTypeEnum("type").notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  fee: decimal("fee", { precision: 15, scale: 2 }).default("0").notNull(),
+  currency: text("currency").default("XOF").notNull(),
+  status: apiTransactionStatusEnum("status").default("pending").notNull(),
+  description: text("description"),
+  customerEmail: text("customer_email"),
+  customerPhone: text("customer_phone"),
+  customerName: text("customer_name"),
+  paymentMethod: text("payment_method"),
+  paymentLinkId: integer("payment_link_id"),
+  metadata: text("metadata"),
+  webhookSent: boolean("webhook_sent").default(false).notNull(),
+  webhookAttempts: integer("webhook_attempts").default(0).notNull(),
+  webhookLastAttempt: timestamp("webhook_last_attempt"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const merchantWebhooks = pgTable("merchant_webhooks", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  merchantId: integer("merchant_id").notNull().references(() => merchants.id),
+  url: text("url").notNull(),
+  events: text("events").notNull(),
+  secret: text("secret").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  lastTriggered: timestamp("last_triggered"),
+  failureCount: integer("failure_count").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const apiLogs = pgTable("api_logs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  merchantId: integer("merchant_id").references(() => merchants.id),
+  endpoint: text("endpoint").notNull(),
+  method: text("method").notNull(),
+  requestBody: text("request_body"),
+  responseBody: text("response_body"),
+  statusCode: integer("status_code"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  duration: integer("duration"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const usersRelations = relations(users, ({ many }) => ({
   transactions: many(transactions),
   transfers: many(transfers, { relationName: "sender" }),
@@ -425,3 +502,63 @@ export type GlobalMessage = typeof globalMessages.$inferSelect;
 export type AdminNotification = typeof adminNotifications.$inferSelect;
 export type UserNotification = typeof userNotifications.$inferSelect;
 export type SiteSetting = typeof siteSettings.$inferSelect;
+
+export const insertMerchantSchema = createInsertSchema(merchants).omit({
+  id: true,
+  createdAt: true,
+  apiKey: true,
+  apiSecret: true,
+  balance: true,
+  status: true,
+  isVerified: true,
+  lastLoginAt: true,
+  webhookSecret: true,
+});
+
+export const merchantLoginSchema = z.object({
+  email: z.string().email("Email invalide"),
+  password: z.string().min(1, "Mot de passe requis"),
+});
+
+export const merchantRegisterSchema = z.object({
+  name: z.string().min(2, "Nom requis"),
+  email: z.string().email("Email invalide"),
+  password: z.string().min(6, "Mot de passe minimum 6 caractères"),
+  confirmPassword: z.string().min(6, "Confirmation requise"),
+  companyName: z.string().optional(),
+  website: z.string().url().optional().or(z.literal("")),
+  description: z.string().optional(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Les mots de passe ne correspondent pas",
+  path: ["confirmPassword"],
+});
+
+export const insertApiTransactionSchema = createInsertSchema(apiTransactions).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+  webhookSent: true,
+  webhookAttempts: true,
+  webhookLastAttempt: true,
+});
+
+export const insertMerchantWebhookSchema = createInsertSchema(merchantWebhooks).omit({
+  id: true,
+  createdAt: true,
+  lastTriggered: true,
+  failureCount: true,
+});
+
+export const insertApiLogSchema = createInsertSchema(apiLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type Merchant = typeof merchants.$inferSelect;
+export type InsertMerchant = z.infer<typeof insertMerchantSchema>;
+export type ApiTransaction = typeof apiTransactions.$inferSelect;
+export type InsertApiTransaction = z.infer<typeof insertApiTransactionSchema>;
+export type MerchantWebhook = typeof merchantWebhooks.$inferSelect;
+export type InsertMerchantWebhook = z.infer<typeof insertMerchantWebhookSchema>;
+export type ApiLog = typeof apiLogs.$inferSelect;
+export type InsertApiLog = z.infer<typeof insertApiLogSchema>;
