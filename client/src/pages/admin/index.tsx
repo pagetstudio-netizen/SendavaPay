@@ -1272,7 +1272,7 @@ function ApiKeysContent() {
       const matchesSearch = 
         key.id.toString().includes(searchQuery) ||
         key.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        key.keyPrefix?.includes(searchQuery);
+        key.apiKey?.slice(0, 12).includes(searchQuery);
       const matchesStatus = 
         statusFilter === "all" ||
         (statusFilter === "active" && key.isActive) ||
@@ -1347,7 +1347,7 @@ function ApiKeysContent() {
                     <td className="p-4 font-mono text-sm">{key.id}</td>
                     <td className="p-4 font-mono text-sm">{key.userId}</td>
                     <td className="p-4 font-medium">{key.name}</td>
-                    <td className="p-4 font-mono text-sm">{key.keyPrefix}...</td>
+                    <td className="p-4 font-mono text-sm">{key.apiKey?.slice(0, 12)}...</td>
                     <td className="p-4">{key.requestCount || 0}</td>
                     <td className="p-4">
                       <Badge className={key.isActive ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
@@ -1912,7 +1912,7 @@ function WithdrawalNumbersContent() {
       phoneNumber: num.phoneNumber,
       operator: num.operator,
       country: num.country,
-      label: num.label || "",
+      label: num.walletName || "",
       isActive: num.isActive,
     });
     setShowDialog(true);
@@ -1960,7 +1960,7 @@ function WithdrawalNumbersContent() {
                     <TableCell className="font-mono">{num.phoneNumber}</TableCell>
                     <TableCell>{num.operator}</TableCell>
                     <TableCell>{num.country}</TableCell>
-                    <TableCell>{num.label || "-"}</TableCell>
+                    <TableCell>{num.walletName || "-"}</TableCell>
                     <TableCell>
                       <Badge variant={num.isActive ? "default" : "secondary"}>
                         {num.isActive ? "Actif" : "Inactif"}
@@ -2142,7 +2142,7 @@ function CountriesContent() {
                 ) : countries?.map((c) => (
                   <TableRow key={c.id}>
                     <TableCell className="font-mono">{c.code}</TableCell>
-                    <TableCell>{c.flagEmoji} {c.name}</TableCell>
+                    <TableCell>{c.name}</TableCell>
                     <TableCell>{c.currency}</TableCell>
                     <TableCell><Badge variant={c.isActive ? "default" : "secondary"}>{c.isActive ? "Actif" : "Inactif"}</Badge></TableCell>
                     <TableCell>

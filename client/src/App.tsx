@@ -58,7 +58,11 @@ function Router() {
       <AdminRoute path="/admin/kyc" component={AdminDashboardPage} />
       <AdminRoute path="/admin/api-keys" component={AdminDashboardPage} />
       <AdminRoute path="/admin/commissions" component={AdminDashboardPage} />
+      <AdminRoute path="/admin/withdrawal-numbers" component={AdminDashboardPage} />
+      <AdminRoute path="/admin/countries" component={AdminDashboardPage} />
+      <AdminRoute path="/admin/payment-links" component={AdminDashboardPage} />
       <AdminRoute path="/admin/messaging" component={AdminDashboardPage} />
+      <AdminRoute path="/admin/logs" component={AdminDashboardPage} />
       <AdminRoute path="/admin/reports" component={AdminDashboardPage} />
       <AdminRoute path="/admin/settings" component={AdminDashboardPage} />
       
