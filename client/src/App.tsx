@@ -17,6 +17,7 @@ import HistoryPage from "@/pages/dashboard/history";
 import KycPage from "@/pages/dashboard/kyc";
 import ApiKeysPage from "@/pages/dashboard/api-keys";
 import SettingsPage from "@/pages/dashboard/settings";
+import DashboardHelpPage from "@/pages/dashboard/help";
 import ApiDocsPage from "@/pages/api-docs";
 import PaymentPage from "@/pages/pay";
 import SuccessPage from "@/pages/success";
@@ -47,6 +48,7 @@ function Router() {
       <ProtectedRoute path="/dashboard/history" component={HistoryPage} />
       <ProtectedRoute path="/dashboard/kyc" component={KycPage} />
       <ProtectedRoute path="/dashboard/api-keys" component={ApiKeysPage} />
+      <ProtectedRoute path="/dashboard/help" component={DashboardHelpPage} />
       <ProtectedRoute path="/dashboard/settings" component={SettingsPage} />
       
       <AdminRoute path="/admin" component={AdminDashboardPage} />
