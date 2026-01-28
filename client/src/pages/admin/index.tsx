@@ -807,13 +807,62 @@ const countryNames: Record<string, string> = {
 };
 
 const paymentMethodNames: Record<string, string> = {
+  // Simple names
   mtn: "MTN Mobile Money",
   moov: "Moov Money",
   tmoney: "TMoney",
   orange: "Orange Money",
   wave: "Wave",
   celtis: "Celtis",
+  vodacom: "Vodacom M-Pesa",
+  airtel: "Airtel Money",
+  // Operator codes
+  mtn_cm: "MTN Mobile Money (Cameroun)",
+  om_cm: "Orange Money (Cameroun)",
+  om_ci: "Orange Money (Côte d'Ivoire)",
+  mtn_ci: "MTN Money (Côte d'Ivoire)",
+  moov_ci: "Moov Money (Côte d'Ivoire)",
+  wave_ci: "Wave (Côte d'Ivoire)",
+  moov_bf: "Moov Money (Burkina Faso)",
+  om_bf: "Orange Money (Burkina Faso)",
+  mtn_bj: "MTN Money (Bénin)",
+  moov_bj: "Moov Money (Bénin)",
+  tmoney_tg: "T-Money (Togo)",
+  moov_tg: "Moov Money (Togo)",
+  vodacom_cod: "Vodacom M-Pesa (RDC)",
+  airtel_cod: "Airtel Money (RDC)",
+  om_cod: "Orange Money (RDC)",
+  airtel_cog: "Airtel Money (Congo)",
+  mtn_cog: "MTN Money (Congo)",
 };
+
+// Helper function to format payment method name
+function formatPaymentMethodName(method: string | null | undefined): string {
+  if (!method) return "-";
+  
+  // Check if it's in the mapping
+  const lowerMethod = method.toLowerCase();
+  if (paymentMethodNames[lowerMethod]) {
+    return paymentMethodNames[lowerMethod];
+  }
+  
+  // If it's already a full name like "MTN Mobile Money" or "Moov Money", return as-is
+  if (method.includes("Money") || method.includes("M-Pesa") || method.includes("Wave") || method.includes("T-Money")) {
+    return method;
+  }
+  
+  // Try to extract operator name from code (e.g., "mtn_cm" -> "MTN")
+  const parts = method.split("_");
+  if (parts.length > 0) {
+    const operatorKey = parts[0].toLowerCase();
+    if (paymentMethodNames[operatorKey]) {
+      return paymentMethodNames[operatorKey];
+    }
+  }
+  
+  // Return the original value if nothing matches
+  return method;
+}
 
 function WithdrawalsContent() {
   const { toast } = useToast();
@@ -952,7 +1001,7 @@ function WithdrawalsContent() {
                           </div>
                           <div>
                             <span className="text-muted-foreground">Moyen:</span>{" "}
-                            <span className="font-medium">{paymentMethodNames[request.paymentMethod] || request.paymentMethod}</span>
+                            <span className="font-medium">{formatPaymentMethodName(request.paymentMethod)}</span>
                           </div>
                           <div>
                             <span className="text-muted-foreground">Téléphone:</span>{" "}
