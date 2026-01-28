@@ -85,9 +85,18 @@ export const WITHDRAWABLE_SERVICES: WithdrawableService[] = [
   { id: 56, name: "MOMO COG", description: "MTN Money", country: "Congo Brazzaville", countryCode: "COG", currency: "XAF", operator: "MTN" },
 ];
 
-export function getWithdrawableServiceByCountryAndOperator(countryCode: string, operator: string): WithdrawableService | undefined {
+export function getWithdrawableServiceByCountryAndOperator(countryCode: string, operatorOrId: string): WithdrawableService | undefined {
   const countryUpper = countryCode.toUpperCase();
-  const operatorLower = operator.toLowerCase();
+  const operatorLower = operatorOrId.toLowerCase();
+  
+  // First try to match by service ID
+  const serviceId = parseInt(operatorOrId);
+  if (!isNaN(serviceId)) {
+    const byId = WITHDRAWABLE_SERVICES.find(s => s.id === serviceId && s.countryCode === countryUpper);
+    if (byId) return byId;
+  }
+  
+  // Then try to match by operator name
   return WITHDRAWABLE_SERVICES.find(s => 
     s.countryCode === countryUpper && 
     (s.operator.toLowerCase() === operatorLower || 
