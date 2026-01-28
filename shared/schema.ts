@@ -82,6 +82,7 @@ export const paymentLinks = pgTable("payment_links", {
   productImage: text("product_image"),
   allowCustomAmount: boolean("allow_custom_amount").default(false).notNull(),
   minimumAmount: decimal("minimum_amount", { precision: 15, scale: 2 }),
+  redirectUrl: text("redirect_url"),
   status: paymentLinkStatusEnum("status").default("active").notNull(),
   paidAt: timestamp("paid_at"),
   payerName: text("payer_name"),
