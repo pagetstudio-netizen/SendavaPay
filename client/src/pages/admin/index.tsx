@@ -2302,14 +2302,19 @@ function CountriesContent() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold">Opérateurs par Pays</h1>
           <p className="text-muted-foreground">Configurez les opérateurs mobiles disponibles par pays</p>
         </div>
-        <Button onClick={() => setShowOperatorDialog(true)} disabled={!countries?.length} data-testid="button-add-operator">
-          <Plus className="h-4 w-4 mr-1" /> Ajouter
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowCountryDialog(true)} data-testid="button-add-country">
+            <Plus className="h-4 w-4 mr-1" /> Ajouter un pays
+          </Button>
+          <Button onClick={() => setShowOperatorDialog(true)} disabled={!countries?.length} data-testid="button-add-operator">
+            <Plus className="h-4 w-4 mr-1" /> Ajouter un opérateur
+          </Button>
+        </div>
       </div>
 
       {loadingCountries || loadingOperators ? (

@@ -2512,7 +2512,7 @@ export async function registerRoutes(
 
   app.post("/api/admin/operators", requireAdmin, async (req, res) => {
     try {
-      const { countryId, name, code, isActive } = req.body;
+      const { countryId, name, code, isActive, type, dailyLimit, paymentGateway, inMaintenance } = req.body;
       if (!countryId || !name || !code) {
         return res.status(400).json({ message: "Champs requis manquants" });
       }
@@ -2521,6 +2521,10 @@ export async function registerRoutes(
         name,
         code,
         isActive: isActive ?? true,
+        type: type || "mobile_money",
+        dailyLimit: dailyLimit || "1000000",
+        paymentGateway: paymentGateway || "soleaspay",
+        inMaintenance: inMaintenance ?? false,
       });
       res.json(operator);
     } catch (error) {
