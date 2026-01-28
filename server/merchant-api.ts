@@ -185,9 +185,8 @@ router.post("/merchant/register", async (req: Request, res: Response) => {
         name: merchant.name,
         email: merchant.email,
         apiKey: merchant.apiKey,
-        apiSecret: merchant.apiSecret,
-        webhookSecret: merchant.webhookSecret,
       },
+      message: "Compte cr\u00e9\u00e9 avec succ\u00e8s. Connectez-vous pour acc\u00e9der \u00e0 votre tableau de bord.",
     };
 
     await logApiRequest(merchant.id, req.path, req.method, { ...req.body, password: "[REDACTED]" }, { success: true }, 201, req.ip, req.get('User-Agent'), Date.now() - startTime);

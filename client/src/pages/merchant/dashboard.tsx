@@ -87,6 +87,10 @@ export default function MerchantDashboard() {
   const [isRegeneratingKeys, setIsRegeneratingKeys] = useState(false);
   const [newWebhookUrl, setNewWebhookUrl] = useState("");
   const [newWebhookEvents, setNewWebhookEvents] = useState("payment.completed,credit.completed");
+
+  useEffect(() => {
+    document.title = "Tableau de bord Marchand - SendavaPay";
+  }, []);
   const [isAddingWebhook, setIsAddingWebhook] = useState(false);
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,14 @@ export default function MerchantAuth() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    document.title = "Espace Marchand - SendavaPay";
+    const metaDescription = document.querySelector('meta[name="description"]');
+    if (metaDescription) {
+      metaDescription.setAttribute("content", "Connectez-vous \u00e0 l'espace marchand SendavaPay pour g\u00e9rer vos paiements, int\u00e9grations API et webhooks.");
+    }
+  }, []);
 
   const [loginData, setLoginData] = useState({ email: "", password: "" });
   const [registerData, setRegisterData] = useState({
@@ -149,6 +157,7 @@ export default function MerchantAuth() {
                       type="button"
                       className="absolute right-3 top-1/2 -translate-y-1/2"
                       onClick={() => setShowPassword(!showPassword)}
+                      data-testid="button-toggle-password"
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
