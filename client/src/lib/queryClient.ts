@@ -2,8 +2,29 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    const text = await res.text();
+    let message = "Une erreur est survenue";
+    
+    try {
+      const json = JSON.parse(text);
+      message = json.message || json.error || message;
+    } catch {
+      if (text && text.length < 200) {
+        message = text;
+      }
+    }
+    
+    if (res.status === 500) {
+      message = "Erreur serveur. Veuillez réessayer plus tard.";
+    } else if (res.status === 503) {
+      message = "Service temporairement indisponible.";
+    } else if (res.status === 404) {
+      message = "Ressource introuvable.";
+    } else if (res.status === 403) {
+      message = "Accès refusé.";
+    }
+    
+    throw new Error(message);
   }
 }
 
