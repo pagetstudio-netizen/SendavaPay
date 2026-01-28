@@ -65,29 +65,22 @@ export interface WithdrawableService {
   operator: string;
 }
 
+// IMPORTANT: Only services with "withdrawable": true in SoleasPay API are included here
+// Based on official SoleasPay documentation mapping
 export const WITHDRAWABLE_SERVICES: WithdrawableService[] = [
-  // Cameroun
+  // Cameroun - Only MTN supports withdrawal (withdrawable: true)
   { id: 1, name: "MOMO CM", description: "MTN Mobile Money", country: "Cameroun", countryCode: "CM", currency: "XAF", operator: "MTN" },
-  { id: 2, name: "OM CM", description: "Orange Money", country: "Cameroun", countryCode: "CM", currency: "XAF", operator: "Orange" },
-  // Côte d'Ivoire
-  { id: 29, name: "OM CI", description: "Orange Money", country: "Côte d'Ivoire", countryCode: "CI", currency: "XOF", operator: "Orange" },
-  { id: 30, name: "MOMO CI", description: "MTN Money", country: "Côte d'Ivoire", countryCode: "CI", currency: "XOF", operator: "MTN" },
-  { id: 31, name: "MOOV CI", description: "Moov Money", country: "Côte d'Ivoire", countryCode: "CI", currency: "XOF", operator: "Moov" },
+  // Côte d'Ivoire - Only Wave supports withdrawal (withdrawable: true)
   { id: 32, name: "WAVE CI", description: "Wave", country: "Côte d'Ivoire", countryCode: "CI", currency: "XOF", operator: "Wave" },
-  // Burkina Faso
-  { id: 33, name: "MOOV BF", description: "Moov Money", country: "Burkina Faso", countryCode: "BF", currency: "XOF", operator: "Moov" },
-  { id: 34, name: "OM BF", description: "Orange Money", country: "Burkina Faso", countryCode: "BF", currency: "XOF", operator: "Orange" },
-  // Bénin
+  // Bénin - Only MTN supports withdrawal (withdrawable: true)
   { id: 35, name: "MOMO BJ", description: "MTN Money", country: "Bénin", countryCode: "BJ", currency: "XOF", operator: "MTN" },
-  { id: 36, name: "MOOV BJ", description: "Moov Money", country: "Bénin", countryCode: "BJ", currency: "XOF", operator: "Moov" },
-  // Togo
+  // Togo - Only T-Money supports withdrawal (withdrawable: true)
   { id: 37, name: "T-MONEY TG", description: "T-Money", country: "Togo", countryCode: "TG", currency: "XOF", operator: "TMoney" },
-  { id: 38, name: "MOOV TG", description: "Moov Money", country: "Togo", countryCode: "TG", currency: "XOF", operator: "Moov" },
-  // RDC
+  // RDC - All three support withdrawal (withdrawable: true)
   { id: 52, name: "VODACOM COD", description: "Vodacom M-Pesa", country: "RDC", countryCode: "COD", currency: "CDF", operator: "Vodacom" },
   { id: 53, name: "AIRTEL COD", description: "Airtel Money", country: "RDC", countryCode: "COD", currency: "CDF", operator: "Airtel" },
   { id: 54, name: "OM COD", description: "Orange Money", country: "RDC", countryCode: "COD", currency: "CDF", operator: "Orange" },
-  // Congo Brazzaville
+  // Congo Brazzaville - Both support withdrawal (withdrawable: true)
   { id: 55, name: "AIRTEL COG", description: "Airtel Money", country: "Congo Brazzaville", countryCode: "COG", currency: "XAF", operator: "Airtel" },
   { id: 56, name: "MOMO COG", description: "MTN Money", country: "Congo Brazzaville", countryCode: "COG", currency: "XAF", operator: "MTN" },
 ];
