@@ -12,6 +12,7 @@ export default function PaymentSuccessPage() {
   const [message, setMessage] = useState("");
   const [amount, setAmount] = useState<number | null>(null);
   const [vendeurId, setVendeurId] = useState<string | null>(null);
+  const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
   const [attempts, setAttempts] = useState(0);
   const maxAttempts = 5;
 
@@ -51,6 +52,7 @@ export default function PaymentSuccessPage() {
           setStatus("completed");
           setMessage(data.message || "Le paiement a été envoyé au vendeur!");
           if (data.amount) setAmount(data.amount);
+          if (data.redirectUrl) setRedirectUrl(data.redirectUrl);
           // Nettoyer localStorage
           localStorage.removeItem("lastLinkPaymentId");
           return true;
@@ -140,14 +142,35 @@ export default function PaymentSuccessPage() {
               <p className="text-sm text-muted-foreground mb-6">
                 Merci pour votre achat! Le vendeur a reçu votre paiement.
               </p>
-              <Button 
-                onClick={() => setLocation("/")} 
-                className="w-full"
-                data-testid="button-home"
-              >
-                <Home className="h-4 w-4 mr-2" />
-                Retour à l'accueil
-              </Button>
+              {redirectUrl ? (
+                <div className="space-y-3">
+                  <Button 
+                    onClick={() => window.location.href = redirectUrl} 
+                    className="w-full"
+                    data-testid="button-redirect"
+                  >
+                    Continuer
+                  </Button>
+                  <Button 
+                    variant="outline"
+                    onClick={() => setLocation("/")} 
+                    className="w-full"
+                    data-testid="button-home"
+                  >
+                    <Home className="h-4 w-4 mr-2" />
+                    Retour à l'accueil
+                  </Button>
+                </div>
+              ) : (
+                <Button 
+                  onClick={() => setLocation("/")} 
+                  className="w-full"
+                  data-testid="button-home"
+                >
+                  <Home className="h-4 w-4 mr-2" />
+                  Retour à l'accueil
+                </Button>
+              )}
             </>
           )}
 

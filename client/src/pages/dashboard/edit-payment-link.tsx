@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, ImageIcon, X, ArrowLeft, Link2 } from "lucide-react";
+import { Loader2, ImageIcon, X, ArrowLeft, Link2, ExternalLink } from "lucide-react";
 import type { PaymentLink } from "@shared/schema";
 
 export default function EditPaymentLinkPage() {
@@ -26,6 +26,7 @@ export default function EditPaymentLinkPage() {
   const [productImage, setProductImage] = useState<string | null>(null);
   const [allowCustomAmount, setAllowCustomAmount] = useState(false);
   const [minimumAmount, setMinimumAmount] = useState("");
+  const [redirectUrl, setRedirectUrl] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -44,6 +45,7 @@ export default function EditPaymentLinkPage() {
       setProductImage(link.productImage || null);
       setAllowCustomAmount(link.allowCustomAmount);
       setMinimumAmount(link.minimumAmount || "");
+      setRedirectUrl(link.redirectUrl || "");
       setInitialized(true);
     }
   }, [link, initialized]);
@@ -83,7 +85,7 @@ export default function EditPaymentLinkPage() {
   };
 
   const updateLinkMutation = useMutation({
-    mutationFn: async (data: { title: string; description?: string; amount: string; productImage?: string; allowCustomAmount?: boolean; minimumAmount?: string }) => {
+    mutationFn: async (data: { title: string; description?: string; amount: string; productImage?: string; allowCustomAmount?: boolean; minimumAmount?: string; redirectUrl?: string }) => {
       const res = await apiRequest("PUT", `/api/payment-links/${linkId}`, data);
       return await res.json();
     },
@@ -143,6 +145,7 @@ export default function EditPaymentLinkPage() {
       productImage: productImage || undefined,
       allowCustomAmount,
       minimumAmount: allowCustomAmount && numericMinAmount ? String(numericMinAmount) : undefined,
+      redirectUrl: redirectUrl.trim() || undefined,
     });
   };
 
@@ -351,6 +354,24 @@ export default function EditPaymentLinkPage() {
                   </p>
                 </div>
               )}
+
+              <div className="space-y-2">
+                <Label htmlFor="redirect-url" className="flex items-center gap-2">
+                  <ExternalLink className="h-4 w-4" />
+                  URL de redirection (optionnel)
+                </Label>
+                <Input
+                  id="redirect-url"
+                  type="url"
+                  placeholder="https://example.com/merci"
+                  value={redirectUrl}
+                  onChange={(e) => setRedirectUrl(e.target.value)}
+                  data-testid="input-edit-redirect-url"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Après le paiement, le client sera redirigé vers cette URL
+                </p>
+              </div>
 
               <div className="flex gap-3 pt-4">
                 <Button

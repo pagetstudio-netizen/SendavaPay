@@ -992,11 +992,17 @@ export async function registerRoutes(
       // 2. Si déjà complété, retourner le statut
       if (leekpayPayment?.status === "completed") {
         console.log("✅ Paiement déjà traité:", reference);
+        let redirectUrl = null;
+        if (leekpayPayment.paymentLinkId) {
+          const link = await storage.getPaymentLink(leekpayPayment.paymentLinkId);
+          redirectUrl = link?.redirectUrl || null;
+        }
         return res.json({ 
           status: "completed", 
           message: "Paiement confirmé!",
           amount: leekpayPayment.amount,
-          userId: leekpayPayment.userId
+          userId: leekpayPayment.userId,
+          redirectUrl
         });
       }
 
@@ -1057,10 +1063,16 @@ export async function registerRoutes(
 
         if (alreadyProcessed) {
           console.log("⚠️ Transaction déjà traitée, pas de double crédit");
+          let redirectUrl = null;
+          if (leekpayPayment.paymentLinkId) {
+            const link = await storage.getPaymentLink(leekpayPayment.paymentLinkId);
+            redirectUrl = link?.redirectUrl || null;
+          }
           return res.json({ 
             status: "completed", 
             message: "Paiement déjà traité!",
-            amount: netAmount
+            amount: netAmount,
+            redirectUrl
           });
         }
 
@@ -1120,7 +1132,8 @@ export async function registerRoutes(
               status: "completed", 
               message: `Paiement confirmé! Le vendeur a reçu ${netAmount} XOF.`,
               amount: netAmount,
-              vendeurId: link.userId
+              vendeurId: link.userId,
+              redirectUrl: link.redirectUrl || null
             });
           }
         }
@@ -1357,7 +1370,7 @@ export async function registerRoutes(
 
   app.post("/api/payment-links", requireAuth, async (req, res) => {
     try {
-      const { title, description, amount, productImage, allowCustomAmount, minimumAmount } = req.body;
+      const { title, description, amount, productImage, allowCustomAmount, minimumAmount, redirectUrl } = req.body;
       const numericAmount = parseFloat(amount);
       const numericMinAmount = minimumAmount ? parseFloat(minimumAmount) : null;
 
@@ -1377,6 +1390,7 @@ export async function registerRoutes(
         productImage: productImage || null,
         allowCustomAmount: allowCustomAmount || false,
         minimumAmount: numericMinAmount ? numericMinAmount.toString() : null,
+        redirectUrl: redirectUrl || null,
       });
 
       res.json(link);
@@ -1403,7 +1417,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Ce lien ne peut plus être modifié" });
       }
       
-      const { title, description, amount, productImage, allowCustomAmount, minimumAmount } = req.body;
+      const { title, description, amount, productImage, allowCustomAmount, minimumAmount, redirectUrl } = req.body;
       const numericAmount = parseFloat(amount);
       const numericMinAmount = minimumAmount ? parseFloat(minimumAmount) : null;
 
@@ -1418,6 +1432,7 @@ export async function registerRoutes(
         productImage: productImage || null,
         allowCustomAmount: allowCustomAmount || false,
         minimumAmount: numericMinAmount ? numericMinAmount.toString() : null,
+        redirectUrl: redirectUrl || null,
       });
 
       res.json(updated);

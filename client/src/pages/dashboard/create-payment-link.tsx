@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, ImageIcon, X, ArrowLeft, Link2 } from "lucide-react";
+import { Loader2, ImageIcon, X, ArrowLeft, Link2, ExternalLink } from "lucide-react";
 
 export default function CreatePaymentLinkPage() {
   const { toast } = useToast();
@@ -21,6 +21,7 @@ export default function CreatePaymentLinkPage() {
   const [productImage, setProductImage] = useState<string | null>(null);
   const [allowCustomAmount, setAllowCustomAmount] = useState(false);
   const [minimumAmount, setMinimumAmount] = useState("");
+  const [redirectUrl, setRedirectUrl] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -59,7 +60,7 @@ export default function CreatePaymentLinkPage() {
   };
 
   const createLinkMutation = useMutation({
-    mutationFn: async (data: { title: string; description?: string; amount: number; productImage?: string; allowCustomAmount?: boolean; minimumAmount?: number }) => {
+    mutationFn: async (data: { title: string; description?: string; amount: number; productImage?: string; allowCustomAmount?: boolean; minimumAmount?: number; redirectUrl?: string }) => {
       const res = await apiRequest("POST", "/api/payment-links", data);
       return await res.json();
     },
@@ -119,6 +120,7 @@ export default function CreatePaymentLinkPage() {
       productImage: productImage || undefined,
       allowCustomAmount,
       minimumAmount: allowCustomAmount && numericMinAmount ? numericMinAmount : undefined,
+      redirectUrl: redirectUrl.trim() || undefined,
     });
   };
 
@@ -284,12 +286,31 @@ export default function CreatePaymentLinkPage() {
                 </div>
               )}
 
+              <div className="space-y-2">
+                <Label htmlFor="redirect-url" className="flex items-center gap-2">
+                  <ExternalLink className="h-4 w-4" />
+                  URL de redirection (optionnel)
+                </Label>
+                <Input
+                  id="redirect-url"
+                  type="url"
+                  placeholder="https://example.com/merci"
+                  value={redirectUrl}
+                  onChange={(e) => setRedirectUrl(e.target.value)}
+                  data-testid="input-redirect-url"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Après le paiement, le client sera redirigé vers cette URL
+                </p>
+              </div>
+
               <div className="flex gap-3 pt-4">
                 <Button
                   type="button"
                   variant="outline"
                   className="flex-1"
                   onClick={() => setLocation("/dashboard/payment-links")}
+                  data-testid="button-cancel"
                 >
                   Annuler
                 </Button>
