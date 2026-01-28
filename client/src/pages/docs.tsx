@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,14 @@ import {
 export default function ApiDocs() {
   const { toast } = useToast();
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    document.title = "Documentation API - SendavaPay";
+    const metaDescription = document.querySelector('meta[name="description"]');
+    if (metaDescription) {
+      metaDescription.setAttribute("content", "Documentation compl\u00e8te de l'API SendavaPay pour int\u00e9grer les paiements Mobile Money dans vos applications. Exemples de code en JavaScript, PHP et Python.");
+    }
+  }, []);
 
   const copyCode = (code: string, id: string) => {
     navigator.clipboard.writeText(code);
