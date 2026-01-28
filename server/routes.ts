@@ -1271,8 +1271,12 @@ export async function registerRoutes(
       const { getWithdrawableServiceByCountryAndOperator, getCurrencyByCountry } = await import("./soleaspay");
       const withdrawService = getWithdrawableServiceByCountryAndOperator(selectedCountry.code, paymentMethod);
       
+      console.log("💸 Withdraw check - Country:", selectedCountry.code, "Operator:", paymentMethod);
+      console.log("💸 Withdraw check - isInstantCountry:", isInstantCountry, "withdrawService:", withdrawService);
+      
       // Si pas de service disponible OU pays sans retrait instantané, créer une demande manuelle
       if (!withdrawService || !isInstantCountry) {
+        console.log("💸 Falling back to manual withdrawal (admin approval required)");
         // Créer la demande de retrait avec statut "pending" pour validation admin
         const withdrawalRequest = await storage.createWithdrawalRequest({
           userId: req.session.userId!,

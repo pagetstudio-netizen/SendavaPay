@@ -86,9 +86,10 @@ export const WITHDRAWABLE_SERVICES: WithdrawableService[] = [
 ];
 
 export function getWithdrawableServiceByCountryAndOperator(countryCode: string, operator: string): WithdrawableService | undefined {
+  const countryUpper = countryCode.toUpperCase();
   const operatorLower = operator.toLowerCase();
   return WITHDRAWABLE_SERVICES.find(s => 
-    s.countryCode === countryCode && 
+    s.countryCode === countryUpper && 
     (s.operator.toLowerCase() === operatorLower || 
      s.name.toLowerCase().includes(operatorLower) ||
      operatorLower.includes(s.operator.toLowerCase()))
@@ -96,7 +97,8 @@ export function getWithdrawableServiceByCountryAndOperator(countryCode: string, 
 }
 
 export function getWithdrawableServicesByCountry(countryCode: string): WithdrawableService[] {
-  return WITHDRAWABLE_SERVICES.filter(s => s.countryCode === countryCode);
+  const countryUpper = countryCode.toUpperCase();
+  return WITHDRAWABLE_SERVICES.filter(s => s.countryCode === countryUpper);
 }
 
 interface CollectPaymentParams {
