@@ -26,48 +26,51 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import {
-  LayoutDashboard,
+  LayoutGrid,
   Wallet,
-  ArrowUpRight,
-  Link2,
-  History,
-  Key,
+  Send,
+  LinkIcon,
+  Clock,
+  KeyRound,
   FileText,
-  Shield,
-  Settings,
+  ShieldCheck,
+  Cog,
   LogOut,
   Users,
-  BarChart3,
-  Mail,
+  TrendingUp,
+  MessageSquare,
   Percent,
   CheckCircle,
-  LifeBuoy,
+  HelpCircle,
+  CreditCard,
+  BadgeCheck,
+  Building2,
 } from "lucide-react";
 import logoPath from "@assets/20251211_105226_1765450558306.png";
 
 const userMenuItems = [
-  { icon: LayoutDashboard, label: "Tableau de bord", href: "/dashboard" },
-  { icon: Wallet, label: "Dépôt", href: "/dashboard/deposit" },
-  { icon: ArrowUpRight, label: "Retrait", href: "/dashboard/withdraw" },
-  { icon: Link2, label: "Liens de paiement", href: "/dashboard/payment-links" },
-  { icon: History, label: "Historique", href: "/dashboard/history" },
-  { icon: Key, label: "Clés API", href: "/dashboard/api-keys" },
-  { icon: Shield, label: "Vérification KYC", href: "/dashboard/kyc" },
-  { icon: LifeBuoy, label: "Besoin d'aide", href: "/dashboard/help" },
-  { icon: Settings, label: "Paramètres", href: "/dashboard/settings" },
+  { icon: LayoutGrid, label: "Tableau de bord", href: "/dashboard" },
+  { icon: CreditCard, label: "Dépôt", href: "/dashboard/deposit" },
+  { icon: Send, label: "Retrait", href: "/dashboard/withdraw" },
+  { icon: LinkIcon, label: "Liens de paiement", href: "/dashboard/payment-links" },
+  { icon: Clock, label: "Historique", href: "/dashboard/history" },
+  { icon: KeyRound, label: "Clés API", href: "/dashboard/api-keys" },
+  { icon: BadgeCheck, label: "Vérification KYC", href: "/dashboard/kyc" },
+  { icon: HelpCircle, label: "Besoin d'aide", href: "/dashboard/help" },
+  { icon: Cog, label: "Paramètres", href: "/dashboard/settings" },
 ];
 
 const adminMenuItems = [
-  { icon: LayoutDashboard, label: "Dashboard", href: "/admin" },
+  { icon: LayoutGrid, label: "Dashboard", href: "/admin" },
   { icon: Users, label: "Utilisateurs", href: "/admin/users" },
-  { icon: History, label: "Transactions", href: "/admin/transactions" },
-  { icon: ArrowUpRight, label: "Retraits", href: "/admin/withdrawals" },
-  { icon: Shield, label: "Vérification KYC", href: "/admin/kyc" },
-  { icon: Key, label: "Clés API", href: "/admin/api-keys" },
+  { icon: Clock, label: "Transactions", href: "/admin/transactions" },
+  { icon: Send, label: "Retraits", href: "/admin/withdrawals" },
+  { icon: ShieldCheck, label: "Vérification KYC", href: "/admin/kyc" },
+  { icon: KeyRound, label: "Clés API", href: "/admin/api-keys" },
   { icon: Percent, label: "Commissions", href: "/admin/commissions" },
-  { icon: Mail, label: "Messagerie", href: "/admin/messaging" },
-  { icon: BarChart3, label: "Rapports", href: "/admin/reports" },
-  { icon: Settings, label: "Paramètres", href: "/admin/settings" },
+  { icon: MessageSquare, label: "Messagerie", href: "/admin/messaging" },
+  { icon: TrendingUp, label: "Rapports", href: "/admin/reports" },
+  { icon: Cog, label: "Paramètres", href: "/admin/settings" },
 ];
 
 interface DashboardLayoutProps {
@@ -145,7 +148,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild isActive={location.startsWith("/admin")}>
                         <Link href="/admin">
-                          <Shield className="h-4 w-4" />
+                          <Building2 className="h-4 w-4" />
                           <span>Administration</span>
                         </Link>
                       </SidebarMenuButton>
@@ -181,7 +184,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                   <Link href="/dashboard/settings" className="w-full cursor-pointer">
-                    <Settings className="h-4 w-4 mr-2" />
+                    <Cog className="h-4 w-4 mr-2" />
                     Paramètres
                   </Link>
                 </DropdownMenuItem>
