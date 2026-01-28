@@ -64,14 +64,12 @@ const countryNames: Record<string, string> = {
 };
 
 const paymentMethodNames: Record<string, string> = {
-  tmoney: "TMoney",
+  tmoney: "T-Money",
   moov: "Moov Money",
   mtn: "MTN Mobile Money",
   orange: "Orange Money",
   wave: "Wave",
   free: "Free Money",
-  soleaspay: "SoleasPay",
-  leekpay: "LeekPay",
   vodacom: "Vodacom",
   airtel: "Airtel Money",
   "37": "T-Money",
@@ -92,6 +90,28 @@ const paymentMethodNames: Record<string, string> = {
   "55": "Airtel Money",
   "56": "MTN Mobile Money",
 };
+
+function formatPaymentMethod(method: string): string {
+  if (!method) return "";
+  
+  let cleaned = method
+    .replace(/^soleaspay[_-]/i, "")
+    .replace(/^leekpay[_-]/i, "")
+    .replace(/_/g, " ")
+    .replace(/\s+(TG|BJ|BF|CI|CM|COD|COG|SN|ML)$/i, "");
+  
+  const lowerCleaned = cleaned.toLowerCase();
+  
+  if (lowerCleaned.includes("t-money") || lowerCleaned.includes("tmoney")) return "T-Money";
+  if (lowerCleaned.includes("mtn")) return "MTN Mobile Money";
+  if (lowerCleaned.includes("moov")) return "Moov Money";
+  if (lowerCleaned.includes("orange")) return "Orange Money";
+  if (lowerCleaned.includes("wave")) return "Wave";
+  if (lowerCleaned.includes("vodacom")) return "Vodacom";
+  if (lowerCleaned.includes("airtel")) return "Airtel Money";
+  
+  return paymentMethodNames[method] || cleaned;
+}
 
 const transactionTypeLabels: Record<string, { label: string; icon: typeof ArrowDownLeft; incoming: boolean }> = {
   deposit: { label: "Dépôt", icon: ArrowDownLeft, incoming: true },
@@ -356,8 +376,8 @@ export default function HistoryPage() {
                     <div className="flex items-center gap-3">
                       <CreditCard className="h-4 w-4 text-muted-foreground" />
                       <div>
-                        <p className="text-xs text-muted-foreground">Moyen de paiement</p>
-                        <p className="font-medium">{paymentMethodNames[selectedTransaction.paymentMethod] || selectedTransaction.paymentMethod}</p>
+                        <p className="text-xs text-muted-foreground">Opérateur</p>
+                        <p className="font-medium">{formatPaymentMethod(selectedTransaction.paymentMethod)}</p>
                       </div>
                     </div>
                   )}
