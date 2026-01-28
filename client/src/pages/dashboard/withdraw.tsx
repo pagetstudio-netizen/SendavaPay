@@ -64,10 +64,12 @@ interface WithdrawalRequest {
   createdAt: string;
 }
 
-const statusConfig = {
+const statusConfig: Record<string, { label: string; icon: typeof Clock; color: string }> = {
   pending: { label: "En attente", icon: Clock, color: "text-orange-600 bg-orange-100 dark:bg-orange-900/30" },
+  processing: { label: "En cours", icon: Loader2, color: "text-blue-600 bg-blue-100 dark:bg-blue-900/30" },
   approved: { label: "Approuvé", icon: CheckCircle, color: "text-green-600 bg-green-100 dark:bg-green-900/30" },
   rejected: { label: "Rejeté", icon: XCircle, color: "text-red-600 bg-red-100 dark:bg-red-900/30" },
+  failed: { label: "Échoué", icon: XCircle, color: "text-red-600 bg-red-100 dark:bg-red-900/30" },
 };
 
 export default function WithdrawPage() {
@@ -265,11 +267,27 @@ export default function WithdrawPage() {
           </CardContent>
         </Card>
 
+        <Card className="border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30 mb-4">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <CheckCircle className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="font-semibold text-green-800 dark:text-green-200">
+                  NB : LES RETRAITS DE CES PAYS SONT CRÉDITÉS INSTANTANÉMENT
+                </p>
+                <p className="text-sm text-green-700 dark:text-green-300 mt-1">
+                  TOGO, BÉNIN, CAMEROUN, CÔTE D'IVOIRE
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Nouvelle demande de retrait</CardTitle>
             <CardDescription>
-              Minimum: {minWithdrawal.toLocaleString()} XOF. Les retraits sont crédités dans les plus brefs délais de 1h à 24h.
+              Minimum: {minWithdrawal.toLocaleString()} XOF. Les retraits sont crédités instantanément pour le Togo, Bénin, Cameroun et Côte d'Ivoire.
             </CardDescription>
           </CardHeader>
           <CardContent>
