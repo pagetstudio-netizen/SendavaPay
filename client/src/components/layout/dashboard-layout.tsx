@@ -206,7 +206,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link href="/api-docs" className="w-full cursor-pointer">
+                  <Link href="/docs" className="w-full cursor-pointer">
                     <FileText className="h-4 w-4 mr-2" />
                     Documentation API
                   </Link>
