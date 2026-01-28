@@ -27,10 +27,14 @@ Preferred communication style: Simple, everyday language.
 - **Authentication**: Session-based auth with bcrypt password hashing
 
 ### Data Storage
-- **Database**: PostgreSQL
+- **Database**: Supabase PostgreSQL (SUPABASE_DATABASE_URL)
+  - The application connects EXCLUSIVELY to Supabase - no Replit database connection
+  - Connection configured in `server/db.ts` using only `SUPABASE_DATABASE_URL`
+  - Note: `drizzle.config.ts` uses `DATABASE_URL` for migrations only (cannot be edited)
+  - For schema changes, use direct SQL commands to Supabase via psql
 - **ORM**: Drizzle ORM with drizzle-zod for schema validation
 - **Schema Location**: `shared/schema.ts` contains all table definitions
-- **Migrations**: Drizzle Kit for database migrations (`drizzle-kit push`)
+- **Migrations**: Direct SQL to Supabase (drizzle-kit uses separate DATABASE_URL)
 
 ### Key Database Tables
 - `users` - User accounts with roles (user/admin), balance, verification status
