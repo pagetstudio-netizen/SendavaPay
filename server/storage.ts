@@ -23,6 +23,10 @@ import {
   type AdminNotification,
   type UserNotification,
   type AuditLog,
+  type Merchant,
+  type ApiTransaction,
+  type MerchantWebhook,
+  type ApiLog,
   users,
   transactions,
   transfers,
@@ -41,6 +45,10 @@ import {
   adminNotifications,
   userNotifications,
   auditLogs,
+  merchants,
+  apiTransactions,
+  merchantWebhooks,
+  apiLogs,
 } from "@shared/schema";
 import { db as dbInstance } from "./db";
 import { eq, or, and, desc, sql } from "drizzle-orm";
@@ -131,6 +139,29 @@ export interface IStorage {
   updateLeekpayPayment(leekpayPaymentId: string, updates: Partial<LeekpayPayment>): Promise<LeekpayPayment | undefined>;
   getLeekpayPaymentsByUser(userId: number): Promise<LeekpayPayment[]>;
   getPendingLeekpayPayments(): Promise<LeekpayPayment[]>;
+  
+  // Merchant API methods
+  createMerchant(merchant: Partial<Merchant>): Promise<Merchant>;
+  getMerchant(id: number): Promise<Merchant | undefined>;
+  getMerchantByEmail(email: string): Promise<Merchant | undefined>;
+  getMerchantByApiKey(apiKey: string): Promise<Merchant | undefined>;
+  updateMerchant(id: number, updates: Partial<Merchant>): Promise<Merchant | undefined>;
+  updateMerchantBalance(id: number, amount: string): Promise<Merchant | undefined>;
+  getAllMerchants(): Promise<Merchant[]>;
+  
+  createApiTransaction(transaction: Partial<ApiTransaction>): Promise<ApiTransaction>;
+  getApiTransaction(id: number): Promise<ApiTransaction | undefined>;
+  getApiTransactionByReference(reference: string): Promise<ApiTransaction | undefined>;
+  getApiTransactionsByMerchant(merchantId: number): Promise<ApiTransaction[]>;
+  updateApiTransaction(id: number, updates: Partial<ApiTransaction>): Promise<ApiTransaction | undefined>;
+  
+  createMerchantWebhook(webhook: Partial<MerchantWebhook>): Promise<MerchantWebhook>;
+  getMerchantWebhooks(merchantId: number): Promise<MerchantWebhook[]>;
+  updateMerchantWebhook(id: number, updates: Partial<MerchantWebhook>): Promise<MerchantWebhook | undefined>;
+  deleteMerchantWebhook(id: number): Promise<void>;
+  
+  createApiLog(log: Partial<ApiLog>): Promise<ApiLog>;
+  getApiLogsByMerchant(merchantId: number): Promise<ApiLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -660,6 +691,96 @@ export class DatabaseStorage implements IStorage {
     await getDb().delete(withdrawalRequests).where(eq(withdrawalRequests.userId, id));
     await getDb().delete(userNotifications).where(eq(userNotifications.userId, id));
     await getDb().delete(users).where(eq(users.id, id));
+  }
+
+  // Merchant API methods
+  async createMerchant(merchant: Partial<Merchant>): Promise<Merchant> {
+    const [newMerchant] = await getDb().insert(merchants).values(merchant as any).returning();
+    return newMerchant;
+  }
+
+  async getMerchant(id: number): Promise<Merchant | undefined> {
+    const [merchant] = await getDb().select().from(merchants).where(eq(merchants.id, id));
+    return merchant;
+  }
+
+  async getMerchantByEmail(email: string): Promise<Merchant | undefined> {
+    const [merchant] = await getDb().select().from(merchants).where(eq(merchants.email, email));
+    return merchant;
+  }
+
+  async getMerchantByApiKey(apiKey: string): Promise<Merchant | undefined> {
+    const [merchant] = await getDb().select().from(merchants).where(eq(merchants.apiKey, apiKey));
+    return merchant;
+  }
+
+  async updateMerchant(id: number, updates: Partial<Merchant>): Promise<Merchant | undefined> {
+    const [updated] = await getDb().update(merchants).set(updates).where(eq(merchants.id, id)).returning();
+    return updated;
+  }
+
+  async updateMerchantBalance(id: number, amount: string): Promise<Merchant | undefined> {
+    const [updated] = await getDb()
+      .update(merchants)
+      .set({ balance: sql`${merchants.balance} + ${amount}` })
+      .where(eq(merchants.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getAllMerchants(): Promise<Merchant[]> {
+    return getDb().select().from(merchants).orderBy(desc(merchants.createdAt));
+  }
+
+  async createApiTransaction(transaction: Partial<ApiTransaction>): Promise<ApiTransaction> {
+    const [newTransaction] = await getDb().insert(apiTransactions).values(transaction as any).returning();
+    return newTransaction;
+  }
+
+  async getApiTransaction(id: number): Promise<ApiTransaction | undefined> {
+    const [transaction] = await getDb().select().from(apiTransactions).where(eq(apiTransactions.id, id));
+    return transaction;
+  }
+
+  async getApiTransactionByReference(reference: string): Promise<ApiTransaction | undefined> {
+    const [transaction] = await getDb().select().from(apiTransactions).where(eq(apiTransactions.reference, reference));
+    return transaction;
+  }
+
+  async getApiTransactionsByMerchant(merchantId: number): Promise<ApiTransaction[]> {
+    return getDb().select().from(apiTransactions).where(eq(apiTransactions.merchantId, merchantId)).orderBy(desc(apiTransactions.createdAt));
+  }
+
+  async updateApiTransaction(id: number, updates: Partial<ApiTransaction>): Promise<ApiTransaction | undefined> {
+    const [updated] = await getDb().update(apiTransactions).set(updates).where(eq(apiTransactions.id, id)).returning();
+    return updated;
+  }
+
+  async createMerchantWebhook(webhook: Partial<MerchantWebhook>): Promise<MerchantWebhook> {
+    const [newWebhook] = await getDb().insert(merchantWebhooks).values(webhook as any).returning();
+    return newWebhook;
+  }
+
+  async getMerchantWebhooks(merchantId: number): Promise<MerchantWebhook[]> {
+    return getDb().select().from(merchantWebhooks).where(eq(merchantWebhooks.merchantId, merchantId)).orderBy(desc(merchantWebhooks.createdAt));
+  }
+
+  async updateMerchantWebhook(id: number, updates: Partial<MerchantWebhook>): Promise<MerchantWebhook | undefined> {
+    const [updated] = await getDb().update(merchantWebhooks).set(updates).where(eq(merchantWebhooks.id, id)).returning();
+    return updated;
+  }
+
+  async deleteMerchantWebhook(id: number): Promise<void> {
+    await getDb().delete(merchantWebhooks).where(eq(merchantWebhooks.id, id));
+  }
+
+  async createApiLog(log: Partial<ApiLog>): Promise<ApiLog> {
+    const [newLog] = await getDb().insert(apiLogs).values(log as any).returning();
+    return newLog;
+  }
+
+  async getApiLogsByMerchant(merchantId: number): Promise<ApiLog[]> {
+    return getDb().select().from(apiLogs).where(eq(apiLogs.merchantId, merchantId)).orderBy(desc(apiLogs.createdAt));
   }
 }
 

@@ -12,6 +12,7 @@ import fs from "fs";
 import { leekpay } from "./leekpay";
 import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById } from "./soleaspay";
 import { isDatabaseConnected } from "./db";
+import merchantApi from "./merchant-api";
 
 function requireDatabase(req: Request, res: Response, next: NextFunction) {
   if (!isDatabaseConnected()) {
@@ -130,6 +131,9 @@ export async function registerRoutes(
     }
     requireDatabase(req, res, next);
   });
+
+  // Mount Merchant API
+  app.use("/api", merchantApi);
 
   app.post("/api/auth/register", async (req, res) => {
     try {
