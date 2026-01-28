@@ -139,7 +139,7 @@ export const socialLinks = pgTable("social_links", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const withdrawalRequestStatusEnum = pgEnum("withdrawal_request_status", ["pending", "approved", "rejected"]);
+export const withdrawalRequestStatusEnum = pgEnum("withdrawal_request_status", ["pending", "processing", "approved", "rejected", "failed"]);
 
 export const withdrawalRequests = pgTable("withdrawal_requests", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
@@ -152,9 +152,12 @@ export const withdrawalRequests = pgTable("withdrawal_requests", {
   country: text("country").notNull(),
   walletName: text("wallet_name"),
   status: withdrawalRequestStatusEnum("status").default("pending").notNull(),
+  externalReference: text("external_reference"),
+  transactionReference: text("transaction_reference"),
   rejectionReason: text("rejection_reason"),
   reviewedBy: integer("reviewed_by").references(() => users.id),
   reviewedAt: timestamp("reviewed_at"),
+  processedAt: timestamp("processed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

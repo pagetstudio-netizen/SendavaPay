@@ -123,6 +123,8 @@ export interface IStorage {
   getPendingWithdrawalRequests(): Promise<(WithdrawalRequest & { user?: User })[]>;
   getAllWithdrawalRequests(): Promise<(WithdrawalRequest & { user?: User })[]>;
   updateWithdrawalRequest(id: number, updates: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined>;
+  getProcessingWithdrawalRequests(): Promise<WithdrawalRequest[]>;
+  getWithdrawalRequestByExternalRef(externalRef: string): Promise<WithdrawalRequest | undefined>;
   
   createLeekpayPayment(payment: Partial<LeekpayPayment>): Promise<LeekpayPayment>;
   getLeekpayPaymentById(leekpayPaymentId: string): Promise<LeekpayPayment | undefined>;
@@ -489,6 +491,15 @@ export class DatabaseStorage implements IStorage {
   async updateWithdrawalRequest(id: number, updates: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined> {
     const [updated] = await getDb().update(withdrawalRequests).set(updates).where(eq(withdrawalRequests.id, id)).returning();
     return updated;
+  }
+
+  async getProcessingWithdrawalRequests(): Promise<WithdrawalRequest[]> {
+    return getDb().select().from(withdrawalRequests).where(eq(withdrawalRequests.status, "processing")).orderBy(desc(withdrawalRequests.createdAt));
+  }
+
+  async getWithdrawalRequestByExternalRef(externalRef: string): Promise<WithdrawalRequest | undefined> {
+    const [request] = await getDb().select().from(withdrawalRequests).where(eq(withdrawalRequests.externalReference, externalRef));
+    return request;
   }
 
   async createLeekpayPayment(payment: Partial<LeekpayPayment>): Promise<LeekpayPayment> {
