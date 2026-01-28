@@ -838,6 +838,54 @@ export async function registerRoutes(
         console.log(`❌ SoleasPay webhook: Paiement échoué ref=${reference}`);
       }
 
+      // Vérifier si c'est un callback de retrait
+      const operation = data.data?.operation;
+      if (operation === "WITHDRAW") {
+        console.log("💸 SoleasPay webhook: Traitement callback retrait");
+        
+        const withdrawalRequest = await storage.getWithdrawalRequestByExternalRef(reference);
+        
+        if (withdrawalRequest && withdrawalRequest.status === "processing") {
+          if (success && status === "SUCCESS") {
+            // Débiter le solde maintenant
+            const user = await storage.getUser(withdrawalRequest.userId);
+            if (user) {
+              const balance = parseFloat(user.balance);
+              const withdrawAmount = parseFloat(withdrawalRequest.amount);
+              const newBalance = balance - withdrawAmount;
+              await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
+            }
+            
+            // Mettre à jour le statut
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              status: "approved",
+              processedAt: new Date(),
+            });
+
+            // Créer la transaction
+            await storage.createTransaction({
+              userId: withdrawalRequest.userId,
+              type: "withdrawal",
+              amount: withdrawalRequest.amount,
+              fee: withdrawalRequest.fee,
+              netAmount: withdrawalRequest.netAmount,
+              status: "completed",
+              description: `Retrait ${withdrawalRequest.paymentMethod} - ${withdrawalRequest.mobileNumber}`,
+              externalRef: reference,
+            });
+
+            console.log(`✅ SoleasPay webhook: Retrait confirmé utilisateur #${withdrawalRequest.userId}`);
+          } else if (status === "FAILED" || status === "FAILURE") {
+            // Marquer comme échec sans débiter
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              status: "failed",
+              rejectionReason: "Le retrait a échoué auprès du service de paiement",
+            });
+            console.log(`❌ SoleasPay webhook: Retrait échoué ref=${reference}`);
+          }
+        }
+      }
+
       res.json({ received: true });
     } catch (error) {
       console.error("SoleasPay webhook error:", error);
@@ -1202,10 +1250,17 @@ export async function registerRoutes(
       const fee = Math.round(numericAmount * (commissionRate / 100));
       const netAmount = numericAmount - fee;
 
-      // Débiter le solde immédiatement
-      const newBalance = balance - numericAmount;
-      await storage.setUserBalance(req.session.userId!, newBalance.toString());
+      // Trouver le service SoleasPay correspondant pour le retrait
+      const { getWithdrawableServiceByCountryAndOperator, getCurrencyByCountry } = await import("./soleaspay");
+      const withdrawService = getWithdrawableServiceByCountryAndOperator(selectedCountry.code, paymentMethod);
+      
+      if (!withdrawService) {
+        return res.status(400).json({ 
+          message: "Ce moyen de paiement n'est pas disponible pour les retraits automatiques dans ce pays" 
+        });
+      }
 
+      // Créer la demande de retrait avec le statut "processing"
       const withdrawalRequest = await storage.createWithdrawalRequest({
         userId: req.session.userId!,
         amount: numericAmount.toString(),
@@ -1217,9 +1272,77 @@ export async function registerRoutes(
         walletName: walletName || null,
       });
 
+      // Appeler l'API SoleasPay pour initier le retrait
+      console.log("💸 Initiation du retrait automatique via SoleasPay...");
+      const currency = getCurrencyByCountry(selectedCountry.code);
+      
+      const withdrawResult = await soleaspay.withdraw({
+        wallet: mobileNumber,
+        amount: netAmount,
+        currency,
+        serviceId: withdrawService.id,
+      });
+
+      console.log("💸 Résultat SoleasPay:", JSON.stringify(withdrawResult));
+
+      if (!withdrawResult.success) {
+        // En cas d'échec de l'API, marquer comme failed
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+          status: "failed",
+          rejectionReason: withdrawResult.message || "Échec de la connexion au service de paiement",
+        });
+        
+        return res.status(400).json({ 
+          message: withdrawResult.message || "Impossible de traiter le retrait. Veuillez réessayer.",
+          request: { ...withdrawalRequest, status: "failed" }
+        });
+      }
+
+      // Si l'API répond avec succès, mettre à jour avec la référence externe
+      const externalReference = withdrawResult.data?.reference || null;
+      const transactionReference = withdrawResult.data?.transaction_reference || null;
+      
+      await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+        status: "processing",
+        externalReference,
+        transactionReference,
+      });
+
+      // Si le statut est SUCCESS, débiter immédiatement
+      if (withdrawResult.status === "SUCCESS") {
+        const newBalance = balance - numericAmount;
+        await storage.setUserBalance(req.session.userId!, newBalance.toString());
+        
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+          status: "approved",
+          processedAt: new Date(),
+        });
+
+        // Créer la transaction
+        await storage.createTransaction({
+          userId: req.session.userId!,
+          type: "withdrawal",
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          status: "completed",
+          description: `Retrait ${paymentMethod} - ${mobileNumber}`,
+          externalRef: externalReference,
+        });
+
+        return res.json({ 
+          message: "Retrait effectué avec succès!",
+          status: "approved",
+          request: { ...withdrawalRequest, status: "approved", externalReference }
+        });
+      }
+
+      // Si le statut est PROCESSING, retourner avec instructions de polling
       res.json({ 
-        message: "Demande de retrait soumise avec succès. Votre solde a été débité.",
-        request: withdrawalRequest 
+        message: "Retrait en cours de traitement. Vous serez notifié une fois le transfert terminé.",
+        status: "processing",
+        request: { ...withdrawalRequest, status: "processing", externalReference },
+        reference: externalReference,
       });
     } catch (error) {
       console.error("Withdraw request error:", error);
@@ -1234,6 +1357,109 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Get withdrawal requests error:", error);
       res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // Vérifier le statut d'un retrait en cours
+  app.get("/api/verify-withdrawal/:id", requireAuth, async (req, res) => {
+    try {
+      const requestId = parseInt(req.params.id);
+      const withdrawalRequest = await storage.getWithdrawalRequest(requestId);
+      
+      if (!withdrawalRequest) {
+        return res.status(404).json({ message: "Demande introuvable" });
+      }
+
+      // Vérifier que l'utilisateur est le propriétaire
+      if (withdrawalRequest.userId !== req.session.userId) {
+        return res.status(403).json({ message: "Accès non autorisé" });
+      }
+
+      // Si déjà traité, retourner le statut actuel
+      if (withdrawalRequest.status === "approved" || withdrawalRequest.status === "rejected" || withdrawalRequest.status === "failed") {
+        return res.json({
+          status: withdrawalRequest.status,
+          message: withdrawalRequest.status === "approved" ? "Retrait effectué avec succès" : 
+                   withdrawalRequest.status === "failed" ? (withdrawalRequest.rejectionReason || "Le retrait a échoué") :
+                   (withdrawalRequest.rejectionReason || "Retrait rejeté"),
+          request: withdrawalRequest,
+        });
+      }
+
+      // Si en cours de traitement et qu'on a une référence externe, vérifier le statut
+      if (withdrawalRequest.status === "processing" && withdrawalRequest.externalReference) {
+        console.log("🔍 Vérification du statut de retrait:", withdrawalRequest.externalReference);
+        
+        const transactionDetails = await soleaspay.getTransactionDetails(withdrawalRequest.externalReference);
+        
+        if (transactionDetails) {
+          console.log("📊 Statut SoleasPay:", transactionDetails.status);
+          
+          if (transactionDetails.status === "SUCCESS") {
+            // Débiter le solde maintenant
+            const user = await storage.getUser(withdrawalRequest.userId);
+            if (user) {
+              const balance = parseFloat(user.balance);
+              const amount = parseFloat(withdrawalRequest.amount);
+              const newBalance = balance - amount;
+              await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
+            }
+            
+            // Mettre à jour le statut
+            await storage.updateWithdrawalRequest(requestId, {
+              status: "approved",
+              processedAt: new Date(),
+            });
+
+            // Créer la transaction
+            await storage.createTransaction({
+              userId: withdrawalRequest.userId,
+              type: "withdrawal",
+              amount: withdrawalRequest.amount,
+              fee: withdrawalRequest.fee,
+              netAmount: withdrawalRequest.netAmount,
+              status: "completed",
+              description: `Retrait ${withdrawalRequest.paymentMethod} - ${withdrawalRequest.mobileNumber}`,
+              externalRef: withdrawalRequest.externalReference,
+            });
+
+            return res.json({
+              status: "approved",
+              message: "Retrait effectué avec succès!",
+              request: { ...withdrawalRequest, status: "approved" },
+            });
+          } else if (transactionDetails.status === "FAILED" || transactionDetails.status === "REJECTED") {
+            // Marquer comme échec sans débiter
+            await storage.updateWithdrawalRequest(requestId, {
+              status: "failed",
+              rejectionReason: "Le retrait a échoué auprès du service de paiement",
+            });
+
+            return res.json({
+              status: "failed",
+              message: "Le retrait a échoué. Votre solde n'a pas été débité.",
+              request: { ...withdrawalRequest, status: "failed" },
+            });
+          }
+          
+          // Toujours en cours
+          return res.json({
+            status: "processing",
+            message: "Retrait en cours de traitement...",
+            request: withdrawalRequest,
+          });
+        }
+      }
+
+      // Statut pending ou pas de référence
+      res.json({
+        status: withdrawalRequest.status,
+        message: "En attente de traitement...",
+        request: withdrawalRequest,
+      });
+    } catch (error) {
+      console.error("Verify withdrawal error:", error);
+      res.status(500).json({ message: "Erreur lors de la vérification" });
     }
   });
 
@@ -1266,13 +1492,35 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Demande introuvable" });
       }
       
-      if (withdrawalRequest.status !== "pending") {
+      // Seuls les retraits "pending" ou "processing" peuvent être approuvés manuellement
+      if (withdrawalRequest.status !== "pending" && withdrawalRequest.status !== "processing") {
         return res.status(400).json({ message: "Cette demande a déjà été traitée" });
       }
       
-      // Le solde a déjà été débité lors de la demande de retrait
-      // Ici on crée simplement la transaction pour l'historique
+      // Si en cours de traitement automatique avec référence externe, ne pas permettre l'approbation manuelle
+      if (withdrawalRequest.status === "processing" && withdrawalRequest.externalReference) {
+        return res.status(400).json({ 
+          message: "Cette demande est en cours de traitement automatique. Veuillez attendre la confirmation." 
+        });
+      }
       
+      // Débiter le solde maintenant (car le nouveau système ne débite pas à l'avance)
+      const user = await storage.getUser(withdrawalRequest.userId);
+      if (!user) {
+        return res.status(404).json({ message: "Utilisateur non trouvé" });
+      }
+      
+      const currentBalance = parseFloat(user.balance);
+      const withdrawAmount = parseFloat(withdrawalRequest.amount);
+      
+      if (currentBalance < withdrawAmount) {
+        return res.status(400).json({ message: "Solde utilisateur insuffisant pour ce retrait" });
+      }
+      
+      const newBalance = currentBalance - withdrawAmount;
+      await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
+      
+      // Créer la transaction
       await storage.createTransaction({
         userId: withdrawalRequest.userId,
         type: "withdrawal",
@@ -1289,6 +1537,7 @@ export async function registerRoutes(
         status: "approved",
         reviewedBy: req.session.userId,
         reviewedAt: new Date(),
+        processedAt: new Date(),
       });
       
       res.json({ message: "Retrait approuvé et traité avec succès" });
@@ -1309,7 +1558,8 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Demande introuvable" });
       }
       
-      if (withdrawalRequest.status !== "pending") {
+      // Seuls les retraits "pending" ou "processing" peuvent être rejetés
+      if (withdrawalRequest.status !== "pending" && withdrawalRequest.status !== "processing") {
         return res.status(400).json({ message: "Cette demande a déjà été traitée" });
       }
       
@@ -1317,14 +1567,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Veuillez fournir une raison de rejet" });
       }
       
-      // Rembourser le solde de l'utilisateur
-      const user = await storage.getUser(withdrawalRequest.userId);
-      if (user) {
-        const currentBalance = parseFloat(user.balance);
-        const refundAmount = parseFloat(withdrawalRequest.amount);
-        const newBalance = currentBalance + refundAmount;
-        await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
-      }
+      // Pas de remboursement nécessaire car le solde n'a pas été débité
+      // (le nouveau système ne débite qu'au succès)
       
       await storage.updateWithdrawalRequest(requestId, {
         status: "rejected",
@@ -1333,7 +1577,7 @@ export async function registerRoutes(
         reviewedAt: new Date(),
       });
       
-      res.json({ message: "Demande de retrait rejetée et solde remboursé" });
+      res.json({ message: "Demande de retrait rejetée" });
     } catch (error) {
       console.error("Reject withdrawal error:", error);
       res.status(500).json({ message: "Erreur lors du rejet" });

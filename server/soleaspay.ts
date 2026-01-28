@@ -55,6 +55,42 @@ export function getCurrencyByCountry(countryCode: string): string {
   return country?.currency || "XOF";
 }
 
+export interface WithdrawableService {
+  id: number;
+  name: string;
+  description: string;
+  country: string;
+  countryCode: string;
+  currency: string;
+  operator: string;
+}
+
+export const WITHDRAWABLE_SERVICES: WithdrawableService[] = [
+  { id: 1, name: "MOMO CM", description: "MTN Mobile Money", country: "Cameroun", countryCode: "CM", currency: "XAF", operator: "MTN" },
+  { id: 32, name: "WAVE CI", description: "Wave", country: "Côte d'Ivoire", countryCode: "CI", currency: "XOF", operator: "Wave" },
+  { id: 35, name: "MOMO BJ", description: "MTN Money Bénin", country: "Bénin", countryCode: "BJ", currency: "XOF", operator: "MTN" },
+  { id: 37, name: "T-MONEY TG", description: "T-Money Togo", country: "Togo", countryCode: "TG", currency: "XOF", operator: "TMoney" },
+  { id: 52, name: "VODACOM COD", description: "Vodacom M-Pesa", country: "RDC", countryCode: "COD", currency: "CDF", operator: "Vodacom" },
+  { id: 53, name: "AIRTEL COD", description: "Airtel Money", country: "RDC", countryCode: "COD", currency: "CDF", operator: "Airtel" },
+  { id: 54, name: "OM COD", description: "Orange Money", country: "RDC", countryCode: "COD", currency: "CDF", operator: "Orange" },
+  { id: 55, name: "AIRTEL COG", description: "Airtel Money", country: "Congo Brazzaville", countryCode: "COG", currency: "XAF", operator: "Airtel" },
+  { id: 56, name: "MOMO COG", description: "MTN Money", country: "Congo Brazzaville", countryCode: "COG", currency: "XAF", operator: "MTN" },
+];
+
+export function getWithdrawableServiceByCountryAndOperator(countryCode: string, operator: string): WithdrawableService | undefined {
+  const operatorLower = operator.toLowerCase();
+  return WITHDRAWABLE_SERVICES.find(s => 
+    s.countryCode === countryCode && 
+    (s.operator.toLowerCase() === operatorLower || 
+     s.name.toLowerCase().includes(operatorLower) ||
+     operatorLower.includes(s.operator.toLowerCase()))
+  );
+}
+
+export function getWithdrawableServicesByCountry(countryCode: string): WithdrawableService[] {
+  return WITHDRAWABLE_SERVICES.filter(s => s.countryCode === countryCode);
+}
+
 interface CollectPaymentParams {
   wallet: string;
   amount: number;
@@ -102,14 +138,119 @@ interface VerifyPaymentResponse {
   message?: string;
 }
 
+interface AuthResponse {
+  token: string;
+  data?: {
+    expireAt: string;
+  };
+}
+
+interface WithdrawParams {
+  wallet: string;
+  amount: number;
+  currency?: string;
+  serviceId: number;
+}
+
+interface WithdrawResponse {
+  success: boolean;
+  code?: number;
+  status?: string;
+  created_at?: string;
+  data?: {
+    reference: string;
+    external_reference: string;
+    transaction_reference: string;
+    amount: number;
+    currency: string;
+    operation: string;
+  };
+  message?: string;
+}
+
+interface TransactionDetailsResponse {
+  ext_id: string;
+  amount: number;
+  wallet: string;
+  currency: string;
+  operation: {
+    id: number;
+    name: string;
+    description: string;
+  };
+  service: {
+    id: number;
+    name: string;
+    type: string;
+    is_active: boolean;
+  };
+  status: string;
+  short_description: string | null;
+  proceed_at: string;
+  is_verif: boolean;
+  other: string;
+}
+
 export class SoleasPayClient {
   private apiKey: string;
+  private secretKey: string;
+  private bearerToken: string | null = null;
+  private tokenExpiry: Date | null = null;
 
   constructor() {
     this.apiKey = process.env.SOLEASPAY_API_KEY || "";
+    this.secretKey = process.env.SOLEASPAY_SECRET_KEY || "";
     
     if (!this.apiKey) {
       console.warn("SoleasPay: Clé API non configurée (SOLEASPAY_API_KEY)");
+    }
+    if (!this.secretKey) {
+      console.warn("SoleasPay: Clé secrète non configurée (SOLEASPAY_SECRET_KEY)");
+    }
+  }
+
+  async getAuthToken(): Promise<string | null> {
+    if (this.bearerToken && this.tokenExpiry && new Date() < this.tokenExpiry) {
+      return this.bearerToken;
+    }
+
+    try {
+      console.log("🔐 SoleasPay: Obtention du token d'authentification...");
+      
+      const response = await fetch(`${SOLEASPAY_API_URL}/api/action/auth`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          public_apikey: this.apiKey,
+          private_secretkey: this.secretKey,
+        }),
+      });
+
+      const responseText = await response.text();
+      console.log("🔐 SoleasPay: Auth response status:", response.status);
+      
+      let data: AuthResponse;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error("❌ SoleasPay: Réponse JSON d'auth invalide");
+        return null;
+      }
+
+      if (data.token) {
+        this.bearerToken = data.token;
+        this.tokenExpiry = new Date(Date.now() + 55 * 60 * 1000);
+        console.log("✅ SoleasPay: Token obtenu, expire à:", this.tokenExpiry);
+        return this.bearerToken;
+      }
+
+      console.error("❌ SoleasPay: Token non reçu");
+      return null;
+    } catch (error) {
+      console.error("❌ SoleasPay auth error:", error);
+      return null;
     }
   }
 
@@ -205,6 +346,102 @@ export class SoleasPayClient {
         success: false,
         message: "Erreur de connexion à SoleasPay",
       };
+    }
+  }
+
+  async withdraw(params: WithdrawParams): Promise<WithdrawResponse> {
+    try {
+      const token = await this.getAuthToken();
+      if (!token) {
+        return {
+          success: false,
+          message: "Impossible d'obtenir le token d'authentification SoleasPay",
+        };
+      }
+
+      console.log("💸 SoleasPay: Initialisation du retrait...");
+      console.log("💸 SoleasPay: Service ID:", params.serviceId);
+      console.log("💸 SoleasPay: Wallet:", params.wallet);
+      console.log("💸 SoleasPay: Amount:", params.amount, params.currency || "XOF");
+
+      const response = await fetch(`${SOLEASPAY_API_URL}/api/action/account/withdraw`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "operation": "4",
+          "service": params.serviceId.toString(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          wallet: params.wallet,
+          amount: params.amount,
+          currency: params.currency || "XOF",
+        }),
+      });
+
+      const responseText = await response.text();
+      console.log("💸 SoleasPay: Withdraw response status:", response.status);
+      console.log("💸 SoleasPay: Withdraw response body:", responseText);
+
+      let data: WithdrawResponse;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error("❌ SoleasPay: Réponse JSON de retrait invalide");
+        return {
+          success: false,
+          message: "Réponse invalide de SoleasPay",
+        };
+      }
+
+      return data;
+    } catch (error) {
+      console.error("❌ SoleasPay withdraw error:", error);
+      return {
+        success: false,
+        message: "Erreur de connexion à SoleasPay",
+      };
+    }
+  }
+
+  async getTransactionDetails(reference: string): Promise<TransactionDetailsResponse | null> {
+    try {
+      const token = await this.getAuthToken();
+      if (!token) {
+        console.error("❌ SoleasPay: Impossible d'obtenir le token");
+        return null;
+      }
+
+      console.log("🔍 SoleasPay: Récupération des détails de transaction:", reference);
+
+      const response = await fetch(`${SOLEASPAY_API_URL}/api/user/history/${reference}`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+      });
+
+      const responseText = await response.text();
+      console.log("🔍 SoleasPay: Transaction details response status:", response.status);
+      console.log("🔍 SoleasPay: Transaction details response body:", responseText);
+
+      if (!response.ok) {
+        console.error("❌ SoleasPay: Erreur lors de la récupération des détails");
+        return null;
+      }
+
+      let data: TransactionDetailsResponse;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.error("❌ SoleasPay: Réponse JSON invalide");
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error("❌ SoleasPay getTransactionDetails error:", error);
+      return null;
     }
   }
 
