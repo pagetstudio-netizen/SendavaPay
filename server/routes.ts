@@ -10,7 +10,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { leekpay } from "./leekpay";
-import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById, getWithdrawableServicesByCountry, WITHDRAWABLE_SERVICES } from "./soleaspay";
+import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById } from "./soleaspay";
 import { isDatabaseConnected } from "./db";
 
 function requireDatabase(req: Request, res: Response, next: NextFunction) {
@@ -351,34 +351,21 @@ export async function registerRoutes(
     }
   });
 
-  // Get operators for withdraw with maintenance status
-  // Only returns operators that support withdrawal according to SoleasPay API (withdrawable: true)
+  // Get operators for withdraw - same countries as deposit (all require admin approval)
   app.get("/api/withdraw/operators", async (req, res) => {
     try {
       const operators = await storage.getOperators();
       const countries = await storage.getCountries();
       
-      // Build country list with only withdrawable operators
+      // Build country list with same operators as deposit
       const countryOperators = countries.map(country => {
-        const countryCode = country.code.toUpperCase();
-        // Get only withdrawable services for this country from SoleasPay mapping
-        const withdrawableForCountry = getWithdrawableServicesByCountry(countryCode);
-        
-        // Map withdrawable services directly
-        const countryOps = withdrawableForCountry.map(ws => {
-          // Check if operator is in maintenance from DB
-          const dbOperator = operators.find(op => 
-            op.countryId === country.id && 
-            (op.name.toLowerCase() === ws.operator.toLowerCase() ||
-             op.name.toLowerCase().includes(ws.operator.toLowerCase()) ||
-             ws.operator.toLowerCase().includes(op.name.toLowerCase()))
-          );
-          return {
-            id: ws.id.toString(),
-            name: ws.operator,
-            inMaintenance: dbOperator?.inMaintenance ?? false,
-          };
-        });
+        const countryOps = operators
+          .filter(op => op.countryId === country.id)
+          .map(op => ({
+            id: op.code || op.id.toString(),
+            name: op.name,
+            inMaintenance: op.inMaintenance ?? false,
+          }));
         
         return {
           id: country.code.toLowerCase(),
@@ -1215,6 +1202,7 @@ export async function registerRoutes(
     }
   });
 
+  // All withdrawals require admin approval - balance is debited immediately
   app.post("/api/withdraw", requireAuth, async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
@@ -1244,7 +1232,11 @@ export async function registerRoutes(
       }
       
       const countryOperators = operators.filter(op => op.countryId === selectedCountry.id);
-      const selectedOperator = countryOperators.find(op => op.code === paymentMethod || op.name.toLowerCase() === paymentMethod.toLowerCase());
+      const selectedOperator = countryOperators.find(op => 
+        op.code === paymentMethod || 
+        op.id.toString() === paymentMethod ||
+        op.name.toLowerCase() === paymentMethod.toLowerCase()
+      );
       
       if (!selectedOperator) {
         return res.status(400).json({ message: "Moyen de paiement invalide pour ce pays" });
@@ -1263,121 +1255,28 @@ export async function registerRoutes(
       const fee = Math.round(numericAmount * (commissionRate / 100));
       const netAmount = numericAmount - fee;
 
-      // Pays avec retraits instantanés automatiques
-      const INSTANT_WITHDRAWAL_COUNTRIES = ["TG", "BJ", "CM", "CI"];
-      const isInstantCountry = INSTANT_WITHDRAWAL_COUNTRIES.includes(selectedCountry.code.toUpperCase());
-
-      // Trouver le service SoleasPay correspondant pour le retrait
-      const { getWithdrawableServiceByCountryAndOperator, getCurrencyByCountry } = await import("./soleaspay");
-      const withdrawService = getWithdrawableServiceByCountryAndOperator(selectedCountry.code, paymentMethod);
+      // Débiter le solde immédiatement (en attente de validation admin)
+      const newBalance = balance - numericAmount;
+      await storage.setUserBalance(req.session.userId!, newBalance.toString());
       
-      console.log("💸 Withdraw check - Country:", selectedCountry.code, "Operator:", paymentMethod);
-      console.log("💸 Withdraw check - isInstantCountry:", isInstantCountry, "withdrawService:", withdrawService);
-      
-      // Si pas de service disponible OU pays sans retrait instantané, créer une demande manuelle
-      if (!withdrawService || !isInstantCountry) {
-        console.log("💸 Falling back to manual withdrawal (admin approval required)");
-        // Créer la demande de retrait avec statut "pending" pour validation admin
-        const withdrawalRequest = await storage.createWithdrawalRequest({
-          userId: req.session.userId!,
-          amount: numericAmount.toString(),
-          fee: fee.toString(),
-          netAmount: netAmount.toString(),
-          paymentMethod,
-          mobileNumber,
-          country,
-          walletName: walletName || null,
-        });
+      console.log("💸 Withdrawal request - Country:", selectedCountry.code, "Operator:", paymentMethod);
+      console.log("💸 Balance debited immediately:", numericAmount, "New balance:", newBalance);
 
-        return res.json({ 
-          message: "Votre demande de retrait a été soumise. Un administrateur la traitera dans les plus brefs délais.",
-          request: withdrawalRequest
-        });
-      }
-
-      // Pour les pays avec retrait instantané, traiter automatiquement
+      // Créer la demande de retrait avec statut "pending" pour validation admin
       const withdrawalRequest = await storage.createWithdrawalRequest({
         userId: req.session.userId!,
         amount: numericAmount.toString(),
         fee: fee.toString(),
         netAmount: netAmount.toString(),
-        paymentMethod,
+        paymentMethod: selectedOperator.name,
         mobileNumber,
         country,
         walletName: walletName || null,
       });
 
-      // Appeler l'API SoleasPay pour initier le retrait
-      console.log("💸 Initiation du retrait automatique via SoleasPay...");
-      const currency = getCurrencyByCountry(selectedCountry.code);
-      
-      const withdrawResult = await soleaspay.withdraw({
-        wallet: mobileNumber,
-        amount: netAmount,
-        currency,
-        serviceId: withdrawService.id,
-      });
-
-      console.log("💸 Résultat SoleasPay:", JSON.stringify(withdrawResult));
-
-      if (!withdrawResult.success) {
-        // En cas d'échec de l'API, marquer comme failed
-        await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-          status: "failed",
-          rejectionReason: withdrawResult.message || "Échec de la connexion au service de paiement",
-        });
-        
-        return res.status(400).json({ 
-          message: withdrawResult.message || "Impossible de traiter le retrait. Veuillez réessayer.",
-          request: { ...withdrawalRequest, status: "failed" }
-        });
-      }
-
-      // Si l'API répond avec succès, mettre à jour avec la référence externe
-      const externalReference = withdrawResult.data?.reference || null;
-      const transactionReference = withdrawResult.data?.transaction_reference || null;
-      
-      await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-        status: "processing",
-        externalReference,
-        transactionReference,
-      });
-
-      // Si le statut est SUCCESS, débiter immédiatement
-      if (withdrawResult.status === "SUCCESS") {
-        const newBalance = balance - numericAmount;
-        await storage.setUserBalance(req.session.userId!, newBalance.toString());
-        
-        await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-          status: "approved",
-          processedAt: new Date(),
-        });
-
-        // Créer la transaction
-        await storage.createTransaction({
-          userId: req.session.userId!,
-          type: "withdrawal",
-          amount: numericAmount.toString(),
-          fee: fee.toString(),
-          netAmount: netAmount.toString(),
-          status: "completed",
-          description: `Retrait ${paymentMethod} - ${mobileNumber}`,
-          externalRef: externalReference,
-        });
-
-        return res.json({ 
-          message: "Retrait effectué avec succès!",
-          status: "approved",
-          request: { ...withdrawalRequest, status: "approved", externalReference }
-        });
-      }
-
-      // Si le statut est PROCESSING, retourner avec instructions de polling
       res.json({ 
-        message: "Retrait en cours de traitement. Vous serez notifié une fois le transfert terminé.",
-        status: "processing",
-        request: { ...withdrawalRequest, status: "processing", externalReference },
-        reference: externalReference,
+        message: "Votre demande de retrait a été soumise. Un administrateur la traitera dans les plus brefs délais.",
+        request: withdrawalRequest
       });
     } catch (error) {
       console.error("Withdraw request error:", error);
@@ -1518,6 +1417,7 @@ export async function registerRoutes(
     }
   });
 
+  // Admin approve: Balance was already debited when user requested withdrawal
   app.post("/api/admin/withdrawal-requests/:id/approve", requireAuth, requireAdmin, async (req, res) => {
     try {
       const requestId = parseInt(req.params.id);
@@ -1527,35 +1427,13 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Demande introuvable" });
       }
       
-      // Seuls les retraits "pending" ou "processing" peuvent être approuvés manuellement
-      if (withdrawalRequest.status !== "pending" && withdrawalRequest.status !== "processing") {
+      // Seuls les retraits "pending" peuvent être approuvés
+      if (withdrawalRequest.status !== "pending") {
         return res.status(400).json({ message: "Cette demande a déjà été traitée" });
       }
       
-      // Si en cours de traitement automatique avec référence externe, ne pas permettre l'approbation manuelle
-      if (withdrawalRequest.status === "processing" && withdrawalRequest.externalReference) {
-        return res.status(400).json({ 
-          message: "Cette demande est en cours de traitement automatique. Veuillez attendre la confirmation." 
-        });
-      }
-      
-      // Débiter le solde maintenant (car le nouveau système ne débite pas à l'avance)
-      const user = await storage.getUser(withdrawalRequest.userId);
-      if (!user) {
-        return res.status(404).json({ message: "Utilisateur non trouvé" });
-      }
-      
-      const currentBalance = parseFloat(user.balance);
-      const withdrawAmount = parseFloat(withdrawalRequest.amount);
-      
-      if (currentBalance < withdrawAmount) {
-        return res.status(400).json({ message: "Solde utilisateur insuffisant pour ce retrait" });
-      }
-      
-      const newBalance = currentBalance - withdrawAmount;
-      await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
-      
-      // Créer la transaction
+      // Le solde a déjà été débité lors de la demande de retrait
+      // Créer la transaction pour l'historique
       await storage.createTransaction({
         userId: withdrawalRequest.userId,
         type: "withdrawal",
@@ -1575,6 +1453,7 @@ export async function registerRoutes(
         processedAt: new Date(),
       });
       
+      console.log("✅ Withdrawal approved for user", withdrawalRequest.userId, "Amount:", withdrawalRequest.amount);
       res.json({ message: "Retrait approuvé et traité avec succès" });
     } catch (error) {
       console.error("Approve withdrawal error:", error);
@@ -1582,6 +1461,7 @@ export async function registerRoutes(
     }
   });
 
+  // Admin reject: Refund the balance since it was debited when user requested
   app.post("/api/admin/withdrawal-requests/:id/reject", requireAuth, requireAdmin, async (req, res) => {
     try {
       const requestId = parseInt(req.params.id);
@@ -1593,8 +1473,8 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Demande introuvable" });
       }
       
-      // Seuls les retraits "pending" ou "processing" peuvent être rejetés
-      if (withdrawalRequest.status !== "pending" && withdrawalRequest.status !== "processing") {
+      // Seuls les retraits "pending" peuvent être rejetés
+      if (withdrawalRequest.status !== "pending") {
         return res.status(400).json({ message: "Cette demande a déjà été traitée" });
       }
       
@@ -1602,8 +1482,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Veuillez fournir une raison de rejet" });
       }
       
-      // Pas de remboursement nécessaire car le solde n'a pas été débité
-      // (le nouveau système ne débite qu'au succès)
+      // Rembourser le solde car il a été débité lors de la demande
+      const user = await storage.getUser(withdrawalRequest.userId);
+      if (user) {
+        const currentBalance = parseFloat(user.balance);
+        const refundAmount = parseFloat(withdrawalRequest.amount);
+        const newBalance = currentBalance + refundAmount;
+        await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
+        console.log("💰 Balance refunded for user", withdrawalRequest.userId, "Amount:", refundAmount, "New balance:", newBalance);
+      }
       
       await storage.updateWithdrawalRequest(requestId, {
         status: "rejected",
@@ -1612,7 +1499,7 @@ export async function registerRoutes(
         reviewedAt: new Date(),
       });
       
-      res.json({ message: "Demande de retrait rejetée" });
+      res.json({ message: "Demande de retrait rejetée et solde remboursé" });
     } catch (error) {
       console.error("Reject withdrawal error:", error);
       res.status(500).json({ message: "Erreur lors du rejet" });
