@@ -2635,6 +2635,32 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/users/:id/reset-password", requireAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const { newPassword } = req.body;
+      
+      if (!newPassword || newPassword.length < 6) {
+        return res.status(400).json({ message: "Le mot de passe doit contenir au moins 6 caractères" });
+      }
+      
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      await storage.updateUser(userId, { password: hashedPassword });
+      
+      await storage.createAuditLog({
+        userId: req.session.userId,
+        action: "password_reset",
+        details: `Mot de passe réinitialisé pour l'utilisateur #${userId}`,
+        ipAddress: req.ip,
+      });
+      
+      res.json({ message: "Mot de passe mis à jour avec succès" });
+    } catch (error) {
+      console.error("Reset password error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.post("/api/admin/users/:id/modify-balance", requireAdmin, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);

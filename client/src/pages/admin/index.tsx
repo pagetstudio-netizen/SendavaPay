@@ -170,8 +170,10 @@ function UsersContent() {
   const [showBalanceDialog, setShowBalanceDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [balanceForm, setBalanceForm] = useState({ amount: "", operation: "add", reason: "" });
   const [editForm, setEditForm] = useState({ fullName: "", email: "", phone: "", adminNote: "", role: "" });
+  const [newPassword, setNewPassword] = useState("");
 
   const { data: users, isLoading } = useQuery<UserType[]>({ queryKey: ["/api/admin/users"] });
 
@@ -245,6 +247,27 @@ function UsersContent() {
       toast({ title: "Erreur", description: err.message || "Échec de la suppression", variant: "destructive" });
     },
   });
+
+  const resetPasswordMutation = useMutation({
+    mutationFn: async ({ userId, newPassword }: { userId: number; newPassword: string }) => {
+      await apiRequest("POST", `/api/admin/users/${userId}/reset-password`, { newPassword });
+    },
+    onSuccess: () => {
+      toast({ title: "Succès", description: "Mot de passe réinitialisé" });
+      setShowPasswordDialog(false);
+      setNewPassword("");
+      setSelectedUser(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur", description: err.message || "Échec de la réinitialisation", variant: "destructive" });
+    },
+  });
+
+  const openPasswordDialog = (user: UserType) => {
+    setSelectedUser(user);
+    setNewPassword("");
+    setShowPasswordDialog(true);
+  };
 
   const openBalanceDialog = (user: UserType) => {
     setSelectedUser(user);
@@ -356,6 +379,16 @@ function UsersContent() {
                       <div className="flex gap-1 flex-wrap">
                         <Button size="icon" variant="ghost" onClick={() => openEditDialog(user)} title="Modifier">
                           <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => openPasswordDialog(user)}
+                          disabled={user.role === "admin"}
+                          title="Changer mot de passe"
+                          data-testid={`button-reset-password-${user.id}`}
+                        >
+                          <Key className="h-4 w-4 text-blue-600" />
                         </Button>
                         <Button
                           size="icon"
@@ -524,6 +557,39 @@ function UsersContent() {
               disabled={deleteUserMutation.isPending}
             >
               Supprimer définitivement
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPasswordDialog} onOpenChange={setShowPasswordDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Réinitialiser le mot de passe</DialogTitle>
+            <DialogDescription>
+              {selectedUser && `Définir un nouveau mot de passe pour ${selectedUser.fullName}`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nouveau mot de passe</Label>
+              <Input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Minimum 6 caractères"
+                data-testid="input-new-password"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPasswordDialog(false)}>Annuler</Button>
+            <Button
+              onClick={() => selectedUser && resetPasswordMutation.mutate({ userId: selectedUser.id, newPassword })}
+              disabled={resetPasswordMutation.isPending || newPassword.length < 6}
+              data-testid="button-confirm-reset-password"
+            >
+              Réinitialiser
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2096,13 +2162,26 @@ function CountriesContent() {
   const { toast } = useToast();
   const [showCountryDialog, setShowCountryDialog] = useState(false);
   const [showOperatorDialog, setShowOperatorDialog] = useState(false);
+  const [showEditOperatorDialog, setShowEditOperatorDialog] = useState(false);
   const [editingCountry, setEditingCountry] = useState<Country | null>(null);
   const [editingOperator, setEditingOperator] = useState<Operator | null>(null);
-  const [countryForm, setCountryForm] = useState({ code: "", name: "", currency: "XOF", isActive: true, flagEmoji: "" });
-  const [operatorForm, setOperatorForm] = useState({ countryId: 0, name: "", code: "", isActive: true });
+  const [countryForm, setCountryForm] = useState({ code: "", name: "", currency: "XOF", isActive: true });
+  const [operatorForm, setOperatorForm] = useState({ countryId: 0, name: "", code: "", isActive: true, type: "mobile_money", dailyLimit: "1000000", paymentGateway: "soleaspay", inMaintenance: false });
 
   const { data: countries, isLoading: loadingCountries } = useQuery<Country[]>({ queryKey: ["/api/admin/countries"] });
   const { data: operators, isLoading: loadingOperators } = useQuery<Operator[]>({ queryKey: ["/api/admin/operators"] });
+
+  const operatorsByCountry = useMemo(() => {
+    if (!countries || !operators) return {};
+    const grouped: Record<number, Operator[]> = {};
+    countries.forEach(c => { grouped[c.id] = []; });
+    operators.forEach(op => {
+      if (grouped[op.countryId]) {
+        grouped[op.countryId].push(op);
+      }
+    });
+    return grouped;
+  }, [countries, operators]);
 
   const createCountryMutation = useMutation({
     mutationFn: (data: typeof countryForm) => apiRequest("POST", "/api/admin/countries", data),
@@ -2130,6 +2209,17 @@ function CountriesContent() {
     },
   });
 
+  const updateOperatorMutation = useMutation({
+    mutationFn: (data: { id: number; updates: Partial<Operator> }) => 
+      apiRequest("PUT", `/api/admin/operators/${data.id}`, data.updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/operators"] });
+      toast({ title: "Opérateur mis à jour" });
+      setShowEditOperatorDialog(false);
+      setEditingOperator(null);
+    },
+  });
+
   const deleteOperatorMutation = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/operators/${id}`),
     onSuccess: () => {
@@ -2138,101 +2228,115 @@ function CountriesContent() {
     },
   });
 
+  const toggleAllOperators = async (countryId: number, active: boolean) => {
+    const ops = operatorsByCountry[countryId] || [];
+    for (const op of ops) {
+      await updateOperatorMutation.mutateAsync({ id: op.id, updates: { isActive: active } });
+    }
+  };
+
+  const openEditOperator = (op: Operator) => {
+    setEditingOperator(op);
+    setOperatorForm({
+      countryId: op.countryId,
+      name: op.name,
+      code: op.code,
+      isActive: op.isActive,
+      type: op.type || "mobile_money",
+      dailyLimit: op.dailyLimit || "1000000",
+      paymentGateway: op.paymentGateway || "soleaspay",
+      inMaintenance: op.inMaintenance || false,
+    });
+    setShowEditOperatorDialog(true);
+  };
+
+  const handleUpdateOperator = () => {
+    if (!editingOperator) return;
+    updateOperatorMutation.mutate({
+      id: editingOperator.id,
+      updates: {
+        name: operatorForm.name,
+        code: operatorForm.code,
+        countryId: operatorForm.countryId,
+        isActive: operatorForm.isActive,
+        type: operatorForm.type,
+        dailyLimit: operatorForm.dailyLimit,
+        paymentGateway: operatorForm.paymentGateway,
+        inMaintenance: operatorForm.inMaintenance,
+      },
+    });
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Pays & Opérateurs</h1>
-        <p className="text-muted-foreground">Configurez les pays et opérateurs mobiles disponibles</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Opérateurs par Pays</h1>
+          <p className="text-muted-foreground">Configurez les opérateurs mobiles disponibles par pays</p>
+        </div>
+        <Button onClick={() => setShowOperatorDialog(true)} disabled={!countries?.length} data-testid="button-add-operator">
+          <Plus className="h-4 w-4 mr-1" /> Ajouter
+        </Button>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2">
-            <div>
-              <CardTitle>Pays</CardTitle>
-              <CardDescription>Liste des pays disponibles</CardDescription>
-            </div>
-            <Button size="sm" onClick={() => setShowCountryDialog(true)}>
-              <Plus className="h-4 w-4 mr-1" /> Ajouter
-            </Button>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Code</TableHead>
-                  <TableHead>Nom</TableHead>
-                  <TableHead>Devise</TableHead>
-                  <TableHead>Statut</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loadingCountries ? (
-                  <TableRow><TableCell colSpan={5}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
-                ) : countries?.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell className="font-mono">{c.code}</TableCell>
-                    <TableCell>{c.name}</TableCell>
-                    <TableCell>{c.currency}</TableCell>
-                    <TableCell><Badge variant={c.isActive ? "default" : "secondary"}>{c.isActive ? "Actif" : "Inactif"}</Badge></TableCell>
-                    <TableCell>
-                      <Button size="icon" variant="ghost" onClick={() => deleteCountryMutation.mutate(c.id)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2">
-            <div>
-              <CardTitle>Opérateurs</CardTitle>
-              <CardDescription>Opérateurs mobiles par pays</CardDescription>
-            </div>
-            <Button size="sm" onClick={() => setShowOperatorDialog(true)} disabled={!countries?.length}>
-              <Plus className="h-4 w-4 mr-1" /> Ajouter
-            </Button>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Pays</TableHead>
-                  <TableHead>Nom</TableHead>
-                  <TableHead>Code</TableHead>
-                  <TableHead>Statut</TableHead>
-                  <TableHead></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loadingOperators ? (
-                  <TableRow><TableCell colSpan={5}><Skeleton className="h-8 w-full" /></TableCell></TableRow>
-                ) : operators?.map((op) => {
-                  const country = countries?.find(c => c.id === op.countryId);
-                  return (
-                    <TableRow key={op.id}>
-                      <TableCell>{country?.name || "-"}</TableCell>
-                      <TableCell>{op.name}</TableCell>
-                      <TableCell className="font-mono">{op.code}</TableCell>
-                      <TableCell><Badge variant={op.isActive ? "default" : "secondary"}>{op.isActive ? "Actif" : "Inactif"}</Badge></TableCell>
-                      <TableCell>
-                        <Button size="icon" variant="ghost" onClick={() => deleteOperatorMutation.mutate(op.id)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      </div>
+      {loadingCountries || loadingOperators ? (
+        <div className="space-y-4">
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-32 w-full" />
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {countries?.map((country) => {
+            const countryOperators = operatorsByCountry[country.id] || [];
+            return (
+              <Card key={country.id}>
+                <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{country.code === "BJ" ? "🇧🇯" : country.code === "BF" ? "🇧🇫" : country.code === "TG" ? "🇹🇬" : country.code === "CM" ? "🇨🇲" : country.code === "CI" ? "🇨🇮" : country.code === "CD" ? "🇨🇩" : country.code === "CG" ? "🇨🇬" : "🌍"}</span>
+                    <CardTitle className="text-lg">{country.name}</CardTitle>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => toggleAllOperators(country.id, true)} data-testid={`button-activate-all-${country.id}`}>
+                      Tout activer
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => toggleAllOperators(country.id, false)} data-testid={`button-deactivate-all-${country.id}`}>
+                      Tout désactiver
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {countryOperators.length === 0 ? (
+                    <p className="text-muted-foreground text-sm">Aucun opérateur configuré</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {countryOperators.map((op) => (
+                        <div key={op.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <span className="font-medium">{op.name}</span>
+                            <Badge variant={op.paymentGateway === "soleaspay" ? "default" : "secondary"}>
+                              {op.paymentGateway === "soleaspay" ? "SoleaPay" : op.paymentGateway === "winnipay" ? "WinniPay" : op.paymentGateway}
+                            </Badge>
+                            {op.inMaintenance && <Badge variant="destructive">Maintenance</Badge>}
+                            {!op.isActive && <Badge variant="secondary">Inactif</Badge>}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Button size="icon" variant="ghost" onClick={() => openEditOperator(op)} data-testid={`button-edit-operator-${op.id}`}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button size="icon" variant="ghost" onClick={() => deleteOperatorMutation.mutate(op.id)} data-testid={`button-delete-operator-${op.id}`}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       <Dialog open={showCountryDialog} onOpenChange={setShowCountryDialog}>
         <DialogContent>
@@ -2268,34 +2372,135 @@ function CountriesContent() {
       </Dialog>
 
       <Dialog open={showOperatorDialog} onOpenChange={setShowOperatorDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Ajouter un opérateur</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Pays</Label>
-              <Select value={operatorForm.countryId.toString()} onValueChange={(v) => setOperatorForm({ ...operatorForm, countryId: parseInt(v) })}>
-                <SelectTrigger><SelectValue placeholder="Choisir un pays" /></SelectTrigger>
-                <SelectContent>
-                  {countries?.map((c) => (
-                    <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Nom</Label>
+              <Input value={operatorForm.name} onChange={(e) => setOperatorForm({ ...operatorForm, name: e.target.value })} placeholder="Ex: MTN Mobile Money" data-testid="input-operator-name" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Nom</Label>
-                <Input value={operatorForm.name} onChange={(e) => setOperatorForm({ ...operatorForm, name: e.target.value })} />
+                <Label>Type</Label>
+                <Select value={operatorForm.type} onValueChange={(v) => setOperatorForm({ ...operatorForm, type: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mobile_money">Mobile Money</SelectItem>
+                    <SelectItem value="bank">Banque</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
+                <Label>Pays</Label>
+                <Select value={operatorForm.countryId.toString()} onValueChange={(v) => setOperatorForm({ ...operatorForm, countryId: parseInt(v) })}>
+                  <SelectTrigger><SelectValue placeholder="Choisir" /></SelectTrigger>
+                  <SelectContent>
+                    {countries?.map((c) => (
+                      <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
                 <Label>Code</Label>
-                <Input value={operatorForm.code} onChange={(e) => setOperatorForm({ ...operatorForm, code: e.target.value.toLowerCase() })} />
+                <Input value={operatorForm.code} onChange={(e) => setOperatorForm({ ...operatorForm, code: e.target.value.toLowerCase() })} placeholder="mtn_bj" data-testid="input-operator-code" />
+              </div>
+              <div className="space-y-2">
+                <Label>Limite journalière</Label>
+                <Input value={operatorForm.dailyLimit} onChange={(e) => setOperatorForm({ ...operatorForm, dailyLimit: e.target.value })} placeholder="1000000" data-testid="input-operator-limit" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Passerelle de paiement</Label>
+              <Select value={operatorForm.paymentGateway} onValueChange={(v) => setOperatorForm({ ...operatorForm, paymentGateway: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="soleaspay">SoleaPay</SelectItem>
+                  <SelectItem value="winnipay">WinniPay</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">SoleaPay: Bénin, Cameroun, Côte d'Ivoire, Togo | WinniPay: Autres pays</p>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Switch checked={operatorForm.isActive} onCheckedChange={(v) => setOperatorForm({ ...operatorForm, isActive: v })} data-testid="switch-operator-active" />
+                <Label>Actif</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch checked={operatorForm.inMaintenance} onCheckedChange={(v) => setOperatorForm({ ...operatorForm, inMaintenance: v })} data-testid="switch-operator-maintenance" />
+                <Label>En maintenance</Label>
               </div>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowOperatorDialog(false)}>Annuler</Button>
-            <Button onClick={() => createOperatorMutation.mutate(operatorForm)}>Créer</Button>
+            <Button onClick={() => createOperatorMutation.mutate(operatorForm)} data-testid="button-create-operator">Créer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditOperatorDialog} onOpenChange={(open) => { setShowEditOperatorDialog(open); if (!open) setEditingOperator(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Modifier l'opérateur</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Nom</Label>
+              <Input value={operatorForm.name} onChange={(e) => setOperatorForm({ ...operatorForm, name: e.target.value })} data-testid="input-edit-operator-name" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Type</Label>
+                <Select value={operatorForm.type} onValueChange={(v) => setOperatorForm({ ...operatorForm, type: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mobile_money">Mobile Money</SelectItem>
+                    <SelectItem value="bank">Banque</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Pays</Label>
+                <Select value={operatorForm.countryId.toString()} onValueChange={(v) => setOperatorForm({ ...operatorForm, countryId: parseInt(v) })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {countries?.map((c) => (
+                      <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Limite journalière</Label>
+              <Input value={operatorForm.dailyLimit} onChange={(e) => setOperatorForm({ ...operatorForm, dailyLimit: e.target.value })} data-testid="input-edit-operator-limit" />
+            </div>
+            <div className="space-y-2">
+              <Label>Passerelle de paiement</Label>
+              <Select value={operatorForm.paymentGateway} onValueChange={(v) => setOperatorForm({ ...operatorForm, paymentGateway: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="soleaspay">SoleaPay</SelectItem>
+                  <SelectItem value="winnipay">WinniPay</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">SoleaPay: Bénin, Cameroun, Côte d'Ivoire, Togo | WinniPay: Autres pays</p>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Switch checked={operatorForm.isActive} onCheckedChange={(v) => setOperatorForm({ ...operatorForm, isActive: v })} data-testid="switch-edit-operator-active" />
+                <Label>Actif</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch checked={operatorForm.inMaintenance} onCheckedChange={(v) => setOperatorForm({ ...operatorForm, inMaintenance: v })} data-testid="switch-edit-operator-maintenance" />
+                <Label>En maintenance</Label>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowEditOperatorDialog(false); setEditingOperator(null); }}>Annuler</Button>
+            <Button onClick={handleUpdateOperator} data-testid="button-update-operator">Mettre à jour</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
