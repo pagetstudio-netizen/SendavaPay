@@ -700,7 +700,7 @@ export async function registerRoutes(
             paidAmount: amount.toString(),
           });
 
-          // Créer la transaction
+          // Créer la transaction avec les informations du payeur
           await storage.createTransaction({
             userId: link.userId,
             type: "payment_received",
@@ -711,6 +711,11 @@ export async function registerRoutes(
             description: `Paiement reçu - ${link.title}`,
             externalRef: payId,
             paymentMethod: existingPayment.paymentMethod || "soleaspay",
+            mobileNumber: existingPayment.payerPhone,
+            payerName: existingPayment.payerName,
+            payerEmail: existingPayment.customerEmail,
+            payerCountry: existingPayment.payerCountry,
+            paymentLinkId: link.id,
           });
 
           await storage.updateUserBalance(link.userId, netAmount.toString());
@@ -817,6 +822,11 @@ export async function registerRoutes(
               description: `Paiement reçu - ${link.title}`,
               externalRef: reference,
               paymentMethod: payment.paymentMethod || "soleaspay",
+              mobileNumber: payment.payerPhone,
+              payerName: payment.payerName,
+              payerEmail: payment.customerEmail,
+              payerCountry: payment.payerCountry,
+              paymentLinkId: link.id,
             });
 
             await storage.updateUserBalance(link.userId, netAmount.toString());
@@ -941,6 +951,11 @@ export async function registerRoutes(
             description: `Paiement reçu: ${link.title}`,
             externalRef: paymentId,
             paymentMethod: leekpayPayment.paymentMethod || "leekpay",
+            mobileNumber: leekpayPayment.payerPhone,
+            payerName: leekpayPayment.payerName,
+            payerEmail: leekpayPayment.customerEmail,
+            payerCountry: leekpayPayment.payerCountry,
+            paymentLinkId: link.id,
           });
 
           await storage.updateUserBalance(link.userId, netAmount.toString());
@@ -1093,6 +1108,10 @@ export async function registerRoutes(
               paymentMethod: leekpayPayment.paymentMethod || "leekpay",
               paymentLinkId: link.id,
               externalRef: reference,
+              mobileNumber: leekpayPayment.payerPhone,
+              payerName: leekpayPayment.payerName,
+              payerEmail: leekpayPayment.customerEmail,
+              payerCountry: leekpayPayment.payerCountry,
             });
 
             console.log(`✅ Paiement lien confirmé pour vendeur #${link.userId}: ${netAmount} XOF`);
@@ -1604,6 +1623,11 @@ export async function registerRoutes(
             description: `Paiement reçu: ${link.title}`,
             externalRef: paymentId,
             paymentMethod: leekpayPayment.paymentMethod || "leekpay",
+            mobileNumber: leekpayPayment.payerPhone,
+            payerName: leekpayPayment.payerName,
+            payerEmail: leekpayPayment.customerEmail,
+            payerCountry: leekpayPayment.payerCountry,
+            paymentLinkId: link.id,
           });
 
           await storage.updateUserBalance(link.userId, netAmount.toString());
@@ -2133,7 +2157,7 @@ export async function registerRoutes(
             paidAmount: amount.toString(),
           });
 
-          // Create transaction for merchant
+          // Create transaction for merchant with payer info
           await storage.createTransaction({
             userId: link.userId,
             type: "payment_received",
@@ -2144,6 +2168,11 @@ export async function registerRoutes(
             description: `Paiement reçu: ${link.title}`,
             externalRef: leekpayPaymentId,
             paymentMethod: leekpayPayment.paymentMethod || "leekpay",
+            mobileNumber: leekpayPayment.payerPhone,
+            payerName: leekpayPayment.payerName,
+            payerEmail: leekpayPayment.customerEmail,
+            payerCountry: leekpayPayment.payerCountry,
+            paymentLinkId: link.id,
           });
 
           await storage.updateUserBalance(link.userId, netAmount.toString());
