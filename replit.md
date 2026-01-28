@@ -110,7 +110,6 @@ shared/           # Shared code between client/server
 ### Required Secrets
 The following secrets must be configured in deployment environment:
 - **SUPABASE_DATABASE_URL** - PostgreSQL connection string for Supabase database
-- **LEEKPAY_SECRET_KEY** or **SK_LIVE** - LeekPay payment gateway secret key
 - **SOLEASPAY_API_KEY** - SoleasPay payment gateway API key
 
 ### Server Configuration

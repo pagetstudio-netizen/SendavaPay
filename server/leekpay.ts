@@ -64,10 +64,7 @@ export class LeekPayService {
     this.secretKey = process.env.LEEKPAY_SECRET_KEY || process.env.SK_LIVE || "";
     // Clé publique pour vérifier les signatures webhook
     this.publicKey = LEEKPAY_PUBLIC_KEY;
-    
-    if (!this.secretKey) {
-      console.warn("LeekPay: Clé secrète non configurée (SK_LIVE)");
-    }
+    // Note: LeekPay n'est plus utilisé - SoleasPay est le fournisseur principal
   }
 
   async createCheckout(params: CheckoutParams): Promise<CheckoutResponse> {
