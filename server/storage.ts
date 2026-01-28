@@ -369,18 +369,26 @@ export class DatabaseStorage implements IStorage {
     const totalDeposits = deposits.reduce((sum, t) => sum + parseFloat(t.amount), 0);
     const totalWithdrawals = withdrawals.reduce((sum, t) => sum + parseFloat(t.amount), 0);
     const totalCommissions = allTransactions.reduce((sum, t) => sum + parseFloat(t.fee), 0);
-    
+
+    // Calculate today's commissions
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayCommissions = allTransactions
+      .filter(t => new Date(t.createdAt) >= today)
+      .reduce((sum, t) => sum + parseFloat(t.fee), 0);
+
     const pendingKyc = await getDb().select().from(kycRequests).where(eq(kycRequests.status, "pending"));
     const activeApiKeysCount = await getDb().select().from(apiKeys).where(eq(apiKeys.isActive, true));
-    
+
     const settings = await this.getCommissionSettings();
-    
+
     return {
       totalUsers: allUsers.length,
       verifiedUsers: verifiedUsers.length,
       totalDeposits: totalDeposits.toString(),
       totalWithdrawals: totalWithdrawals.toString(),
       totalCommissions: totalCommissions.toString(),
+      todayCommissions: todayCommissions.toString(),
       pendingKyc: pendingKyc.length,
       activeApiKeys: activeApiKeysCount.length,
       commissionRate: settings?.depositRate || "7",
