@@ -173,51 +173,60 @@ async function getOrCreateMerchantForUser(userId: number): Promise<Merchant | nu
 
 // Get merchant info for current user (uses user session)
 router.get("/merchant/me", async (req: Request, res: Response) => {
-  const userId = (req.session as any)?.userId;
-  if (!userId) {
-    return res.status(401).json({ success: false, error: "Veuillez vous connecter", requireAuth: true });
-  }
+  try {
+    const userId = (req.session as any)?.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: "Veuillez vous connecter", requireAuth: true });
+    }
 
-  const user = await storage.getUser(userId);
-  if (!user) {
-    return res.status(404).json({ success: false, error: "Utilisateur non trouv\u00e9" });
-  }
+    const user = await storage.getUser(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, error: "Utilisateur non trouvé" });
+    }
 
-  if (!user.isVerified) {
-    return res.status(403).json({ 
+    if (!user.isVerified) {
+      return res.status(403).json({ 
+        success: false, 
+        error: "Votre compte doit être vérifié pour accéder à l'API marchand", 
+        requireVerification: true 
+      });
+    }
+
+    const merchant = await getOrCreateMerchantForUser(userId);
+    if (!merchant) {
+      return res.status(500).json({ success: false, error: "Erreur lors de la création du compte API" });
+    }
+
+    res.json({
+      success: true,
+      merchant: {
+        id: merchant.id,
+        name: merchant.name,
+        email: merchant.email,
+        companyName: merchant.companyName,
+        website: merchant.website,
+        description: merchant.description,
+        balance: merchant.balance,
+        status: merchant.status,
+        isVerified: merchant.isVerified,
+        apiKey: merchant.apiKey,
+        webhookUrl: merchant.webhookUrl,
+        createdAt: merchant.createdAt,
+      },
+      user: {
+        fullName: user.fullName,
+        phone: user.phone,
+        isVerified: user.isVerified,
+      },
+    });
+  } catch (error) {
+    console.error("Error in /merchant/me:", error);
+    return res.status(500).json({ 
       success: false, 
-      error: "Votre compte doit \u00eatre v\u00e9rifi\u00e9 pour acc\u00e9der \u00e0 l'API marchand", 
-      requireVerification: true 
+      error: "L'API marchand n'est pas encore configurée. Veuillez contacter l'administrateur.",
+      notConfigured: true
     });
   }
-
-  const merchant = await getOrCreateMerchantForUser(userId);
-  if (!merchant) {
-    return res.status(500).json({ success: false, error: "Erreur lors de la cr\u00e9ation du compte API" });
-  }
-
-  res.json({
-    success: true,
-    merchant: {
-      id: merchant.id,
-      name: merchant.name,
-      email: merchant.email,
-      companyName: merchant.companyName,
-      website: merchant.website,
-      description: merchant.description,
-      balance: merchant.balance,
-      status: merchant.status,
-      isVerified: merchant.isVerified,
-      apiKey: merchant.apiKey,
-      webhookUrl: merchant.webhookUrl,
-      createdAt: merchant.createdAt,
-    },
-    user: {
-      fullName: user.fullName,
-      phone: user.phone,
-      isVerified: user.isVerified,
-    },
-  });
 });
 
 router.get("/merchant/transactions", async (req: Request, res: Response) => {
