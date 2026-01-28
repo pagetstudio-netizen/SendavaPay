@@ -41,6 +41,7 @@ import {
   Mail,
   Percent,
   CheckCircle,
+  LifeBuoy,
 } from "lucide-react";
 import logoPath from "@assets/20251211_105226_1765450558306.png";
 
@@ -52,6 +53,7 @@ const userMenuItems = [
   { icon: History, label: "Historique", href: "/dashboard/history" },
   { icon: Key, label: "Clés API", href: "/dashboard/api-keys" },
   { icon: Shield, label: "Vérification KYC", href: "/dashboard/kyc" },
+  { icon: LifeBuoy, label: "Besoin d'aide", href: "/dashboard/help" },
   { icon: Settings, label: "Paramètres", href: "/dashboard/settings" },
 ];
 
