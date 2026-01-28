@@ -1,37 +1,110 @@
+import { useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Link } from "wouter";
-import comingSoonImage from "@assets/1767357766910-416405275_1769441573289.png";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Link, useLocation } from "wouter";
+import { useAuth } from "@/lib/auth-context";
+import { Key, ExternalLink, Shield, Code2 } from "lucide-react";
 
 export default function ApiKeysPage() {
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (user?.isVerified) {
+      setLocation("/merchant/dashboard");
+    }
+  }, [user, setLocation]);
+
+  if (user?.isVerified) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <p className="text-muted-foreground">Redirection vers l'espace API...</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
   return (
     <DashboardLayout>
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center p-6">
-        <div className="max-w-md w-full space-y-6">
-          <div className="relative">
-            <img 
-              src={comingSoonImage} 
-              alt="Bientôt disponible" 
-              className="w-64 h-64 mx-auto object-contain opacity-80"
-            />
-          </div>
-          
-          <div className="space-y-2">
-            <h1 className="text-3xl font-bold tracking-tight">API de Paiement</h1>
-            <p className="text-muted-foreground text-lg">
-              Notre système d'intégration API est en cours de développement et sera bientôt disponible pour tous les développeurs.
-            </p>
-          </div>
-
-          <div className="pt-4">
-            <Link href="/dashboard">
-              <Button variant="outline" size="lg" className="rounded-xl px-8">
-                Retour au tableau de bord
-              </Button>
-            </Link>
-          </div>
+      <div className="space-y-6 p-6">
+        <div>
+          <h1 className="text-2xl font-bold">API de Paiement</h1>
+          <p className="text-muted-foreground">
+            Intégrez SendavaPay dans vos applications
+          </p>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-yellow-500" />
+              Vérification requise
+            </CardTitle>
+            <CardDescription>
+              Votre compte doit être vérifié pour accéder à l'API
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-muted-foreground">
+              Pour des raisons de sécurité, seuls les comptes vérifiés peuvent accéder à l'API SendavaPay. 
+              Complétez votre vérification KYC pour obtenir vos clés API.
+            </p>
+            
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Link href="/dashboard/kyc">
+                <Button data-testid="button-verify-account">
+                  <Shield className="h-4 w-4 mr-2" />
+                  Vérifier mon compte
+                </Button>
+              </Link>
+              <Link href="/docs">
+                <Button variant="outline" data-testid="button-view-docs">
+                  <Code2 className="h-4 w-4 mr-2" />
+                  Voir la documentation
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5" />
+              Fonctionnalités API
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <h3 className="font-medium">Créer des liens de paiement</h3>
+                <p className="text-sm text-muted-foreground">
+                  Générez des liens de paiement personnalisés pour vos clients
+                </p>
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-medium">Vérifier les paiements</h3>
+                <p className="text-sm text-muted-foreground">
+                  Vérifiez le statut de vos paiements en temps réel
+                </p>
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-medium">Créditer des comptes</h3>
+                <p className="text-sm text-muted-foreground">
+                  Envoyez des fonds directement aux comptes SendavaPay
+                </p>
+              </div>
+              <div className="space-y-2">
+                <h3 className="font-medium">Webhooks sécurisés</h3>
+                <p className="text-sm text-muted-foreground">
+                  Recevez des notifications en temps réel avec signature HMAC
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </DashboardLayout>
   );
