@@ -4,24 +4,32 @@ async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = await res.text();
     let message = "Une erreur est survenue";
+    let hasServerMessage = false;
     
     try {
       const json = JSON.parse(text);
-      message = json.message || json.error || message;
+      if (json.message || json.error) {
+        message = json.message || json.error;
+        hasServerMessage = true;
+      }
     } catch {
       if (text && text.length < 200) {
         message = text;
+        hasServerMessage = true;
       }
     }
     
-    if (res.status === 500) {
-      message = "Erreur serveur. Veuillez réessayer plus tard.";
-    } else if (res.status === 503) {
-      message = "Service temporairement indisponible.";
-    } else if (res.status === 404) {
-      message = "Ressource introuvable.";
-    } else if (res.status === 403) {
-      message = "Accès refusé.";
+    // Only use generic messages if server didn't provide a specific message
+    if (!hasServerMessage) {
+      if (res.status === 500) {
+        message = "Erreur serveur. Veuillez réessayer plus tard.";
+      } else if (res.status === 503) {
+        message = "Service temporairement indisponible.";
+      } else if (res.status === 404) {
+        message = "Ressource introuvable.";
+      } else if (res.status === 403) {
+        message = "Accès refusé.";
+      }
     }
     
     throw new Error(message);
