@@ -132,6 +132,23 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               </SidebarGroupContent>
             </SidebarGroup>
 
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      onClick={() => logoutMutation.mutate()}
+                      className="text-destructive"
+                      data-testid="button-sidebar-logout"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      <span>Déconnexion</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+
             {isAdmin && (
               <SidebarGroup>
                 <SidebarGroupLabel>Espace</SidebarGroupLabel>
