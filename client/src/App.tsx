@@ -60,6 +60,7 @@ function Router() {
       <AdminRoute path="/admin/commissions" component={AdminDashboardPage} />
       <AdminRoute path="/admin/withdrawal-numbers" component={AdminDashboardPage} />
       <AdminRoute path="/admin/countries" component={AdminDashboardPage} />
+      <AdminRoute path="/admin/operators" component={AdminDashboardPage} />
       <AdminRoute path="/admin/payment-links" component={AdminDashboardPage} />
       <AdminRoute path="/admin/messaging" component={AdminDashboardPage} />
       <AdminRoute path="/admin/logs" component={AdminDashboardPage} />

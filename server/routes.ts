@@ -2302,7 +2302,7 @@ export async function registerRoutes(
 
   app.post("/api/admin/withdrawal-numbers", requireAdmin, async (req, res) => {
     try {
-      const { phoneNumber, operator, country, label, isActive } = req.body;
+      const { phoneNumber, operator, country, walletName, isActive } = req.body;
       if (!phoneNumber || !operator || !country) {
         return res.status(400).json({ message: "Champs requis manquants" });
       }
@@ -2310,7 +2310,7 @@ export async function registerRoutes(
         phoneNumber,
         operator,
         country,
-        label: label || null,
+        walletName: walletName || null,
         isActive: isActive ?? true,
       });
       await storage.createAuditLog({
@@ -2329,12 +2329,12 @@ export async function registerRoutes(
   app.put("/api/admin/withdrawal-numbers/:id", requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const { phoneNumber, operator, country, label, isActive } = req.body;
+      const { phoneNumber, operator, country, walletName, isActive } = req.body;
       const number = await storage.updateWithdrawalNumber(id, {
         phoneNumber,
         operator,
         country,
-        label,
+        walletName,
         isActive,
       });
       res.json(number);
@@ -2368,7 +2368,7 @@ export async function registerRoutes(
 
   app.post("/api/admin/countries", requireAdmin, async (req, res) => {
     try {
-      const { code, name, currency, isActive, flagEmoji } = req.body;
+      const { code, name, currency, isActive } = req.body;
       if (!code || !name) {
         return res.status(400).json({ message: "Code et nom requis" });
       }
@@ -2377,7 +2377,6 @@ export async function registerRoutes(
         name,
         currency: currency || "XOF",
         isActive: isActive ?? true,
-        flagEmoji: flagEmoji || null,
       });
       res.json(country);
     } catch (error) {
@@ -2473,17 +2472,15 @@ export async function registerRoutes(
 
   app.post("/api/admin/global-messages", requireAdmin, async (req, res) => {
     try {
-      const { title, message, messageType, isActive, expiresAt } = req.body;
-      if (!title || !message) {
-        return res.status(400).json({ message: "Titre et message requis" });
+      const { title, content, targetAudience } = req.body;
+      if (!title || !content) {
+        return res.status(400).json({ message: "Titre et contenu requis" });
       }
       const globalMessage = await storage.createGlobalMessage({
         title,
-        message,
-        messageType: messageType || "info",
-        isActive: isActive ?? true,
-        expiresAt: expiresAt ? new Date(expiresAt) : null,
-        createdBy: req.session.userId,
+        content,
+        targetAudience: targetAudience || "all",
+        sentBy: req.session.userId,
       });
       await storage.createAuditLog({
         userId: req.session.userId,
@@ -2649,8 +2646,8 @@ export async function registerRoutes(
         await storage.createAdminNotification({
           title: "Transaction importante",
           message: `${operation === "add" ? "Crédit" : "Débit"} admin de ${numericAmount.toLocaleString()} F pour ${user.fullName}`,
-          notificationType: "alert",
-          relatedUserId: userId,
+          type: "transaction",
+          relatedId: userId,
         });
       }
       
@@ -2701,8 +2698,8 @@ export async function registerRoutes(
             storage.createAdminNotification({
               title: "Demande de retrait importante",
               message: `Retrait de ${parseFloat(data.request.amount).toLocaleString()} F demandé`,
-              notificationType: "alert",
-              relatedUserId: data.request.userId,
+              type: "withdrawal",
+              relatedId: data.request.userId,
             });
           }
         } catch (e) {}
