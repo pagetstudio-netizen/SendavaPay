@@ -1,3 +1,4 @@
+import { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { AdminLayout } from "@/components/admin-layout";
@@ -86,7 +87,6 @@ import type {
   AuditLog,
   PaymentLink,
 } from "@shared/schema";
-import { useState, useMemo } from "react";
 
 interface AdminStats {
   totalUsers: number;
@@ -1744,11 +1744,29 @@ const platformLabels: Record<string, string> = {
   twitter: 'Twitter/X'
 };
 
+interface SiteSettings {
+  platformName: string;
+  supportEmail: string;
+  supportPhone: string;
+}
+
 function SettingsContent() {
   const { toast } = useToast();
   const [platformName, setPlatformName] = useState("SendavaPay");
   const [supportEmail, setSupportEmail] = useState("support@sendavapay.com");
   const [supportPhone, setSupportPhone] = useState("+228 92299772");
+
+  const { data: siteSettings, isLoading: settingsLoading } = useQuery<SiteSettings>({
+    queryKey: ['/api/admin/site-settings'],
+  });
+
+  useEffect(() => {
+    if (siteSettings) {
+      setPlatformName(siteSettings.platformName || "SendavaPay");
+      setSupportEmail(siteSettings.supportEmail || "support@sendavapay.com");
+      setSupportPhone(siteSettings.supportPhone || "+228 92299772");
+    }
+  }, [siteSettings]);
 
   const { data: socialLinks = [], refetch: refetchLinks } = useQuery<SocialLink[]>({
     queryKey: ['/api/admin/social-links'],
@@ -1789,8 +1807,23 @@ function SettingsContent() {
     }
   });
 
+  const saveSettingsMutation = useMutation({
+    mutationFn: async (data: { platformName: string; supportEmail: string; supportPhone: string }) => {
+      const res = await apiRequest("PUT", "/api/admin/site-settings", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/site-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/site-settings'] });
+      toast({ title: "Paramètres enregistrés", description: "Les modifications ont été appliquées avec succès" });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Impossible d'enregistrer les paramètres", variant: "destructive" });
+    }
+  });
+
   const handleSave = () => {
-    toast({ title: "Paramètres enregistrés", description: "Les modifications ont été appliquées" });
+    saveSettingsMutation.mutate({ platformName, supportEmail, supportPhone });
   };
 
   const handleSocialUpdate = (platform: string, url: string, isActive: boolean) => {
@@ -1835,8 +1868,8 @@ function SettingsContent() {
               onChange={(e) => setSupportPhone(e.target.value)}
             />
           </div>
-          <Button onClick={handleSave}>
-            Enregistrer les paramètres
+          <Button onClick={handleSave} disabled={saveSettingsMutation.isPending}>
+            {saveSettingsMutation.isPending ? "Enregistrement..." : "Enregistrer les paramètres"}
           </Button>
         </CardContent>
       </Card>
