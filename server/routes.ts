@@ -11,6 +11,17 @@ import path from "path";
 import fs from "fs";
 import { leekpay } from "./leekpay";
 import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById } from "./soleaspay";
+import { isDatabaseConnected } from "./db";
+
+function requireDatabase(req: Request, res: Response, next: NextFunction) {
+  if (!isDatabaseConnected()) {
+    return res.status(503).json({ 
+      message: "Service temporairement indisponible. La base de données n'est pas accessible.",
+      code: "DATABASE_UNAVAILABLE"
+    });
+  }
+  next();
+}
 
 declare module "express-session" {
   interface SessionData {
@@ -112,6 +123,13 @@ export async function registerRoutes(
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567";
   app.use(`/object-storage/${bucketId}`, express.static(`/${bucketId}`));
   app.use("/uploads", express.static("uploads"));
+
+  app.use("/api", (req, res, next) => {
+    if (req.path === "/health") {
+      return next();
+    }
+    requireDatabase(req, res, next);
+  });
 
   app.post("/api/auth/register", async (req, res) => {
     try {

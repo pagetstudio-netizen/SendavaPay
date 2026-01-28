@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initializeAdminAccount } from "./init-admin";
+import { testDatabaseConnection, isDatabaseConnected } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -22,6 +23,14 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+app.get("/api/health", (_req, res) => {
+  res.json({
+    status: "ok",
+    database: isDatabaseConnected() ? "connected" : "disconnected",
+    timestamp: new Date().toISOString()
+  });
+});
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -60,8 +69,47 @@ app.use((req, res, next) => {
   next();
 });
 
+async function initializeWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  name: string
+): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => {
+      setTimeout(() => {
+        log(`${name} initialization timed out after ${timeoutMs}ms`, "init");
+        resolve(null);
+      }, timeoutMs);
+    }),
+  ]);
+}
+
 (async () => {
-  await initializeAdminAccount();
+  const port = parseInt(process.env.PORT || "5000", 10);
+
+  try {
+    const dbConnected = await initializeWithTimeout(
+      testDatabaseConnection(),
+      15000,
+      "Database"
+    );
+    
+    if (dbConnected) {
+      log("Database connection successful", "init");
+      
+      await initializeWithTimeout(
+        initializeAdminAccount(),
+        10000,
+        "Admin account"
+      );
+    } else {
+      log("Database connection failed or timed out, continuing with limited functionality", "init");
+    }
+  } catch (error) {
+    log(`Initialization error: ${(error as Error).message}`, "init");
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -72,9 +120,6 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
   } else {
@@ -82,11 +127,6 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
     {
       port,

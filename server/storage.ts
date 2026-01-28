@@ -42,8 +42,15 @@ import {
   userNotifications,
   auditLogs,
 } from "@shared/schema";
-import { db } from "./db";
+import { db as dbInstance } from "./db";
 import { eq, or, and, desc, sql } from "drizzle-orm";
+
+function getDb() {
+  if (!dbInstance) {
+    throw new Error("Database not initialized - SUPABASE_DATABASE_URL may be missing");
+  }
+  return dbInstance;
+}
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -126,39 +133,39 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   async getUser(id: number): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
+    const [user] = await getDb().select().from(users).where(eq(users.id, id));
     return user;
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.email, email));
+    const [user] = await getDb().select().from(users).where(eq(users.email, email));
     return user;
   }
 
   async getUserByPhone(phone: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.phone, phone));
+    const [user] = await getDb().select().from(users).where(eq(users.phone, phone));
     return user;
   }
 
   async getUserByEmailOrPhone(emailOrPhone: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(
+    const [user] = await getDb().select().from(users).where(
       or(eq(users.email, emailOrPhone), eq(users.phone, emailOrPhone))
     );
     return user;
   }
 
   async createUser(user: InsertUser): Promise<User> {
-    const [newUser] = await db.insert(users).values(user).returning();
+    const [newUser] = await getDb().insert(users).values(user).returning();
     return newUser;
   }
 
   async updateUser(id: number, updates: Partial<User>): Promise<User | undefined> {
-    const [updated] = await db.update(users).set(updates).where(eq(users.id, id)).returning();
+    const [updated] = await getDb().update(users).set(updates).where(eq(users.id, id)).returning();
     return updated;
   }
 
   async updateUserBalance(id: number, amount: string): Promise<User | undefined> {
-    const [updated] = await db
+    const [updated] = await getDb()
       .update(users)
       .set({ balance: sql`${users.balance} + ${amount}` })
       .where(eq(users.id, id))
@@ -167,7 +174,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async setUserBalance(id: number, newBalance: string): Promise<User | undefined> {
-    const [updated] = await db
+    const [updated] = await getDb()
       .update(users)
       .set({ balance: newBalance })
       .where(eq(users.id, id))
@@ -176,20 +183,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllUsers(): Promise<User[]> {
-    return db.select().from(users).orderBy(desc(users.createdAt));
+    return getDb().select().from(users).orderBy(desc(users.createdAt));
   }
 
   async getTransactions(userId: number): Promise<Transaction[]> {
-    return db.select().from(transactions).where(eq(transactions.userId, userId)).orderBy(desc(transactions.createdAt));
+    return getDb().select().from(transactions).where(eq(transactions.userId, userId)).orderBy(desc(transactions.createdAt));
   }
 
   async createTransaction(transaction: InsertTransaction): Promise<Transaction> {
-    const [newTransaction] = await db.insert(transactions).values(transaction).returning();
+    const [newTransaction] = await getDb().insert(transactions).values(transaction).returning();
     return newTransaction;
   }
 
   async updateTransactionStatus(id: number, status: string): Promise<Transaction | undefined> {
-    const [updated] = await db
+    const [updated] = await getDb()
       .update(transactions)
       .set({ status: status as any })
       .where(eq(transactions.id, id))
@@ -198,16 +205,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllTransactions(): Promise<Transaction[]> {
-    return db.select().from(transactions).orderBy(desc(transactions.createdAt));
+    return getDb().select().from(transactions).orderBy(desc(transactions.createdAt));
   }
 
   async createTransfer(transfer: InsertTransfer): Promise<Transfer> {
-    const [newTransfer] = await db.insert(transfers).values(transfer).returning();
+    const [newTransfer] = await getDb().insert(transfers).values(transfer).returning();
     return newTransfer;
   }
 
   async getTransfersByUser(userId: number): Promise<Transfer[]> {
-    return db
+    return getDb()
       .select()
       .from(transfers)
       .where(or(eq(transfers.senderId, userId), eq(transfers.receiverId, userId)))
@@ -215,16 +222,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPaymentLinks(userId: number): Promise<PaymentLink[]> {
-    return db.select().from(paymentLinks).where(eq(paymentLinks.userId, userId)).orderBy(desc(paymentLinks.createdAt));
+    return getDb().select().from(paymentLinks).where(eq(paymentLinks.userId, userId)).orderBy(desc(paymentLinks.createdAt));
   }
 
   async getPaymentLinkByCode(code: string): Promise<PaymentLink | undefined> {
-    const [link] = await db.select().from(paymentLinks).where(eq(paymentLinks.linkCode, code));
+    const [link] = await getDb().select().from(paymentLinks).where(eq(paymentLinks.linkCode, code));
     return link;
   }
 
   async createPaymentLink(link: InsertPaymentLink): Promise<PaymentLink> {
-    const [newLink] = await db.insert(paymentLinks).values({
+    const [newLink] = await getDb().insert(paymentLinks).values({
       ...link,
       linkCode: generateLinkCode(),
     }).returning();
@@ -232,30 +239,30 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updatePaymentLink(id: number, updates: Partial<PaymentLink>): Promise<PaymentLink | undefined> {
-    const [updated] = await db.update(paymentLinks).set(updates).where(eq(paymentLinks.id, id)).returning();
+    const [updated] = await getDb().update(paymentLinks).set(updates).where(eq(paymentLinks.id, id)).returning();
     return updated;
   }
 
   async getPaymentLink(id: number): Promise<PaymentLink | undefined> {
-    const [link] = await db.select().from(paymentLinks).where(eq(paymentLinks.id, id));
+    const [link] = await getDb().select().from(paymentLinks).where(eq(paymentLinks.id, id));
     return link;
   }
 
   async deletePaymentLink(id: number): Promise<void> {
-    await db.delete(paymentLinks).where(eq(paymentLinks.id, id));
+    await getDb().delete(paymentLinks).where(eq(paymentLinks.id, id));
   }
 
   async getApiKeys(userId: number): Promise<ApiKey[]> {
-    return db.select().from(apiKeys).where(eq(apiKeys.userId, userId)).orderBy(desc(apiKeys.createdAt));
+    return getDb().select().from(apiKeys).where(eq(apiKeys.userId, userId)).orderBy(desc(apiKeys.createdAt));
   }
 
   async getApiKeyByKey(key: string): Promise<ApiKey | undefined> {
-    const [apiKey] = await db.select().from(apiKeys).where(eq(apiKeys.apiKey, key));
+    const [apiKey] = await getDb().select().from(apiKeys).where(eq(apiKeys.apiKey, key));
     return apiKey;
   }
 
   async createApiKey(apiKey: InsertApiKey): Promise<ApiKey> {
-    const [newKey] = await db.insert(apiKeys).values({
+    const [newKey] = await getDb().insert(apiKeys).values({
       ...apiKey,
       apiKey: generateApiKey(),
     }).returning();
@@ -263,37 +270,37 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateApiKey(id: number, updates: Partial<ApiKey>): Promise<ApiKey | undefined> {
-    const [updated] = await db.update(apiKeys).set(updates).where(eq(apiKeys.id, id)).returning();
+    const [updated] = await getDb().update(apiKeys).set(updates).where(eq(apiKeys.id, id)).returning();
     return updated;
   }
 
   async deleteApiKey(id: number): Promise<void> {
-    await db.delete(apiKeys).where(eq(apiKeys.id, id));
+    await getDb().delete(apiKeys).where(eq(apiKeys.id, id));
   }
 
   async getAllApiKeys(): Promise<ApiKey[]> {
-    return db.select().from(apiKeys).orderBy(desc(apiKeys.createdAt));
+    return getDb().select().from(apiKeys).orderBy(desc(apiKeys.createdAt));
   }
 
   async getPendingWithdrawals(): Promise<Transaction[]> {
-    return db.select().from(transactions)
+    return getDb().select().from(transactions)
       .where(and(eq(transactions.type, "withdrawal"), eq(transactions.status, "pending")))
       .orderBy(desc(transactions.createdAt));
   }
 
   async getAllWithdrawals(): Promise<Transaction[]> {
-    return db.select().from(transactions)
+    return getDb().select().from(transactions)
       .where(eq(transactions.type, "withdrawal"))
       .orderBy(desc(transactions.createdAt));
   }
 
   async getTransaction(id: number): Promise<Transaction | undefined> {
-    const [transaction] = await db.select().from(transactions).where(eq(transactions.id, id));
+    const [transaction] = await getDb().select().from(transactions).where(eq(transactions.id, id));
     return transaction;
   }
 
   async incrementApiKeyRequestCount(id: number): Promise<void> {
-    await db
+    await getDb()
       .update(apiKeys)
       .set({
         requestCount: sql`${apiKeys.requestCount} + 1`,
@@ -303,7 +310,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getKycRequest(userId: number): Promise<KycRequest | undefined> {
-    const [kyc] = await db
+    const [kyc] = await getDb()
       .select()
       .from(kycRequests)
       .where(eq(kycRequests.userId, userId))
@@ -312,21 +319,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createKycRequest(kyc: InsertKycRequest): Promise<KycRequest> {
-    const [newKyc] = await db.insert(kycRequests).values(kyc).returning();
+    const [newKyc] = await getDb().insert(kycRequests).values(kyc).returning();
     return newKyc;
   }
 
   async updateKycRequest(id: number, updates: Partial<KycRequest>): Promise<KycRequest | undefined> {
-    const [updated] = await db.update(kycRequests).set(updates).where(eq(kycRequests.id, id)).returning();
+    const [updated] = await getDb().update(kycRequests).set(updates).where(eq(kycRequests.id, id)).returning();
     return updated;
   }
 
   async getPendingKycRequests(): Promise<KycRequest[]> {
-    return db.select().from(kycRequests).where(eq(kycRequests.status, "pending")).orderBy(desc(kycRequests.createdAt));
+    return getDb().select().from(kycRequests).where(eq(kycRequests.status, "pending")).orderBy(desc(kycRequests.createdAt));
   }
 
   async getAllKycRequests(): Promise<(KycRequest & { user?: User })[]> {
-    const allKyc = await db.select().from(kycRequests).orderBy(desc(kycRequests.createdAt));
+    const allKyc = await getDb().select().from(kycRequests).orderBy(desc(kycRequests.createdAt));
     const enrichedKyc = await Promise.all(
       allKyc.map(async (kyc) => {
         const user = await this.getUser(kyc.userId);
@@ -337,12 +344,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCommissionSettings(): Promise<CommissionSettings | undefined> {
-    const [settings] = await db.select().from(commissionSettings).orderBy(desc(commissionSettings.updatedAt)).limit(1);
+    const [settings] = await getDb().select().from(commissionSettings).orderBy(desc(commissionSettings.updatedAt)).limit(1);
     return settings;
   }
 
   async updateCommissionSettings(depositRate: string, withdrawalRate: string, updatedBy: number): Promise<CommissionSettings> {
-    const [updated] = await db.insert(commissionSettings).values({
+    const [updated] = await getDb().insert(commissionSettings).values({
       depositRate,
       withdrawalRate,
       updatedBy,
@@ -352,10 +359,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getStats() {
-    const allUsers = await db.select().from(users);
+    const allUsers = await getDb().select().from(users);
     const verifiedUsers = allUsers.filter(u => u.isVerified);
     
-    const allTransactions = await db.select().from(transactions).where(eq(transactions.status, "completed"));
+    const allTransactions = await getDb().select().from(transactions).where(eq(transactions.status, "completed"));
     const deposits = allTransactions.filter(t => t.type === "deposit");
     const withdrawals = allTransactions.filter(t => t.type === "withdrawal");
     
@@ -363,8 +370,8 @@ export class DatabaseStorage implements IStorage {
     const totalWithdrawals = withdrawals.reduce((sum, t) => sum + parseFloat(t.amount), 0);
     const totalCommissions = allTransactions.reduce((sum, t) => sum + parseFloat(t.fee), 0);
     
-    const pendingKyc = await db.select().from(kycRequests).where(eq(kycRequests.status, "pending"));
-    const activeApiKeysCount = await db.select().from(apiKeys).where(eq(apiKeys.isActive, true));
+    const pendingKyc = await getDb().select().from(kycRequests).where(eq(kycRequests.status, "pending"));
+    const activeApiKeysCount = await getDb().select().from(apiKeys).where(eq(apiKeys.isActive, true));
     
     const settings = await this.getCommissionSettings();
     
@@ -381,20 +388,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSocialLinks(): Promise<SocialLink[]> {
-    return db.select().from(socialLinks).orderBy(socialLinks.platform);
+    return getDb().select().from(socialLinks).orderBy(socialLinks.platform);
   }
 
   async updateSocialLink(platform: string, url: string | null, isActive: boolean): Promise<SocialLink> {
-    const existing = await db.select().from(socialLinks).where(eq(socialLinks.platform, platform));
+    const existing = await getDb().select().from(socialLinks).where(eq(socialLinks.platform, platform));
     
     if (existing.length > 0) {
-      const [updated] = await db.update(socialLinks)
+      const [updated] = await getDb().update(socialLinks)
         .set({ url, isActive, updatedAt: new Date() })
         .where(eq(socialLinks.platform, platform))
         .returning();
       return updated;
     } else {
-      const [created] = await db.insert(socialLinks)
+      const [created] = await getDb().insert(socialLinks)
         .values({ platform, url, isActive, updatedAt: new Date() })
         .returning();
       return created;
@@ -403,12 +410,12 @@ export class DatabaseStorage implements IStorage {
 
   async initializeSocialLinks(): Promise<void> {
     const platforms = ['facebook', 'instagram', 'whatsapp', 'telegram', 'youtube', 'tiktok', 'twitter'];
-    const existing = await db.select().from(socialLinks);
+    const existing = await getDb().select().from(socialLinks);
     const existingPlatforms = existing.map(l => l.platform);
     
     for (const platform of platforms) {
       if (!existingPlatforms.includes(platform)) {
-        await db.insert(socialLinks).values({
+        await getDb().insert(socialLinks).values({
           platform,
           url: null,
           isActive: false,
@@ -419,37 +426,37 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSetting(key: string): Promise<string | null> {
-    const [setting] = await db.select().from(siteSettings).where(eq(siteSettings.key, key));
+    const [setting] = await getDb().select().from(siteSettings).where(eq(siteSettings.key, key));
     return setting?.value || null;
   }
 
   async setSetting(key: string, value: string): Promise<void> {
-    const existing = await db.select().from(siteSettings).where(eq(siteSettings.key, key));
+    const existing = await getDb().select().from(siteSettings).where(eq(siteSettings.key, key));
     if (existing.length > 0) {
-      await db.update(siteSettings)
+      await getDb().update(siteSettings)
         .set({ value, updatedAt: new Date() })
         .where(eq(siteSettings.key, key));
     } else {
-      await db.insert(siteSettings).values({ key, value, updatedAt: new Date() });
+      await getDb().insert(siteSettings).values({ key, value, updatedAt: new Date() });
     }
   }
 
   async createWithdrawalRequest(request: InsertWithdrawalRequest): Promise<WithdrawalRequest> {
-    const [newRequest] = await db.insert(withdrawalRequests).values(request).returning();
+    const [newRequest] = await getDb().insert(withdrawalRequests).values(request).returning();
     return newRequest;
   }
 
   async getWithdrawalRequests(userId: number): Promise<WithdrawalRequest[]> {
-    return db.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, userId)).orderBy(desc(withdrawalRequests.createdAt));
+    return getDb().select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, userId)).orderBy(desc(withdrawalRequests.createdAt));
   }
 
   async getWithdrawalRequest(id: number): Promise<WithdrawalRequest | undefined> {
-    const [request] = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.id, id));
+    const [request] = await getDb().select().from(withdrawalRequests).where(eq(withdrawalRequests.id, id));
     return request;
   }
 
   async getPendingWithdrawalRequests(): Promise<(WithdrawalRequest & { user?: User })[]> {
-    const requests = await db.select().from(withdrawalRequests).where(eq(withdrawalRequests.status, "pending")).orderBy(desc(withdrawalRequests.createdAt));
+    const requests = await getDb().select().from(withdrawalRequests).where(eq(withdrawalRequests.status, "pending")).orderBy(desc(withdrawalRequests.createdAt));
     const result: (WithdrawalRequest & { user?: User })[] = [];
     for (const request of requests) {
       const user = await this.getUser(request.userId);
@@ -459,7 +466,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllWithdrawalRequests(): Promise<(WithdrawalRequest & { user?: User })[]> {
-    const requests = await db.select().from(withdrawalRequests).orderBy(desc(withdrawalRequests.createdAt));
+    const requests = await getDb().select().from(withdrawalRequests).orderBy(desc(withdrawalRequests.createdAt));
     const result: (WithdrawalRequest & { user?: User })[] = [];
     for (const request of requests) {
       const user = await this.getUser(request.userId);
@@ -469,137 +476,137 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateWithdrawalRequest(id: number, updates: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined> {
-    const [updated] = await db.update(withdrawalRequests).set(updates).where(eq(withdrawalRequests.id, id)).returning();
+    const [updated] = await getDb().update(withdrawalRequests).set(updates).where(eq(withdrawalRequests.id, id)).returning();
     return updated;
   }
 
   async createLeekpayPayment(payment: Partial<LeekpayPayment>): Promise<LeekpayPayment> {
-    const [newPayment] = await db.insert(leekpayPayments).values(payment as any).returning();
+    const [newPayment] = await getDb().insert(leekpayPayments).values(payment as any).returning();
     return newPayment;
   }
 
   async getLeekpayPaymentById(leekpayPaymentId: string): Promise<LeekpayPayment | undefined> {
-    const [payment] = await db.select().from(leekpayPayments).where(eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId));
+    const [payment] = await getDb().select().from(leekpayPayments).where(eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId));
     return payment;
   }
 
   async updateLeekpayPayment(leekpayPaymentId: string, updates: Partial<LeekpayPayment>): Promise<LeekpayPayment | undefined> {
-    const [updated] = await db.update(leekpayPayments).set(updates as any).where(eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId)).returning();
+    const [updated] = await getDb().update(leekpayPayments).set(updates as any).where(eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId)).returning();
     return updated;
   }
 
   async getLeekpayPaymentsByUser(userId: number): Promise<LeekpayPayment[]> {
-    return db.select().from(leekpayPayments).where(eq(leekpayPayments.userId, userId)).orderBy(desc(leekpayPayments.createdAt));
+    return getDb().select().from(leekpayPayments).where(eq(leekpayPayments.userId, userId)).orderBy(desc(leekpayPayments.createdAt));
   }
 
   async getPendingLeekpayPayments(): Promise<LeekpayPayment[]> {
-    return db.select().from(leekpayPayments).where(eq(leekpayPayments.status, "pending")).orderBy(desc(leekpayPayments.createdAt));
+    return getDb().select().from(leekpayPayments).where(eq(leekpayPayments.status, "pending")).orderBy(desc(leekpayPayments.createdAt));
   }
 
   async getWithdrawalNumbers(): Promise<WithdrawalNumber[]> {
-    return db.select().from(withdrawalNumbers).orderBy(desc(withdrawalNumbers.createdAt));
+    return getDb().select().from(withdrawalNumbers).orderBy(desc(withdrawalNumbers.createdAt));
   }
 
   async createWithdrawalNumber(data: Partial<WithdrawalNumber>): Promise<WithdrawalNumber> {
-    const [newNumber] = await db.insert(withdrawalNumbers).values(data as any).returning();
+    const [newNumber] = await getDb().insert(withdrawalNumbers).values(data as any).returning();
     return newNumber;
   }
 
   async updateWithdrawalNumber(id: number, updates: Partial<WithdrawalNumber>): Promise<WithdrawalNumber | undefined> {
-    const [updated] = await db.update(withdrawalNumbers).set({ ...updates, updatedAt: new Date() }).where(eq(withdrawalNumbers.id, id)).returning();
+    const [updated] = await getDb().update(withdrawalNumbers).set({ ...updates, updatedAt: new Date() }).where(eq(withdrawalNumbers.id, id)).returning();
     return updated;
   }
 
   async deleteWithdrawalNumber(id: number): Promise<void> {
-    await db.delete(withdrawalNumbers).where(eq(withdrawalNumbers.id, id));
+    await getDb().delete(withdrawalNumbers).where(eq(withdrawalNumbers.id, id));
   }
 
   async getCountries(): Promise<Country[]> {
-    return db.select().from(countries).orderBy(countries.name);
+    return getDb().select().from(countries).orderBy(countries.name);
   }
 
   async createCountry(data: Partial<Country>): Promise<Country> {
-    const [newCountry] = await db.insert(countries).values(data as any).returning();
+    const [newCountry] = await getDb().insert(countries).values(data as any).returning();
     return newCountry;
   }
 
   async updateCountry(id: number, updates: Partial<Country>): Promise<Country | undefined> {
-    const [updated] = await db.update(countries).set(updates).where(eq(countries.id, id)).returning();
+    const [updated] = await getDb().update(countries).set(updates).where(eq(countries.id, id)).returning();
     return updated;
   }
 
   async deleteCountry(id: number): Promise<void> {
-    await db.delete(countries).where(eq(countries.id, id));
+    await getDb().delete(countries).where(eq(countries.id, id));
   }
 
   async getOperators(): Promise<Operator[]> {
-    return db.select().from(operators).orderBy(operators.name);
+    return getDb().select().from(operators).orderBy(operators.name);
   }
 
   async getOperatorsByCountry(countryId: number): Promise<Operator[]> {
-    return db.select().from(operators).where(eq(operators.countryId, countryId)).orderBy(operators.name);
+    return getDb().select().from(operators).where(eq(operators.countryId, countryId)).orderBy(operators.name);
   }
 
   async createOperator(data: Partial<Operator>): Promise<Operator> {
-    const [newOperator] = await db.insert(operators).values(data as any).returning();
+    const [newOperator] = await getDb().insert(operators).values(data as any).returning();
     return newOperator;
   }
 
   async updateOperator(id: number, updates: Partial<Operator>): Promise<Operator | undefined> {
-    const [updated] = await db.update(operators).set(updates).where(eq(operators.id, id)).returning();
+    const [updated] = await getDb().update(operators).set(updates).where(eq(operators.id, id)).returning();
     return updated;
   }
 
   async deleteOperator(id: number): Promise<void> {
-    await db.delete(operators).where(eq(operators.id, id));
+    await getDb().delete(operators).where(eq(operators.id, id));
   }
 
   async getGlobalMessages(): Promise<GlobalMessage[]> {
-    return db.select().from(globalMessages).orderBy(desc(globalMessages.createdAt));
+    return getDb().select().from(globalMessages).orderBy(desc(globalMessages.createdAt));
   }
 
   async createGlobalMessage(data: Partial<GlobalMessage>): Promise<GlobalMessage> {
-    const [newMessage] = await db.insert(globalMessages).values(data as any).returning();
+    const [newMessage] = await getDb().insert(globalMessages).values(data as any).returning();
     return newMessage;
   }
 
   async getAdminNotifications(): Promise<AdminNotification[]> {
-    return db.select().from(adminNotifications).orderBy(desc(adminNotifications.createdAt)).limit(50);
+    return getDb().select().from(adminNotifications).orderBy(desc(adminNotifications.createdAt)).limit(50);
   }
 
   async getUnreadAdminNotificationsCount(): Promise<number> {
-    const result = await db.select().from(adminNotifications).where(eq(adminNotifications.isRead, false));
+    const result = await getDb().select().from(adminNotifications).where(eq(adminNotifications.isRead, false));
     return result.length;
   }
 
   async createAdminNotification(data: Partial<AdminNotification>): Promise<AdminNotification> {
-    const [newNotification] = await db.insert(adminNotifications).values(data as any).returning();
+    const [newNotification] = await getDb().insert(adminNotifications).values(data as any).returning();
     return newNotification;
   }
 
   async markAdminNotificationRead(id: number): Promise<void> {
-    await db.update(adminNotifications).set({ isRead: true }).where(eq(adminNotifications.id, id));
+    await getDb().update(adminNotifications).set({ isRead: true }).where(eq(adminNotifications.id, id));
   }
 
   async markAllAdminNotificationsRead(): Promise<void> {
-    await db.update(adminNotifications).set({ isRead: true });
+    await getDb().update(adminNotifications).set({ isRead: true });
   }
 
   async getUserNotifications(userId: number): Promise<UserNotification[]> {
-    return db.select().from(userNotifications).where(eq(userNotifications.userId, userId)).orderBy(desc(userNotifications.createdAt)).limit(50);
+    return getDb().select().from(userNotifications).where(eq(userNotifications.userId, userId)).orderBy(desc(userNotifications.createdAt)).limit(50);
   }
 
   async createUserNotification(data: Partial<UserNotification>): Promise<UserNotification> {
-    const [newNotification] = await db.insert(userNotifications).values(data as any).returning();
+    const [newNotification] = await getDb().insert(userNotifications).values(data as any).returning();
     return newNotification;
   }
 
   async markUserNotificationRead(id: number): Promise<void> {
-    await db.update(userNotifications).set({ isRead: true }).where(eq(userNotifications.id, id));
+    await getDb().update(userNotifications).set({ isRead: true }).where(eq(userNotifications.id, id));
   }
 
   async getAuditLogs(): Promise<(AuditLog & { user?: User })[]> {
-    const logs = await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(500);
+    const logs = await getDb().select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(500);
     const result: (AuditLog & { user?: User })[] = [];
     for (const log of logs) {
       const user = log.userId ? await this.getUser(log.userId) : undefined;
@@ -609,12 +616,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createAuditLog(data: { userId?: number; action: string; details?: string; ipAddress?: string }): Promise<AuditLog> {
-    const [newLog] = await db.insert(auditLogs).values(data as any).returning();
+    const [newLog] = await getDb().insert(auditLogs).values(data as any).returning();
     return newLog;
   }
 
   async getAllPaymentLinks(): Promise<(PaymentLink & { user?: User })[]> {
-    const links = await db.select().from(paymentLinks).orderBy(desc(paymentLinks.createdAt));
+    const links = await getDb().select().from(paymentLinks).orderBy(desc(paymentLinks.createdAt));
     const result: (PaymentLink & { user?: User })[] = [];
     for (const link of links) {
       const user = await this.getUser(link.userId);
@@ -624,13 +631,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteUser(id: number): Promise<void> {
-    await db.delete(transactions).where(eq(transactions.userId, id));
-    await db.delete(paymentLinks).where(eq(paymentLinks.userId, id));
-    await db.delete(apiKeys).where(eq(apiKeys.userId, id));
-    await db.delete(kycRequests).where(eq(kycRequests.userId, id));
-    await db.delete(withdrawalRequests).where(eq(withdrawalRequests.userId, id));
-    await db.delete(userNotifications).where(eq(userNotifications.userId, id));
-    await db.delete(users).where(eq(users.id, id));
+    await getDb().delete(transactions).where(eq(transactions.userId, id));
+    await getDb().delete(paymentLinks).where(eq(paymentLinks.userId, id));
+    await getDb().delete(apiKeys).where(eq(apiKeys.userId, id));
+    await getDb().delete(kycRequests).where(eq(kycRequests.userId, id));
+    await getDb().delete(withdrawalRequests).where(eq(withdrawalRequests.userId, id));
+    await getDb().delete(userNotifications).where(eq(userNotifications.userId, id));
+    await getDb().delete(users).where(eq(users.id, id));
   }
 }
 
