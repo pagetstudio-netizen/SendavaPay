@@ -4,23 +4,36 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth-context";
-import { Key, ExternalLink, Shield, Code2 } from "lucide-react";
+import { Key, Shield, Code2, Loader2 } from "lucide-react";
 
 export default function ApiKeysPage() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
-    if (user?.isVerified) {
+    if (!isLoading && user?.isVerified) {
       setLocation("/merchant/dashboard");
     }
-  }, [user, setLocation]);
+  }, [user, isLoading, setLocation]);
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   if (user?.isVerified) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-[60vh]">
-          <p className="text-muted-foreground">Redirection vers l'espace API...</p>
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <p className="text-muted-foreground">Redirection vers l'espace API...</p>
+          </div>
         </div>
       </DashboardLayout>
     );
