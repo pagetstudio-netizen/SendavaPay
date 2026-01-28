@@ -236,9 +236,9 @@ function NotificationsDropdown() {
                 >
                   <div className="flex items-center gap-2 w-full">
                     <span className={`h-2 w-2 rounded-full ${
-                      notification.notificationType === "alert" 
+                      notification.type === "system" 
                         ? "bg-red-500" 
-                        : notification.notificationType === "warning"
+                        : notification.type === "withdrawal"
                         ? "bg-yellow-500"
                         : "bg-blue-500"
                     }`} />
