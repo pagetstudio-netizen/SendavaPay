@@ -109,6 +109,9 @@ export default function MerchantDashboard() {
         } else if (merchantData.requireVerification) {
           toast({ title: "Vérification requise", description: merchantData.error, variant: "destructive" });
           setLocation("/dashboard/kyc");
+        } else if (merchantData.notConfigured) {
+          toast({ title: "API non disponible", description: merchantData.error, variant: "destructive" });
+          setLocation("/dashboard");
         } else {
           toast({ title: "Erreur", description: merchantData.error, variant: "destructive" });
           setLocation("/dashboard");
