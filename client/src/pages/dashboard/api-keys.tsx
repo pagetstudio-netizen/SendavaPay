@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Key, Shield, Code2, Loader2, Copy, Check, Trash2, Plus, ExternalLink } from "lucide-react";
+import { Key, Shield, Code2, Loader2, Copy, Check, Trash2, Plus, ExternalLink, Wrench, ArrowLeft } from "lucide-react";
 import type { ApiKey } from "@shared/schema";
 
 export default function ApiKeysPage() {
@@ -19,9 +19,14 @@ export default function ApiKeysPage() {
   const [newKeyName, setNewKeyName] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
+  const { data: maintenanceStatus, isLoading: maintenanceLoading } = useQuery<{ enabled: boolean }>({
+    queryKey: ['/api/api-maintenance-status'],
+    refetchInterval: 10000,
+  });
+
   const { data: apiKeys = [], isLoading: keysLoading } = useQuery<ApiKey[]>({
     queryKey: ["/api/api-keys"],
-    enabled: !!user?.isVerified,
+    enabled: !!user?.isVerified && !maintenanceStatus?.enabled,
   });
 
   const createKeyMutation = useMutation({
@@ -67,11 +72,43 @@ export default function ApiKeysPage() {
     createKeyMutation.mutate(newKeyName.trim());
   };
 
-  if (authLoading) {
+  if (authLoading || maintenanceLoading) {
     return (
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-[60vh]">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (maintenanceStatus?.enabled) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[60vh] p-4">
+          <Card className="max-w-lg w-full text-center">
+            <CardHeader>
+              <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+                <Wrench className="h-8 w-8 text-orange-600 dark:text-orange-400" />
+              </div>
+              <CardTitle className="text-2xl">API en maintenance</CardTitle>
+              <CardDescription className="text-base">
+                L'API et la gestion des clés sont temporairement indisponibles
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-muted-foreground">
+                Nous effectuons actuellement des travaux de maintenance sur notre API. 
+                Veuillez réessayer dans quelques instants.
+              </p>
+              <Link href="/dashboard">
+                <Button variant="outline" data-testid="button-back-dashboard">
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Retour au tableau de bord
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
         </div>
       </DashboardLayout>
     );
