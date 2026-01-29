@@ -97,10 +97,17 @@ interface AdminStats {
   todayCommissions: string;
   pendingKyc: number;
   activeApiKeys: number;
+  totalApiKeys?: number;
   commissionRate: string;
   apiCommissions?: string;
   totalApiPayments?: string;
   apiTransactionsCount?: number;
+  apiTransactionsTotal?: number;
+  totalTransactionsCount?: number;
+  totalTransactionsAmount?: string;
+  paymentLinkTransactionsCount?: number;
+  paymentLinkTransactionsAmount?: string;
+  totalPaymentLinks?: number;
 }
 
 interface KycRequestWithUser extends KycRequest {
@@ -129,14 +136,17 @@ function DashboardContent() {
 
   const statCards = [
     { title: "Utilisateurs", value: stats?.totalUsers || 0, description: `${stats?.verifiedUsers || 0} vérifiés`, icon: Users, color: "text-blue-500", bgColor: "bg-blue-100 dark:bg-blue-900/30" },
+    { title: "Total Transactions", value: formatCurrency(stats?.totalTransactionsAmount || 0), description: `${stats?.totalTransactionsCount || 0} transactions`, icon: History, color: "text-slate-500", bgColor: "bg-slate-100 dark:bg-slate-900/30" },
     { title: "Total Dépôts", value: formatCurrency(stats?.totalDeposits || 0), description: "Montant total", icon: ArrowDownLeft, color: "text-green-500", bgColor: "bg-green-100 dark:bg-green-900/30" },
     { title: "Total Retraits", value: formatCurrency(stats?.totalWithdrawals || 0), description: "Montant total", icon: ArrowUpRight, color: "text-orange-500", bgColor: "bg-orange-100 dark:bg-orange-900/30" },
-    { title: "Paiements API", value: formatCurrency(stats?.totalApiPayments || 0), description: `${stats?.apiTransactionsCount || 0} transactions`, icon: Globe, color: "text-cyan-500", bgColor: "bg-cyan-100 dark:bg-cyan-900/30" },
+    { title: "Paiements API", value: formatCurrency(stats?.totalApiPayments || 0), description: `${stats?.apiTransactionsCount || 0} complétées / ${stats?.apiTransactionsTotal || 0} total`, icon: Globe, color: "text-cyan-500", bgColor: "bg-cyan-100 dark:bg-cyan-900/30" },
+    { title: "Paiements Liens", value: formatCurrency(stats?.paymentLinkTransactionsAmount || 0), description: `${stats?.paymentLinkTransactionsCount || 0} transactions`, icon: LinkIcon, color: "text-pink-500", bgColor: "bg-pink-100 dark:bg-pink-900/30" },
     { title: "Commissions du jour", value: formatCurrency(stats?.todayCommissions || 0), description: "Aujourd'hui", icon: TrendingUp, color: "text-indigo-500", bgColor: "bg-indigo-100 dark:bg-indigo-900/30" },
     { title: "Commissions Totales", value: formatCurrency(stats?.totalCommissions || 0), description: `Taux: ${stats?.commissionRate || 7}%`, icon: Percent, color: "text-purple-500", bgColor: "bg-purple-100 dark:bg-purple-900/30" },
     { title: "Commissions API", value: formatCurrency(stats?.apiCommissions || 0), description: "Via paiements API", icon: DollarSign, color: "text-emerald-500", bgColor: "bg-emerald-100 dark:bg-emerald-900/30" },
+    { title: "Clés API", value: stats?.totalApiKeys || 0, description: `${stats?.activeApiKeys || 0} actives`, icon: Key, color: "text-indigo-500", bgColor: "bg-indigo-100 dark:bg-indigo-900/30" },
+    { title: "Liens de paiement", value: stats?.totalPaymentLinks || 0, description: "Créés sur la plateforme", icon: FileText, color: "text-teal-500", bgColor: "bg-teal-100 dark:bg-teal-900/30" },
     { title: "KYC en attente", value: stats?.pendingKyc || 0, description: "Demandes à traiter", icon: Shield, color: "text-yellow-500", bgColor: "bg-yellow-100 dark:bg-yellow-900/30" },
-    { title: "Clés API actives", value: stats?.activeApiKeys || 0, description: "Intégrations", icon: Key, color: "text-indigo-500", bgColor: "bg-indigo-100 dark:bg-indigo-900/30" },
   ];
 
   return (
