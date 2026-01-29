@@ -74,6 +74,7 @@ import {
   UserCog,
   Calendar,
   MessageSquare,
+  RotateCcw,
 } from "lucide-react";
 import type { 
   User as UserType, 
@@ -108,6 +109,7 @@ interface AdminStats {
   paymentLinkTransactionsCount?: number;
   paymentLinkTransactionsAmount?: string;
   totalPaymentLinks?: number;
+  lastResetAt?: string | null;
 }
 
 interface KycRequestWithUser extends KycRequest {
@@ -130,8 +132,25 @@ function formatDate(date: string | Date) {
 }
 
 function DashboardContent() {
+  const { toast } = useToast();
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  
   const { data: stats, isLoading } = useQuery<AdminStats>({
     queryKey: ["/api/admin/stats"],
+  });
+
+  const resetStatsMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/admin/stats/reset");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+      toast({ title: "Succès", description: "Les statistiques de montants ont été réinitialisées" });
+      setShowResetDialog(false);
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Impossible de réinitialiser les statistiques", variant: "destructive" });
+    },
   });
 
   const statCards = [
@@ -151,9 +170,24 @@ function DashboardContent() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Tableau de bord administrateur</h1>
-        <p className="text-muted-foreground">Vue d'ensemble de la plateforme SendavaPay</p>
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Tableau de bord administrateur</h1>
+          <p className="text-muted-foreground">Vue d'ensemble de la plateforme SendavaPay</p>
+          {stats?.lastResetAt && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Dernière réinitialisation: {formatDate(stats.lastResetAt)}
+            </p>
+          )}
+        </div>
+        <Button 
+          variant="outline" 
+          onClick={() => setShowResetDialog(true)}
+          data-testid="button-reset-stats"
+        >
+          <RotateCcw className="h-4 w-4 mr-2" />
+          Réinitialiser les montants
+        </Button>
       </div>
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {isLoading ? Array(6).fill(0).map((_, i) => (
@@ -175,6 +209,32 @@ function DashboardContent() {
           </Card>
         ))}
       </div>
+
+      <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Réinitialiser les statistiques de montants</DialogTitle>
+            <DialogDescription>
+              Cette action va réinitialiser tous les montants affichés (dépôts, retraits, commissions, paiements API, etc.) à zéro. 
+              Les compteurs (utilisateurs, clés API, liens de paiement, nombre de transactions) ne seront PAS affectés.
+              Les données originales restent intactes dans la base de données.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowResetDialog(false)}>
+              Annuler
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={() => resetStatsMutation.mutate()}
+              disabled={resetStatsMutation.isPending}
+              data-testid="button-confirm-reset"
+            >
+              {resetStatsMutation.isPending ? "Réinitialisation..." : "Confirmer la réinitialisation"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
