@@ -1,32 +1,18 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
-import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { z } from "zod";
-import type { Merchant, User, ApiKey } from "@shared/schema";
+import type { User, ApiKey } from "@shared/schema";
 
 const router = Router();
 
 declare global {
   namespace Express {
     interface Request {
-      merchant?: Merchant;
       apiUser?: User;
       apiKeyRecord?: ApiKey;
     }
   }
-}
-
-function generateApiKey(): string {
-  return `pk_live_${crypto.randomBytes(24).toString('hex')}`;
-}
-
-function generateApiSecret(): string {
-  return `sk_live_${crypto.randomBytes(32).toString('hex')}`;
-}
-
-function generateWebhookSecret(): string {
-  return `whsec_${crypto.randomBytes(24).toString('hex')}`;
 }
 
 function generateReference(): string {
@@ -36,7 +22,7 @@ function generateReference(): string {
 }
 
 async function logApiRequest(
-  merchantId: number | null,
+  userId: number | null,
   endpoint: string,
   method: string,
   requestBody: any,
@@ -48,7 +34,7 @@ async function logApiRequest(
 ) {
   try {
     await storage.createApiLog({
-      merchantId,
+      merchantId: userId, // Using userId in merchantId field for backwards compatibility
       endpoint,
       method,
       requestBody: JSON.stringify(requestBody),
@@ -75,314 +61,41 @@ async function authenticateApiKey(req: Request, res: Response, next: NextFunctio
 
   const apiKeyValue = authHeader.substring(7);
   
-  // First try to find user API key
+  // Find user API key
   const apiKeyRecord = await storage.getApiKeyByKey(apiKeyValue);
   
-  if (apiKeyRecord) {
-    // User API key found
-    if (!apiKeyRecord.isActive) {
-      const response = { success: false, error: "API key is inactive", code: "API_KEY_INACTIVE" };
-      await logApiRequest(null, req.path, req.method, req.body, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime);
-      return res.status(403).json(response);
-    }
-
-    const user = await storage.getUser(apiKeyRecord.userId);
-    if (!user) {
-      const response = { success: false, error: "User not found", code: "USER_NOT_FOUND" };
-      await logApiRequest(null, req.path, req.method, req.body, response, 401, req.ip, req.get('User-Agent'), Date.now() - startTime);
-      return res.status(401).json(response);
-    }
-
-    if (!user.isVerified) {
-      const response = { success: false, error: "User account not verified", code: "ACCOUNT_NOT_VERIFIED" };
-      await logApiRequest(null, req.path, req.method, req.body, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime);
-      return res.status(403).json(response);
-    }
-
-    // Increment API key request count
-    await storage.incrementApiKeyRequestCount(apiKeyRecord.id);
-    
-    req.apiUser = user;
-    req.apiKeyRecord = apiKeyRecord;
-    return next();
-  }
-
-  // Fallback to merchant API key for backwards compatibility
-  const merchant = await storage.getMerchantByApiKey(apiKeyValue);
-
-  if (!merchant) {
+  if (!apiKeyRecord) {
     const response = { success: false, error: "Invalid API key", code: "INVALID_API_KEY" };
     await logApiRequest(null, req.path, req.method, req.body, response, 401, req.ip, req.get('User-Agent'), Date.now() - startTime);
     return res.status(401).json(response);
   }
 
-  if (merchant.status !== 'active') {
-    const response = { success: false, error: "Merchant account suspended", code: "ACCOUNT_SUSPENDED" };
-    await logApiRequest(merchant.id, req.path, req.method, req.body, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime);
+  if (!apiKeyRecord.isActive) {
+    const response = { success: false, error: "API key is inactive", code: "API_KEY_INACTIVE" };
+    await logApiRequest(null, req.path, req.method, req.body, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime);
     return res.status(403).json(response);
   }
 
-  req.merchant = merchant;
+  const user = await storage.getUser(apiKeyRecord.userId);
+  if (!user) {
+    const response = { success: false, error: "User not found", code: "USER_NOT_FOUND" };
+    await logApiRequest(null, req.path, req.method, req.body, response, 401, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    return res.status(401).json(response);
+  }
+
+  if (!user.isVerified) {
+    const response = { success: false, error: "User account not verified. Complete KYC verification to use the API.", code: "ACCOUNT_NOT_VERIFIED" };
+    await logApiRequest(null, req.path, req.method, req.body, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    return res.status(403).json(response);
+  }
+
+  // Increment API key request count
+  await storage.incrementApiKeyRequestCount(apiKeyRecord.id);
+  
+  req.apiUser = user;
+  req.apiKeyRecord = apiKeyRecord;
   next();
 }
-
-async function sendWebhook(merchant: Merchant, event: string, data: any) {
-  if (!merchant.webhookUrl) return;
-
-  const webhooks = await storage.getMerchantWebhooks(merchant.id);
-  const activeWebhooks = webhooks.filter(w => w.isActive && w.events.includes(event));
-
-  for (const webhook of activeWebhooks) {
-    try {
-      const payload = JSON.stringify({
-        event,
-        data,
-        timestamp: new Date().toISOString(),
-      });
-
-      const signature = crypto
-        .createHmac('sha256', webhook.secret)
-        .update(payload)
-        .digest('hex');
-
-      const response = await fetch(webhook.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Sendavapay-Signature': signature,
-          'X-Sendavapay-Event': event,
-        },
-        body: payload,
-      });
-
-      if (response.ok) {
-        await storage.updateMerchantWebhook(webhook.id, {
-          lastTriggered: new Date(),
-          failureCount: 0,
-        });
-      } else {
-        await storage.updateMerchantWebhook(webhook.id, {
-          failureCount: webhook.failureCount + 1,
-        });
-      }
-    } catch (error) {
-      console.error(`Webhook failed for ${webhook.url}:`, error);
-      await storage.updateMerchantWebhook(webhook.id, {
-        failureCount: webhook.failureCount + 1,
-      });
-    }
-  }
-}
-
-// ==================== MERCHANT ROUTES (Using User Authentication) ====================
-
-// Helper: Get or create merchant record for verified user
-async function getOrCreateMerchantForUser(userId: number): Promise<Merchant | null> {
-  const user = await storage.getUser(userId);
-  if (!user || !user.isVerified) {
-    return null;
-  }
-
-  const userEmail = user.email || `${user.phone}@sendavapay.com`;
-  let merchant = await storage.getMerchantByEmail(userEmail);
-  
-  if (!merchant) {
-    const apiKey = generateApiKey();
-    const apiSecret = generateApiSecret();
-    const webhookSecret = generateWebhookSecret();
-
-    merchant = await storage.createMerchant({
-      name: user.fullName || user.phone,
-      email: userEmail,
-      password: user.password,
-      apiKey,
-      apiSecret,
-      webhookSecret,
-      companyName: null,
-      website: null,
-      description: null,
-    });
-  }
-
-  return merchant;
-}
-
-// Get merchant info for current user (uses user session)
-router.get("/merchant/me", async (req: Request, res: Response) => {
-  try {
-    const userId = (req.session as any)?.userId;
-    if (!userId) {
-      return res.status(401).json({ success: false, error: "Veuillez vous connecter", requireAuth: true });
-    }
-
-    const user = await storage.getUser(userId);
-    if (!user) {
-      return res.status(404).json({ success: false, error: "Utilisateur non trouvé" });
-    }
-
-    if (!user.isVerified) {
-      return res.status(403).json({ 
-        success: false, 
-        error: "Votre compte doit être vérifié pour accéder à l'API marchand", 
-        requireVerification: true 
-      });
-    }
-
-    const merchant = await getOrCreateMerchantForUser(userId);
-    if (!merchant) {
-      return res.status(500).json({ success: false, error: "Erreur lors de la création du compte API" });
-    }
-
-    res.json({
-      success: true,
-      merchant: {
-        id: merchant.id,
-        name: merchant.name,
-        email: merchant.email,
-        companyName: merchant.companyName,
-        website: merchant.website,
-        description: merchant.description,
-        balance: merchant.balance,
-        status: merchant.status,
-        isVerified: merchant.isVerified,
-        apiKey: merchant.apiKey,
-        webhookUrl: merchant.webhookUrl,
-        createdAt: merchant.createdAt,
-      },
-      user: {
-        fullName: user.fullName,
-        phone: user.phone,
-        isVerified: user.isVerified,
-      },
-    });
-  } catch (error) {
-    console.error("Error in /merchant/me:", error);
-    return res.status(500).json({ 
-      success: false, 
-      error: "L'API marchand n'est pas encore configurée. Veuillez contacter l'administrateur.",
-      notConfigured: true
-    });
-  }
-});
-
-router.get("/merchant/transactions", async (req: Request, res: Response) => {
-  const userId = (req.session as any)?.userId;
-  if (!userId) {
-    return res.status(401).json({ success: false, error: "Non authentifi\u00e9" });
-  }
-
-  const merchant = await getOrCreateMerchantForUser(userId);
-  if (!merchant) {
-    return res.status(403).json({ success: false, error: "Compte non v\u00e9rifi\u00e9" });
-  }
-
-  const transactions = await storage.getApiTransactionsByMerchant(merchant.id);
-  res.json({ success: true, transactions });
-});
-
-router.get("/merchant/webhooks", async (req: Request, res: Response) => {
-  const userId = (req.session as any)?.userId;
-  if (!userId) {
-    return res.status(401).json({ success: false, error: "Non authentifi\u00e9" });
-  }
-
-  const merchant = await getOrCreateMerchantForUser(userId);
-  if (!merchant) {
-    return res.status(403).json({ success: false, error: "Compte non v\u00e9rifi\u00e9" });
-  }
-
-  const webhooks = await storage.getMerchantWebhooks(merchant.id);
-  res.json({ success: true, webhooks });
-});
-
-router.post("/merchant/webhooks", async (req: Request, res: Response) => {
-  const userId = (req.session as any)?.userId;
-  if (!userId) {
-    return res.status(401).json({ success: false, error: "Non authentifi\u00e9" });
-  }
-
-  const merchant = await getOrCreateMerchantForUser(userId);
-  if (!merchant) {
-    return res.status(403).json({ success: false, error: "Compte non v\u00e9rifi\u00e9" });
-  }
-
-  try {
-    const schema = z.object({
-      url: z.string().url(),
-      events: z.string(),
-    });
-
-    const data = schema.parse(req.body);
-    const secret = generateWebhookSecret();
-
-    const webhook = await storage.createMerchantWebhook({
-      merchantId: merchant.id,
-      url: data.url,
-      events: data.events,
-      secret,
-    });
-
-    res.status(201).json({ success: true, webhook });
-  } catch (error: any) {
-    res.status(400).json({ success: false, error: error.message });
-  }
-});
-
-router.delete("/merchant/webhooks/:id", async (req: Request, res: Response) => {
-  const userId = (req.session as any)?.userId;
-  if (!userId) {
-    return res.status(401).json({ success: false, error: "Non authentifi\u00e9" });
-  }
-
-  const merchant = await getOrCreateMerchantForUser(userId);
-  if (!merchant) {
-    return res.status(403).json({ success: false, error: "Compte non v\u00e9rifi\u00e9" });
-  }
-
-  await storage.deleteMerchantWebhook(parseInt(req.params.id));
-  res.json({ success: true });
-});
-
-router.post("/merchant/regenerate-keys", async (req: Request, res: Response) => {
-  const userId = (req.session as any)?.userId;
-  if (!userId) {
-    return res.status(401).json({ success: false, error: "Non authentifi\u00e9" });
-  }
-
-  const merchant = await getOrCreateMerchantForUser(userId);
-  if (!merchant) {
-    return res.status(403).json({ success: false, error: "Compte non v\u00e9rifi\u00e9" });
-  }
-
-  const newApiKey = generateApiKey();
-  const newApiSecret = generateApiSecret();
-
-  const updatedMerchant = await storage.updateMerchant(merchant.id, {
-    apiKey: newApiKey,
-    apiSecret: newApiSecret,
-  });
-
-  res.json({
-    success: true,
-    apiKey: updatedMerchant?.apiKey,
-  });
-});
-
-router.put("/merchant/webhook-url", async (req: Request, res: Response) => {
-  const userId = (req.session as any)?.userId;
-  if (!userId) {
-    return res.status(401).json({ success: false, error: "Non authentifi\u00e9" });
-  }
-
-  const merchant = await getOrCreateMerchantForUser(userId);
-  if (!merchant) {
-    return res.status(403).json({ success: false, error: "Compte non v\u00e9rifi\u00e9" });
-  }
-
-  const { webhookUrl } = req.body;
-  await storage.updateMerchant(merchant.id, { webhookUrl });
-  res.json({ success: true });
-});
 
 // ==================== PUBLIC API ENDPOINTS (v1) ====================
 
@@ -441,9 +154,7 @@ async function checkApiMaintenance(req: Request, res: Response, next: NextFuncti
 
 router.post("/v1/create-payment", checkApiMaintenance, authenticateApiKey, async (req: Request, res: Response) => {
   const startTime = Date.now();
-  const merchant = req.merchant;
-  const apiUser = req.apiUser;
-  const ownerId = apiUser?.id || merchant?.id || null;
+  const apiUser = req.apiUser!;
 
   try {
     const schema = z.object({
@@ -462,7 +173,7 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateApiKey, async
     const reference = generateReference();
 
     const transaction = await storage.createApiTransaction({
-      merchantId: merchant?.id || apiUser?.id, // Use user ID if no merchant
+      merchantId: apiUser.id,
       reference,
       externalReference: data.externalReference || null,
       type: "payment",
@@ -491,20 +202,18 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateApiKey, async
       },
     };
 
-    await logApiRequest(ownerId, req.path, req.method, req.body, response, 201, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 201, req.ip, req.get('User-Agent'), Date.now() - startTime);
     res.status(201).json(response);
   } catch (error: any) {
     const response = { success: false, error: error.message || "Failed to create payment" };
-    await logApiRequest(ownerId, req.path, req.method, req.body, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
     res.status(400).json(response);
   }
 });
 
 router.post("/v1/verify-payment", checkApiMaintenance, authenticateApiKey, async (req: Request, res: Response) => {
   const startTime = Date.now();
-  const merchant = req.merchant;
-  const apiUser = req.apiUser;
-  const ownerId = apiUser?.id || merchant?.id || null;
+  const apiUser = req.apiUser!;
 
   try {
     const schema = z.object({
@@ -516,14 +225,14 @@ router.post("/v1/verify-payment", checkApiMaintenance, authenticateApiKey, async
 
     if (!transaction) {
       const response = { success: false, error: "Payment not found", code: "PAYMENT_NOT_FOUND" };
-      await logApiRequest(ownerId, req.path, req.method, req.body, response, 404, req.ip, req.get('User-Agent'), Date.now() - startTime);
+      await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 404, req.ip, req.get('User-Agent'), Date.now() - startTime);
       return res.status(404).json(response);
     }
 
     // Check ownership
-    if (transaction.merchantId !== ownerId) {
+    if (transaction.merchantId !== apiUser.id) {
       const response = { success: false, error: "Unauthorized", code: "UNAUTHORIZED" };
-      await logApiRequest(ownerId, req.path, req.method, req.body, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime);
+      await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime);
       return res.status(403).json(response);
     }
 
@@ -545,21 +254,18 @@ router.post("/v1/verify-payment", checkApiMaintenance, authenticateApiKey, async
       },
     };
 
-    await logApiRequest(ownerId, req.path, req.method, req.body, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime);
     res.json(response);
   } catch (error: any) {
     const response = { success: false, error: error.message || "Verification failed" };
-    await logApiRequest(ownerId, req.path, req.method, req.body, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
     res.status(400).json(response);
   }
 });
 
 router.post("/v1/credit-account", checkApiMaintenance, authenticateApiKey, async (req: Request, res: Response) => {
   const startTime = Date.now();
-  const merchant = req.merchant;
-  const apiUser = req.apiUser;
-  const ownerId = apiUser?.id || merchant?.id || null;
-  const ownerName = apiUser?.fullName || merchant?.name || "API";
+  const apiUser = req.apiUser!;
 
   try {
     const schema = z.object({
@@ -574,20 +280,20 @@ router.post("/v1/credit-account", checkApiMaintenance, authenticateApiKey, async
     const user = await storage.getUserByPhone(data.phone);
     if (!user) {
       const response = { success: false, error: "User not found", code: "USER_NOT_FOUND" };
-      await logApiRequest(ownerId, req.path, req.method, req.body, response, 404, req.ip, req.get('User-Agent'), Date.now() - startTime);
+      await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 404, req.ip, req.get('User-Agent'), Date.now() - startTime);
       return res.status(404).json(response);
     }
 
     const reference = generateReference();
 
     const transaction = await storage.createApiTransaction({
-      merchantId: ownerId!,
+      merchantId: apiUser.id,
       reference,
       externalReference: data.externalReference || null,
       type: "credit",
       amount: data.amount.toString(),
       status: "completed",
-      description: data.description || `Credit from ${ownerName}`,
+      description: data.description || `Credit from ${apiUser.fullName}`,
       customerPhone: data.phone,
       customerName: user.fullName,
       customerEmail: user.email,
@@ -605,18 +311,9 @@ router.post("/v1/credit-account", checkApiMaintenance, authenticateApiKey, async
       fee: "0",
       netAmount: data.amount.toString(),
       status: "completed",
-      description: data.description || `Credit via API - ${ownerName}`,
+      description: data.description || `Credit via API - ${apiUser.fullName}`,
       externalRef: reference,
     });
-
-    if (merchant) {
-      await sendWebhook(merchant, "credit.completed", {
-        reference: transaction.reference,
-        amount: data.amount,
-        phone: data.phone,
-        userName: user.fullName,
-      });
-    }
 
     const response = {
       success: true,
@@ -630,20 +327,18 @@ router.post("/v1/credit-account", checkApiMaintenance, authenticateApiKey, async
       },
     };
 
-    await logApiRequest(ownerId, req.path, req.method, req.body, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime);
     res.json(response);
   } catch (error: any) {
     const response = { success: false, error: error.message || "Credit failed" };
-    await logApiRequest(ownerId, req.path, req.method, req.body, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
     res.status(400).json(response);
   }
 });
 
 router.get("/v1/balance", checkApiMaintenance, authenticateApiKey, async (req: Request, res: Response) => {
   const startTime = Date.now();
-  const merchant = req.merchant;
-  const apiUser = req.apiUser;
-  const ownerId = apiUser?.id || merchant?.id || null;
+  const apiUser = req.apiUser!;
 
   try {
     const schema = z.object({
@@ -655,7 +350,7 @@ router.get("/v1/balance", checkApiMaintenance, authenticateApiKey, async (req: R
 
     if (!user) {
       const response = { success: false, error: "User not found", code: "USER_NOT_FOUND" };
-      await logApiRequest(ownerId, req.path, req.method, req.query, response, 404, req.ip, req.get('User-Agent'), Date.now() - startTime);
+      await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 404, req.ip, req.get('User-Agent'), Date.now() - startTime);
       return res.status(404).json(response);
     }
 
@@ -670,23 +365,21 @@ router.get("/v1/balance", checkApiMaintenance, authenticateApiKey, async (req: R
       },
     };
 
-    await logApiRequest(ownerId, req.path, req.method, req.query, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime);
     res.json(response);
   } catch (error: any) {
     const response = { success: false, error: error.message || "Failed to get balance" };
-    await logApiRequest(ownerId, req.path, req.method, req.query, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
     res.status(400).json(response);
   }
 });
 
 router.get("/v1/transactions", checkApiMaintenance, authenticateApiKey, async (req: Request, res: Response) => {
   const startTime = Date.now();
-  const merchant = req.merchant;
-  const apiUser = req.apiUser;
-  const ownerId = apiUser?.id || merchant?.id || null;
+  const apiUser = req.apiUser!;
 
   try {
-    const transactions = await storage.getApiTransactionsByMerchant(ownerId!);
+    const transactions = await storage.getApiTransactionsByMerchant(apiUser.id);
 
     const response = {
       success: true,
@@ -709,11 +402,11 @@ router.get("/v1/transactions", checkApiMaintenance, authenticateApiKey, async (r
       },
     };
 
-    await logApiRequest(ownerId, req.path, req.method, req.query, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime);
     res.json(response);
   } catch (error: any) {
     const response = { success: false, error: error.message || "Failed to get transactions" };
-    await logApiRequest(ownerId, req.path, req.method, req.query, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
     res.status(400).json(response);
   }
 });
