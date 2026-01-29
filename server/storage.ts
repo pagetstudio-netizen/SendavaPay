@@ -49,6 +49,8 @@ import {
   apiTransactions,
   merchantWebhooks,
   apiLogs,
+  statsOffsets,
+  type StatsOffset,
 } from "@shared/schema";
 import { db as dbInstance } from "./db";
 import { eq, or, and, desc, sql } from "drizzle-orm";
@@ -113,10 +115,25 @@ export interface IStorage {
     totalDeposits: string;
     totalWithdrawals: string;
     totalCommissions: string;
+    todayCommissions: string;
     pendingKyc: number;
     activeApiKeys: number;
+    totalApiKeys: number;
     commissionRate: string;
+    apiCommissions: string;
+    totalApiPayments: string;
+    apiTransactionsCount: number;
+    apiTransactionsTotal: number;
+    totalTransactionsCount: number;
+    totalTransactionsAmount: string;
+    paymentLinkTransactionsCount: number;
+    paymentLinkTransactionsAmount: string;
+    totalPaymentLinks: number;
+    lastResetAt: string | null;
   }>;
+  
+  getStatsOffsets(): Promise<StatsOffset | null>;
+  resetAmountStats(adminId: number): Promise<void>;
   
   getSocialLinks(): Promise<SocialLink[]>;
   updateSocialLink(platform: string, url: string | null, isActive: boolean): Promise<SocialLink>;
@@ -395,6 +412,73 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async getStatsOffsets(): Promise<StatsOffset | null> {
+    const offsets = await getDb().select().from(statsOffsets).limit(1);
+    return offsets[0] || null;
+  }
+
+  async resetAmountStats(adminId: number): Promise<void> {
+    // Get current raw stats before reset
+    const allTransactionsCompleted = await getDb().select().from(transactions).where(eq(transactions.status, "completed"));
+    const deposits = allTransactionsCompleted.filter(t => t.type === "deposit");
+    const withdrawals = allTransactionsCompleted.filter(t => t.type === "withdrawal");
+    const paymentLinkTransactions = allTransactionsCompleted.filter(t => t.paymentLinkId !== null);
+    
+    const totalDeposits = deposits.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+    const totalWithdrawals = withdrawals.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+    const totalCommissions = allTransactionsCompleted.reduce((sum, t) => sum + parseFloat(t.fee), 0);
+    const totalAllTransactions = allTransactionsCompleted.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+    const totalPaymentLinkAmount = paymentLinkTransactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+
+    const allApiTransactions = await getDb().select().from(apiTransactions).where(eq(apiTransactions.status, "completed"));
+    const apiCommissions = allApiTransactions.reduce((sum, t) => sum + parseFloat(t.fee || "0"), 0);
+    const totalApiPayments = allApiTransactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayCommissions = allTransactionsCompleted
+      .filter(t => new Date(t.createdAt) >= today)
+      .reduce((sum, t) => sum + parseFloat(t.fee), 0);
+    const todayApiCommissions = allApiTransactions
+      .filter(t => t.completedAt && new Date(t.completedAt) >= today)
+      .reduce((sum, t) => sum + parseFloat(t.fee || "0"), 0);
+
+    // Check if offsets exist
+    const existingOffsets = await this.getStatsOffsets();
+    
+    if (existingOffsets) {
+      // Update existing offsets
+      await getDb().update(statsOffsets)
+        .set({
+          totalDepositsOffset: totalDeposits.toString(),
+          totalWithdrawalsOffset: totalWithdrawals.toString(),
+          totalCommissionsOffset: (totalCommissions + apiCommissions).toString(),
+          apiCommissionsOffset: apiCommissions.toString(),
+          totalApiPaymentsOffset: totalApiPayments.toString(),
+          totalTransactionsAmountOffset: totalAllTransactions.toString(),
+          paymentLinkTransactionsAmountOffset: totalPaymentLinkAmount.toString(),
+          todayCommissionsOffset: (todayCommissions + todayApiCommissions).toString(),
+          lastResetAt: new Date(),
+          resetBy: adminId,
+        })
+        .where(eq(statsOffsets.id, existingOffsets.id));
+    } else {
+      // Create new offsets
+      await getDb().insert(statsOffsets).values({
+        totalDepositsOffset: totalDeposits.toString(),
+        totalWithdrawalsOffset: totalWithdrawals.toString(),
+        totalCommissionsOffset: (totalCommissions + apiCommissions).toString(),
+        apiCommissionsOffset: apiCommissions.toString(),
+        totalApiPaymentsOffset: totalApiPayments.toString(),
+        totalTransactionsAmountOffset: totalAllTransactions.toString(),
+        paymentLinkTransactionsAmountOffset: totalPaymentLinkAmount.toString(),
+        todayCommissionsOffset: (todayCommissions + todayApiCommissions).toString(),
+        lastResetAt: new Date(),
+        resetBy: adminId,
+      });
+    }
+  }
+
   async getStats() {
     const allUsers = await getDb().select().from(users);
     const verifiedUsers = allUsers.filter(u => u.isVerified);
@@ -438,26 +522,37 @@ export class DatabaseStorage implements IStorage {
 
     const settings = await this.getCommissionSettings();
 
+    // Get offsets to subtract from amounts
+    const offsets = await this.getStatsOffsets();
+    const depositsOffset = parseFloat(offsets?.totalDepositsOffset || "0");
+    const withdrawalsOffset = parseFloat(offsets?.totalWithdrawalsOffset || "0");
+    const commissionsOffset = parseFloat(offsets?.totalCommissionsOffset || "0");
+    const apiCommissionsOffset = parseFloat(offsets?.apiCommissionsOffset || "0");
+    const apiPaymentsOffset = parseFloat(offsets?.totalApiPaymentsOffset || "0");
+    const transactionsAmountOffset = parseFloat(offsets?.totalTransactionsAmountOffset || "0");
+    const paymentLinkAmountOffset = parseFloat(offsets?.paymentLinkTransactionsAmountOffset || "0");
+
     return {
       totalUsers: allUsers.length,
       verifiedUsers: verifiedUsers.length,
-      totalDeposits: totalDeposits.toString(),
-      totalWithdrawals: totalWithdrawals.toString(),
-      totalCommissions: (totalCommissions + apiCommissions).toString(),
+      totalDeposits: Math.max(0, totalDeposits - depositsOffset).toString(),
+      totalWithdrawals: Math.max(0, totalWithdrawals - withdrawalsOffset).toString(),
+      totalCommissions: Math.max(0, (totalCommissions + apiCommissions) - commissionsOffset).toString(),
       todayCommissions: (todayCommissions + todayApiCommissions).toString(),
       pendingKyc: pendingKyc.length,
       activeApiKeys: activeApiKeysCount.length,
       totalApiKeys: allApiKeysCount.length,
       commissionRate: settings?.depositRate || "7",
-      apiCommissions: apiCommissions.toString(),
-      totalApiPayments: totalApiPayments.toString(),
+      apiCommissions: Math.max(0, apiCommissions - apiCommissionsOffset).toString(),
+      totalApiPayments: Math.max(0, totalApiPayments - apiPaymentsOffset).toString(),
       apiTransactionsCount: allApiTransactions.length,
       apiTransactionsTotal: allApiTransactionsTotal.length,
       totalTransactionsCount: allTransactionsTotal.length,
-      totalTransactionsAmount: totalAllTransactions.toString(),
+      totalTransactionsAmount: Math.max(0, totalAllTransactions - transactionsAmountOffset).toString(),
       paymentLinkTransactionsCount: paymentLinkTransactions.length,
-      paymentLinkTransactionsAmount: totalPaymentLinkAmount.toString(),
+      paymentLinkTransactionsAmount: Math.max(0, totalPaymentLinkAmount - paymentLinkAmountOffset).toString(),
       totalPaymentLinks: allPaymentLinks.length,
+      lastResetAt: offsets?.lastResetAt?.toISOString() || null,
     };
   }
 

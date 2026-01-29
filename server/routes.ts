@@ -2173,6 +2173,20 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/stats/reset", requireAdmin, async (req, res) => {
+    try {
+      const userId = (req as any).session?.userId;
+      if (!userId) {
+        return res.status(401).json({ message: "Non autorisé" });
+      }
+      await storage.resetAmountStats(userId);
+      res.json({ message: "Statistiques de montants réinitialisées avec succès" });
+    } catch (error) {
+      console.error("Reset stats error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.get("/api/admin/users", requireAdmin, async (req, res) => {
     try {
       const users = await storage.getAllUsers();

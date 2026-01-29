@@ -555,6 +555,23 @@ export const insertApiLogSchema = createInsertSchema(apiLogs).omit({
   createdAt: true,
 });
 
+// Stats offsets table for reset functionality
+export const statsOffsets = pgTable("stats_offsets", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  totalDepositsOffset: decimal("total_deposits_offset", { precision: 15, scale: 2 }).default("0").notNull(),
+  totalWithdrawalsOffset: decimal("total_withdrawals_offset", { precision: 15, scale: 2 }).default("0").notNull(),
+  totalCommissionsOffset: decimal("total_commissions_offset", { precision: 15, scale: 2 }).default("0").notNull(),
+  apiCommissionsOffset: decimal("api_commissions_offset", { precision: 15, scale: 2 }).default("0").notNull(),
+  totalApiPaymentsOffset: decimal("total_api_payments_offset", { precision: 15, scale: 2 }).default("0").notNull(),
+  totalTransactionsAmountOffset: decimal("total_transactions_amount_offset", { precision: 15, scale: 2 }).default("0").notNull(),
+  paymentLinkTransactionsAmountOffset: decimal("payment_link_transactions_amount_offset", { precision: 15, scale: 2 }).default("0").notNull(),
+  todayCommissionsOffset: decimal("today_commissions_offset", { precision: 15, scale: 2 }).default("0").notNull(),
+  lastResetAt: timestamp("last_reset_at").defaultNow().notNull(),
+  resetBy: integer("reset_by").references(() => users.id),
+});
+
+export type StatsOffset = typeof statsOffsets.$inferSelect;
+
 export type Merchant = typeof merchants.$inferSelect;
 export type InsertMerchant = z.infer<typeof insertMerchantSchema>;
 export type ApiTransaction = typeof apiTransactions.$inferSelect;
