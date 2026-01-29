@@ -174,7 +174,7 @@ export default function ApiDocs() {
   const jsExample = `// Installation: npm install axios
 const axios = require('axios');
 
-const API_KEY = 'pk_live_votre_cle_api';
+const API_KEY = 'sk_live_votre_cle_api';
 const BASE_URL = 'https://sendavapay.com/api/v1';
 
 // Cr\u00e9er un paiement
@@ -252,7 +252,7 @@ async function getBalance(phone) {
 
   const phpExample = `<?php
 // Configuration
-$apiKey = 'pk_live_votre_cle_api';
+$apiKey = 'sk_live_votre_cle_api';
 $baseUrl = 'https://sendavapay.com/api/v1';
 
 // Fonction pour faire les requ\u00eates API
@@ -336,7 +336,7 @@ print_r($result);
 import json
 
 # Configuration
-API_KEY = 'pk_live_votre_cle_api'
+API_KEY = 'sk_live_votre_cle_api'
 BASE_URL = 'https://sendavapay.com/api/v1'
 
 headers = {
@@ -598,7 +598,7 @@ app.listen(3000);`;
               <CodeBlock
                 id="auth-header"
                 language="bash"
-                code={`Authorization: Bearer pk_live_votre_cle_api`}
+                code={`Authorization: Bearer sk_live_votre_cle_api`}
               />
               <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
                 <p className="text-sm">
