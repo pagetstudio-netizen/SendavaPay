@@ -1778,10 +1778,94 @@ export async function registerRoutes(
 
         console.log(`✅ SoleasPay API: Paiement confirmé pour utilisateur #${transaction.userId}: ${netAmount}`);
 
-        return res.json({ status: "completed", message: "Paiement réussi!" });
+        // Send webhook callback to merchant if callbackUrl is configured
+        if (transaction.callbackUrl) {
+          try {
+            // Validate URL for security (prevent SSRF)
+            const callbackUrl = new URL(transaction.callbackUrl);
+            const isValidProtocol = callbackUrl.protocol === 'https:' || 
+                              (process.env.NODE_ENV === 'development' && callbackUrl.protocol === 'http:');
+            
+            // Block private/localhost IPs to prevent SSRF
+            const hostname = callbackUrl.hostname.toLowerCase();
+            const blockedPatterns = [
+              /^localhost$/i,
+              /^127\./,
+              /^10\./,
+              /^172\.(1[6-9]|2[0-9]|3[01])\./,
+              /^192\.168\./,
+              /^0\.0\.0\.0$/,
+              /^::1$/,
+              /^\[::1\]$/,
+              /^169\.254\./,
+              /\.local$/,
+              /\.internal$/,
+            ];
+            const isBlockedHost = blockedPatterns.some(pattern => pattern.test(hostname));
+            
+            if (!isValidProtocol) {
+              console.warn(`⚠️ Skipping webhook: Invalid URL protocol for ${transaction.callbackUrl}`);
+            } else if (isBlockedHost) {
+              console.warn(`⚠️ Skipping webhook: Blocked host ${hostname} (private/internal IP)`);
+            } else {
+              const webhookPayload = {
+                event: "payment.completed",
+                reference: transaction.reference,
+                externalReference: transaction.externalReference,
+                amount: amount,
+                fee: fee,
+                netAmount: netAmount,
+                currency: transaction.currency,
+                status: "completed",
+                customerName: transaction.customerName,
+                customerEmail: transaction.customerEmail,
+                customerPhone: transaction.customerPhone,
+                paymentMethod: transaction.paymentMethod,
+                completedAt: new Date().toISOString(),
+              };
+
+              console.log(`📡 Sending webhook callback to: ${transaction.callbackUrl}`);
+              
+              fetch(transaction.callbackUrl, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify(webhookPayload),
+              }).then(response => {
+                console.log(`📡 Webhook callback response: ${response.status}`);
+                storage.updateApiTransaction(transaction.id, {
+                  webhookSent: true,
+                  webhookAttempts: (transaction.webhookAttempts || 0) + 1,
+                  webhookLastAttempt: new Date(),
+                });
+              }).catch(error => {
+                console.error(`❌ Webhook callback failed:`, error);
+                storage.updateApiTransaction(transaction.id, {
+                  webhookAttempts: (transaction.webhookAttempts || 0) + 1,
+                  webhookLastAttempt: new Date(),
+                });
+              });
+            }
+          } catch (webhookError) {
+            console.error(`❌ Webhook callback error:`, webhookError);
+          }
+        }
+
+        return res.json({ 
+          status: "completed", 
+          message: "Paiement réussi!",
+          redirectUrl: transaction.callbackUrl || null,
+          reference: transaction.reference,
+          amount: netAmount,
+        });
       } else if (verifyResult.status === "FAILURE") {
         await storage.updateApiTransaction(transaction.id, { status: "failed" });
-        return res.json({ status: "failed", message: "Le paiement a échoué" });
+        return res.json({ 
+          status: "failed", 
+          message: "Le paiement a échoué",
+          redirectUrl: transaction.callbackUrl || null,
+        });
       }
 
       res.json({ status: "pending", message: verifyResult.message || "En attente de confirmation" });

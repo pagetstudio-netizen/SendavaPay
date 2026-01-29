@@ -83,6 +83,7 @@ export default function PayApiPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
   const [currentOrderId, setCurrentOrderId] = useState("");
+  const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
   const maxPollingAttempts = 40;
@@ -154,10 +155,16 @@ export default function PayApiPage() {
           stopPolling();
           setStep("complete");
           setVerificationMessage("Paiement réussi!");
+          if (result.redirectUrl) {
+            setRedirectUrl(result.redirectUrl);
+          }
         } else if (result.status === "failed") {
           stopPolling();
           setStep("failed");
           setVerificationMessage(result.message || "Le paiement a échoué");
+          if (result.redirectUrl) {
+            setRedirectUrl(result.redirectUrl);
+          }
         } else {
           setVerificationMessage(result.message || "En attente de confirmation...");
         }
@@ -177,6 +184,16 @@ export default function PayApiPage() {
   useEffect(() => {
     return () => stopPolling();
   }, []);
+
+  // Auto-redirect after payment completion
+  useEffect(() => {
+    if (step === "complete" && redirectUrl) {
+      const timer = setTimeout(() => {
+        window.location.href = redirectUrl;
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [step, redirectUrl]);
 
   const handleSubmitInfo = () => {
     if (!firstName || !lastName || !email) {
@@ -443,9 +460,22 @@ export default function PayApiPage() {
             <div className="text-center py-8">
               <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
               <h3 className="text-lg font-semibold mb-2">Paiement réussi!</h3>
-              <p className="text-muted-foreground">
+              <p className="text-muted-foreground mb-4">
                 Votre paiement de {formatCurrency(transaction.amount, transaction.currency)} a été effectué avec succès.
               </p>
+              {redirectUrl && (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Redirection automatique dans quelques secondes...
+                  </p>
+                  <Button 
+                    onClick={() => window.location.href = redirectUrl}
+                    data-testid="button-redirect"
+                  >
+                    Retourner au site <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 
