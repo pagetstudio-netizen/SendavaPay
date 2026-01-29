@@ -183,6 +183,7 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateApiKey, async
       customerEmail: data.customerEmail || null,
       customerPhone: data.customerPhone || null,
       customerName: data.customerName || null,
+      callbackUrl: data.redirectUrl || null,
       metadata: data.metadata ? JSON.stringify(data.metadata) : null,
       ipAddress: req.ip || null,
       userAgent: req.get('User-Agent') || null,
