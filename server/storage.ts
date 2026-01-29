@@ -152,7 +152,7 @@ export interface IStorage {
   createApiTransaction(transaction: Partial<ApiTransaction>): Promise<ApiTransaction>;
   getApiTransaction(id: number): Promise<ApiTransaction | undefined>;
   getApiTransactionByReference(reference: string): Promise<ApiTransaction | undefined>;
-  getApiTransactionsByMerchant(merchantId: number): Promise<ApiTransaction[]>;
+  getApiTransactionsByUser(userId: number): Promise<ApiTransaction[]>;
   updateApiTransaction(id: number, updates: Partial<ApiTransaction>): Promise<ApiTransaction | undefined>;
   
   createMerchantWebhook(webhook: Partial<MerchantWebhook>): Promise<MerchantWebhook>;
@@ -747,8 +747,8 @@ export class DatabaseStorage implements IStorage {
     return transaction;
   }
 
-  async getApiTransactionsByMerchant(merchantId: number): Promise<ApiTransaction[]> {
-    return getDb().select().from(apiTransactions).where(eq(apiTransactions.merchantId, merchantId)).orderBy(desc(apiTransactions.createdAt));
+  async getApiTransactionsByUser(userId: number): Promise<ApiTransaction[]> {
+    return getDb().select().from(apiTransactions).where(eq(apiTransactions.userId, userId)).orderBy(desc(apiTransactions.createdAt));
   }
 
   async updateApiTransaction(id: number, updates: Partial<ApiTransaction>): Promise<ApiTransaction | undefined> {
