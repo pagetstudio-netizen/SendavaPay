@@ -86,7 +86,7 @@ export default function ApiDocs() {
     "amount": 5000,
     "currency": "XOF",
     "status": "pending",
-    "paymentUrl": "https://smart-glass.fun/pay/pay_abc123_xyz789",
+    "paymentUrl": "https://sendavapay.com/pay/pay_abc123_xyz789",
     "createdAt": "2024-01-15T10:30:00Z"
   }
 }`,
@@ -175,7 +175,7 @@ export default function ApiDocs() {
 const axios = require('axios');
 
 const API_KEY = 'pk_live_votre_cle_api';
-const BASE_URL = 'https://smart-glass.fun/api/v1';
+const BASE_URL = 'https://sendavapay.com/api/v1';
 
 // Cr\u00e9er un paiement
 async function createPayment(amount, description) {
@@ -253,7 +253,7 @@ async function getBalance(phone) {
   const phpExample = `<?php
 // Configuration
 $apiKey = 'pk_live_votre_cle_api';
-$baseUrl = 'https://smart-glass.fun/api/v1';
+$baseUrl = 'https://sendavapay.com/api/v1';
 
 // Fonction pour faire les requ\u00eates API
 function sendRequest($method, $endpoint, $data = null) {
@@ -337,7 +337,7 @@ import json
 
 # Configuration
 API_KEY = 'pk_live_votre_cle_api'
-BASE_URL = 'https://smart-glass.fun/api/v1'
+BASE_URL = 'https://sendavapay.com/api/v1'
 
 headers = {
     'Authorization': f'Bearer {API_KEY}',
@@ -617,7 +617,7 @@ app.listen(3000);`;
                 Endpoints API
               </CardTitle>
               <CardDescription>
-                Base URL: <code className="bg-muted px-2 py-1 rounded">https://smart-glass.fun/api/v1</code>
+                Base URL: <code className="bg-muted px-2 py-1 rounded">https://sendavapay.com/api/v1</code>
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-8">
