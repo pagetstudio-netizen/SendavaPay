@@ -132,7 +132,7 @@ export async function registerRoutes(
     requireDatabase(req, res, next);
   });
 
-  // Mount Merchant API
+  // Mount Public API (v1 endpoints)
   app.use("/api", merchantApi);
 
   app.post("/api/auth/register", async (req, res) => {
@@ -1772,7 +1772,7 @@ export async function registerRoutes(
       }
 
       // LeekPay confirme que le paiement est complété - on peut créditer
-      console.log("LeekPay confirmed link payment completed, crediting merchant...");
+      console.log("LeekPay confirmed link payment completed, crediting user...");
       
       const settings = await storage.getCommissionSettings();
       const commissionRate = parseFloat(settings?.depositRate || "7");
@@ -2380,7 +2380,7 @@ export async function registerRoutes(
             paidAmount: amount.toString(),
           });
 
-          // Create transaction for merchant with payer info
+          // Create transaction for user with payer info
           await storage.createTransaction({
             userId: link.userId,
             type: "payment_received",
