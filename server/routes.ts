@@ -1683,24 +1683,43 @@ export async function registerRoutes(
         status: "processing",
       });
 
+      // Generate unique order ID for this payment
+      const orderId = `API_${transaction.reference}_${Date.now()}`;
+
       // Initiate SoleasPay payment
-      const payResult = await soleaspay.initiatePayment({
+      const payResult = await soleaspay.collectPayment({
+        wallet: payerPhone,
         amount,
-        currency: currency as "XOF" | "XAF" | "CDF",
-        phoneNumber: payerPhone,
-        serviceId: parseInt(serviceId),
+        currency,
+        orderId,
         description: transaction.description || `Paiement API ${transaction.reference}`,
+        payer: payerName,
+        payerEmail: payerEmail || "",
+        serviceId: parseInt(serviceId),
       });
 
-      if (!payResult.success) {
+      if (!payResult.success || !payResult.data) {
         await storage.updateApiTransaction(transaction.id, { status: "failed" });
-        return res.status(400).json({ message: payResult.error || "Erreur de paiement" });
+        return res.status(400).json({ message: payResult.message || "Erreur de paiement" });
       }
+
+      // Extract payId from response data
+      const payId = payResult.data.reference || payResult.data.external_reference || "";
+      
+      if (!payId) {
+        await storage.updateApiTransaction(transaction.id, { status: "failed" });
+        return res.status(400).json({ message: "Réponse invalide du service de paiement" });
+      }
+
+      // Persist orderId and payId to the transaction for verification
+      await storage.updateApiTransaction(transaction.id, {
+        externalReference: `${orderId}|${payId}`,
+      });
 
       res.json({
         success: true,
-        payId: payResult.payId,
-        orderId: payResult.orderId,
+        payId: payId,
+        orderId: orderId,
         message: "Veuillez confirmer le paiement sur votre téléphone",
       });
     } catch (error) {
