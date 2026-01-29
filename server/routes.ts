@@ -1738,9 +1738,11 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Transaction introuvable" });
       }
 
-      const verifyResult = await soleaspay.verifyPayment(payId, orderId);
+      const verifyResult = await soleaspay.verifyPayment(orderId, payId);
 
-      if (verifyResult.status === "completed") {
+      console.log(`🔍 SoleasPay API verify: orderId=${orderId}, payId=${payId}, result=`, JSON.stringify(verifyResult));
+
+      if (verifyResult.success && verifyResult.status === "SUCCESS") {
         // Update transaction status
         await storage.updateApiTransaction(transaction.id, {
           status: "completed",
@@ -1749,7 +1751,7 @@ export async function registerRoutes(
         });
 
         // Credit the API owner's balance
-        const amount = parseFloat(transaction.amount);
+        const amount = verifyResult.data?.amount || parseFloat(transaction.amount);
         const commissionSettings = await storage.getCommissionSettings();
         const feeRate = parseFloat(commissionSettings?.depositRate || "7");
         const fee = (amount * feeRate) / 100;
@@ -1774,8 +1776,10 @@ export async function registerRoutes(
           mobileNumber: transaction.customerPhone,
         });
 
+        console.log(`✅ SoleasPay API: Paiement confirmé pour utilisateur #${transaction.userId}: ${netAmount}`);
+
         return res.json({ status: "completed", message: "Paiement réussi!" });
-      } else if (verifyResult.status === "failed") {
+      } else if (verifyResult.status === "FAILURE") {
         await storage.updateApiTransaction(transaction.id, { status: "failed" });
         return res.json({ status: "failed", message: "Le paiement a échoué" });
       }
