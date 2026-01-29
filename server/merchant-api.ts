@@ -173,7 +173,7 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateApiKey, async
     const reference = generateReference();
 
     const transaction = await storage.createApiTransaction({
-      merchantId: apiUser.id,
+      userId: apiUser.id,
       reference,
       externalReference: data.externalReference || null,
       type: "payment",
@@ -287,7 +287,7 @@ router.post("/v1/credit-account", checkApiMaintenance, authenticateApiKey, async
     const reference = generateReference();
 
     const transaction = await storage.createApiTransaction({
-      merchantId: apiUser.id,
+      userId: apiUser.id,
       reference,
       externalReference: data.externalReference || null,
       type: "credit",
