@@ -285,7 +285,7 @@ export const apiTransactionTypeEnum = pgEnum("api_transaction_type", ["payment",
 
 export const apiTransactions = pgTable("api_transactions", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  merchantId: integer("merchant_id").notNull().references(() => merchants.id),
+  userId: integer("user_id").notNull().references(() => users.id),
   reference: text("reference").notNull().unique(),
   externalReference: text("external_reference"),
   type: apiTransactionTypeEnum("type").notNull(),
@@ -298,7 +298,7 @@ export const apiTransactions = pgTable("api_transactions", {
   customerPhone: text("customer_phone"),
   customerName: text("customer_name"),
   paymentMethod: text("payment_method"),
-  paymentLinkId: integer("payment_link_id"),
+  callbackUrl: text("callback_url"),
   metadata: text("metadata"),
   webhookSent: boolean("webhook_sent").default(false).notNull(),
   webhookAttempts: integer("webhook_attempts").default(0).notNull(),
@@ -307,6 +307,7 @@ export const apiTransactions = pgTable("api_transactions", {
   userAgent: text("user_agent"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const merchantWebhooks = pgTable("merchant_webhooks", {
