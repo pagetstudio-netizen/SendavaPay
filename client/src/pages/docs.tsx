@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
 import { 
   Copy, 
   Check, 
@@ -15,12 +16,19 @@ import {
   ExternalLink,
   Zap,
   Shield,
-  FileCode
+  FileCode,
+  Wrench,
+  Loader2
 } from "lucide-react";
 
 export default function ApiDocs() {
   const { toast } = useToast();
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+  const { data: maintenanceStatus, isLoading: maintenanceLoading } = useQuery<{ enabled: boolean }>({
+    queryKey: ['/api/api-maintenance-status'],
+    refetchInterval: 10000,
+  });
 
   useEffect(() => {
     document.title = "Documentation API - SendavaPay";
@@ -460,6 +468,48 @@ app.post('/webhook/sendavapay', (req, res) => {
 });
 
 app.listen(3000);`;
+
+  if (maintenanceLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (maintenanceStatus?.enabled) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <Card className="max-w-lg w-full text-center">
+          <CardHeader>
+            <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+              <Wrench className="h-8 w-8 text-orange-600 dark:text-orange-400" />
+            </div>
+            <CardTitle className="text-2xl">API en maintenance</CardTitle>
+            <CardDescription className="text-base">
+              L'API et la documentation sont temporairement indisponibles
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-muted-foreground">
+              Nous effectuons actuellement des travaux de maintenance sur notre API. 
+              Veuillez réessayer dans quelques instants.
+            </p>
+            <div className="bg-muted/50 p-4 rounded-lg">
+              <p className="text-sm text-muted-foreground">
+                Les paiements via liens de paiement restent fonctionnels. 
+                Seule l'API développeur est temporairement désactivée.
+              </p>
+            </div>
+            <Button onClick={() => window.location.href = "/"} variant="outline" data-testid="button-go-home">
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Retour à l'accueil
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
