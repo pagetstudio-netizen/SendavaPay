@@ -1574,6 +1574,13 @@ function CommissionsContent() {
     queryKey: ["/api/admin/settings"],
   });
 
+  useEffect(() => {
+    if (settings) {
+      setDepositRate(settings.depositRate || "7");
+      setWithdrawalRate(settings.withdrawalRate || "7");
+    }
+  }, [settings]);
+
   const updateMutation = useMutation({
     mutationFn: async (data: { depositRate: string; withdrawalRate: string }) => {
       await apiRequest("POST", "/api/admin/settings", data);
