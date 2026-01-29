@@ -1970,8 +1970,54 @@ function SettingsContent() {
               />
             </div>
           </div>
+          <ApiMaintenanceToggle />
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function ApiMaintenanceToggle() {
+  const { toast } = useToast();
+  
+  const { data: apiMaintenanceData, refetch: refetchApiMaintenance } = useQuery<{ enabled: boolean }>({
+    queryKey: ['/api/admin/api-maintenance'],
+  });
+
+  const apiMaintenanceMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("PUT", "/api/admin/api-maintenance", { enabled });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      refetchApiMaintenance();
+      toast({ 
+        title: data.enabled ? "Maintenance API activée" : "Maintenance API désactivée",
+        description: data.enabled ? "L'API et la documentation sont en maintenance" : "L'API et la documentation sont accessibles"
+      });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Impossible de modifier le mode maintenance API", variant: "destructive" });
+    }
+  });
+
+  return (
+    <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
+      <div>
+        <p className="font-medium">Maintenance API & Documentation</p>
+        <p className="text-sm text-muted-foreground">Désactiver l'API et afficher un message de maintenance sur la documentation</p>
+      </div>
+      <div className="flex items-center gap-3">
+        <Badge variant={apiMaintenanceData?.enabled ? "destructive" : "secondary"}>
+          {apiMaintenanceData?.enabled ? "Activé" : "Désactivé"}
+        </Badge>
+        <Switch
+          checked={apiMaintenanceData?.enabled ?? false}
+          onCheckedChange={(checked) => apiMaintenanceMutation.mutate(checked)}
+          disabled={apiMaintenanceMutation.isPending}
+          data-testid="switch-api-maintenance-mode"
+        />
+      </div>
     </div>
   );
 }

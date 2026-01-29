@@ -2210,6 +2210,44 @@ export async function registerRoutes(
     }
   });
 
+  // ========== API & DOCS MAINTENANCE ==========
+  app.get("/api/admin/api-maintenance", requireAdmin, async (req, res) => {
+    try {
+      const value = await storage.getSetting("api_docs_maintenance");
+      res.json({ enabled: value === "true" });
+    } catch (error) {
+      console.error("Get API maintenance mode error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.put("/api/admin/api-maintenance", requireAdmin, async (req, res) => {
+    try {
+      const { enabled } = req.body;
+      await storage.setSetting("api_docs_maintenance", enabled ? "true" : "false");
+      await storage.createAuditLog({
+        userId: req.session.userId,
+        action: enabled ? "api_maintenance_enabled" : "api_maintenance_disabled",
+        details: `Mode maintenance API/Docs ${enabled ? "activé" : "désactivé"}`,
+        ipAddress: req.ip,
+      });
+      res.json({ enabled, message: `Mode maintenance API/Docs ${enabled ? "activé" : "désactivé"}` });
+    } catch (error) {
+      console.error("Update API maintenance mode error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // Public endpoint to check API/Docs maintenance status
+  app.get("/api/api-maintenance-status", async (req, res) => {
+    try {
+      const value = await storage.getSetting("api_docs_maintenance");
+      res.json({ enabled: value === "true" });
+    } catch (error) {
+      res.json({ enabled: false });
+    }
+  });
+
   app.get("/api/site-settings", async (req, res) => {
     try {
       const supportEmail = await storage.getSetting("support_email") || "support@sendavapay.com";
