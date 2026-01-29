@@ -153,6 +153,7 @@ export interface IStorage {
   getApiTransaction(id: number): Promise<ApiTransaction | undefined>;
   getApiTransactionByReference(reference: string): Promise<ApiTransaction | undefined>;
   getApiTransactionsByUser(userId: number): Promise<ApiTransaction[]>;
+  getAllApiTransactions(): Promise<ApiTransaction[]>;
   updateApiTransaction(id: number, updates: Partial<ApiTransaction>): Promise<ApiTransaction | undefined>;
   
   createMerchantWebhook(webhook: Partial<MerchantWebhook>): Promise<MerchantWebhook>;
@@ -406,12 +407,20 @@ export class DatabaseStorage implements IStorage {
     const totalWithdrawals = withdrawals.reduce((sum, t) => sum + parseFloat(t.amount), 0);
     const totalCommissions = allTransactions.reduce((sum, t) => sum + parseFloat(t.fee), 0);
 
-    // Calculate today's commissions
+    // Get API transaction commissions
+    const allApiTransactions = await getDb().select().from(apiTransactions).where(eq(apiTransactions.status, "completed"));
+    const apiCommissions = allApiTransactions.reduce((sum, t) => sum + parseFloat(t.fee || "0"), 0);
+    const totalApiPayments = allApiTransactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+
+    // Calculate today's commissions (including API)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayCommissions = allTransactions
       .filter(t => new Date(t.createdAt) >= today)
       .reduce((sum, t) => sum + parseFloat(t.fee), 0);
+    const todayApiCommissions = allApiTransactions
+      .filter(t => t.completedAt && new Date(t.completedAt) >= today)
+      .reduce((sum, t) => sum + parseFloat(t.fee || "0"), 0);
 
     const pendingKyc = await getDb().select().from(kycRequests).where(eq(kycRequests.status, "pending"));
     const activeApiKeysCount = await getDb().select().from(apiKeys).where(eq(apiKeys.isActive, true));
@@ -423,11 +432,14 @@ export class DatabaseStorage implements IStorage {
       verifiedUsers: verifiedUsers.length,
       totalDeposits: totalDeposits.toString(),
       totalWithdrawals: totalWithdrawals.toString(),
-      totalCommissions: totalCommissions.toString(),
-      todayCommissions: todayCommissions.toString(),
+      totalCommissions: (totalCommissions + apiCommissions).toString(),
+      todayCommissions: (todayCommissions + todayApiCommissions).toString(),
       pendingKyc: pendingKyc.length,
       activeApiKeys: activeApiKeysCount.length,
       commissionRate: settings?.depositRate || "7",
+      apiCommissions: apiCommissions.toString(),
+      totalApiPayments: totalApiPayments.toString(),
+      apiTransactionsCount: allApiTransactions.length,
     };
   }
 
@@ -749,6 +761,10 @@ export class DatabaseStorage implements IStorage {
 
   async getApiTransactionsByUser(userId: number): Promise<ApiTransaction[]> {
     return getDb().select().from(apiTransactions).where(eq(apiTransactions.userId, userId)).orderBy(desc(apiTransactions.createdAt));
+  }
+
+  async getAllApiTransactions(): Promise<ApiTransaction[]> {
+    return getDb().select().from(apiTransactions).orderBy(desc(apiTransactions.createdAt));
   }
 
   async updateApiTransaction(id: number, updates: Partial<ApiTransaction>): Promise<ApiTransaction | undefined> {

@@ -1743,19 +1743,20 @@ export async function registerRoutes(
       console.log(`🔍 SoleasPay API verify: orderId=${orderId}, payId=${payId}, result=`, JSON.stringify(verifyResult));
 
       if (verifyResult.success && verifyResult.status === "SUCCESS") {
-        // Update transaction status
-        await storage.updateApiTransaction(transaction.id, {
-          status: "completed",
-          completedAt: new Date(),
-          externalReference: payId,
-        });
-
         // Credit the API owner's balance
         const amount = verifyResult.data?.amount || parseFloat(transaction.amount);
         const commissionSettings = await storage.getCommissionSettings();
         const feeRate = parseFloat(commissionSettings?.depositRate || "7");
         const fee = (amount * feeRate) / 100;
         const netAmount = amount - fee;
+
+        // Update transaction status with fee
+        await storage.updateApiTransaction(transaction.id, {
+          status: "completed",
+          completedAt: new Date(),
+          externalReference: payId,
+          fee: fee.toString(),
+        });
 
         await storage.updateUserBalance(transaction.userId, netAmount.toString());
 
@@ -2361,6 +2362,16 @@ export async function registerRoutes(
       res.json({ message: "Clé API révoquée" });
     } catch (error) {
       console.error("Revoke API key error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/admin/api-transactions", requireAdmin, async (req, res) => {
+    try {
+      const apiTransactions = await storage.getAllApiTransactions();
+      res.json(apiTransactions);
+    } catch (error) {
+      console.error("Get admin API transactions error:", error);
       res.status(500).json({ message: "Erreur serveur" });
     }
   });
