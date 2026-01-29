@@ -525,10 +525,10 @@ app.listen(3000);`;
               <h1 className="font-bold text-xl">Documentation API</h1>
             </div>
           </div>
-          <a href="/merchant">
-            <Button data-testid="button-merchant-portal">
-              Espace Marchand
-              <ExternalLink className="h-4 w-4 ml-2" />
+          <a href="/dashboard/api-keys">
+            <Button data-testid="button-api-keys-portal">
+              Gérer mes clés API
+              <Key className="h-4 w-4 ml-2" />
             </Button>
           </a>
         </div>
@@ -567,17 +567,15 @@ app.listen(3000);`;
             <CardContent className="space-y-4">
               <ol className="list-decimal list-inside space-y-3 text-muted-foreground">
                 <li>
-                  <strong className="text-foreground">Cr\u00e9ez un compte marchand</strong> - Inscrivez-vous sur{" "}
-                  <a href="/merchant" className="text-primary hover:underline">l'espace marchand</a>
+                  <strong className="text-foreground">Créez un compte SendavaPay</strong> - Inscrivez-vous sur{" "}
+                  <a href="/register" className="text-primary hover:underline">SendavaPay</a> et complétez la vérification KYC
                 </li>
                 <li>
-                  <strong className="text-foreground">R\u00e9cup\u00e9rez votre cl\u00e9 API</strong> - Dans votre tableau de bord, copiez votre cl\u00e9 API
+                  <strong className="text-foreground">Générez votre clé API</strong> - Dans votre{" "}
+                  <a href="/dashboard/api-keys" className="text-primary hover:underline">tableau de bord</a>, créez et copiez votre clé API
                 </li>
                 <li>
-                  <strong className="text-foreground">Configurez vos webhooks</strong> - Ajoutez l'URL de votre serveur pour recevoir les notifications
-                </li>
-                <li>
-                  <strong className="text-foreground">Int\u00e9grez l'API</strong> - Utilisez les exemples ci-dessous pour commencer
+                  <strong className="text-foreground">Intégrez l'API</strong> - Utilisez les exemples ci-dessous pour commencer
                 </li>
               </ol>
             </CardContent>
@@ -798,7 +796,7 @@ app.listen(3000);`;
                     <tr className="border-b">
                       <td className="p-3">403</td>
                       <td className="p-3 font-mono">ACCOUNT_SUSPENDED</td>
-                      <td className="p-3 text-muted-foreground">Compte marchand suspendu</td>
+                      <td className="p-3 text-muted-foreground">Compte suspendu ou non vérifié</td>
                     </tr>
                     <tr className="border-b">
                       <td className="p-3">404</td>
@@ -820,10 +818,10 @@ app.listen(3000);`;
             <p className="text-muted-foreground mb-4">
               Besoin d'aide ? Contactez notre support technique
             </p>
-            <a href="/merchant">
+            <a href="/dashboard/api-keys">
               <Button size="lg" data-testid="button-start-integration">
-                <CreditCard className="h-5 w-5 mr-2" />
-                Commencer l'int\u00e9gration
+                <Key className="h-5 w-5 mr-2" />
+                Générer ma clé API
               </Button>
             </a>
           </div>
