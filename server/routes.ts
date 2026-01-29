@@ -1633,6 +1633,141 @@ export async function registerRoutes(
     }
   });
 
+  // Get API transaction details for payment page
+  app.get("/api/pay-api/:reference", async (req, res) => {
+    try {
+      const transaction = await storage.getApiTransactionByReference(req.params.reference);
+      if (!transaction) {
+        return res.status(404).json({ message: "Transaction introuvable" });
+      }
+      // Get the user who created this API transaction
+      const user = await storage.getUser(transaction.userId);
+      res.json({
+        ...transaction,
+        ownerName: user?.fullName || "SendavaPay",
+      });
+    } catch (error) {
+      console.error("Get API transaction error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // Process API payment with SoleasPay
+  app.post("/api/pay-api/:reference", async (req, res) => {
+    try {
+      const { payerName, payerPhone, payerEmail, payerCountry, serviceId } = req.body;
+      const transaction = await storage.getApiTransactionByReference(req.params.reference);
+
+      if (!transaction) {
+        return res.status(404).json({ message: "Transaction introuvable" });
+      }
+
+      if (transaction.status !== "pending") {
+        return res.status(400).json({ message: "Cette transaction n'est plus valide" });
+      }
+
+      const amount = parseFloat(transaction.amount);
+      const currency = getCurrencyByCountry(payerCountry) || "XOF";
+      const service = getServiceById(parseInt(serviceId));
+
+      if (!service) {
+        return res.status(400).json({ message: "Service de paiement invalide" });
+      }
+
+      // Update transaction with customer info
+      await storage.updateApiTransaction(transaction.id, {
+        customerName: payerName,
+        customerPhone: payerPhone,
+        customerEmail: payerEmail,
+        paymentMethod: service.operator,
+        status: "processing",
+      });
+
+      // Initiate SoleasPay payment
+      const payResult = await soleaspay.initiatePayment({
+        amount,
+        currency: currency as "XOF" | "XAF" | "CDF",
+        phoneNumber: payerPhone,
+        serviceId: parseInt(serviceId),
+        description: transaction.description || `Paiement API ${transaction.reference}`,
+      });
+
+      if (!payResult.success) {
+        await storage.updateApiTransaction(transaction.id, { status: "failed" });
+        return res.status(400).json({ message: payResult.error || "Erreur de paiement" });
+      }
+
+      res.json({
+        success: true,
+        payId: payResult.payId,
+        orderId: payResult.orderId,
+        message: "Veuillez confirmer le paiement sur votre téléphone",
+      });
+    } catch (error) {
+      console.error("Process API payment error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // Verify API payment status
+  app.post("/api/pay-api/:reference/verify", async (req, res) => {
+    try {
+      const { payId, orderId } = req.body;
+      const transaction = await storage.getApiTransactionByReference(req.params.reference);
+
+      if (!transaction) {
+        return res.status(404).json({ message: "Transaction introuvable" });
+      }
+
+      const verifyResult = await soleaspay.verifyPayment(payId, orderId);
+
+      if (verifyResult.status === "completed") {
+        // Update transaction status
+        await storage.updateApiTransaction(transaction.id, {
+          status: "completed",
+          completedAt: new Date(),
+          externalReference: payId,
+        });
+
+        // Credit the API owner's balance
+        const amount = parseFloat(transaction.amount);
+        const commissionSettings = await storage.getCommissionSettings();
+        const feeRate = parseFloat(commissionSettings?.depositRate || "7");
+        const fee = (amount * feeRate) / 100;
+        const netAmount = amount - fee;
+
+        await storage.updateUserBalance(transaction.userId, netAmount.toString());
+
+        // Create transaction record for the user
+        await storage.createTransaction({
+          userId: transaction.userId,
+          type: "payment_received",
+          amount: amount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          status: "completed",
+          description: transaction.description || `Paiement API reçu`,
+          externalRef: transaction.reference,
+          payerName: transaction.customerName,
+          payerEmail: transaction.customerEmail,
+          payerCountry: req.body.payerCountry,
+          paymentMethod: transaction.paymentMethod,
+          mobileNumber: transaction.customerPhone,
+        });
+
+        return res.json({ status: "completed", message: "Paiement réussi!" });
+      } else if (verifyResult.status === "failed") {
+        await storage.updateApiTransaction(transaction.id, { status: "failed" });
+        return res.json({ status: "failed", message: "Le paiement a échoué" });
+      }
+
+      res.json({ status: "pending", message: verifyResult.message || "En attente de confirmation" });
+    } catch (error) {
+      console.error("Verify API payment error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.get("/api/pay/:code", async (req, res) => {
     try {
       const link = await storage.getPaymentLinkByCode(req.params.code);
