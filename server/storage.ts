@@ -399,31 +399,42 @@ export class DatabaseStorage implements IStorage {
     const allUsers = await getDb().select().from(users);
     const verifiedUsers = allUsers.filter(u => u.isVerified);
     
-    const allTransactions = await getDb().select().from(transactions).where(eq(transactions.status, "completed"));
-    const deposits = allTransactions.filter(t => t.type === "deposit");
-    const withdrawals = allTransactions.filter(t => t.type === "withdrawal");
+    // Get all transactions (completed and all)
+    const allTransactionsCompleted = await getDb().select().from(transactions).where(eq(transactions.status, "completed"));
+    const allTransactionsTotal = await getDb().select().from(transactions);
+    const deposits = allTransactionsCompleted.filter(t => t.type === "deposit");
+    const withdrawals = allTransactionsCompleted.filter(t => t.type === "withdrawal");
+    const paymentLinkTransactions = allTransactionsCompleted.filter(t => t.paymentLinkId !== null);
     
     const totalDeposits = deposits.reduce((sum, t) => sum + parseFloat(t.amount), 0);
     const totalWithdrawals = withdrawals.reduce((sum, t) => sum + parseFloat(t.amount), 0);
-    const totalCommissions = allTransactions.reduce((sum, t) => sum + parseFloat(t.fee), 0);
+    const totalCommissions = allTransactionsCompleted.reduce((sum, t) => sum + parseFloat(t.fee), 0);
+    const totalAllTransactions = allTransactionsCompleted.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+    const totalPaymentLinkAmount = paymentLinkTransactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
 
-    // Get API transaction commissions
+    // Get API transaction stats
     const allApiTransactions = await getDb().select().from(apiTransactions).where(eq(apiTransactions.status, "completed"));
+    const allApiTransactionsTotal = await getDb().select().from(apiTransactions);
     const apiCommissions = allApiTransactions.reduce((sum, t) => sum + parseFloat(t.fee || "0"), 0);
     const totalApiPayments = allApiTransactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
 
     // Calculate today's commissions (including API)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayCommissions = allTransactions
+    const todayCommissions = allTransactionsCompleted
       .filter(t => new Date(t.createdAt) >= today)
       .reduce((sum, t) => sum + parseFloat(t.fee), 0);
     const todayApiCommissions = allApiTransactions
       .filter(t => t.completedAt && new Date(t.completedAt) >= today)
       .reduce((sum, t) => sum + parseFloat(t.fee || "0"), 0);
 
+    // Get API keys count (total and active)
     const pendingKyc = await getDb().select().from(kycRequests).where(eq(kycRequests.status, "pending"));
-    const activeApiKeysCount = await getDb().select().from(apiKeys).where(eq(apiKeys.isActive, true));
+    const allApiKeysCount = await getDb().select().from(apiKeys);
+    const activeApiKeysCount = allApiKeysCount.filter(k => k.isActive);
+
+    // Get payment links count
+    const allPaymentLinks = await getDb().select().from(paymentLinks);
 
     const settings = await this.getCommissionSettings();
 
@@ -436,10 +447,17 @@ export class DatabaseStorage implements IStorage {
       todayCommissions: (todayCommissions + todayApiCommissions).toString(),
       pendingKyc: pendingKyc.length,
       activeApiKeys: activeApiKeysCount.length,
+      totalApiKeys: allApiKeysCount.length,
       commissionRate: settings?.depositRate || "7",
       apiCommissions: apiCommissions.toString(),
       totalApiPayments: totalApiPayments.toString(),
       apiTransactionsCount: allApiTransactions.length,
+      apiTransactionsTotal: allApiTransactionsTotal.length,
+      totalTransactionsCount: allTransactionsTotal.length,
+      totalTransactionsAmount: totalAllTransactions.toString(),
+      paymentLinkTransactionsCount: paymentLinkTransactions.length,
+      paymentLinkTransactionsAmount: totalPaymentLinkAmount.toString(),
+      totalPaymentLinks: allPaymentLinks.length,
     };
   }
 
