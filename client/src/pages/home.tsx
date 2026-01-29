@@ -424,7 +424,7 @@ export default function HomePage() {
                 Tout ce dont vous avez besoin
               </h2>
               <p className="text-lg text-muted-foreground mb-6">
-                Vente de produits digitaux, création de liens de paiement, monétisation de votre audience. API de paiement disponible pour les développeurs.
+                Vente de produits digitaux, création de liens de paiement, monétisation de votre audience. Intégrez SendavaPay à vos applications grâce à notre API robuste et sécurisée.
               </p>
               <ul className="space-y-3 mb-6">
                 <li className="flex items-center gap-3 text-muted-foreground">
@@ -437,7 +437,7 @@ export default function HomePage() {
                 </li>
                 <li className="flex items-center gap-3 text-muted-foreground">
                   <Check className="h-5 w-5 text-green-500" />
-                  API de paiement (bientôt)
+                  Intégration API SendavaPay
                 </li>
               </ul>
               <Link href="/auth?tab=register">
