@@ -424,7 +424,7 @@ export default function HomePage() {
                 Tout ce dont vous avez besoin
               </h2>
               <p className="text-lg text-muted-foreground mb-6">
-                Vente de produits digitaux, création de liens de paiement, monétisation de votre audience. API de paiement bientôt disponible pour les développeurs.
+                Vente de produits digitaux, création de liens de paiement, monétisation de votre audience. API de paiement disponible pour les développeurs.
               </p>
               <ul className="space-y-3 mb-6">
                 <li className="flex items-center gap-3 text-muted-foreground">
