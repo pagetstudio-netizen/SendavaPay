@@ -350,7 +350,60 @@ router.put("/merchant/webhook-url", async (req: Request, res: Response) => {
 
 // ==================== PUBLIC API ENDPOINTS (v1) ====================
 
-router.post("/v1/create-payment", authenticateApiKey, async (req: Request, res: Response) => {
+// API Info endpoint
+router.get("/v1", async (req: Request, res: Response) => {
+  try {
+    // Check maintenance mode
+    const maintenanceMode = await storage.getSetting("api_docs_maintenance");
+    if (maintenanceMode === "true") {
+      return res.status(503).json({
+        success: false,
+        error: "API en maintenance",
+        message: "L'API est temporairement indisponible pour maintenance. Veuillez réessayer plus tard.",
+        code: "API_MAINTENANCE"
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        name: "SendavaPay API",
+        version: "1.0.0",
+        status: "operational",
+        documentation: "https://sendavapay.com/docs",
+        endpoints: {
+          createPayment: "POST /api/v1/create-payment",
+          verifyPayment: "POST /api/v1/verify-payment",
+          creditAccount: "POST /api/v1/credit-account",
+          getBalance: "GET /api/v1/balance",
+          getTransactions: "GET /api/v1/transactions"
+        }
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: "Erreur serveur" });
+  }
+});
+
+// Middleware to check API maintenance mode
+async function checkApiMaintenance(req: Request, res: Response, next: NextFunction) {
+  try {
+    const maintenanceMode = await storage.getSetting("api_docs_maintenance");
+    if (maintenanceMode === "true") {
+      return res.status(503).json({
+        success: false,
+        error: "API en maintenance",
+        message: "L'API est temporairement indisponible pour maintenance. Veuillez réessayer plus tard.",
+        code: "API_MAINTENANCE"
+      });
+    }
+    next();
+  } catch (error) {
+    next();
+  }
+}
+
+router.post("/v1/create-payment", checkApiMaintenance, authenticateApiKey, async (req: Request, res: Response) => {
   const startTime = Date.now();
   const merchant = req.merchant!;
 
@@ -409,7 +462,7 @@ router.post("/v1/create-payment", authenticateApiKey, async (req: Request, res: 
   }
 });
 
-router.post("/v1/verify-payment", authenticateApiKey, async (req: Request, res: Response) => {
+router.post("/v1/verify-payment", checkApiMaintenance, authenticateApiKey, async (req: Request, res: Response) => {
   const startTime = Date.now();
   const merchant = req.merchant!;
 
@@ -460,7 +513,7 @@ router.post("/v1/verify-payment", authenticateApiKey, async (req: Request, res: 
   }
 });
 
-router.post("/v1/credit-account", authenticateApiKey, async (req: Request, res: Response) => {
+router.post("/v1/credit-account", checkApiMaintenance, authenticateApiKey, async (req: Request, res: Response) => {
   const startTime = Date.now();
   const merchant = req.merchant!;
 
@@ -540,7 +593,7 @@ router.post("/v1/credit-account", authenticateApiKey, async (req: Request, res: 
   }
 });
 
-router.get("/v1/balance", authenticateApiKey, async (req: Request, res: Response) => {
+router.get("/v1/balance", checkApiMaintenance, authenticateApiKey, async (req: Request, res: Response) => {
   const startTime = Date.now();
   const merchant = req.merchant!;
 
@@ -578,7 +631,7 @@ router.get("/v1/balance", authenticateApiKey, async (req: Request, res: Response
   }
 });
 
-router.get("/v1/transactions", authenticateApiKey, async (req: Request, res: Response) => {
+router.get("/v1/transactions", checkApiMaintenance, authenticateApiKey, async (req: Request, res: Response) => {
   const startTime = Date.now();
   const merchant = req.merchant!;
 
