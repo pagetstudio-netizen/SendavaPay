@@ -1548,20 +1548,24 @@ export async function registerRoutes(
         if (uploadResponse.ok) {
           // Clean up local file
           fs.unlinkSync(req.file.path);
+          console.log("Product image uploaded to Object Storage:", objectPath);
           res.json({ imageUrl: objectPath });
           return;
         } else {
-          console.error("Object storage upload failed with status:", uploadResponse.status);
+          const errorText = await uploadResponse.text();
+          console.error("Object storage upload failed:", uploadResponse.status, errorText);
         }
-      } catch (storageError) {
-        console.error("Object storage upload failed:", storageError);
+      } catch (storageError: any) {
+        console.error("Object storage error:", storageError?.message || storageError);
       }
       
-      // Return error if Object Storage fails (no local fallback for production persistence)
-      res.status(500).json({ message: "Erreur lors de l'upload de l'image" });
-    } catch (error) {
-      console.error("Upload product image error:", error);
-      res.status(500).json({ message: "Erreur lors de l'upload" });
+      // Fallback to local storage if Object Storage fails
+      console.log("Using local storage fallback for product image");
+      const imageUrl = `/uploads/products/${req.file.filename}`;
+      res.json({ imageUrl, fallback: true });
+    } catch (error: any) {
+      console.error("Upload product image error:", error?.message || error);
+      res.status(500).json({ message: error?.message || "Erreur lors de l'upload" });
     }
   });
 
@@ -2171,31 +2175,41 @@ export async function registerRoutes(
 
       const { fullName, email, phone, country, documentType } = req.body;
 
-      // Helper function to upload file to Object Storage
-      const uploadToObjectStorage = async (file: Express.Multer.File): Promise<string> => {
-        const objectStorageService = new ObjectStorageService();
-        const { uploadURL, objectPath } = await objectStorageService.getObjectEntityUploadURLWithPath();
-        const fileBuffer = fs.readFileSync(file.path);
-        
-        const uploadResponse = await fetch(uploadURL, {
-          method: "PUT",
-          body: fileBuffer,
-          headers: { "Content-Type": file.mimetype },
-        });
-        
-        if (uploadResponse.ok) {
-          fs.unlinkSync(file.path);
-          return objectPath;
+      // Helper function to upload file to Object Storage with local fallback
+      const uploadToStorage = async (file: Express.Multer.File): Promise<string> => {
+        try {
+          const objectStorageService = new ObjectStorageService();
+          const { uploadURL, objectPath } = await objectStorageService.getObjectEntityUploadURLWithPath();
+          const fileBuffer = fs.readFileSync(file.path);
+          
+          const uploadResponse = await fetch(uploadURL, {
+            method: "PUT",
+            body: fileBuffer,
+            headers: { "Content-Type": file.mimetype },
+          });
+          
+          if (uploadResponse.ok) {
+            fs.unlinkSync(file.path);
+            console.log("KYC file uploaded to Object Storage:", objectPath);
+            return objectPath;
+          }
+          
+          const errorText = await uploadResponse.text();
+          console.error("Object storage upload failed:", uploadResponse.status, errorText);
+        } catch (storageError: any) {
+          console.error("Object storage error:", storageError?.message || storageError);
         }
         
-        throw new Error(`Object storage upload failed with status: ${uploadResponse.status}`);
+        // Fallback to local storage - use consistent URL format
+        console.log("Using local storage fallback for KYC file:", file.filename);
+        return `/uploads/kyc/${file.filename}`;
       };
 
-      // Upload all files to Object Storage
+      // Upload all files to Object Storage (with local fallback)
       const [documentFrontPath, documentBackPath, selfiePath] = await Promise.all([
-        uploadToObjectStorage(files.documentFront[0]),
-        uploadToObjectStorage(files.documentBack[0]),
-        uploadToObjectStorage(files.selfie[0]),
+        uploadToStorage(files.documentFront[0]),
+        uploadToStorage(files.documentBack[0]),
+        uploadToStorage(files.selfie[0]),
       ]);
 
       const kyc = await storage.createKycRequest({
