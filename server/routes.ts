@@ -13,6 +13,7 @@ import { leekpay } from "./leekpay";
 import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById } from "./soleaspay";
 import { isDatabaseConnected } from "./db";
 import merchantApi from "./merchant-api";
+import { registerObjectStorageRoutes, ObjectStorageService } from "./replit_integrations/object_storage";
 
 function requireDatabase(req: Request, res: Response, next: NextFunction) {
   if (!isDatabaseConnected()) {
@@ -124,6 +125,9 @@ export async function registerRoutes(
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567";
   app.use(`/object-storage/${bucketId}`, express.static(`/${bucketId}`));
   app.use("/uploads", express.static("uploads"));
+
+  // Register object storage routes for permanent file storage
+  registerObjectStorageRoutes(app);
 
   app.use("/api", (req, res, next) => {
     if (req.path === "/health") {
@@ -1529,9 +1533,32 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Aucune image fournie" });
       }
       
-      const imageUrl = `/uploads/products/${req.file.filename}`;
+      // Upload to Object Storage for permanent storage
+      const objectStorageService = new ObjectStorageService();
+      try {
+        const { uploadURL, objectPath } = await objectStorageService.getObjectEntityUploadURLWithPath();
+        const fileBuffer = fs.readFileSync(req.file.path);
+        
+        const uploadResponse = await fetch(uploadURL, {
+          method: "PUT",
+          body: fileBuffer,
+          headers: { "Content-Type": req.file.mimetype },
+        });
+        
+        if (uploadResponse.ok) {
+          // Clean up local file
+          fs.unlinkSync(req.file.path);
+          res.json({ imageUrl: objectPath });
+          return;
+        } else {
+          console.error("Object storage upload failed with status:", uploadResponse.status);
+        }
+      } catch (storageError) {
+        console.error("Object storage upload failed:", storageError);
+      }
       
-      res.json({ imageUrl });
+      // Return error if Object Storage fails (no local fallback for production persistence)
+      res.status(500).json({ message: "Erreur lors de l'upload de l'image" });
     } catch (error) {
       console.error("Upload product image error:", error);
       res.status(500).json({ message: "Erreur lors de l'upload" });
@@ -2144,6 +2171,33 @@ export async function registerRoutes(
 
       const { fullName, email, phone, country, documentType } = req.body;
 
+      // Helper function to upload file to Object Storage
+      const uploadToObjectStorage = async (file: Express.Multer.File): Promise<string> => {
+        const objectStorageService = new ObjectStorageService();
+        const { uploadURL, objectPath } = await objectStorageService.getObjectEntityUploadURLWithPath();
+        const fileBuffer = fs.readFileSync(file.path);
+        
+        const uploadResponse = await fetch(uploadURL, {
+          method: "PUT",
+          body: fileBuffer,
+          headers: { "Content-Type": file.mimetype },
+        });
+        
+        if (uploadResponse.ok) {
+          fs.unlinkSync(file.path);
+          return objectPath;
+        }
+        
+        throw new Error(`Object storage upload failed with status: ${uploadResponse.status}`);
+      };
+
+      // Upload all files to Object Storage
+      const [documentFrontPath, documentBackPath, selfiePath] = await Promise.all([
+        uploadToObjectStorage(files.documentFront[0]),
+        uploadToObjectStorage(files.documentBack[0]),
+        uploadToObjectStorage(files.selfie[0]),
+      ]);
+
       const kyc = await storage.createKycRequest({
         userId: req.session.userId!,
         fullName,
@@ -2151,9 +2205,9 @@ export async function registerRoutes(
         phone,
         country,
         documentType,
-        documentFrontPath: `/${files.documentFront[0].path}`,
-        documentBackPath: `/${files.documentBack[0].path}`,
-        selfiePath: `/${files.selfie[0].path}`,
+        documentFrontPath,
+        documentBackPath,
+        selfiePath,
       });
 
       res.json(kyc);
