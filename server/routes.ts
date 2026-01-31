@@ -3508,12 +3508,12 @@ export async function registerRoutes(
       
       await storage.createTransaction({
         userId,
-        type: operation === "add" ? "credit_admin" : "debit_admin",
+        type: operation === "add" ? "deposit" : "withdrawal",
         amount: numericAmount.toString(),
         fee: "0",
         netAmount: numericAmount.toString(),
         status: "completed",
-        description: `Modification admin: ${reason}`,
+        description: `Ajustement admin: ${reason}`,
       });
       
       await storage.createAuditLog({
