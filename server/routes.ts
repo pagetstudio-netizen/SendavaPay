@@ -14,6 +14,15 @@ import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountr
 import { isDatabaseConnected } from "./db";
 import merchantApi from "./merchant-api";
 import { registerObjectStorageRoutes, ObjectStorageService } from "./replit_integrations/object_storage";
+import { 
+  sendWelcomeEmail, 
+  sendPaymentReceivedEmail, 
+  sendWithdrawalEmail,
+  sendKycApprovedEmail,
+  sendKycRejectedEmail,
+  sendTransferReceivedEmail,
+  sendDepositEmail
+} from "./email";
 
 function requireDatabase(req: Request, res: Response, next: NextFunction) {
   if (!isDatabaseConnected()) {
@@ -168,6 +177,12 @@ export async function registerRoutes(
 
       req.session.userId = user.id;
       const { password: _, ...userWithoutPassword } = user;
+      
+      // Send welcome email (non-blocking)
+      sendWelcomeEmail(email, fullName).catch(err => 
+        console.error("Failed to send welcome email:", err)
+      );
+      
       res.json(userWithoutPassword);
     } catch (error) {
       console.error("Register error:", error);
@@ -1461,6 +1476,19 @@ export async function registerRoutes(
         processedAt: new Date(),
       });
       
+      // Send withdrawal confirmation email
+      const user = await storage.getUser(withdrawalRequest.userId);
+      if (user?.email) {
+        sendWithdrawalEmail(user.email, {
+          userName: user.fullName,
+          amount: parseFloat(withdrawalRequest.netAmount),
+          currency: "XOF",
+          transactionId: requestId.toString(),
+          phone: withdrawalRequest.mobileNumber,
+          operator: withdrawalRequest.paymentMethod || "Mobile Money"
+        }).catch(err => console.error("Failed to send withdrawal email:", err));
+      }
+      
       console.log("✅ Withdrawal approved for user", withdrawalRequest.userId, "Amount:", withdrawalRequest.amount);
       res.json({ message: "Retrait approuvé et traité avec succès" });
     } catch (error) {
@@ -2289,6 +2317,14 @@ export async function registerRoutes(
 
       if (kyc) {
         await storage.updateUser(kyc.userId, { isVerified: true });
+        
+        // Send KYC approved email
+        const user = await storage.getUser(kyc.userId);
+        if (user?.email) {
+          sendKycApprovedEmail(user.email, user.fullName).catch(err =>
+            console.error("Failed to send KYC approved email:", err)
+          );
+        }
       }
 
       res.json(kyc);
@@ -2308,6 +2344,16 @@ export async function registerRoutes(
         reviewedBy: req.session.userId!,
         reviewedAt: new Date(),
       });
+
+      if (kyc) {
+        // Send KYC rejected email
+        const user = await storage.getUser(kyc.userId);
+        if (user?.email) {
+          sendKycRejectedEmail(user.email, user.fullName, reason).catch(err =>
+            console.error("Failed to send KYC rejected email:", err)
+          );
+        }
+      }
 
       res.json(kyc);
     } catch (error) {
@@ -2908,6 +2954,19 @@ export async function registerRoutes(
             // Créditer le solde de l'utilisateur
             await storage.updateUserBalance(leekpayPayment.userId, netAmount.toString());
             
+            // Send deposit confirmation email
+            const depositUser = await storage.getUser(leekpayPayment.userId);
+            if (depositUser?.email) {
+              sendDepositEmail(depositUser.email, {
+                userName: depositUser.fullName,
+                amount: netAmount,
+                currency: paymentCurrency || "XOF",
+                transactionId: paymentReference!,
+                phone: leekpayPayment.payerPhone || "",
+                operator: leekpayPayment.paymentMethod || "Mobile Money"
+              }).catch(err => console.error("Failed to send deposit email:", err));
+            }
+            
             console.log(`✅ Paiement confirmé pour utilisateur #${leekpayPayment.userId}: référence=${paymentReference}, montant=${netAmount} ${paymentCurrency}`);
           } else if (leekpayPayment.type === "payment_link" && leekpayPayment.paymentLinkId) {
             const link = await storage.getPaymentLink(leekpayPayment.paymentLinkId);
@@ -2924,7 +2983,7 @@ export async function registerRoutes(
               // Créditer le solde du marchand
               await storage.updateUserBalance(link.userId, netAmount.toString());
 
-              await storage.createTransaction({
+              const transaction = await storage.createTransaction({
                 userId: link.userId,
                 type: "payment_received",
                 amount: amount.toString(),
@@ -2940,6 +2999,19 @@ export async function registerRoutes(
                 paymentLinkId: link.id,
                 externalRef: paymentReference,
               });
+              
+              // Send payment received email to merchant
+              const merchant = await storage.getUser(link.userId);
+              if (merchant?.email) {
+                sendPaymentReceivedEmail(merchant.email, {
+                  merchantName: merchant.fullName,
+                  amount: netAmount,
+                  currency: paymentCurrency || "XOF",
+                  transactionId: transaction?.id?.toString() || paymentReference!,
+                  payerPhone: leekpayPayment.payerPhone || "",
+                  paymentLinkTitle: link.title
+                }).catch(err => console.error("Failed to send payment received email:", err));
+              }
               
               console.log(`✅ Paiement confirmé pour marchand #${link.userId}: référence=${paymentReference}, montant=${netAmount} ${paymentCurrency}`);
             }
@@ -3478,6 +3550,27 @@ export async function registerRoutes(
       return originalSend(body);
     };
     next();
+  });
+
+  // Test email endpoint (admin only)
+  app.post("/api/admin/test-email", requireAdmin, async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({ message: "Email requis" });
+      }
+      
+      const result = await sendWelcomeEmail(email, "Test User");
+      
+      if (result.success) {
+        res.json({ message: "Email de test envoyé avec succès", success: true });
+      } else {
+        res.status(500).json({ message: result.error || "Échec de l'envoi", success: false });
+      }
+    } catch (error: any) {
+      console.error("Test email error:", error);
+      res.status(500).json({ message: error.message || "Erreur lors de l'envoi de l'email de test" });
+    }
   });
 
   return httpServer;
