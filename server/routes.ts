@@ -561,6 +561,19 @@ export async function registerRoutes(
 
           console.log(`✅ SoleasPay: Dépôt confirmé pour utilisateur #${existingPayment.userId}: ${netAmount} ${existingPayment.currency}`);
 
+          // Envoyer email de confirmation de dépôt
+          const depositUser = await storage.getUser(existingPayment.userId);
+          if (depositUser?.email) {
+            sendDepositEmail(depositUser.email, {
+              userName: depositUser.fullName,
+              amount: netAmount,
+              currency: existingPayment.currency || "XOF",
+              transactionId: payId,
+              phone: existingPayment.payerPhone || "",
+              operator: existingPayment.paymentMethod || "Mobile Money"
+            }).catch(err => console.error("Failed to send deposit email:", err));
+          }
+
           return res.json({ 
             status: "SUCCESS", 
             message: `Paiement confirmé! ${netAmount} ${existingPayment.currency} crédités sur votre compte.`,
@@ -744,6 +757,19 @@ export async function registerRoutes(
           await storage.updateUserBalance(link.userId, netAmount.toString());
 
           console.log(`✅ SoleasPay: Paiement lien confirmé pour vendeur #${link.userId}: ${netAmount} ${existingPayment.currency}`);
+
+          // Envoyer email de paiement reçu au vendeur
+          const merchant = await storage.getUser(link.userId);
+          if (merchant?.email) {
+            sendPaymentReceivedEmail(merchant.email, {
+              merchantName: merchant.fullName,
+              amount: netAmount,
+              currency: existingPayment.currency || "XOF",
+              transactionId: payId,
+              payerPhone: existingPayment.payerPhone || "",
+              paymentLinkTitle: link.title
+            }).catch(err => console.error("Failed to send payment received email:", err));
+          }
 
           return res.json({ 
             status: "SUCCESS", 
@@ -1837,6 +1863,19 @@ export async function registerRoutes(
         });
 
         console.log(`✅ SoleasPay API: Paiement confirmé pour utilisateur #${transaction.userId}: ${netAmount}`);
+
+        // Envoyer email de paiement reçu au marchand API
+        const apiMerchant = await storage.getUser(transaction.userId);
+        if (apiMerchant?.email) {
+          sendPaymentReceivedEmail(apiMerchant.email, {
+            merchantName: apiMerchant.fullName,
+            amount: netAmount,
+            currency: transaction.currency || "XOF",
+            transactionId: transaction.reference,
+            payerPhone: transaction.customerPhone || "",
+            paymentLinkTitle: transaction.description || "Paiement API"
+          }).catch(err => console.error("Failed to send API payment received email:", err));
+        }
 
         // Send webhook callback to merchant if callbackUrl is configured
         if (transaction.callbackUrl) {
