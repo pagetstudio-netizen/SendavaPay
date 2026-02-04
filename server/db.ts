@@ -16,8 +16,11 @@ if (!databaseUrl) {
   pool = new Pool({ 
     connectionString: databaseUrl,
     max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
+    min: 2,
+    idleTimeoutMillis: 60000,
+    connectionTimeoutMillis: 15000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
   });
 
   pool.on('error', (err) => {
@@ -31,8 +34,22 @@ if (!databaseUrl) {
 
   db = drizzle(pool, { schema });
   
-  // Assume connected if pool is initialized - will be validated on first use
   dbConnected = true;
+  
+  // Keep connection alive with periodic ping every 30 seconds
+  setInterval(async () => {
+    if (pool) {
+      try {
+        const client = await pool.connect();
+        await client.query('SELECT 1');
+        client.release();
+        dbConnected = true;
+      } catch (err) {
+        console.error('Database keepalive failed:', (err as Error).message);
+        dbConnected = false;
+      }
+    }
+  }, 30000);
 }
 
 export { pool, db };
