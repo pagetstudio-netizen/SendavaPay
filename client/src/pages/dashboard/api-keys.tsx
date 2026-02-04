@@ -18,6 +18,7 @@ export default function ApiKeysPage() {
   const { toast } = useToast();
   const [newKeyName, setNewKeyName] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
+  const [redirectUrl, setRedirectUrl] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const { data: maintenanceStatus, isLoading: maintenanceLoading } = useQuery<{ enabled: boolean }>({
@@ -31,7 +32,7 @@ export default function ApiKeysPage() {
   });
 
   const createKeyMutation = useMutation({
-    mutationFn: async (data: { name: string; webhookUrl?: string }) => {
+    mutationFn: async (data: { name: string; webhookUrl?: string; redirectUrl?: string }) => {
       const res = await apiRequest("POST", "/api/api-keys", data);
       return res.json();
     },
@@ -39,6 +40,7 @@ export default function ApiKeysPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/api-keys"] });
       setNewKeyName("");
       setWebhookUrl("");
+      setRedirectUrl("");
       toast({ title: "Clé créée", description: "Votre nouvelle clé API a été créée" });
     },
     onError: () => {
@@ -74,6 +76,7 @@ export default function ApiKeysPage() {
     createKeyMutation.mutate({
       name: newKeyName.trim(),
       webhookUrl: webhookUrl.trim() || undefined,
+      redirectUrl: redirectUrl.trim() || undefined,
     });
   };
 
@@ -209,6 +212,21 @@ export default function ApiKeysPage() {
             </div>
             
             <div className="space-y-2">
+              <Label htmlFor="redirectUrl">URL de redirection (après paiement)</Label>
+              <Input
+                id="redirectUrl"
+                type="url"
+                placeholder="https://monsite.com/paiement/succes"
+                value={redirectUrl}
+                onChange={(e) => setRedirectUrl(e.target.value)}
+                data-testid="input-redirect-url"
+              />
+              <p className="text-xs text-muted-foreground">
+                L'utilisateur sera redirigé vers cette URL après un paiement réussi
+              </p>
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="webhookUrl">URL de webhook (notification automatique)</Label>
               <Input
                 id="webhookUrl"
@@ -308,14 +326,23 @@ export default function ApiKeysPage() {
                         </Button>
                       </div>
                     </div>
-                    {key.webhookUrl && (
+                    {(key.redirectUrl || key.webhookUrl) && (
                       <div className="space-y-2 border-t pt-3">
                         <div className="flex flex-wrap gap-4 text-xs">
-                          <div className="flex items-center gap-1 text-muted-foreground">
-                            <Bell className="h-3 w-3" />
-                            <span>Webhook:</span>
-                            <span className="font-mono truncate max-w-[200px]">{key.webhookUrl}</span>
-                          </div>
+                          {key.redirectUrl && (
+                            <div className="flex items-center gap-1 text-muted-foreground">
+                              <ExternalLink className="h-3 w-3" />
+                              <span>Redirection:</span>
+                              <span className="font-mono truncate max-w-[200px]">{key.redirectUrl}</span>
+                            </div>
+                          )}
+                          {key.webhookUrl && (
+                            <div className="flex items-center gap-1 text-muted-foreground">
+                              <Bell className="h-3 w-3" />
+                              <span>Webhook:</span>
+                              <span className="font-mono truncate max-w-[200px]">{key.webhookUrl}</span>
+                            </div>
+                          )}
                         </div>
                         {key.webhookSecret && (
                           <div className="flex items-center gap-2 text-xs">
