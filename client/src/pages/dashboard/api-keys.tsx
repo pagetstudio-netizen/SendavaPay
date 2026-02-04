@@ -10,14 +10,13 @@ import { useAuth } from "@/lib/auth-context";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Key, Shield, Code2, Loader2, Copy, Check, Trash2, Plus, ExternalLink, Wrench, ArrowLeft, Link2, Bell } from "lucide-react";
+import { Key, Shield, Code2, Loader2, Copy, Check, Trash2, Plus, ExternalLink, Wrench, ArrowLeft, Bell } from "lucide-react";
 import type { ApiKey } from "@shared/schema";
 
 export default function ApiKeysPage() {
   const { user, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const [newKeyName, setNewKeyName] = useState("");
-  const [redirectUrl, setRedirectUrl] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -32,14 +31,13 @@ export default function ApiKeysPage() {
   });
 
   const createKeyMutation = useMutation({
-    mutationFn: async (data: { name: string; redirectUrl?: string; webhookUrl?: string }) => {
+    mutationFn: async (data: { name: string; webhookUrl?: string }) => {
       const res = await apiRequest("POST", "/api/api-keys", data);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/api-keys"] });
       setNewKeyName("");
-      setRedirectUrl("");
       setWebhookUrl("");
       toast({ title: "Clé créée", description: "Votre nouvelle clé API a été créée" });
     },
@@ -75,7 +73,6 @@ export default function ApiKeysPage() {
     }
     createKeyMutation.mutate({
       name: newKeyName.trim(),
-      redirectUrl: redirectUrl.trim() || undefined,
       webhookUrl: webhookUrl.trim() || undefined,
     });
   };
@@ -212,21 +209,6 @@ export default function ApiKeysPage() {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="redirectUrl">URL de redirection (après paiement réussi)</Label>
-              <Input
-                id="redirectUrl"
-                type="url"
-                placeholder="https://monsite.com/paiement-reussi"
-                value={redirectUrl}
-                onChange={(e) => setRedirectUrl(e.target.value)}
-                data-testid="input-redirect-url"
-              />
-              <p className="text-xs text-muted-foreground">
-                L'utilisateur sera redirigé vers cette URL après un paiement réussi
-              </p>
-            </div>
-            
-            <div className="space-y-2">
               <Label htmlFor="webhookUrl">URL de webhook (notification automatique)</Label>
               <Input
                 id="webhookUrl"
@@ -326,23 +308,14 @@ export default function ApiKeysPage() {
                         </Button>
                       </div>
                     </div>
-                    {(key.redirectUrl || key.webhookUrl) && (
+                    {key.webhookUrl && (
                       <div className="space-y-2 border-t pt-3">
                         <div className="flex flex-wrap gap-4 text-xs">
-                          {key.redirectUrl && (
-                            <div className="flex items-center gap-1 text-muted-foreground">
-                              <Link2 className="h-3 w-3" />
-                              <span>Redirection:</span>
-                              <span className="font-mono truncate max-w-[200px]">{key.redirectUrl}</span>
-                            </div>
-                          )}
-                          {key.webhookUrl && (
-                            <div className="flex items-center gap-1 text-muted-foreground">
-                              <Bell className="h-3 w-3" />
-                              <span>Webhook:</span>
-                              <span className="font-mono truncate max-w-[200px]">{key.webhookUrl}</span>
-                            </div>
-                          )}
+                          <div className="flex items-center gap-1 text-muted-foreground">
+                            <Bell className="h-3 w-3" />
+                            <span>Webhook:</span>
+                            <span className="font-mono truncate max-w-[200px]">{key.webhookUrl}</span>
+                          </div>
                         </div>
                         {key.webhookSecret && (
                           <div className="flex items-center gap-2 text-xs">
