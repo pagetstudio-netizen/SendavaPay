@@ -10,13 +10,15 @@ import { useAuth } from "@/lib/auth-context";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Key, Shield, Code2, Loader2, Copy, Check, Trash2, Plus, ExternalLink, Wrench, ArrowLeft } from "lucide-react";
+import { Key, Shield, Code2, Loader2, Copy, Check, Trash2, Plus, ExternalLink, Wrench, ArrowLeft, Link2, Bell } from "lucide-react";
 import type { ApiKey } from "@shared/schema";
 
 export default function ApiKeysPage() {
   const { user, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const [newKeyName, setNewKeyName] = useState("");
+  const [redirectUrl, setRedirectUrl] = useState("");
+  const [webhookUrl, setWebhookUrl] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const { data: maintenanceStatus, isLoading: maintenanceLoading } = useQuery<{ enabled: boolean }>({
@@ -30,13 +32,15 @@ export default function ApiKeysPage() {
   });
 
   const createKeyMutation = useMutation({
-    mutationFn: async (name: string) => {
-      const res = await apiRequest("POST", "/api/api-keys", { name });
+    mutationFn: async (data: { name: string; redirectUrl?: string; webhookUrl?: string }) => {
+      const res = await apiRequest("POST", "/api/api-keys", data);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/api-keys"] });
       setNewKeyName("");
+      setRedirectUrl("");
+      setWebhookUrl("");
       toast({ title: "Clé créée", description: "Votre nouvelle clé API a été créée" });
     },
     onError: () => {
@@ -69,7 +73,11 @@ export default function ApiKeysPage() {
       toast({ title: "Erreur", description: "Veuillez entrer un nom pour la clé", variant: "destructive" });
       return;
     }
-    createKeyMutation.mutate(newKeyName.trim());
+    createKeyMutation.mutate({
+      name: newKeyName.trim(),
+      redirectUrl: redirectUrl.trim() || undefined,
+      webhookUrl: webhookUrl.trim() || undefined,
+    });
   };
 
   if (authLoading || maintenanceLoading) {
@@ -188,35 +196,64 @@ export default function ApiKeysPage() {
               Créer une nouvelle clé
             </CardTitle>
             <CardDescription>
-              Donnez un nom à votre clé pour l'identifier facilement
+              Configurez votre clé API avec les URLs de redirection et webhook
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <div className="flex-1">
-                <Label htmlFor="keyName" className="sr-only">Nom de la clé</Label>
-                <Input
-                  id="keyName"
-                  placeholder="Ex: Mon site e-commerce"
-                  value={newKeyName}
-                  onChange={(e) => setNewKeyName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleCreateKey()}
-                  data-testid="input-key-name"
-                />
-              </div>
-              <Button 
-                onClick={handleCreateKey} 
-                disabled={createKeyMutation.isPending}
-                data-testid="button-create-key"
-              >
-                {createKeyMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Key className="h-4 w-4 mr-2" />
-                )}
-                Générer
-              </Button>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="keyName">Nom de la clé *</Label>
+              <Input
+                id="keyName"
+                placeholder="Ex: Mon site e-commerce"
+                value={newKeyName}
+                onChange={(e) => setNewKeyName(e.target.value)}
+                data-testid="input-key-name"
+              />
             </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="redirectUrl">URL de redirection (après paiement réussi)</Label>
+              <Input
+                id="redirectUrl"
+                type="url"
+                placeholder="https://monsite.com/paiement-reussi"
+                value={redirectUrl}
+                onChange={(e) => setRedirectUrl(e.target.value)}
+                data-testid="input-redirect-url"
+              />
+              <p className="text-xs text-muted-foreground">
+                L'utilisateur sera redirigé vers cette URL après un paiement réussi
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="webhookUrl">URL de webhook (notification automatique)</Label>
+              <Input
+                id="webhookUrl"
+                type="url"
+                placeholder="https://monsite.com/api/webhook/sendavapay"
+                value={webhookUrl}
+                onChange={(e) => setWebhookUrl(e.target.value)}
+                data-testid="input-webhook-url"
+              />
+              <p className="text-xs text-muted-foreground">
+                SendavaPay enverra une notification POST à cette URL lors de chaque paiement
+              </p>
+            </div>
+            
+            <Button 
+              onClick={handleCreateKey} 
+              disabled={createKeyMutation.isPending}
+              className="w-full sm:w-auto"
+              data-testid="button-create-key"
+            >
+              {createKeyMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Key className="h-4 w-4 mr-2" />
+              )}
+              Générer la clé API
+            </Button>
           </CardContent>
         </Card>
 
@@ -246,47 +283,90 @@ export default function ApiKeysPage() {
                 {apiKeys.map((key) => (
                   <div 
                     key={key.id} 
-                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border rounded-lg"
+                    className="flex flex-col gap-3 p-4 border rounded-lg"
                     data-testid={`api-key-${key.id}`}
                   >
-                    <div className="space-y-1 flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{key.name}</span>
-                        <Badge variant={key.isActive ? "default" : "secondary"}>
-                          {key.isActive ? "Active" : "Inactive"}
-                        </Badge>
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                      <div className="space-y-1 flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{key.name}</span>
+                          <Badge variant={key.isActive ? "default" : "secondary"}>
+                            {key.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                        </div>
+                        <code className="text-sm text-muted-foreground font-mono block truncate">
+                          {key.apiKey}
+                        </code>
+                        <p className="text-xs text-muted-foreground">
+                          Créée le {new Date(key.createdAt).toLocaleDateString("fr-FR")}
+                          {key.requestCount > 0 && ` • ${key.requestCount} requêtes`}
+                        </p>
                       </div>
-                      <code className="text-sm text-muted-foreground font-mono block truncate">
-                        {key.apiKey}
-                      </code>
-                      <p className="text-xs text-muted-foreground">
-                        Créée le {new Date(key.createdAt).toLocaleDateString("fr-FR")}
-                        {key.requestCount > 0 && ` • ${key.requestCount} requêtes`}
-                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => copyToClipboard(key.apiKey)}
+                          data-testid={`button-copy-${key.id}`}
+                        >
+                          {copiedKey === key.apiKey ? (
+                            <Check className="h-4 w-4" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => deleteKeyMutation.mutate(key.id)}
+                          disabled={deleteKeyMutation.isPending}
+                          data-testid={`button-delete-${key.id}`}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => copyToClipboard(key.apiKey)}
-                        data-testid={`button-copy-${key.id}`}
-                      >
-                        {copiedKey === key.apiKey ? (
-                          <Check className="h-4 w-4" />
-                        ) : (
-                          <Copy className="h-4 w-4" />
+                    {(key.redirectUrl || key.webhookUrl) && (
+                      <div className="space-y-2 border-t pt-3">
+                        <div className="flex flex-wrap gap-4 text-xs">
+                          {key.redirectUrl && (
+                            <div className="flex items-center gap-1 text-muted-foreground">
+                              <Link2 className="h-3 w-3" />
+                              <span>Redirection:</span>
+                              <span className="font-mono truncate max-w-[200px]">{key.redirectUrl}</span>
+                            </div>
+                          )}
+                          {key.webhookUrl && (
+                            <div className="flex items-center gap-1 text-muted-foreground">
+                              <Bell className="h-3 w-3" />
+                              <span>Webhook:</span>
+                              <span className="font-mono truncate max-w-[200px]">{key.webhookUrl}</span>
+                            </div>
+                          )}
+                        </div>
+                        {key.webhookSecret && (
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-muted-foreground">Webhook Secret:</span>
+                            <code className="font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded truncate max-w-[200px]">
+                              {key.webhookSecret}
+                            </code>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => copyToClipboard(key.webhookSecret!)}
+                              data-testid={`button-copy-secret-${key.id}`}
+                            >
+                              {copiedKey === key.webhookSecret ? (
+                                <Check className="h-3 w-3" />
+                              ) : (
+                                <Copy className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </div>
                         )}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => deleteKeyMutation.mutate(key.id)}
-                        disabled={deleteKeyMutation.isPending}
-                        data-testid={`button-delete-${key.id}`}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

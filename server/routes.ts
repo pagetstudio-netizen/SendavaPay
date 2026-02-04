@@ -1877,11 +1877,19 @@ export async function registerRoutes(
           }).catch(err => console.error("Failed to send API payment received email:", err));
         }
 
-        // Send webhook callback to merchant if callbackUrl is configured
-        if (transaction.callbackUrl) {
+        // Get API key configuration for fallback URLs
+        const merchantApiKeys = await storage.getApiKeys(transaction.userId);
+        const activeApiKey = merchantApiKeys.find(k => k.isActive);
+        
+        // Use transaction callbackUrl, or fall back to API key webhookUrl
+        const webhookUrlToUse = transaction.callbackUrl || activeApiKey?.webhookUrl;
+        const redirectUrlToUse = activeApiKey?.redirectUrl || null;
+
+        // Send webhook callback to merchant if webhook URL is configured
+        if (webhookUrlToUse) {
           try {
             // Validate URL for security (prevent SSRF)
-            const callbackUrl = new URL(transaction.callbackUrl);
+            const callbackUrl = new URL(webhookUrlToUse);
             const isValidProtocol = callbackUrl.protocol === 'https:' || 
                               (process.env.NODE_ENV === 'development' && callbackUrl.protocol === 'http:');
             
@@ -1903,7 +1911,7 @@ export async function registerRoutes(
             const isBlockedHost = blockedPatterns.some(pattern => pattern.test(hostname));
             
             if (!isValidProtocol) {
-              console.warn(`⚠️ Skipping webhook: Invalid URL protocol for ${transaction.callbackUrl}`);
+              console.warn(`⚠️ Skipping webhook: Invalid URL protocol for ${webhookUrlToUse}`);
             } else if (isBlockedHost) {
               console.warn(`⚠️ Skipping webhook: Blocked host ${hostname} (private/internal IP)`);
             } else {
@@ -1923,14 +1931,26 @@ export async function registerRoutes(
                 completedAt: new Date().toISOString(),
               };
 
-              console.log(`📡 Sending webhook callback to: ${transaction.callbackUrl}`);
+              console.log(`📡 Sending webhook callback to: ${webhookUrlToUse}`);
               
-              fetch(transaction.callbackUrl, {
+              // Create HMAC signature for webhook verification
+              const crypto = await import("crypto");
+              const payloadString = JSON.stringify(webhookPayload);
+              const timestamp = Math.floor(Date.now() / 1000).toString();
+              const signaturePayload = `${timestamp}.${payloadString}`;
+              const webhookSecret = activeApiKey?.webhookSecret || "default_secret";
+              const signature = crypto.createHmac("sha256", webhookSecret)
+                .update(signaturePayload)
+                .digest("hex");
+              
+              fetch(webhookUrlToUse, {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
+                  "X-SendavaPay-Signature": `t=${timestamp},v1=${signature}`,
+                  "X-SendavaPay-Event": "payment.completed",
                 },
-                body: JSON.stringify(webhookPayload),
+                body: payloadString,
               }).then(response => {
                 console.log(`📡 Webhook callback response: ${response.status}`);
                 storage.updateApiTransaction(transaction.id, {
@@ -1954,16 +1974,21 @@ export async function registerRoutes(
         return res.json({ 
           status: "completed", 
           message: "Paiement réussi!",
-          redirectUrl: transaction.callbackUrl || null,
+          redirectUrl: redirectUrlToUse,
           reference: transaction.reference,
           amount: netAmount,
         });
       } else if (verifyResult.status === "FAILURE") {
         await storage.updateApiTransaction(transaction.id, { status: "failed" });
+        
+        // Get redirect URL from API key for failed payments
+        const merchantApiKeys = await storage.getApiKeys(transaction.userId);
+        const activeApiKey = merchantApiKeys.find(k => k.isActive);
+        
         return res.json({ 
           status: "failed", 
           message: "Le paiement a échoué",
-          redirectUrl: transaction.callbackUrl || null,
+          redirectUrl: activeApiKey?.redirectUrl || null,
         });
       }
 
@@ -2191,14 +2216,20 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Compte non vérifié" });
       }
 
-      const { name } = req.body;
+      const { name, redirectUrl, webhookUrl } = req.body;
       if (!name) {
         return res.status(400).json({ message: "Nom requis" });
       }
 
+      const crypto = await import("crypto");
+      const webhookSecret = webhookUrl ? `whsec_${crypto.randomBytes(24).toString("hex")}` : undefined;
+
       const key = await storage.createApiKey({
         userId: req.session.userId!,
         name,
+        redirectUrl: redirectUrl || null,
+        webhookUrl: webhookUrl || null,
+        webhookSecret: webhookSecret || null,
       });
 
       res.json(key);
