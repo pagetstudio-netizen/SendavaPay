@@ -165,7 +165,6 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateApiKey, async
       customerEmail: z.string().email().optional(),
       customerPhone: z.string().optional(),
       customerName: z.string().optional(),
-      redirectUrl: z.string().url().optional(),
       callbackUrl: z.string().url().optional(),
       metadata: z.record(z.any()).optional(),
     });
@@ -186,7 +185,7 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateApiKey, async
       customerPhone: data.customerPhone || null,
       customerName: data.customerName || null,
       callbackUrl: data.callbackUrl || req.apiKeyRecord?.webhookUrl || null,
-      redirectUrl: data.redirectUrl || req.apiKeyRecord?.redirectUrl || null,
+      redirectUrl: null,
       metadata: data.metadata ? JSON.stringify(data.metadata) : null,
       ipAddress: req.ip || null,
       userAgent: req.get('User-Agent') || null,
