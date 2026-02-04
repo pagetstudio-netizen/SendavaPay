@@ -2225,7 +2225,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Compte non vérifié" });
       }
 
-      const { name, webhookUrl } = req.body;
+      const { name, webhookUrl, redirectUrl } = req.body;
       if (!name) {
         return res.status(400).json({ message: "Nom requis" });
       }
@@ -2236,7 +2236,7 @@ export async function registerRoutes(
       const key = await storage.createApiKey({
         userId: req.session.userId!,
         name,
-        redirectUrl: null,
+        redirectUrl: redirectUrl || null,
         webhookUrl: webhookUrl || null,
         webhookSecret: webhookSecret || null,
       });
