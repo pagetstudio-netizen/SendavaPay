@@ -405,34 +405,48 @@ function UsersContent() {
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full min-w-[1000px]">
               <thead className="border-b bg-muted/50">
                 <tr>
                   <th className="text-left p-4 font-medium">ID</th>
                   <th className="text-left p-4 font-medium">Utilisateur</th>
                   <th className="text-left p-4 font-medium">Contact</th>
+                  <th className="text-left p-4 font-medium">Pays</th>
                   <th className="text-left p-4 font-medium">Solde</th>
                   <th className="text-left p-4 font-medium">Statut</th>
+                  <th className="text-left p-4 font-medium">Inscription</th>
                   <th className="text-left p-4 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan={6} className="p-8 text-center"><Skeleton className="h-8 w-full" /></td></tr>
+                  <tr><td colSpan={8} className="p-8 text-center"><Skeleton className="h-8 w-full" /></td></tr>
                 ) : !filteredUsers?.length ? (
-                  <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">Aucun utilisateur trouvé</td></tr>
+                  <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">Aucun utilisateur trouvé</td></tr>
                 ) : filteredUsers.map((user) => (
                   <tr key={user.id} className="border-b hover:bg-muted/30">
                     <td className="p-4 font-mono text-sm">{user.id}</td>
                     <td className="p-4">
                       <p className="font-medium">{user.fullName}</p>
-                      <p className="text-sm text-muted-foreground">
+                      <span className="text-sm text-muted-foreground">
                         {user.role === "admin" ? <Badge variant="default" className="text-xs">Admin</Badge> : "Utilisateur"}
-                      </p>
+                      </span>
                     </td>
                     <td className="p-4">
-                      <p className="text-sm">{user.email}</p>
-                      <p className="text-sm text-muted-foreground">{user.phone}</p>
+                      <div className="flex items-center gap-1 mb-1">
+                        <Mail className="h-3 w-3 text-muted-foreground" />
+                        <p className="text-sm">{user.email}</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Phone className="h-3 w-3 text-muted-foreground" />
+                        <p className="text-sm font-mono">{user.phone}</p>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-1">
+                        <MapPin className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-sm" data-testid={`text-user-country-${user.id}`}>{user.country || "-"}</span>
+                      </div>
                     </td>
                     <td className="p-4">
                       <p className="font-medium">{formatCurrency(user.balance)}</p>
@@ -450,6 +464,12 @@ function UsersContent() {
                         {user.isVerified && <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30">Vérifié</Badge>}
                         {user.isBlocked && <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30">Bloqué</Badge>}
                         {!user.isVerified && !user.isBlocked && <Badge className="bg-gray-100 text-gray-700 dark:bg-gray-900/30">Non vérifié</Badge>}
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground" data-testid={`text-user-registration-${user.id}`}>{formatDate(user.createdAt)}</span>
                       </div>
                     </td>
                     <td className="p-4">
@@ -680,8 +700,19 @@ function TransactionsContent() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showHighValueOnly, setShowHighValueOnly] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
   const { data: transactions, isLoading } = useQuery<Transaction[]>({ queryKey: ["/api/admin/transactions"] });
+  const { data: users, isLoading: usersLoading } = useQuery<UserType[]>({ queryKey: ["/api/admin/users"] });
+  const { data: paymentLinks, isLoading: paymentLinksLoading } = useQuery<PaymentLink[]>({ queryKey: ["/api/admin/payment-links"] });
+  const isDialogDataLoading = usersLoading || paymentLinksLoading;
+
+  const getUserById = (userId: number) => users?.find(u => u.id === userId);
+  const getPaymentLinkById = (id: number | null) => id ? paymentLinks?.find(pl => pl.id === id) : null;
+  
+  const selectedUser = selectedTransaction ? getUserById(selectedTransaction.userId) : null;
+  const selectedPaymentLink = selectedTransaction?.paymentLinkId ? getPaymentLinkById(selectedTransaction.paymentLinkId) : null;
+  const selectedMerchant = selectedPaymentLink ? getUserById(selectedPaymentLink.userId) : null;
 
   const filteredTransactions = useMemo(() => {
     return transactions?.filter((tx) => {
@@ -708,18 +739,27 @@ function TransactionsContent() {
 
   const exportCSV = () => {
     if (!filteredTransactions?.length) return;
-    const headers = ["ID", "User ID", "Type", "Montant", "Frais", "Net", "Statut", "Description", "Date"];
-    const rows = filteredTransactions.map((tx) => [
-      tx.id,
-      tx.userId,
-      typeLabels[tx.type] || tx.type,
-      tx.amount,
-      tx.fee,
-      tx.netAmount,
-      tx.status,
-      tx.description || "",
-      formatDate(tx.createdAt),
-    ]);
+    const headers = ["ID", "User ID", "Utilisateur", "Type", "Montant", "Frais", "Net", "Statut", "Pays", "Moyen de paiement", "Téléphone", "Nom payeur", "Email payeur", "Description", "Date"];
+    const rows = filteredTransactions.map((tx) => {
+      const user = getUserById(tx.userId);
+      return [
+        tx.id,
+        tx.userId,
+        user?.fullName || "-",
+        typeLabels[tx.type] || tx.type,
+        tx.amount,
+        tx.fee,
+        tx.netAmount,
+        tx.status,
+        tx.payerCountry || "-",
+        tx.paymentMethod || "-",
+        tx.mobileNumber || "-",
+        tx.payerName || "-",
+        tx.payerEmail || "-",
+        tx.description || "",
+        formatDate(tx.createdAt),
+      ];
+    });
     const csv = [headers.join(","), ...rows.map(r => r.map(c => `"${c}"`).join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -797,28 +837,40 @@ function TransactionsContent() {
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <div className="max-h-[500px] overflow-y-auto">
-              <table className="w-full min-w-[800px]">
+              <table className="w-full min-w-[1200px]">
                 <thead className="border-b bg-muted/50 sticky top-0">
                   <tr>
                     <th className="text-left p-4 font-medium">ID</th>
-                    <th className="text-left p-4 font-medium">User ID</th>
+                    <th className="text-left p-4 font-medium">Utilisateur</th>
                     <th className="text-left p-4 font-medium">Type</th>
                     <th className="text-left p-4 font-medium">Montant</th>
-                    <th className="text-left p-4 font-medium">Frais</th>
+                    <th className="text-left p-4 font-medium">Pays</th>
+                    <th className="text-left p-4 font-medium">Moyen paiement</th>
+                    <th className="text-left p-4 font-medium">Téléphone</th>
                     <th className="text-left p-4 font-medium">Statut</th>
                     <th className="text-left p-4 font-medium">Date</th>
+                    <th className="text-left p-4 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {isLoading ? (
-                    <tr><td colSpan={7} className="p-8 text-center"><Skeleton className="h-8 w-full" /></td></tr>
+                    <tr><td colSpan={10} className="p-8 text-center"><Skeleton className="h-8 w-full" /></td></tr>
                   ) : !filteredTransactions?.length ? (
-                    <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">Aucune transaction trouvée</td></tr>
-                  ) : filteredTransactions.map((tx) => (
+                    <tr><td colSpan={10} className="p-8 text-center text-muted-foreground">Aucune transaction trouvée</td></tr>
+                  ) : filteredTransactions.map((tx) => {
+                    const user = getUserById(tx.userId);
+                    return (
                     <tr key={tx.id} className={`border-b hover:bg-muted/30 ${isHighValue(tx.amount) ? "bg-orange-50 dark:bg-orange-950/20" : ""}`}>
                       <td className="p-4 font-mono text-sm">{tx.id}</td>
-                      <td className="p-4 font-mono text-sm">{tx.userId}</td>
-                      <td className="p-4">{typeLabels[tx.type] || tx.type}</td>
+                      <td className="p-4">
+                        <div>
+                          <p className="font-medium text-sm">{user?.fullName || "-"}</p>
+                          <p className="text-xs text-muted-foreground">ID: {tx.userId}</p>
+                        </div>
+                      </td>
+                      <td className="p-4">
+                        <Badge variant="outline">{typeLabels[tx.type] || tx.type}</Badge>
+                      </td>
                       <td className="p-4">
                         <div className="flex items-center gap-2">
                           <span className="font-medium">{formatCurrency(tx.amount)}</span>
@@ -828,22 +880,219 @@ function TransactionsContent() {
                             </Badge>
                           )}
                         </div>
+                        <p className="text-xs text-muted-foreground">Frais: {formatCurrency(tx.fee)}</p>
                       </td>
-                      <td className="p-4 text-muted-foreground">{formatCurrency(tx.fee)}</td>
+                      <td className="p-4">
+                        <div className="flex items-center gap-1">
+                          <MapPin className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-sm" data-testid={`text-country-${tx.id}`}>{tx.payerCountry || "-"}</span>
+                        </div>
+                      </td>
+                      <td className="p-4 text-sm">{tx.paymentMethod || "-"}</td>
+                      <td className="p-4">
+                        <div className="flex items-center gap-1">
+                          <Phone className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-sm font-mono" data-testid={`text-phone-${tx.id}`}>{tx.mobileNumber || "-"}</span>
+                        </div>
+                      </td>
                       <td className="p-4">
                         <Badge className={tx.status === "completed" ? "bg-green-100 text-green-700 dark:bg-green-900/30" : tx.status === "pending" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30" : "bg-red-100 text-red-700 dark:bg-red-900/30"}>
                           {tx.status}
                         </Badge>
                       </td>
                       <td className="p-4 text-sm text-muted-foreground whitespace-nowrap">{formatDate(tx.createdAt)}</td>
+                      <td className="p-4">
+                        <Button size="icon" variant="ghost" onClick={() => setSelectedTransaction(tx)} title="Voir détails" data-testid={`button-view-transaction-${tx.id}`}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={!!selectedTransaction} onOpenChange={() => setSelectedTransaction(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-5 w-5" />
+              Détails de la transaction #{selectedTransaction?.id}
+            </DialogTitle>
+            <DialogDescription>
+              Toutes les informations sur cette transaction
+            </DialogDescription>
+          </DialogHeader>
+          {selectedTransaction && isDialogDataLoading && (
+            <div className="space-y-4 py-4">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-3/4" />
+            </div>
+          )}
+          {selectedTransaction && !isDialogDataLoading && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">ID Transaction</p>
+                  <p className="font-mono font-medium">{selectedTransaction.id}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Type</p>
+                  <Badge variant="outline">{typeLabels[selectedTransaction.type] || selectedTransaction.type}</Badge>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Statut</p>
+                  <Badge className={selectedTransaction.status === "completed" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : selectedTransaction.status === "pending" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
+                    {selectedTransaction.status}
+                  </Badge>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Date</p>
+                  <p className="text-sm">{formatDate(selectedTransaction.createdAt)}</p>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Wallet className="h-4 w-4" /> Montants
+                </h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Montant</p>
+                    <p className="font-medium text-lg">{formatCurrency(selectedTransaction.amount)}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Frais</p>
+                    <p className="font-medium">{formatCurrency(selectedTransaction.fee)}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Net</p>
+                    <p className="font-medium">{formatCurrency(selectedTransaction.netAmount)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <User className="h-4 w-4" /> Utilisateur (bénéficiaire)
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">ID Utilisateur</p>
+                    <p className="font-mono">{selectedTransaction.userId}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Nom</p>
+                    <p className="font-medium">{selectedUser?.fullName || "-"}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Email</p>
+                    <p className="text-sm">{selectedUser?.email || "-"}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Téléphone</p>
+                    <p className="font-mono text-sm">{selectedUser?.phone || "-"}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Globe className="h-4 w-4" /> Informations de paiement
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Pays</p>
+                    <div className="flex items-center gap-1">
+                      <MapPin className="h-3 w-3 text-muted-foreground" />
+                      <p>{selectedTransaction.payerCountry || "-"}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Moyen de paiement</p>
+                    <p>{selectedTransaction.paymentMethod || "-"}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Numéro téléphone (payeur)</p>
+                    <div className="flex items-center gap-1">
+                      <Phone className="h-3 w-3 text-muted-foreground" />
+                      <p className="font-mono">{selectedTransaction.mobileNumber || "-"}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Référence externe</p>
+                    <p className="font-mono text-sm">{selectedTransaction.externalRef || "-"}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <User className="h-4 w-4" /> Informations du payeur
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Nom du payeur</p>
+                    <p>{selectedTransaction.payerName || "-"}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Email du payeur</p>
+                    <p className="text-sm">{selectedTransaction.payerEmail || "-"}</p>
+                  </div>
+                </div>
+              </div>
+
+              {selectedPaymentLink && (
+                <div className="border-t pt-4">
+                  <h4 className="font-semibold mb-3 flex items-center gap-2">
+                    <LinkIcon className="h-4 w-4" /> Lien de paiement
+                  </h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">ID Lien</p>
+                      <p className="font-mono">{selectedPaymentLink.id}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm text-muted-foreground">Titre</p>
+                      <p>{selectedPaymentLink.title}</p>
+                    </div>
+                    <div className="space-y-1 col-span-2">
+                      <p className="text-sm text-muted-foreground">Marchand (créateur)</p>
+                      <div className="flex items-center gap-2">
+                        <User className="h-4 w-4 text-muted-foreground" />
+                        <p className="font-medium">{selectedMerchant?.fullName || "-"}</p>
+                        {selectedMerchant && (
+                          <span className="text-sm text-muted-foreground">
+                            ({selectedMerchant.email} - ID: {selectedMerchant.id})
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {selectedTransaction.description && (
+                <div className="border-t pt-4">
+                  <h4 className="font-semibold mb-3 flex items-center gap-2">
+                    <FileText className="h-4 w-4" /> Description
+                  </h4>
+                  <p className="text-sm bg-muted p-3 rounded-md">{selectedTransaction.description}</p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedTransaction(null)} data-testid="button-close-transaction-dialog">
+              Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
