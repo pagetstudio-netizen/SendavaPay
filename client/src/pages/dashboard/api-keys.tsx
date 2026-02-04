@@ -5,6 +5,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -20,6 +30,7 @@ export default function ApiKeysPage() {
   const [webhookUrl, setWebhookUrl] = useState("");
   const [redirectUrl, setRedirectUrl] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [keyToDelete, setKeyToDelete] = useState<ApiKey | null>(null);
 
   const { data: maintenanceStatus, isLoading: maintenanceLoading } = useQuery<{ enabled: boolean }>({
     queryKey: ['/api/api-maintenance-status'],
@@ -318,7 +329,7 @@ export default function ApiKeysPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => deleteKeyMutation.mutate(key.id)}
+                          onClick={() => setKeyToDelete(key)}
                           disabled={deleteKeyMutation.isPending}
                           data-testid={`button-delete-${key.id}`}
                         >
@@ -393,6 +404,38 @@ export default function ApiKeysPage() {
           </CardContent>
         </Card>
       </div>
+
+      <AlertDialog open={!!keyToDelete} onOpenChange={(open) => !open && setKeyToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer cette clé API ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Êtes-vous sûr de vouloir supprimer la clé "{keyToDelete?.name}" ? 
+              Cette action est irréversible et toutes les intégrations utilisant cette clé cesseront de fonctionner.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (keyToDelete) {
+                  deleteKeyMutation.mutate(keyToDelete.id);
+                  setKeyToDelete(null);
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              {deleteKeyMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Supprimer
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }
