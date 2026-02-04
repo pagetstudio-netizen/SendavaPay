@@ -30,12 +30,19 @@ if (!databaseUrl) {
   });
 
   db = drizzle(pool, { schema });
+  
+  // Assume connected if pool is initialized - will be validated on first use
+  dbConnected = true;
 }
 
 export { pool, db };
 
 export function isDatabaseConnected(): boolean {
-  return dbConnected && pool !== null;
+  return pool !== null && dbConnected;
+}
+
+export function setDatabaseConnected(connected: boolean): void {
+  dbConnected = connected;
 }
 
 export async function testDatabaseConnection(retries = 3, delayMs = 2000): Promise<boolean> {
