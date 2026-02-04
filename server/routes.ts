@@ -2654,6 +2654,81 @@ export async function registerRoutes(
     }
   });
 
+  // ========== GLOBAL NOTIFICATIONS ==========
+  app.get("/api/admin/global-notifications", requireAdmin, async (req, res) => {
+    try {
+      const notifications = await storage.getAllGlobalNotifications();
+      res.json(notifications);
+    } catch (error) {
+      console.error("Get global notifications error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/global-notifications", requireAdmin, async (req, res) => {
+    try {
+      const { message, color, buttonText, buttonUrl, isActive } = req.body;
+      if (!message) {
+        return res.status(400).json({ message: "Le message est requis" });
+      }
+      const notification = await storage.createGlobalNotification({
+        message,
+        color: color || "blue",
+        buttonText: buttonText || null,
+        buttonUrl: buttonUrl || null,
+        isActive: isActive !== false,
+        createdBy: req.session.userId,
+      });
+      res.json(notification);
+    } catch (error) {
+      console.error("Create global notification error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.put("/api/admin/global-notifications/:id", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { message, color, buttonText, buttonUrl, isActive } = req.body;
+      const notification = await storage.updateGlobalNotification(id, {
+        message,
+        color,
+        buttonText,
+        buttonUrl,
+        isActive,
+      });
+      if (!notification) {
+        return res.status(404).json({ message: "Notification non trouvée" });
+      }
+      res.json(notification);
+    } catch (error) {
+      console.error("Update global notification error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.delete("/api/admin/global-notifications/:id", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteGlobalNotification(id);
+      res.json({ message: "Notification supprimée" });
+    } catch (error) {
+      console.error("Delete global notification error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // Public endpoint for users to fetch active notifications
+  app.get("/api/global-notifications/active", requireAuth, async (req, res) => {
+    try {
+      const notifications = await storage.getActiveGlobalNotifications();
+      res.json(notifications);
+    } catch (error) {
+      console.error("Get active notifications error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   // ========== MAINTENANCE MODE ==========
   app.get("/api/admin/maintenance", requireAdmin, async (req, res) => {
     try {

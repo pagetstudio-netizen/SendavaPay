@@ -2082,129 +2082,249 @@ function CommissionsContent() {
   );
 }
 
+interface GlobalNotification {
+  id: number;
+  message: string;
+  color: string;
+  buttonText: string | null;
+  buttonUrl: string | null;
+  isActive: boolean;
+  createdBy: number | null;
+  createdAt: string;
+}
+
+const NOTIFICATION_COLORS = [
+  { value: "blue", label: "Bleu", bg: "bg-blue-500", text: "text-white" },
+  { value: "green", label: "Vert", bg: "bg-green-500", text: "text-white" },
+  { value: "yellow", label: "Jaune", bg: "bg-yellow-500", text: "text-black" },
+  { value: "red", label: "Rouge", bg: "bg-red-500", text: "text-white" },
+  { value: "purple", label: "Violet", bg: "bg-purple-500", text: "text-white" },
+  { value: "orange", label: "Orange", bg: "bg-orange-500", text: "text-white" },
+];
+
 function MessagingContent() {
   const { toast } = useToast();
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-  const [targetAudience, setTargetAudience] = useState("all");
+  const [message, setMessage] = useState("");
+  const [color, setColor] = useState("blue");
+  const [buttonText, setButtonText] = useState("");
+  const [buttonUrl, setButtonUrl] = useState("");
 
-  const { data: messages, isLoading } = useQuery<GlobalMessage[]>({
-    queryKey: ["/api/admin/global-messages"],
+  const { data: notifications, isLoading } = useQuery<GlobalNotification[]>({
+    queryKey: ["/api/admin/global-notifications"],
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: { title: string; content: string; targetAudience: string }) => {
-      await apiRequest("POST", "/api/admin/global-messages", data);
+    mutationFn: async (data: { message: string; color: string; buttonText?: string; buttonUrl?: string }) => {
+      await apiRequest("POST", "/api/admin/global-notifications", data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/global-messages"] });
-      toast({ title: "Succès", description: "Message global créé" });
-      setTitle("");
-      setContent("");
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/global-notifications"] });
+      toast({ title: "Succès", description: "Notification créée" });
+      setMessage("");
+      setButtonText("");
+      setButtonUrl("");
     },
     onError: () => {
       toast({ title: "Erreur", description: "Échec de la création", variant: "destructive" });
     },
   });
 
-  const handleSend = () => {
-    if (!title || !content) {
-      toast({ title: "Erreur", description: "Veuillez remplir tous les champs", variant: "destructive" });
+  const toggleMutation = useMutation({
+    mutationFn: async ({ id, isActive }: { id: number; isActive: boolean }) => {
+      await apiRequest("PUT", `/api/admin/global-notifications/${id}`, { isActive });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/global-notifications"] });
+      toast({ title: "Succès", description: "Statut mis à jour" });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Échec de la mise à jour", variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/admin/global-notifications/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/global-notifications"] });
+      toast({ title: "Succès", description: "Notification supprimée" });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Échec de la suppression", variant: "destructive" });
+    },
+  });
+
+  const handleCreate = () => {
+    if (!message.trim()) {
+      toast({ title: "Erreur", description: "Veuillez entrer un message", variant: "destructive" });
       return;
     }
-    createMutation.mutate({ title, content, targetAudience });
+    createMutation.mutate({ 
+      message: message.trim(), 
+      color,
+      buttonText: buttonText.trim() || undefined,
+      buttonUrl: buttonUrl.trim() || undefined,
+    });
   };
 
-  const audienceLabels: Record<string, string> = {
-    all: "Tous les utilisateurs",
-    verified: "Utilisateurs vérifiés",
-    unverified: "Non vérifiés",
+  const getColorClasses = (colorValue: string) => {
+    const colorConfig = NOTIFICATION_COLORS.find(c => c.value === colorValue);
+    return colorConfig || NOTIFICATION_COLORS[0];
   };
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Message global</h1>
-        <p className="text-muted-foreground">Créez des annonces visibles par tous les utilisateurs</p>
+        <h1 className="text-2xl font-bold">Notifications globales</h1>
+        <p className="text-muted-foreground">Créez des bannières de notification visibles par tous les utilisateurs</p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Nouveau message</CardTitle>
-            <CardDescription>Ce message s'affichera pour tous les utilisateurs connectés</CardDescription>
+            <CardTitle>Nouvelle notification</CardTitle>
+            <CardDescription>Cette notification s'affichera en haut de l'écran pour les utilisateurs connectés</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Destinataires</Label>
-              <Select value={targetAudience} onValueChange={setTargetAudience}>
-                <SelectTrigger data-testid="select-target-audience">
+              <Label htmlFor="notification-message">Message</Label>
+              <Textarea
+                id="notification-message"
+                placeholder="Votre message de notification..."
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                rows={3}
+                data-testid="textarea-notification-message"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Couleur de la bannière</Label>
+              <Select value={color} onValueChange={setColor}>
+                <SelectTrigger data-testid="select-notification-color">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Tous les utilisateurs</SelectItem>
-                  <SelectItem value="verified">Utilisateurs vérifiés</SelectItem>
-                  <SelectItem value="unverified">Non vérifiés</SelectItem>
+                  {NOTIFICATION_COLORS.map((c) => (
+                    <SelectItem key={c.value} value={c.value}>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-4 h-4 rounded ${c.bg}`}></div>
+                        <span>{c.label}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="title">Titre</Label>
+              <Label htmlFor="button-text">Texte du bouton (optionnel)</Label>
               <Input
-                id="title"
-                placeholder="Titre du message..."
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                data-testid="input-message-title"
+                id="button-text"
+                placeholder="Ex: Cliquez ici"
+                value={buttonText}
+                onChange={(e) => setButtonText(e.target.value)}
+                data-testid="input-button-text"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="content">Contenu</Label>
-              <Textarea
-                id="content"
-                placeholder="Contenu du message..."
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                rows={4}
-                data-testid="textarea-message-content"
+              <Label htmlFor="button-url">Lien du bouton (optionnel)</Label>
+              <Input
+                id="button-url"
+                placeholder="https://..."
+                value={buttonUrl}
+                onChange={(e) => setButtonUrl(e.target.value)}
+                data-testid="input-button-url"
               />
             </div>
-            <Button onClick={handleSend} disabled={createMutation.isPending} className="w-full" data-testid="button-send-message">
-              <Mail className="h-4 w-4 mr-2" /> Publier le message
+            
+            {message && (
+              <div className="space-y-2">
+                <Label>Aperçu</Label>
+                <div className={`p-3 rounded-md ${getColorClasses(color).bg} ${getColorClasses(color).text} flex items-center justify-between gap-3`}>
+                  <span className="text-sm flex-1">{message}</span>
+                  {buttonText && (
+                    <Button size="sm" variant="secondary" className="shrink-0">
+                      {buttonText}
+                    </Button>
+                  )}
+                  <XCircle className="h-4 w-4 cursor-pointer opacity-70 hover:opacity-100 shrink-0" />
+                </div>
+              </div>
+            )}
+            
+            <Button onClick={handleCreate} disabled={createMutation.isPending} className="w-full" data-testid="button-create-notification">
+              <Plus className="h-4 w-4 mr-2" /> Créer la notification
             </Button>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Historique des messages</CardTitle>
-            <CardDescription>Messages publiés précédemment</CardDescription>
+            <CardTitle>Notifications existantes</CardTitle>
+            <CardDescription>Gérez vos notifications (activer/désactiver ou supprimer)</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
-            <ScrollArea className="h-[400px]">
+            <ScrollArea className="h-[500px]">
               {isLoading ? (
                 <div className="p-4"><Skeleton className="h-20 w-full" /></div>
-              ) : messages && messages.length > 0 ? (
+              ) : notifications && notifications.length > 0 ? (
                 <div className="divide-y">
-                  {messages.map((msg) => (
-                    <div key={msg.id} className="p-4 space-y-2" data-testid={`message-item-${msg.id}`}>
-                      <div className="flex items-center justify-between gap-2">
-                        <Badge variant="secondary">
-                          {audienceLabels[msg.targetAudience] || msg.targetAudience}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {formatDate(msg.createdAt)}
-                        </span>
+                  {notifications.map((notif) => (
+                    <div key={notif.id} className="p-4 space-y-3" data-testid={`notification-item-${notif.id}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className={`p-2 rounded-md ${getColorClasses(notif.color).bg} ${getColorClasses(notif.color).text} flex-1`}>
+                          <p className="text-sm">{notif.message}</p>
+                          {notif.buttonText && (
+                            <div className="mt-2 flex items-center gap-2">
+                              <Button size="sm" variant="secondary">
+                                {notif.buttonText}
+                              </Button>
+                              {notif.buttonUrl && (
+                                <span className="text-xs opacity-70 truncate max-w-[150px]">{notif.buttonUrl}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <h4 className="font-medium">{msg.title}</h4>
-                      <p className="text-sm text-muted-foreground line-clamp-2">{msg.content}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Badge className={notif.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"} data-testid={`badge-status-${notif.id}`}>
+                            {notif.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(notif.createdAt)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2">
+                            <Label htmlFor={`toggle-${notif.id}`} className="text-xs text-muted-foreground">
+                              {notif.isActive ? "Désactiver" : "Activer"}
+                            </Label>
+                            <Switch
+                              id={`toggle-${notif.id}`}
+                              checked={notif.isActive}
+                              onCheckedChange={(checked) => toggleMutation.mutate({ id: notif.id, isActive: checked })}
+                              data-testid={`switch-toggle-${notif.id}`}
+                            />
+                          </div>
+                          <Button
+                            size="icon"
+                            variant="destructive"
+                            onClick={() => deleteMutation.mutate(notif.id)}
+                            disabled={deleteMutation.isPending}
+                            data-testid={`button-delete-${notif.id}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="p-8 text-center text-muted-foreground">
                   <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>Aucun message publié</p>
+                  <p>Aucune notification créée</p>
                 </div>
               )}
             </ScrollArea>

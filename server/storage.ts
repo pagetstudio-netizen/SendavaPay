@@ -27,6 +27,8 @@ import {
   type ApiTransaction,
   type MerchantWebhook,
   type ApiLog,
+  type GlobalNotification,
+  type InsertGlobalNotification,
   users,
   transactions,
   transfers,
@@ -50,6 +52,7 @@ import {
   merchantWebhooks,
   apiLogs,
   statsOffsets,
+  globalNotifications,
   type StatsOffset,
 } from "@shared/schema";
 import { db as dbInstance } from "./db";
@@ -181,6 +184,13 @@ export interface IStorage {
   
   createApiLog(log: Partial<ApiLog>): Promise<ApiLog>;
   getApiLogsByMerchant(merchantId: number): Promise<ApiLog[]>;
+  
+  // Global notifications
+  createGlobalNotification(notification: InsertGlobalNotification): Promise<GlobalNotification>;
+  getAllGlobalNotifications(): Promise<GlobalNotification[]>;
+  getActiveGlobalNotifications(): Promise<GlobalNotification[]>;
+  updateGlobalNotification(id: number, updates: Partial<GlobalNotification>): Promise<GlobalNotification | undefined>;
+  deleteGlobalNotification(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -916,6 +926,28 @@ export class DatabaseStorage implements IStorage {
 
   async getApiLogsByMerchant(merchantId: number): Promise<ApiLog[]> {
     return getDb().select().from(apiLogs).where(eq(apiLogs.merchantId, merchantId)).orderBy(desc(apiLogs.createdAt));
+  }
+
+  async createGlobalNotification(notification: InsertGlobalNotification): Promise<GlobalNotification> {
+    const [newNotification] = await getDb().insert(globalNotifications).values(notification).returning();
+    return newNotification;
+  }
+
+  async getAllGlobalNotifications(): Promise<GlobalNotification[]> {
+    return getDb().select().from(globalNotifications).orderBy(desc(globalNotifications.createdAt));
+  }
+
+  async getActiveGlobalNotifications(): Promise<GlobalNotification[]> {
+    return getDb().select().from(globalNotifications).where(eq(globalNotifications.isActive, true)).orderBy(desc(globalNotifications.createdAt));
+  }
+
+  async updateGlobalNotification(id: number, updates: Partial<GlobalNotification>): Promise<GlobalNotification | undefined> {
+    const [updated] = await getDb().update(globalNotifications).set(updates).where(eq(globalNotifications.id, id)).returning();
+    return updated;
+  }
+
+  async deleteGlobalNotification(id: number): Promise<void> {
+    await getDb().delete(globalNotifications).where(eq(globalNotifications.id, id));
   }
 }
 

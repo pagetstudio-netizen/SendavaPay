@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { GlobalNotificationBanner } from "@/components/global-notification-banner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -226,6 +227,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         </Sidebar>
 
         <main className="flex-1 overflow-auto">
+          <GlobalNotificationBanner />
           <header className="sticky top-0 z-40 flex h-14 items-center gap-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 lg:px-6">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
             <div className="flex-1" />

@@ -585,3 +585,22 @@ export type MerchantWebhook = typeof merchantWebhooks.$inferSelect;
 export type InsertMerchantWebhook = z.infer<typeof insertMerchantWebhookSchema>;
 export type ApiLog = typeof apiLogs.$inferSelect;
 export type InsertApiLog = z.infer<typeof insertApiLogSchema>;
+
+export const globalNotifications = pgTable("global_notifications", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  message: text("message").notNull(),
+  color: text("color").notNull().default("blue"),
+  buttonText: text("button_text"),
+  buttonUrl: text("button_url"),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertGlobalNotificationSchema = createInsertSchema(globalNotifications).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type GlobalNotification = typeof globalNotifications.$inferSelect;
+export type InsertGlobalNotification = z.infer<typeof insertGlobalNotificationSchema>;
