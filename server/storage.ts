@@ -90,6 +90,7 @@ export interface IStorage {
   
   getApiKeys(userId: number): Promise<ApiKey[]>;
   getAllApiKeys(): Promise<ApiKey[]>;
+  getApiKeyById(id: number): Promise<ApiKey | undefined>;
   getApiKeyByKey(key: string): Promise<ApiKey | undefined>;
   createApiKey(apiKey: InsertApiKey): Promise<ApiKey>;
   updateApiKey(id: number, updates: Partial<ApiKey>): Promise<ApiKey | undefined>;
@@ -308,6 +309,11 @@ export class DatabaseStorage implements IStorage {
 
   async getApiKeys(userId: number): Promise<ApiKey[]> {
     return getDb().select().from(apiKeys).where(eq(apiKeys.userId, userId)).orderBy(desc(apiKeys.createdAt));
+  }
+
+  async getApiKeyById(id: number): Promise<ApiKey | undefined> {
+    const [apiKey] = await getDb().select().from(apiKeys).where(eq(apiKeys.id, id));
+    return apiKey;
   }
 
   async getApiKeyByKey(key: string): Promise<ApiKey | undefined> {

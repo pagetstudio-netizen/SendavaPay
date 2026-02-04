@@ -1877,13 +1877,15 @@ export async function registerRoutes(
           }).catch(err => console.error("Failed to send API payment received email:", err));
         }
 
-        // Get API key configuration for fallback URLs
-        const merchantApiKeys = await storage.getApiKeys(transaction.userId);
-        const activeApiKey = merchantApiKeys.find(k => k.isActive);
+        // Get API key configuration using the apiKeyId stored in the transaction
+        let apiKeyConfig = null;
+        if (transaction.apiKeyId) {
+          apiKeyConfig = await storage.getApiKeyById(transaction.apiKeyId);
+        }
         
-        // Use transaction callbackUrl, or fall back to API key webhookUrl
-        const webhookUrlToUse = transaction.callbackUrl || activeApiKey?.webhookUrl;
-        const redirectUrlToUse = activeApiKey?.redirectUrl || null;
+        // Use transaction-level URLs first, then fall back to API key URLs
+        const webhookUrlToUse = transaction.callbackUrl || apiKeyConfig?.webhookUrl;
+        const redirectUrlToUse = transaction.redirectUrl || apiKeyConfig?.redirectUrl || null;
 
         // Send webhook callback to merchant if webhook URL is configured
         if (webhookUrlToUse) {
@@ -1933,23 +1935,28 @@ export async function registerRoutes(
 
               console.log(`📡 Sending webhook callback to: ${webhookUrlToUse}`);
               
-              // Create HMAC signature for webhook verification
-              const crypto = await import("crypto");
               const payloadString = JSON.stringify(webhookPayload);
               const timestamp = Math.floor(Date.now() / 1000).toString();
-              const signaturePayload = `${timestamp}.${payloadString}`;
-              const webhookSecret = activeApiKey?.webhookSecret || "default_secret";
-              const signature = crypto.createHmac("sha256", webhookSecret)
-                .update(signaturePayload)
-                .digest("hex");
+              
+              // Create HMAC signature only if webhook secret exists
+              const headers: Record<string, string> = {
+                "Content-Type": "application/json",
+                "X-SendavaPay-Event": "payment.completed",
+                "X-SendavaPay-Timestamp": timestamp,
+              };
+              
+              if (apiKeyConfig?.webhookSecret) {
+                const crypto = await import("crypto");
+                const signaturePayload = `${timestamp}.${payloadString}`;
+                const signature = crypto.createHmac("sha256", apiKeyConfig.webhookSecret)
+                  .update(signaturePayload)
+                  .digest("hex");
+                headers["X-SendavaPay-Signature"] = `t=${timestamp},v1=${signature}`;
+              }
               
               fetch(webhookUrlToUse, {
                 method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "X-SendavaPay-Signature": `t=${timestamp},v1=${signature}`,
-                  "X-SendavaPay-Event": "payment.completed",
-                },
+                headers,
                 body: payloadString,
               }).then(response => {
                 console.log(`📡 Webhook callback response: ${response.status}`);
@@ -1981,14 +1988,16 @@ export async function registerRoutes(
       } else if (verifyResult.status === "FAILURE") {
         await storage.updateApiTransaction(transaction.id, { status: "failed" });
         
-        // Get redirect URL from API key for failed payments
-        const merchantApiKeys = await storage.getApiKeys(transaction.userId);
-        const activeApiKey = merchantApiKeys.find(k => k.isActive);
+        // Get redirect URL from the specific API key used for this transaction
+        let failedApiKeyConfig = null;
+        if (transaction.apiKeyId) {
+          failedApiKeyConfig = await storage.getApiKeyById(transaction.apiKeyId);
+        }
         
         return res.json({ 
           status: "failed", 
           message: "Le paiement a échoué",
-          redirectUrl: activeApiKey?.redirectUrl || null,
+          redirectUrl: transaction.redirectUrl || failedApiKeyConfig?.redirectUrl || null,
         });
       }
 
