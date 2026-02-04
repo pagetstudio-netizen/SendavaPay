@@ -166,6 +166,8 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateApiKey, async
       customerPhone: z.string().optional(),
       customerName: z.string().optional(),
       callbackUrl: z.string().url().optional(),
+      webhookUrl: z.string().url().optional(),
+      redirectUrl: z.string().url().optional(),
       metadata: z.record(z.any()).optional(),
     });
 
@@ -184,8 +186,8 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateApiKey, async
       customerEmail: data.customerEmail || null,
       customerPhone: data.customerPhone || null,
       customerName: data.customerName || null,
-      callbackUrl: data.callbackUrl || req.apiKeyRecord?.webhookUrl || null,
-      redirectUrl: null,
+      callbackUrl: data.callbackUrl || data.webhookUrl || req.apiKeyRecord?.webhookUrl || null,
+      redirectUrl: data.redirectUrl || req.apiKeyRecord?.redirectUrl || null,
       metadata: data.metadata ? JSON.stringify(data.metadata) : null,
       ipAddress: req.ip || null,
       userAgent: req.get('User-Agent') || null,
@@ -233,7 +235,7 @@ router.post("/v1/verify-payment", checkApiMaintenance, authenticateApiKey, async
     }
 
     // Check ownership
-    if (transaction.merchantId !== apiUser.id) {
+    if (transaction.userId !== apiUser.id) {
       const response = { success: false, error: "Unauthorized", code: "UNAUTHORIZED" };
       await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime);
       return res.status(403).json(response);
@@ -383,7 +385,7 @@ router.get("/v1/transactions", checkApiMaintenance, authenticateApiKey, async (r
   const apiUser = req.apiUser!;
 
   try {
-    const transactions = await storage.getApiTransactionsByMerchant(apiUser.id);
+    const transactions = await storage.getApiTransactionsByUser(apiUser.id);
 
     const response = {
       success: true,
