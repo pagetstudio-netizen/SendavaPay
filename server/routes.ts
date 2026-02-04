@@ -2551,11 +2551,23 @@ export async function registerRoutes(
   app.get("/api/admin/api-keys", requireAdmin, async (req, res) => {
     try {
       const keys = await storage.getAllApiKeys();
-      res.json(keys.map(k => ({
-        ...k,
-        apiKey: undefined,
-        keyPrefix: k.apiKey.substring(0, 12),
-      })));
+      const users = await storage.getAllUsers();
+      const userMap = new Map(users.map(u => [u.id, u]));
+      
+      res.json(keys.map(k => {
+        const user = userMap.get(k.userId);
+        return {
+          ...k,
+          apiKey: undefined,
+          keyPrefix: k.apiKey.substring(0, 12),
+          user: user ? {
+            id: user.id,
+            fullName: user.fullName,
+            email: user.email,
+            phone: user.phone
+          } : null
+        };
+      }));
     } catch (error) {
       console.error("Get admin API keys error:", error);
       res.status(500).json({ message: "Erreur serveur" });
