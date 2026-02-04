@@ -166,6 +166,7 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateApiKey, async
       customerPhone: z.string().optional(),
       customerName: z.string().optional(),
       redirectUrl: z.string().url().optional(),
+      callbackUrl: z.string().url().optional(),
       metadata: z.record(z.any()).optional(),
     });
 
@@ -174,6 +175,7 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateApiKey, async
 
     const transaction = await storage.createApiTransaction({
       userId: apiUser.id,
+      apiKeyId: req.apiKeyRecord?.id || null,
       reference,
       externalReference: data.externalReference || null,
       type: "payment",
@@ -183,7 +185,8 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateApiKey, async
       customerEmail: data.customerEmail || null,
       customerPhone: data.customerPhone || null,
       customerName: data.customerName || null,
-      callbackUrl: data.redirectUrl || null,
+      callbackUrl: data.callbackUrl || req.apiKeyRecord?.webhookUrl || null,
+      redirectUrl: data.redirectUrl || req.apiKeyRecord?.redirectUrl || null,
       metadata: data.metadata ? JSON.stringify(data.metadata) : null,
       ipAddress: req.ip || null,
       userAgent: req.get('User-Agent') || null,
@@ -289,6 +292,7 @@ router.post("/v1/credit-account", checkApiMaintenance, authenticateApiKey, async
 
     const transaction = await storage.createApiTransaction({
       userId: apiUser.id,
+      apiKeyId: req.apiKeyRecord?.id || null,
       reference,
       externalReference: data.externalReference || null,
       type: "credit",
