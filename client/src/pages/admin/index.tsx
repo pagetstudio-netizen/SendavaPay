@@ -75,6 +75,7 @@ import {
   Calendar,
   MessageSquare,
   RotateCcw,
+  Activity,
 } from "lucide-react";
 import type { 
   User as UserType, 
@@ -1701,19 +1702,32 @@ function KycContent() {
   );
 }
 
+interface ApiKeyWithUser extends ApiKey {
+  keyPrefix?: string;
+  user?: {
+    id: number;
+    fullName: string;
+    email: string;
+    phone: string;
+  } | null;
+}
+
 function ApiKeysContent() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [selectedApiKey, setSelectedApiKey] = useState<ApiKeyWithUser | null>(null);
 
-  const { data: apiKeys, isLoading } = useQuery<ApiKey[]>({ queryKey: ["/api/admin/api-keys"] });
+  const { data: apiKeys, isLoading } = useQuery<ApiKeyWithUser[]>({ queryKey: ["/api/admin/api-keys"] });
 
   const filteredKeys = useMemo(() => {
     return apiKeys?.filter((key) => {
       const matchesSearch = 
         key.id.toString().includes(searchQuery) ||
         key.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        key.apiKey?.slice(0, 12).includes(searchQuery);
+        key.keyPrefix?.includes(searchQuery) ||
+        key.user?.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        key.user?.email?.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesStatus = 
         statusFilter === "all" ||
         (statusFilter === "active" && key.isActive) ||
@@ -1728,6 +1742,7 @@ function ApiKeysContent() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/api-keys"] });
+      setSelectedApiKey(null);
       toast({ title: "Succès", description: "Clé API révoquée" });
     },
   });
@@ -1745,14 +1760,15 @@ function ApiKeysContent() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Rechercher par ID, nom, préfixe..."
+                placeholder="Rechercher par ID, nom, email, préfixe..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
+                data-testid="input-search-api-keys"
               />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-40">
+              <SelectTrigger className="w-40" data-testid="select-api-key-status">
                 <SelectValue placeholder="Statut" />
               </SelectTrigger>
               <SelectContent>
@@ -1765,51 +1781,217 @@ function ApiKeysContent() {
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b bg-muted/50">
-                <tr>
-                  <th className="text-left p-4 font-medium">ID</th>
-                  <th className="text-left p-4 font-medium">User ID</th>
-                  <th className="text-left p-4 font-medium">Nom</th>
-                  <th className="text-left p-4 font-medium">Clé (préfixe)</th>
-                  <th className="text-left p-4 font-medium">Requêtes</th>
-                  <th className="text-left p-4 font-medium">Statut</th>
-                  <th className="text-left p-4 font-medium">Créée le</th>
-                  <th className="text-left p-4 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>ID</TableHead>
+                  <TableHead>Créateur</TableHead>
+                  <TableHead>Nom clé</TableHead>
+                  <TableHead>Clé (préfixe)</TableHead>
+                  <TableHead>URL Redirection</TableHead>
+                  <TableHead>URL Webhook</TableHead>
+                  <TableHead>Requêtes</TableHead>
+                  <TableHead>Statut</TableHead>
+                  <TableHead>Créée le</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {isLoading ? (
-                  <tr><td colSpan={8} className="p-8 text-center"><Skeleton className="h-8 w-full" /></td></tr>
+                  <TableRow><TableCell colSpan={10} className="p-8 text-center"><Skeleton className="h-8 w-full" /></TableCell></TableRow>
                 ) : !filteredKeys?.length ? (
-                  <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">Aucune clé API trouvée</td></tr>
+                  <TableRow><TableCell colSpan={10} className="p-8 text-center text-muted-foreground">Aucune clé API trouvée</TableCell></TableRow>
                 ) : filteredKeys.map((key) => (
-                  <tr key={key.id} className="border-b hover:bg-muted/30">
-                    <td className="p-4 font-mono text-sm">{key.id}</td>
-                    <td className="p-4 font-mono text-sm">{key.userId}</td>
-                    <td className="p-4 font-medium">{key.name}</td>
-                    <td className="p-4 font-mono text-sm">{key.apiKey?.slice(0, 12)}...</td>
-                    <td className="p-4">{key.requestCount || 0}</td>
-                    <td className="p-4">
-                      <Badge className={key.isActive ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
+                  <TableRow key={key.id} className="cursor-pointer hover:bg-muted/30" onClick={() => setSelectedApiKey(key)} data-testid={`row-api-key-${key.id}`}>
+                    <TableCell className="font-mono text-sm" data-testid={`text-api-key-id-${key.id}`}>{key.id}</TableCell>
+                    <TableCell data-testid={`text-api-key-creator-${key.id}`}>
+                      <div className="space-y-1">
+                        <p className="font-medium text-sm">{key.user?.fullName || "-"}</p>
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <Mail className="h-3 w-3" />
+                          <span>{key.user?.email || "-"}</span>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-medium" data-testid={`text-api-key-name-${key.id}`}>{key.name}</TableCell>
+                    <TableCell className="font-mono text-sm" data-testid={`text-api-key-prefix-${key.id}`}>{key.keyPrefix}...</TableCell>
+                    <TableCell data-testid={`text-api-key-redirect-${key.id}`}>
+                      {key.redirectUrl ? (
+                        <div className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400" title={key.redirectUrl}>
+                          <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate max-w-[120px]">{key.redirectUrl}</span>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell data-testid={`text-api-key-webhook-${key.id}`}>
+                      {key.webhookUrl ? (
+                        <div className="flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400" title={key.webhookUrl}>
+                          <Globe className="h-3 w-3 flex-shrink-0" />
+                          <span className="truncate max-w-[120px]">{key.webhookUrl}</span>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell data-testid={`text-api-key-requests-${key.id}`}>{key.requestCount || 0}</TableCell>
+                    <TableCell data-testid={`text-api-key-status-${key.id}`}>
+                      <Badge className={key.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
                         {key.isActive ? "Active" : "Révoquée"}
                       </Badge>
-                    </td>
-                    <td className="p-4 text-sm text-muted-foreground">{formatDate(key.createdAt)}</td>
-                    <td className="p-4">
-                      {key.isActive && (
-                        <Button size="sm" variant="destructive" onClick={() => revokeMutation.mutate(key.id)}>
-                          <Trash2 className="h-4 w-4" />
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground" data-testid={`text-api-key-date-${key.id}`}>{formatDate(key.createdAt)}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-2">
+                        <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelectedApiKey(key); }} data-testid={`button-view-api-key-${key.id}`}>
+                          <Eye className="h-4 w-4" />
                         </Button>
-                      )}
-                    </td>
-                  </tr>
+                        {key.isActive && (
+                          <Button size="icon" variant="destructive" onClick={(e) => { e.stopPropagation(); revokeMutation.mutate(key.id); }} data-testid={`button-revoke-api-key-${key.id}`}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={!!selectedApiKey} onOpenChange={(open) => !open && setSelectedApiKey(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Key className="h-5 w-5" /> Détails de la clé API #{selectedApiKey?.id}
+            </DialogTitle>
+            <DialogDescription>
+              Toutes les informations sur cette clé API
+            </DialogDescription>
+          </DialogHeader>
+          {selectedApiKey && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">ID</p>
+                  <p className="font-mono font-medium" data-testid="dialog-api-key-id">{selectedApiKey.id}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Statut</p>
+                  <Badge className={selectedApiKey.isActive ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"} data-testid="dialog-api-key-status">
+                    {selectedApiKey.isActive ? "Active" : "Révoquée"}
+                  </Badge>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Nom de la clé</p>
+                  <p className="font-medium" data-testid="dialog-api-key-name">{selectedApiKey.name}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Préfixe de la clé</p>
+                  <p className="font-mono text-sm" data-testid="dialog-api-key-prefix">{selectedApiKey.keyPrefix}...</p>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <User className="h-4 w-4" /> Créateur de la clé
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">ID Utilisateur</p>
+                    <p className="font-mono" data-testid="dialog-api-key-user-id">{selectedApiKey.userId}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Nom complet</p>
+                    <p className="font-medium" data-testid="dialog-api-key-user-name">{selectedApiKey.user?.fullName || "-"}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Email</p>
+                    <div className="flex items-center gap-1">
+                      <Mail className="h-3 w-3 text-muted-foreground" />
+                      <p className="text-sm" data-testid="dialog-api-key-user-email">{selectedApiKey.user?.email || "-"}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Téléphone</p>
+                    <div className="flex items-center gap-1">
+                      <Phone className="h-3 w-3 text-muted-foreground" />
+                      <p className="font-mono text-sm" data-testid="dialog-api-key-user-phone">{selectedApiKey.user?.phone || "-"}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <LinkIcon className="h-4 w-4" /> URLs configurées
+                </h4>
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground flex items-center gap-1">
+                      <ExternalLink className="h-3 w-3" /> URL de redirection
+                    </p>
+                    {selectedApiKey.redirectUrl ? (
+                      <p className="font-mono text-sm break-all bg-muted p-2 rounded" data-testid="dialog-api-key-redirect-url">{selectedApiKey.redirectUrl}</p>
+                    ) : (
+                      <p className="text-muted-foreground italic" data-testid="dialog-api-key-redirect-url">Non configurée</p>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground flex items-center gap-1">
+                      <Globe className="h-3 w-3" /> URL du webhook
+                    </p>
+                    {selectedApiKey.webhookUrl ? (
+                      <p className="font-mono text-sm break-all bg-muted p-2 rounded" data-testid="dialog-api-key-webhook-url">{selectedApiKey.webhookUrl}</p>
+                    ) : (
+                      <p className="text-muted-foreground italic" data-testid="dialog-api-key-webhook-url">Non configurée</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Activity className="h-4 w-4" /> Statistiques
+                </h4>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Requêtes</p>
+                    <p className="font-medium text-lg" data-testid="dialog-api-key-requests">{selectedApiKey.requestCount || 0}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Dernière utilisation</p>
+                    <p className="text-sm" data-testid="dialog-api-key-last-used">{selectedApiKey.lastUsedAt ? formatDate(selectedApiKey.lastUsedAt) : "Jamais"}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Date de création</p>
+                    <p className="text-sm" data-testid="dialog-api-key-created">{formatDate(selectedApiKey.createdAt)}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="flex gap-2">
+            {selectedApiKey?.isActive && (
+              <Button 
+                variant="destructive" 
+                onClick={() => revokeMutation.mutate(selectedApiKey.id)}
+                disabled={revokeMutation.isPending}
+                data-testid="button-revoke-api-key-dialog"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Révoquer la clé
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => setSelectedApiKey(null)} data-testid="button-close-api-key-dialog">
+              Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
