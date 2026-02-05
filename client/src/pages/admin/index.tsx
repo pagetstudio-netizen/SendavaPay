@@ -1712,6 +1712,14 @@ interface ApiKeyWithUser extends ApiKey {
   } | null;
 }
 
+interface ApiLogSource {
+  userId: number;
+  user: { id: number; fullName: string; email: string } | null;
+  sources: string[];
+  requestCount: number;
+  recentLogs: { id: number; endpoint: string; method: string; statusCode: number; ipAddress: string; userAgent: string; createdAt: string }[];
+}
+
 function ApiKeysContent() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
@@ -1719,6 +1727,11 @@ function ApiKeysContent() {
   const [selectedApiKey, setSelectedApiKey] = useState<ApiKeyWithUser | null>(null);
 
   const { data: apiKeys, isLoading } = useQuery<ApiKeyWithUser[]>({ queryKey: ["/api/admin/api-keys"] });
+  const { data: apiLogs } = useQuery<ApiLogSource[]>({ queryKey: ["/api/admin/api-logs"] });
+  
+  const getSourcesForUser = (userId: number) => {
+    return apiLogs?.find(log => log.userId === userId);
+  };
 
   const filteredKeys = useMemo(() => {
     return apiKeys?.filter((key) => {
@@ -1951,6 +1964,50 @@ function ApiKeysContent() {
                     )}
                   </div>
                 </div>
+              </div>
+
+              <div className="border-t pt-4">
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <Globe className="h-4 w-4" /> Sources détectées (IPs)
+                </h4>
+                {(() => {
+                  const sources = getSourcesForUser(selectedApiKey.userId);
+                  if (!sources || sources.sources.length === 0) {
+                    return (
+                      <p className="text-muted-foreground italic text-sm" data-testid="dialog-api-key-no-sources">
+                        Aucune requête API enregistrée pour cet utilisateur
+                      </p>
+                    );
+                  }
+                  return (
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        {sources.sources.map((ip, idx) => (
+                          <Badge key={idx} variant="outline" className="font-mono text-xs" data-testid={`dialog-api-key-source-${idx}`}>
+                            {ip}
+                          </Badge>
+                        ))}
+                      </div>
+                      {sources.recentLogs.length > 0 && (
+                        <div className="mt-3">
+                          <p className="text-sm text-muted-foreground mb-2">Dernières requêtes :</p>
+                          <div className="max-h-40 overflow-y-auto space-y-1">
+                            {sources.recentLogs.slice(0, 10).map((log, idx) => (
+                              <div key={log.id} className="flex items-center gap-2 text-xs bg-muted p-2 rounded" data-testid={`dialog-api-key-log-${idx}`}>
+                                <Badge className={log.statusCode < 400 ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"}>
+                                  {log.statusCode}
+                                </Badge>
+                                <span className="font-mono">{log.method}</span>
+                                <span className="truncate flex-1">{log.endpoint}</span>
+                                <span className="text-muted-foreground">{log.ipAddress}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="border-t pt-4">

@@ -184,6 +184,7 @@ export interface IStorage {
   
   createApiLog(log: Partial<ApiLog>): Promise<ApiLog>;
   getApiLogsByMerchant(merchantId: number): Promise<ApiLog[]>;
+  getAllApiLogs(): Promise<ApiLog[]>;
   
   // Global notifications
   createGlobalNotification(notification: InsertGlobalNotification): Promise<GlobalNotification>;
@@ -926,6 +927,10 @@ export class DatabaseStorage implements IStorage {
 
   async getApiLogsByMerchant(merchantId: number): Promise<ApiLog[]> {
     return getDb().select().from(apiLogs).where(eq(apiLogs.merchantId, merchantId)).orderBy(desc(apiLogs.createdAt));
+  }
+
+  async getAllApiLogs(): Promise<ApiLog[]> {
+    return getDb().select().from(apiLogs).orderBy(desc(apiLogs.createdAt)).limit(1000);
   }
 
   async createGlobalNotification(notification: InsertGlobalNotification): Promise<GlobalNotification> {
