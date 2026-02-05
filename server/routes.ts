@@ -477,12 +477,22 @@ export async function registerRoutes(
 
       console.log(`📤 SoleasPay: Paiement initié ref=${payId}, status=${result.status}`);
 
+      // Check for Wave redirect URL
+      const waveUrl = result.wave_launch_url || result.payment_url || result.redirect_url || 
+                      result.data?.wave_launch_url || result.data?.payment_url || result.data?.redirect_url;
+      
+      const isWaveOperator = service.operator === "Wave" || service.id === 32;
+
       res.json({ 
         success: true,
         payId,
         orderId,
         status: result.status,
-        message: result.message || "Paiement initié. Veuillez confirmer sur votre téléphone.",
+        message: isWaveOperator && waveUrl 
+          ? "Redirection vers Wave pour confirmer le paiement..." 
+          : (result.message || "Paiement initié. Veuillez confirmer sur votre téléphone."),
+        waveUrl: waveUrl || null,
+        isWave: isWaveOperator,
       });
     } catch (error) {
       console.error("SoleasPay deposit error:", error);
@@ -663,12 +673,22 @@ export async function registerRoutes(
 
       console.log(`📤 SoleasPay: Paiement lien initié ref=${payId}`);
 
+      // Check for Wave redirect URL
+      const waveUrl = result.wave_launch_url || result.payment_url || result.redirect_url || 
+                      result.data?.wave_launch_url || result.data?.payment_url || result.data?.redirect_url;
+      
+      const isWaveOperator = service.operator === "Wave" || service.id === 32;
+
       res.json({ 
         success: true,
         payId,
         orderId,
         status: result.status,
-        message: result.message || "Paiement initié. Veuillez confirmer sur votre téléphone.",
+        message: isWaveOperator && waveUrl 
+          ? "Redirection vers Wave pour confirmer le paiement..." 
+          : (result.message || "Paiement initié. Veuillez confirmer sur votre téléphone."),
+        waveUrl: waveUrl || null,
+        isWave: isWaveOperator,
       });
     } catch (error) {
       console.error("SoleasPay pay-link error:", error);
@@ -1801,11 +1821,21 @@ export async function registerRoutes(
         externalReference: `${orderId}|${payId}`,
       });
 
+      // Check for Wave redirect URL
+      const waveUrl = payResult.wave_launch_url || payResult.payment_url || payResult.redirect_url || 
+                      payResult.data?.wave_launch_url || payResult.data?.payment_url || payResult.data?.redirect_url;
+      
+      const isWaveOperator = service.operator === "Wave" || service.id === 32;
+
       res.json({
         success: true,
         payId: payId,
         orderId: orderId,
-        message: "Veuillez confirmer le paiement sur votre téléphone",
+        message: isWaveOperator && waveUrl 
+          ? "Redirection vers Wave pour confirmer le paiement..." 
+          : "Veuillez confirmer le paiement sur votre téléphone",
+        waveUrl: waveUrl || null,
+        isWave: isWaveOperator,
       });
     } catch (error) {
       console.error("Process API payment error:", error);

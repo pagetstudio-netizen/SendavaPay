@@ -210,13 +210,27 @@ export default function DepositPage() {
         }));
         setCurrentOrderId(data.orderId);
         setCurrentPayId(data.payId);
-        setPaymentStatus("processing");
-        pollingAttemptsRef.current = 0;
-        setVerificationMessage(data.message || "Veuillez confirmer le paiement sur votre téléphone.");
-        toast({
-          title: "Paiement initié",
-          description: "Veuillez confirmer le paiement sur votre téléphone.",
-        });
+        
+        // Check if Wave payment with redirect URL
+        if (data.isWave && data.waveUrl) {
+          toast({
+            title: "Redirection vers Wave",
+            description: "Vous allez être redirigé vers l'application Wave pour confirmer le paiement.",
+          });
+          // Open Wave URL in new tab or redirect
+          window.open(data.waveUrl, "_blank");
+          setPaymentStatus("processing");
+          pollingAttemptsRef.current = 0;
+          setVerificationMessage("Confirmez le paiement dans l'application Wave, puis revenez ici.");
+        } else {
+          setPaymentStatus("processing");
+          pollingAttemptsRef.current = 0;
+          setVerificationMessage(data.message || "Veuillez confirmer le paiement sur votre téléphone.");
+          toast({
+            title: "Paiement initié",
+            description: "Veuillez confirmer le paiement sur votre téléphone.",
+          });
+        }
       } else {
         toast({
           title: "Erreur",

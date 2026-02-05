@@ -112,7 +112,18 @@ export default function PayApiPage() {
         setCurrentPayId(data.payId);
         setCurrentOrderId(data.orderId);
         setStep("processing");
-        setVerificationMessage("Veuillez confirmer le paiement sur votre téléphone...");
+        
+        // Check if Wave payment with redirect URL
+        if (data.isWave && data.waveUrl) {
+          toast({
+            title: "Redirection vers Wave",
+            description: "Vous allez être redirigé vers l'application Wave pour confirmer le paiement.",
+          });
+          window.open(data.waveUrl, "_blank");
+          setVerificationMessage("Confirmez le paiement dans l'application Wave, puis revenez ici.");
+        } else {
+          setVerificationMessage("Veuillez confirmer le paiement sur votre téléphone...");
+        }
         startPolling();
       }
     },
