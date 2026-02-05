@@ -3486,18 +3486,17 @@ function LogsContent() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <ScrollArea className="h-[500px]">
-              <Table className="min-w-[800px]">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="whitespace-nowrap">Date</TableHead>
-                    <TableHead className="whitespace-nowrap">Utilisateur</TableHead>
-                    <TableHead className="whitespace-nowrap">Action</TableHead>
-                    <TableHead className="whitespace-nowrap min-w-[300px]">Détails</TableHead>
-                    <TableHead className="whitespace-nowrap">IP</TableHead>
-                  </TableRow>
-                </TableHeader>
+          <div className="overflow-auto max-h-[500px]">
+            <Table className="min-w-[900px]">
+              <TableHeader className="sticky top-0 bg-background z-10">
+                <TableRow>
+                  <TableHead className="whitespace-nowrap min-w-[150px]">Date</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[150px]">Utilisateur</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[150px]">Action</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[350px]">Détails</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[120px]">IP</TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow><TableCell colSpan={5}><Skeleton className="h-10 w-full" /></TableCell></TableRow>
@@ -3506,21 +3505,20 @@ function LogsContent() {
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                       {formatDate(log.createdAt)}
                     </TableCell>
-                    <TableCell>{log.user?.fullName || "Système"}</TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap">{log.user?.fullName || "Système"}</TableCell>
+                    <TableCell className="whitespace-nowrap">
                       <Badge variant="outline">{actionLabels[log.action] || log.action}</Badge>
                     </TableCell>
-                    <TableCell className="max-w-[300px] truncate text-sm">
+                    <TableCell className="text-sm whitespace-nowrap">
                       {log.details || "-"}
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
+                    <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
                       {log.ipAddress || "-"}
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
-              </Table>
-            </ScrollArea>
+            </Table>
           </div>
         </CardContent>
       </Card>
