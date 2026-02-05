@@ -3,7 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initializeAdminAccount } from "./init-admin";
-import { testDatabaseConnection, isDatabaseConnected } from "./db";
+import { testDatabaseConnection, isDatabaseConnected, startBackgroundReconnection } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -91,7 +91,7 @@ async function initializeWithTimeout<T>(
   try {
     const dbConnected = await initializeWithTimeout(
       testDatabaseConnection(),
-      15000,
+      45000,
       "Database"
     );
     
@@ -100,14 +100,19 @@ async function initializeWithTimeout<T>(
       
       await initializeWithTimeout(
         initializeAdminAccount(),
-        10000,
+        20000,
         "Admin account"
       );
     } else {
-      log("Database connection failed or timed out, continuing with limited functionality", "init");
+      log("Database connection failed or timed out, starting background reconnection...", "init");
     }
+    
+    // Always start background reconnection to recover from disconnects
+    startBackgroundReconnection();
+    
   } catch (error) {
     log(`Initialization error: ${(error as Error).message}`, "init");
+    startBackgroundReconnection();
   }
 
   await registerRoutes(httpServer, app);

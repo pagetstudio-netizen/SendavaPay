@@ -15,12 +15,14 @@ if (!databaseUrl) {
 } else {
   pool = new Pool({ 
     connectionString: databaseUrl,
-    max: 10,
+    max: 15,
     min: 2,
-    idleTimeoutMillis: 60000,
-    connectionTimeoutMillis: 15000,
+    idleTimeoutMillis: 120000,
+    connectionTimeoutMillis: 30000,
     keepAlive: true,
-    keepAliveInitialDelayMillis: 10000,
+    keepAliveInitialDelayMillis: 5000,
+    statement_timeout: 30000,
+    query_timeout: 30000,
   });
 
   pool.on('error', (err) => {
@@ -62,7 +64,7 @@ export function setDatabaseConnected(connected: boolean): void {
   dbConnected = connected;
 }
 
-export async function testDatabaseConnection(retries = 3, delayMs = 2000): Promise<boolean> {
+export async function testDatabaseConnection(retries = 5, delayMs = 3000): Promise<boolean> {
   if (!pool) {
     console.error('Database pool not initialized - SUPABASE_DATABASE_URL may be missing');
     dbConnected = false;
@@ -75,14 +77,39 @@ export async function testDatabaseConnection(retries = 3, delayMs = 2000): Promi
       await client.query('SELECT 1');
       client.release();
       dbConnected = true;
+      console.log(`Database connection successful on attempt ${attempt}`);
       return true;
     } catch (error) {
       console.error(`Database connection attempt ${attempt}/${retries} failed:`, (error as Error).message);
       dbConnected = false;
       if (attempt < retries) {
-        await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
+        const backoffDelay = delayMs * Math.pow(1.5, attempt - 1);
+        console.log(`Retrying in ${Math.round(backoffDelay / 1000)}s...`);
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
       }
     }
   }
   return false;
+}
+
+// Background reconnection loop - runs independently
+let reconnectInterval: NodeJS.Timeout | null = null;
+
+export function startBackgroundReconnection(): void {
+  if (reconnectInterval) return;
+  
+  reconnectInterval = setInterval(async () => {
+    if (!dbConnected && pool) {
+      console.log('Attempting background database reconnection...');
+      try {
+        const client = await pool.connect();
+        await client.query('SELECT 1');
+        client.release();
+        dbConnected = true;
+        console.log('Background reconnection successful!');
+      } catch (err) {
+        console.error('Background reconnection failed:', (err as Error).message);
+      }
+    }
+  }, 15000);
 }
