@@ -137,8 +137,14 @@ interface CollectPaymentResponse {
     transaction_channel: string;
     amount: string;
     currency: string;
+    wave_launch_url?: string;
+    payment_url?: string;
+    redirect_url?: string;
   };
   message?: string;
+  wave_launch_url?: string;
+  payment_url?: string;
+  redirect_url?: string;
 }
 
 interface VerifyPaymentResponse {
