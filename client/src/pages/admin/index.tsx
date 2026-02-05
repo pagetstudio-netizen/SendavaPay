@@ -3486,17 +3486,18 @@ function LogsContent() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <ScrollArea className="h-[500px]">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Utilisateur</TableHead>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Détails</TableHead>
-                  <TableHead>IP</TableHead>
-                </TableRow>
-              </TableHeader>
+          <div className="overflow-x-auto">
+            <ScrollArea className="h-[500px]">
+              <Table className="min-w-[800px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="whitespace-nowrap">Date</TableHead>
+                    <TableHead className="whitespace-nowrap">Utilisateur</TableHead>
+                    <TableHead className="whitespace-nowrap">Action</TableHead>
+                    <TableHead className="whitespace-nowrap min-w-[300px]">Détails</TableHead>
+                    <TableHead className="whitespace-nowrap">IP</TableHead>
+                  </TableRow>
+                </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow><TableCell colSpan={5}><Skeleton className="h-10 w-full" /></TableCell></TableRow>
@@ -3518,8 +3519,9 @@ function LogsContent() {
                   </TableRow>
                 ))}
               </TableBody>
-            </Table>
-          </ScrollArea>
+              </Table>
+            </ScrollArea>
+          </div>
         </CardContent>
       </Card>
     </div>
