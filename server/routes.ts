@@ -2595,6 +2595,57 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/api-logs", requireAdmin, async (req, res) => {
+    try {
+      const logs = await storage.getAllApiLogs();
+      const users = await storage.getAllUsers();
+      const userMap = new Map(users.map(u => [u.id, u]));
+      
+      // Group logs by user and extract unique sources
+      const sourcesByUser = new Map<number, Set<string>>();
+      const logsByUser = new Map<number, any[]>();
+      
+      logs.forEach(log => {
+        if (log.merchantId) {
+          if (!sourcesByUser.has(log.merchantId)) {
+            sourcesByUser.set(log.merchantId, new Set());
+            logsByUser.set(log.merchantId, []);
+          }
+          
+          // Extract origin from user agent or IP
+          const source = log.ipAddress || 'Unknown';
+          sourcesByUser.get(log.merchantId)!.add(source);
+          logsByUser.get(log.merchantId)!.push({
+            id: log.id,
+            endpoint: log.endpoint,
+            method: log.method,
+            statusCode: log.statusCode,
+            ipAddress: log.ipAddress,
+            userAgent: log.userAgent,
+            createdAt: log.createdAt,
+          });
+        }
+      });
+      
+      const result: any[] = [];
+      sourcesByUser.forEach((sources, userId) => {
+        const user = userMap.get(userId);
+        result.push({
+          userId,
+          user: user ? { id: user.id, fullName: user.fullName, email: user.email } : null,
+          sources: Array.from(sources),
+          requestCount: logsByUser.get(userId)?.length || 0,
+          recentLogs: logsByUser.get(userId)?.slice(0, 20) || [],
+        });
+      });
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Get admin API logs error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.get("/api/admin/settings", requireAdmin, async (req, res) => {
     try {
       const settings = await storage.getCommissionSettings();
