@@ -132,12 +132,40 @@ function formatDate(date: string | Date) {
   }).format(new Date(date));
 }
 
+interface PlatformBalance {
+  totalBalance: string;
+  userCount: number;
+}
+
+interface ApiUsageStats {
+  originDomain: string | null;
+  requestCount: number;
+  lastRequest: string | null;
+  apiKeyIds: number[];
+  apiKeys: Array<{
+    id: number;
+    name: string;
+    userId: number;
+    isActive: boolean;
+    webhookUrl: string | null;
+    redirectUrl: string | null;
+  }>;
+}
+
 function DashboardContent() {
   const { toast } = useToast();
   const [showResetDialog, setShowResetDialog] = useState(false);
   
   const { data: stats, isLoading } = useQuery<AdminStats>({
     queryKey: ["/api/admin/stats"],
+  });
+
+  const { data: platformBalance } = useQuery<PlatformBalance>({
+    queryKey: ["/api/admin/platform-balance"],
+  });
+
+  const { data: apiUsageStats } = useQuery<ApiUsageStats[]>({
+    queryKey: ["/api/admin/api-usage-stats"],
   });
 
   const resetStatsMutation = useMutation({
@@ -154,7 +182,12 @@ function DashboardContent() {
     },
   });
 
+  // Filter API usage stats to only show domains with actual requests (exclude null domains)
+  const sitesWithIntegration = apiUsageStats?.filter(s => s.originDomain !== null) || [];
+  const unknownDomainStats = apiUsageStats?.find(s => s.originDomain === null);
+
   const statCards = [
+    { title: "Solde Plateforme", value: formatCurrency(platformBalance?.totalBalance || 0), description: `Solde total de ${platformBalance?.userCount || 0} utilisateurs`, icon: Wallet, color: "text-amber-500", bgColor: "bg-amber-100 dark:bg-amber-900/30" },
     { title: "Utilisateurs", value: stats?.totalUsers || 0, description: `${stats?.verifiedUsers || 0} vérifiés`, icon: Users, color: "text-blue-500", bgColor: "bg-blue-100 dark:bg-blue-900/30" },
     { title: "Total Transactions", value: formatCurrency(stats?.totalTransactionsAmount || 0), description: `${stats?.totalTransactionsCount || 0} transactions`, icon: History, color: "text-slate-500", bgColor: "bg-slate-100 dark:bg-slate-900/30" },
     { title: "Total Dépôts", value: formatCurrency(stats?.totalDeposits || 0), description: "Montant total", icon: ArrowDownLeft, color: "text-green-500", bgColor: "bg-green-100 dark:bg-green-900/30" },
@@ -210,6 +243,89 @@ function DashboardContent() {
           </Card>
         ))}
       </div>
+
+      {/* Sites using the API */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="h-5 w-5 text-primary" />
+            Sites utilisant l'API
+          </CardTitle>
+          <CardDescription>
+            Domaines détectés faisant des requêtes vers l'API SendavaPay
+            {unknownDomainStats && (
+              <span className="ml-2 text-xs text-muted-foreground">
+                ({unknownDomainStats.requestCount} requêtes sans domaine identifié)
+              </span>
+            )}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {sitesWithIntegration.length === 0 ? (
+            <p className="text-muted-foreground text-sm">Aucun site intégré détecté pour l'instant. Les domaines seront affichés lorsque des requêtes API seront effectuées.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Domaine</TableHead>
+                  <TableHead>Requêtes</TableHead>
+                  <TableHead>Dernière activité</TableHead>
+                  <TableHead>Clés API</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sitesWithIntegration.map((site, index) => (
+                  <TableRow key={index} data-testid={`row-api-site-${index}`}>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <ExternalLink className="h-4 w-4 text-muted-foreground" />
+                        <span 
+                          className="font-medium"
+                          data-testid={`text-domain-${index}`}
+                        >
+                          {site.originDomain}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => window.open(`https://${site.originDomain}`, '_blank')}
+                          data-testid={`button-visit-site-${index}`}
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" data-testid={`badge-request-count-${index}`}>{site.requestCount}</Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm" data-testid={`text-last-request-${index}`}>
+                      {site.lastRequest ? formatDate(site.lastRequest) : "N/A"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {site.apiKeys.length > 0 ? (
+                          site.apiKeys.map((key) => (
+                            <Badge 
+                              key={key.id} 
+                              variant={key.isActive ? "outline" : "secondary"}
+                              className="text-xs"
+                              data-testid={`badge-api-key-${key.id}`}
+                            >
+                              {key.name}
+                            </Badge>
+                          ))
+                        ) : (
+                          <span className="text-muted-foreground text-xs" data-testid={`text-no-api-keys-${index}`}>-</span>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
       <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <DialogContent>

@@ -2392,6 +2392,46 @@ export async function registerRoutes(
     }
   });
 
+  // Platform balance endpoint - total balance across all users
+  app.get("/api/admin/platform-balance", requireAdmin, async (req, res) => {
+    try {
+      const balance = await storage.getPlatformBalance();
+      res.json(balance);
+    } catch (error) {
+      console.error("Get platform balance error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // API usage by domain endpoint - shows which sites are using the API
+  app.get("/api/admin/api-usage-stats", requireAdmin, async (req, res) => {
+    try {
+      const usageStats = await storage.getApiUsageByDomain();
+      
+      // Get API key details for enriched response
+      const allApiKeys = await storage.getAllApiKeys();
+      const enrichedStats = usageStats.map(stat => {
+        const relatedKeys = allApiKeys.filter(k => stat.apiKeyIds.includes(k.id));
+        return {
+          ...stat,
+          apiKeys: relatedKeys.map(k => ({
+            id: k.id,
+            name: k.name,
+            userId: k.userId,
+            isActive: k.isActive,
+            webhookUrl: k.webhookUrl,
+            redirectUrl: k.redirectUrl,
+          })),
+        };
+      });
+      
+      res.json(enrichedStats);
+    } catch (error) {
+      console.error("Get API usage stats error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.get("/api/admin/users", requireAdmin, async (req, res) => {
     try {
       const users = await storage.getAllUsers();

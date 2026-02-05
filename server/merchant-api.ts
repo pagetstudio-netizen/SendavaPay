@@ -21,6 +21,18 @@ function generateReference(): string {
   return `pay_${timestamp}_${random}`;
 }
 
+function extractDomain(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname;
+  } catch {
+    // Try to extract from partial URL
+    const match = url.match(/(?:https?:\/\/)?([^\/\s]+)/);
+    return match ? match[1] : null;
+  }
+}
+
 async function logApiRequest(
   userId: number | null,
   endpoint: string,
@@ -30,11 +42,18 @@ async function logApiRequest(
   statusCode: number,
   ipAddress: string | undefined,
   userAgent: string | undefined,
-  duration: number
+  duration: number,
+  apiKeyId?: number | null,
+  referer?: string | null,
+  origin?: string | null
 ) {
   try {
+    // Extract domain from Origin or Referer header
+    const originDomain = extractDomain(origin || undefined) || extractDomain(referer || undefined);
+    
     await storage.createApiLog({
       merchantId: userId, // Using userId in merchantId field for backwards compatibility
+      apiKeyId: apiKeyId || null,
       endpoint,
       method,
       requestBody: JSON.stringify(requestBody),
@@ -42,6 +61,8 @@ async function logApiRequest(
       statusCode,
       ipAddress: ipAddress || null,
       userAgent: userAgent || null,
+      originDomain: originDomain,
+      refererUrl: referer || null,
       duration,
     });
   } catch (error) {
@@ -49,13 +70,22 @@ async function logApiRequest(
   }
 }
 
+// Helper to get origin info from request
+function getOriginInfo(req: Request) {
+  return {
+    referer: req.get('Referer') || req.get('Referrer') || null,
+    origin: req.get('Origin') || null,
+  };
+}
+
 async function authenticateApiKey(req: Request, res: Response, next: NextFunction) {
   const startTime = Date.now();
   const authHeader = req.headers.authorization;
+  const { referer, origin } = getOriginInfo(req);
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     const response = { success: false, error: "API key required", code: "UNAUTHORIZED" };
-    await logApiRequest(null, req.path, req.method, req.body, response, 401, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(null, req.path, req.method, req.body, response, 401, req.ip, req.get('User-Agent'), Date.now() - startTime, null, referer, origin);
     return res.status(401).json(response);
   }
 
@@ -66,26 +96,26 @@ async function authenticateApiKey(req: Request, res: Response, next: NextFunctio
   
   if (!apiKeyRecord) {
     const response = { success: false, error: "Invalid API key", code: "INVALID_API_KEY" };
-    await logApiRequest(null, req.path, req.method, req.body, response, 401, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(null, req.path, req.method, req.body, response, 401, req.ip, req.get('User-Agent'), Date.now() - startTime, null, referer, origin);
     return res.status(401).json(response);
   }
 
   if (!apiKeyRecord.isActive) {
     const response = { success: false, error: "API key is inactive", code: "API_KEY_INACTIVE" };
-    await logApiRequest(null, req.path, req.method, req.body, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(null, req.path, req.method, req.body, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime, apiKeyRecord.id, referer, origin);
     return res.status(403).json(response);
   }
 
   const user = await storage.getUser(apiKeyRecord.userId);
   if (!user) {
     const response = { success: false, error: "User not found", code: "USER_NOT_FOUND" };
-    await logApiRequest(null, req.path, req.method, req.body, response, 401, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(null, req.path, req.method, req.body, response, 401, req.ip, req.get('User-Agent'), Date.now() - startTime, apiKeyRecord.id, referer, origin);
     return res.status(401).json(response);
   }
 
   if (!user.isVerified) {
     const response = { success: false, error: "User account not verified. Complete KYC verification to use the API.", code: "ACCOUNT_NOT_VERIFIED" };
-    await logApiRequest(null, req.path, req.method, req.body, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(null, req.path, req.method, req.body, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime, apiKeyRecord.id, referer, origin);
     return res.status(403).json(response);
   }
 
@@ -207,11 +237,11 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateApiKey, async
       },
     };
 
-    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 201, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 201, req.ip, req.get('User-Agent'), Date.now() - startTime, req.apiKeyRecord?.id, req.get('Referer'), req.get('Origin'));
     res.status(201).json(response);
   } catch (error: any) {
     const response = { success: false, error: error.message || "Failed to create payment" };
-    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime, req.apiKeyRecord?.id, req.get('Referer'), req.get('Origin'));
     res.status(400).json(response);
   }
 });
@@ -230,14 +260,14 @@ router.post("/v1/verify-payment", checkApiMaintenance, authenticateApiKey, async
 
     if (!transaction) {
       const response = { success: false, error: "Payment not found", code: "PAYMENT_NOT_FOUND" };
-      await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 404, req.ip, req.get('User-Agent'), Date.now() - startTime);
+      await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 404, req.ip, req.get('User-Agent'), Date.now() - startTime, req.apiKeyRecord?.id, req.get('Referer'), req.get('Origin'));
       return res.status(404).json(response);
     }
 
     // Check ownership
     if (transaction.userId !== apiUser.id) {
       const response = { success: false, error: "Unauthorized", code: "UNAUTHORIZED" };
-      await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime);
+      await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 403, req.ip, req.get('User-Agent'), Date.now() - startTime, req.apiKeyRecord?.id, req.get('Referer'), req.get('Origin'));
       return res.status(403).json(response);
     }
 
@@ -259,11 +289,11 @@ router.post("/v1/verify-payment", checkApiMaintenance, authenticateApiKey, async
       },
     };
 
-    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime, req.apiKeyRecord?.id, req.get('Referer'), req.get('Origin'));
     res.json(response);
   } catch (error: any) {
     const response = { success: false, error: error.message || "Verification failed" };
-    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime, req.apiKeyRecord?.id, req.get('Referer'), req.get('Origin'));
     res.status(400).json(response);
   }
 });
@@ -285,7 +315,7 @@ router.post("/v1/credit-account", checkApiMaintenance, authenticateApiKey, async
     const user = await storage.getUserByPhone(data.phone);
     if (!user) {
       const response = { success: false, error: "User not found", code: "USER_NOT_FOUND" };
-      await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 404, req.ip, req.get('User-Agent'), Date.now() - startTime);
+      await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 404, req.ip, req.get('User-Agent'), Date.now() - startTime, req.apiKeyRecord?.id, req.get('Referer'), req.get('Origin'));
       return res.status(404).json(response);
     }
 
@@ -333,11 +363,11 @@ router.post("/v1/credit-account", checkApiMaintenance, authenticateApiKey, async
       },
     };
 
-    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime, req.apiKeyRecord?.id, req.get('Referer'), req.get('Origin'));
     res.json(response);
   } catch (error: any) {
     const response = { success: false, error: error.message || "Credit failed" };
-    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.body, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime, req.apiKeyRecord?.id, req.get('Referer'), req.get('Origin'));
     res.status(400).json(response);
   }
 });
@@ -356,7 +386,7 @@ router.get("/v1/balance", checkApiMaintenance, authenticateApiKey, async (req: R
 
     if (!user) {
       const response = { success: false, error: "User not found", code: "USER_NOT_FOUND" };
-      await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 404, req.ip, req.get('User-Agent'), Date.now() - startTime);
+      await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 404, req.ip, req.get('User-Agent'), Date.now() - startTime, req.apiKeyRecord?.id, req.get('Referer'), req.get('Origin'));
       return res.status(404).json(response);
     }
 
@@ -371,11 +401,11 @@ router.get("/v1/balance", checkApiMaintenance, authenticateApiKey, async (req: R
       },
     };
 
-    await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime, req.apiKeyRecord?.id, req.get('Referer'), req.get('Origin'));
     res.json(response);
   } catch (error: any) {
     const response = { success: false, error: error.message || "Failed to get balance" };
-    await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime, req.apiKeyRecord?.id, req.get('Referer'), req.get('Origin'));
     res.status(400).json(response);
   }
 });
@@ -408,11 +438,11 @@ router.get("/v1/transactions", checkApiMaintenance, authenticateApiKey, async (r
       },
     };
 
-    await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 200, req.ip, req.get('User-Agent'), Date.now() - startTime, req.apiKeyRecord?.id, req.get('Referer'), req.get('Origin'));
     res.json(response);
   } catch (error: any) {
     const response = { success: false, error: error.message || "Failed to get transactions" };
-    await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime);
+    await logApiRequest(apiUser.id, req.path, req.method, req.query, response, 400, req.ip, req.get('User-Agent'), Date.now() - startTime, req.apiKeyRecord?.id, req.get('Referer'), req.get('Origin'));
     res.status(400).json(response);
   }
 });

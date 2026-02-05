@@ -330,6 +330,7 @@ export const merchantWebhooks = pgTable("merchant_webhooks", {
 export const apiLogs = pgTable("api_logs", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   merchantId: integer("merchant_id").references(() => merchants.id),
+  apiKeyId: integer("api_key_id").references(() => apiKeys.id),
   endpoint: text("endpoint").notNull(),
   method: text("method").notNull(),
   requestBody: text("request_body"),
@@ -337,6 +338,8 @@ export const apiLogs = pgTable("api_logs", {
   statusCode: integer("status_code"),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
+  originDomain: text("origin_domain"),
+  refererUrl: text("referer_url"),
   duration: integer("duration"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

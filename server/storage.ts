@@ -139,6 +139,14 @@ export interface IStorage {
   getStatsOffsets(): Promise<StatsOffset | null>;
   resetAmountStats(adminId: number): Promise<void>;
   
+  getPlatformBalance(): Promise<{ totalBalance: string; userCount: number }>;
+  getApiUsageByDomain(): Promise<Array<{
+    originDomain: string | null;
+    requestCount: number;
+    lastRequest: Date | null;
+    apiKeyIds: number[];
+  }>>;
+  
   getSocialLinks(): Promise<SocialLink[]>;
   updateSocialLink(platform: string, url: string | null, isActive: boolean): Promise<SocialLink>;
   initializeSocialLinks(): Promise<void>;
@@ -571,6 +579,59 @@ export class DatabaseStorage implements IStorage {
       totalPaymentLinks: allPaymentLinks.length,
       lastResetAt: offsets?.lastResetAt?.toISOString() || null,
     };
+  }
+
+  async getPlatformBalance(): Promise<{ totalBalance: string; userCount: number }> {
+    const allUsers = await getDb().select().from(users);
+    const totalBalance = allUsers.reduce((sum, u) => sum + parseFloat(u.balance), 0);
+    return {
+      totalBalance: totalBalance.toFixed(2),
+      userCount: allUsers.length,
+    };
+  }
+
+  async getApiUsageByDomain(): Promise<Array<{
+    originDomain: string | null;
+    requestCount: number;
+    lastRequest: Date | null;
+    apiKeyIds: number[];
+  }>> {
+    // Get all API logs grouped by origin domain
+    const allLogs = await getDb().select().from(apiLogs);
+    
+    // Group by originDomain
+    const domainMap = new Map<string | null, { count: number; lastRequest: Date | null; apiKeyIds: Set<number> }>();
+    
+    for (const log of allLogs) {
+      const domain = log.originDomain || null;
+      const existing = domainMap.get(domain);
+      
+      if (existing) {
+        existing.count++;
+        if (log.createdAt && (!existing.lastRequest || log.createdAt > existing.lastRequest)) {
+          existing.lastRequest = log.createdAt;
+        }
+        if (log.apiKeyId) {
+          existing.apiKeyIds.add(log.apiKeyId);
+        }
+      } else {
+        domainMap.set(domain, {
+          count: 1,
+          lastRequest: log.createdAt,
+          apiKeyIds: log.apiKeyId ? new Set([log.apiKeyId]) : new Set(),
+        });
+      }
+    }
+    
+    // Convert to array and sort by request count descending
+    const result = Array.from(domainMap.entries()).map(([domain, data]) => ({
+      originDomain: domain,
+      requestCount: data.count,
+      lastRequest: data.lastRequest,
+      apiKeyIds: Array.from(data.apiKeyIds),
+    }));
+    
+    return result.sort((a, b) => b.requestCount - a.requestCount);
   }
 
   async getSocialLinks(): Promise<SocialLink[]> {
