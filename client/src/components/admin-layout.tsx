@@ -38,6 +38,7 @@ import {
   LogOut,
   ChevronRight,
   User,
+  Key,
 } from "lucide-react";
 import type { AdminNotification as AdminNotificationType, User as UserType } from "@shared/schema";
 
@@ -61,6 +62,7 @@ const navItems: NavItem[] = [
   { title: "Numéros de retrait", href: "/admin/withdrawal-numbers", icon: Phone },
   { title: "Pays & Opérateurs", href: "/admin/countries", icon: Globe },
   { title: "Liens de paiement", href: "/admin/payment-links", icon: LinkIcon },
+  { title: "Clés API", href: "/admin/api-keys", icon: Key },
   { title: "Message global", href: "/admin/messaging", icon: MessageSquare },
   { title: "Logs & Sécurité", href: "/admin/logs", icon: Shield },
   { title: "Paramètres", href: "/admin/settings", icon: Settings },
