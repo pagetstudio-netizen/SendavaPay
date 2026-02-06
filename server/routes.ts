@@ -2561,9 +2561,15 @@ export async function registerRoutes(
     try {
       const { depositRate, withdrawalRate, encaissementRate } = req.body;
       const currentSettings = await storage.getCommissionSettings();
-      const newDeposit = depositRate !== undefined ? String(depositRate) : (currentSettings?.depositRate || "7");
-      const newEncaissement = encaissementRate !== undefined ? String(encaissementRate) : (currentSettings?.encaissementRate || "7");
-      const newWithdrawal = withdrawalRate !== undefined ? String(withdrawalRate) : (currentSettings?.withdrawalRate || "7");
+      const newDeposit = depositRate !== undefined ? parseFloat(depositRate).toFixed(2) : (currentSettings?.depositRate || "7.00");
+      const newEncaissement = encaissementRate !== undefined ? parseFloat(encaissementRate).toFixed(2) : (currentSettings?.encaissementRate || "7.00");
+      const newWithdrawal = withdrawalRate !== undefined ? parseFloat(withdrawalRate).toFixed(2) : (currentSettings?.withdrawalRate || "7.00");
+      for (const [key, val] of Object.entries({ depositRate: newDeposit, encaissementRate: newEncaissement, withdrawalRate: newWithdrawal })) {
+        const numVal = parseFloat(val);
+        if (isNaN(numVal) || numVal < 0 || numVal > 20) {
+          return res.status(400).json({ message: `Le taux ${key} doit être entre 0 et 20%` });
+        }
+      }
       const settings = await storage.updateCommissionSettings(
         newDeposit,
         newEncaissement,
@@ -2749,9 +2755,15 @@ export async function registerRoutes(
     try {
       const { depositRate, withdrawalRate, encaissementRate } = req.body;
       const currentSettings = await storage.getCommissionSettings();
-      const newDeposit = depositRate !== undefined ? String(depositRate) : (currentSettings?.depositRate || "7");
-      const newEncaissement = encaissementRate !== undefined ? String(encaissementRate) : (currentSettings?.encaissementRate || "7");
-      const newWithdrawal = withdrawalRate !== undefined ? String(withdrawalRate) : (currentSettings?.withdrawalRate || "7");
+      const newDeposit = depositRate !== undefined ? parseFloat(depositRate).toFixed(2) : (currentSettings?.depositRate || "7.00");
+      const newEncaissement = encaissementRate !== undefined ? parseFloat(encaissementRate).toFixed(2) : (currentSettings?.encaissementRate || "7.00");
+      const newWithdrawal = withdrawalRate !== undefined ? parseFloat(withdrawalRate).toFixed(2) : (currentSettings?.withdrawalRate || "7.00");
+      for (const [key, val] of Object.entries({ depositRate: newDeposit, encaissementRate: newEncaissement, withdrawalRate: newWithdrawal })) {
+        const numVal = parseFloat(val);
+        if (isNaN(numVal) || numVal < 0 || numVal > 20) {
+          return res.status(400).json({ message: `Le taux ${key} doit être entre 0 et 20%` });
+        }
+      }
       const settings = await storage.updateCommissionSettings(
         newDeposit,
         newEncaissement,
@@ -2780,29 +2792,29 @@ export async function registerRoutes(
       }
 
       const currentSettings = await storage.getCommissionSettings();
-      const currentDeposit = currentSettings?.depositRate || "7";
-      const currentEncaissement = currentSettings?.encaissementRate || "7";
-      const currentWithdrawal = currentSettings?.withdrawalRate || "7";
+      const currentDeposit = currentSettings?.depositRate || "7.00";
+      const currentEncaissement = currentSettings?.encaissementRate || "7.00";
+      const currentWithdrawal = currentSettings?.withdrawalRate || "7.00";
 
-      const newDeposit = depositRate !== undefined ? depositRate : currentDeposit;
-      const newEncaissement = encaissementRate !== undefined ? encaissementRate : currentEncaissement;
-      const newWithdrawal = withdrawalRate !== undefined ? withdrawalRate : currentWithdrawal;
+      const newDeposit = depositRate !== undefined ? parseFloat(depositRate).toFixed(2) : currentDeposit;
+      const newEncaissement = encaissementRate !== undefined ? parseFloat(encaissementRate).toFixed(2) : currentEncaissement;
+      const newWithdrawal = withdrawalRate !== undefined ? parseFloat(withdrawalRate).toFixed(2) : currentWithdrawal;
 
       if (depositRate !== undefined && parseFloat(depositRate) !== parseFloat(currentDeposit)) {
-        await storage.createFeeChange(req.session.userId!, "deposit", currentDeposit, String(depositRate), reason);
+        await storage.createFeeChange(req.session.userId!, "deposit", currentDeposit, newDeposit, reason);
       }
       if (encaissementRate !== undefined && parseFloat(encaissementRate) !== parseFloat(currentEncaissement)) {
-        await storage.createFeeChange(req.session.userId!, "encaissement", currentEncaissement, String(encaissementRate), reason);
+        await storage.createFeeChange(req.session.userId!, "encaissement", currentEncaissement, newEncaissement, reason);
       }
       if (withdrawalRate !== undefined && parseFloat(withdrawalRate) !== parseFloat(currentWithdrawal)) {
-        await storage.createFeeChange(req.session.userId!, "withdraw", currentWithdrawal, String(withdrawalRate), reason);
+        await storage.createFeeChange(req.session.userId!, "withdraw", currentWithdrawal, newWithdrawal, reason);
       }
 
       console.log(`Fee update: deposit=${newDeposit}, encaissement=${newEncaissement}, withdrawal=${newWithdrawal}`);
       const settings = await storage.updateCommissionSettings(
-        String(newDeposit),
-        String(newEncaissement),
-        String(newWithdrawal),
+        newDeposit,
+        newEncaissement,
+        newWithdrawal,
         req.session.userId!
       );
 
