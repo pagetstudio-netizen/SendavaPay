@@ -2560,10 +2560,14 @@ export async function registerRoutes(
   app.put("/api/admin/commissions", requireAdmin, async (req, res) => {
     try {
       const { depositRate, withdrawalRate, encaissementRate } = req.body;
+      const currentSettings = await storage.getCommissionSettings();
+      const newDeposit = depositRate !== undefined ? String(depositRate) : (currentSettings?.depositRate || "7");
+      const newEncaissement = encaissementRate !== undefined ? String(encaissementRate) : (currentSettings?.encaissementRate || "7");
+      const newWithdrawal = withdrawalRate !== undefined ? String(withdrawalRate) : (currentSettings?.withdrawalRate || "7");
       const settings = await storage.updateCommissionSettings(
-        depositRate,
-        encaissementRate || "7",
-        withdrawalRate,
+        newDeposit,
+        newEncaissement,
+        newWithdrawal,
         req.session.userId!
       );
       res.json(settings);
@@ -2744,10 +2748,14 @@ export async function registerRoutes(
   app.post("/api/admin/settings", requireAdmin, async (req, res) => {
     try {
       const { depositRate, withdrawalRate, encaissementRate } = req.body;
+      const currentSettings = await storage.getCommissionSettings();
+      const newDeposit = depositRate !== undefined ? String(depositRate) : (currentSettings?.depositRate || "7");
+      const newEncaissement = encaissementRate !== undefined ? String(encaissementRate) : (currentSettings?.encaissementRate || "7");
+      const newWithdrawal = withdrawalRate !== undefined ? String(withdrawalRate) : (currentSettings?.withdrawalRate || "7");
       const settings = await storage.updateCommissionSettings(
-        depositRate || "7",
-        encaissementRate || "7",
-        withdrawalRate || "7",
+        newDeposit,
+        newEncaissement,
+        newWithdrawal,
         req.session.userId!
       );
       res.json(settings);
@@ -2780,23 +2788,25 @@ export async function registerRoutes(
       const newEncaissement = encaissementRate !== undefined ? encaissementRate : currentEncaissement;
       const newWithdrawal = withdrawalRate !== undefined ? withdrawalRate : currentWithdrawal;
 
-      if (depositRate !== undefined && depositRate !== currentDeposit) {
-        await storage.createFeeChange(req.session.userId!, "deposit", currentDeposit, depositRate, reason);
+      if (depositRate !== undefined && parseFloat(depositRate) !== parseFloat(currentDeposit)) {
+        await storage.createFeeChange(req.session.userId!, "deposit", currentDeposit, String(depositRate), reason);
       }
-      if (encaissementRate !== undefined && encaissementRate !== currentEncaissement) {
-        await storage.createFeeChange(req.session.userId!, "encaissement", currentEncaissement, encaissementRate, reason);
+      if (encaissementRate !== undefined && parseFloat(encaissementRate) !== parseFloat(currentEncaissement)) {
+        await storage.createFeeChange(req.session.userId!, "encaissement", currentEncaissement, String(encaissementRate), reason);
       }
-      if (withdrawalRate !== undefined && withdrawalRate !== currentWithdrawal) {
-        await storage.createFeeChange(req.session.userId!, "withdraw", currentWithdrawal, withdrawalRate, reason);
+      if (withdrawalRate !== undefined && parseFloat(withdrawalRate) !== parseFloat(currentWithdrawal)) {
+        await storage.createFeeChange(req.session.userId!, "withdraw", currentWithdrawal, String(withdrawalRate), reason);
       }
 
+      console.log(`Fee update: deposit=${newDeposit}, encaissement=${newEncaissement}, withdrawal=${newWithdrawal}`);
       const settings = await storage.updateCommissionSettings(
-        newDeposit,
-        newEncaissement,
-        newWithdrawal,
+        String(newDeposit),
+        String(newEncaissement),
+        String(newWithdrawal),
         req.session.userId!
       );
 
+      console.log("Fee update result:", JSON.stringify(settings));
       res.json(settings);
     } catch (error) {
       console.error("Update fees error:", error);
