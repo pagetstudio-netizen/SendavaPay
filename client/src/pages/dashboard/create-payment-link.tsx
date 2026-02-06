@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, ImageIcon, X, ArrowLeft, Link2, ExternalLink } from "lucide-react";
+import { Loader2, ImageIcon, X, ArrowLeft, Link2, ExternalLink, Info } from "lucide-react";
 
 export default function CreatePaymentLinkPage() {
   const { toast } = useToast();
@@ -24,6 +24,11 @@ export default function CreatePaymentLinkPage() {
   const [redirectUrl, setRedirectUrl] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: commissionRates } = useQuery<{ depositRate: number; encaissementRate: number; withdrawalRate: number }>({
+    queryKey: ["/api/commission-rates"],
+  });
+  const encaissementRate = commissionRates?.encaissementRate ?? 7;
 
   const handleImageUpload = async (file: File) => {
     setIsUploading(true);
@@ -302,6 +307,15 @@ export default function CreatePaymentLinkPage() {
                 <p className="text-xs text-muted-foreground">
                   Après le paiement, le client sera redirigé vers cette URL
                 </p>
+              </div>
+
+              <div className="rounded-md bg-muted/50 p-4">
+                <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <Info className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span data-testid="text-encaissement-info">
+                    Des frais d'encaissement de {encaissementRate}% seront appliqu\u00e9s sur chaque paiement re\u00e7u via ce lien.
+                  </span>
+                </div>
               </div>
 
               <div className="flex gap-3 pt-4">
