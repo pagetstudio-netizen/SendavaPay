@@ -120,9 +120,20 @@ export const auditLogs = pgTable("audit_logs", {
 export const commissionSettings = pgTable("commission_settings", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   depositRate: decimal("deposit_rate", { precision: 5, scale: 2 }).default("7").notNull(),
+  encaissementRate: decimal("encaissement_rate", { precision: 5, scale: 2 }).default("7").notNull(),
   withdrawalRate: decimal("withdrawal_rate", { precision: 5, scale: 2 }).default("7").notNull(),
   updatedBy: integer("updated_by").references(() => users.id),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const feeChanges = pgTable("fee_changes", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  adminId: integer("admin_id").references(() => users.id),
+  fieldChanged: text("field_changed").notNull(),
+  oldValue: decimal("old_value", { precision: 5, scale: 2 }).notNull(),
+  newValue: decimal("new_value", { precision: 5, scale: 2 }).notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const passwordResetTokens = pgTable("password_reset_tokens", {
@@ -499,6 +510,7 @@ export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type CommissionSettings = typeof commissionSettings.$inferSelect;
+export type FeeChange = typeof feeChanges.$inferSelect;
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type SocialLink = typeof socialLinks.$inferSelect;
 export type WithdrawalRequest = typeof withdrawalRequests.$inferSelect;

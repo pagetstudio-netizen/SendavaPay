@@ -43,7 +43,8 @@ Preferred communication style: Simple, everyday language.
 - `paymentLinks` - Shareable payment links with unique codes
 - `apiKeys` - Developer API keys for integration
 - `kycRequests` - KYC verification requests with document paths
-- `commissionSettings` - Configurable fee structures
+- `commissionSettings` - Configurable fee structures (deposit, encaissement, withdrawal rates)
+- `feeChanges` - Audit trail for fee rate modifications
 
 ### Authentication & Authorization
 - Session-based authentication stored server-side

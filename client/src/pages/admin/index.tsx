@@ -2169,86 +2169,207 @@ function ApiKeysContent() {
   );
 }
 
+interface FeeChangeRecord {
+  id: number;
+  adminId: number | null;
+  fieldChanged: string;
+  oldValue: string;
+  newValue: string;
+  reason: string | null;
+  createdAt: string;
+}
+
 function CommissionsContent() {
   const { toast } = useToast();
   const [depositRate, setDepositRate] = useState("7");
+  const [encaissementRate, setEncaissementRate] = useState("7");
   const [withdrawalRate, setWithdrawalRate] = useState("7");
+  const [reason, setReason] = useState("");
 
-  const { data: settings } = useQuery<{ depositRate: string; withdrawalRate: string }>({
+  const { data: settings } = useQuery<{ depositRate: string; encaissementRate: string; withdrawalRate: string }>({
     queryKey: ["/api/admin/settings"],
+  });
+
+  const { data: feeChanges, isLoading: changesLoading } = useQuery<FeeChangeRecord[]>({
+    queryKey: ["/api/admin/fee-changes"],
   });
 
   useEffect(() => {
     if (settings) {
       setDepositRate(settings.depositRate || "7");
+      setEncaissementRate(settings.encaissementRate || "7");
       setWithdrawalRate(settings.withdrawalRate || "7");
     }
   }, [settings]);
 
   const updateMutation = useMutation({
-    mutationFn: async (data: { depositRate: string; withdrawalRate: string }) => {
-      await apiRequest("POST", "/api/admin/settings", data);
+    mutationFn: async (data: { depositRate: string; encaissementRate: string; withdrawalRate: string; reason?: string }) => {
+      await apiRequest("POST", "/api/admin/fees/update", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/settings"] });
-      toast({ title: "Succès", description: "Taux de commission mis à jour" });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/fee-changes"] });
+      setReason("");
+      toast({ title: "Taux mis \u00e0 jour", description: "Les nouveaux taux seront appliqu\u00e9s aux prochaines transactions" });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Impossible de mettre \u00e0 jour les taux", variant: "destructive" });
     },
   });
+
+  const validateRate = (value: string): boolean => {
+    const num = parseFloat(value);
+    return !isNaN(num) && num >= 0 && num <= 20;
+  };
+
+  const handleSubmit = () => {
+    if (!validateRate(depositRate) || !validateRate(encaissementRate) || !validateRate(withdrawalRate)) {
+      toast({ title: "Erreur de validation", description: "Les taux doivent \u00eatre entre 0% et 20%", variant: "destructive" });
+      return;
+    }
+    updateMutation.mutate({ depositRate, encaissementRate, withdrawalRate, reason: reason || undefined });
+  };
+
+  const fieldLabel = (field: string) => {
+    switch (field) {
+      case "deposit": return "D\u00e9p\u00f4t";
+      case "encaissement": return "Encaissement";
+      case "withdraw": return "Retrait";
+      default: return field;
+    }
+  };
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Commissions</h1>
-        <p className="text-muted-foreground">Configurez les taux de commission de la plateforme</p>
+        <h1 className="text-2xl font-bold" data-testid="text-commissions-title">Param\u00e8tres de frais</h1>
+        <p className="text-muted-foreground">Configurez les taux appliqu\u00e9s aux diff\u00e9rents types de transactions</p>
       </div>
       <Card>
         <CardHeader>
           <CardTitle>Taux de commission</CardTitle>
-          <CardDescription>Définissez les pourcentages prélevés sur les transactions</CardDescription>
+          <CardDescription>D\u00e9finissez les pourcentages pr\u00e9lev\u00e9s sur les transactions (entre 0% et 20%)</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2">
-              <Label htmlFor="deposit-rate">Commission sur dépôts (%)</Label>
+              <Label htmlFor="deposit-rate">Frais de d\u00e9p\u00f4t (%)</Label>
               <Input
                 id="deposit-rate"
+                data-testid="input-deposit-rate"
                 type="number"
                 value={depositRate}
                 onChange={(e) => setDepositRate(e.target.value)}
                 min="0"
-                max="100"
+                max="20"
                 step="0.1"
               />
+              {!validateRate(depositRate) && (
+                <p className="text-sm text-destructive" data-testid="text-deposit-error">Doit \u00eatre entre 0 et 20</p>
+              )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="withdrawal-rate">Commission sur retraits (%)</Label>
+              <Label htmlFor="encaissement-rate">Frais d'encaissement (%)</Label>
+              <Input
+                id="encaissement-rate"
+                data-testid="input-encaissement-rate"
+                type="number"
+                value={encaissementRate}
+                onChange={(e) => setEncaissementRate(e.target.value)}
+                min="0"
+                max="20"
+                step="0.1"
+              />
+              {!validateRate(encaissementRate) && (
+                <p className="text-sm text-destructive" data-testid="text-encaissement-error">Doit \u00eatre entre 0 et 20</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="withdrawal-rate">Frais de retrait (%)</Label>
               <Input
                 id="withdrawal-rate"
+                data-testid="input-withdrawal-rate"
                 type="number"
                 value={withdrawalRate}
                 onChange={(e) => setWithdrawalRate(e.target.value)}
                 min="0"
-                max="100"
+                max="20"
                 step="0.1"
               />
+              {!validateRate(withdrawalRate) && (
+                <p className="text-sm text-destructive" data-testid="text-withdrawal-error">Doit \u00eatre entre 0 et 20</p>
+              )}
             </div>
           </div>
-          <Button onClick={() => updateMutation.mutate({ depositRate, withdrawalRate })}>
-            Enregistrer les modifications
+          <div className="space-y-2">
+            <Label htmlFor="reason">Raison du changement (optionnel)</Label>
+            <Input
+              id="reason"
+              data-testid="input-fee-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Ex: Ajustement suite \u00e0 n\u00e9gociation op\u00e9rateur"
+            />
+          </div>
+          <Button
+            onClick={handleSubmit}
+            disabled={updateMutation.isPending}
+            data-testid="button-update-fees"
+          >
+            {updateMutation.isPending ? "Mise \u00e0 jour..." : "Mettre \u00e0 jour les taux"}
           </Button>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Historique des commissions</CardTitle>
-          <CardDescription>Revenus générés par les commissions</CardDescription>
+          <CardTitle>Historique des modifications</CardTitle>
+          <CardDescription>Journal de toutes les modifications de taux</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="text-center py-8 text-muted-foreground">
-            <TrendingUp className="h-12 w-12 mx-auto mb-4 opacity-50" />
-            <p>Les statistiques de commission sont disponibles dans le tableau de bord principal</p>
-          </div>
+          {changesLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+          ) : feeChanges && feeChanges.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Ancien taux</TableHead>
+                  <TableHead>Nouveau taux</TableHead>
+                  <TableHead>Raison</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {feeChanges.map((change) => (
+                  <TableRow key={change.id} data-testid={`row-fee-change-${change.id}`}>
+                    <TableCell className="text-muted-foreground text-sm" data-testid={`text-change-date-${change.id}`}>
+                      {new Date(change.createdAt).toLocaleString("fr-FR")}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" data-testid={`badge-change-type-${change.id}`}>
+                        {fieldLabel(change.fieldChanged)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell data-testid={`text-old-value-${change.id}`}>{change.oldValue}%</TableCell>
+                    <TableCell data-testid={`text-new-value-${change.id}`}>{change.newValue}%</TableCell>
+                    <TableCell className="text-muted-foreground text-sm" data-testid={`text-change-reason-${change.id}`}>
+                      {change.reason || "-"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <History className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>Aucune modification de taux enregistr\u00e9e</p>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
