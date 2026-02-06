@@ -12,6 +12,7 @@ import {
   type KycRequest,
   type InsertKycRequest,
   type CommissionSettings,
+  type FeeChange,
   type SocialLink,
   type WithdrawalRequest,
   type InsertWithdrawalRequest,
@@ -36,6 +37,7 @@ import {
   apiKeys,
   kycRequests,
   commissionSettings,
+  feeChanges,
   socialLinks,
   siteSettings,
   withdrawalRequests,
@@ -111,7 +113,9 @@ export interface IStorage {
   getAllKycRequests(): Promise<(KycRequest & { user?: User })[]>;
   
   getCommissionSettings(): Promise<CommissionSettings | undefined>;
-  updateCommissionSettings(depositRate: string, withdrawalRate: string, updatedBy: number): Promise<CommissionSettings>;
+  updateCommissionSettings(depositRate: string, encaissementRate: string, withdrawalRate: string, updatedBy: number): Promise<CommissionSettings>;
+  createFeeChange(adminId: number, fieldChanged: string, oldValue: string, newValue: string, reason?: string): Promise<FeeChange>;
+  getFeeChanges(): Promise<FeeChange[]>;
   
   getStats(): Promise<{
     totalUsers: number;
@@ -427,14 +431,30 @@ export class DatabaseStorage implements IStorage {
     return settings;
   }
 
-  async updateCommissionSettings(depositRate: string, withdrawalRate: string, updatedBy: number): Promise<CommissionSettings> {
+  async updateCommissionSettings(depositRate: string, encaissementRate: string, withdrawalRate: string, updatedBy: number): Promise<CommissionSettings> {
     const [updated] = await getDb().insert(commissionSettings).values({
       depositRate,
+      encaissementRate,
       withdrawalRate,
       updatedBy,
       updatedAt: new Date(),
     }).returning();
     return updated;
+  }
+
+  async createFeeChange(adminId: number, fieldChanged: string, oldValue: string, newValue: string, reason?: string): Promise<FeeChange> {
+    const [change] = await getDb().insert(feeChanges).values({
+      adminId,
+      fieldChanged,
+      oldValue,
+      newValue,
+      reason: reason || null,
+    }).returning();
+    return change;
+  }
+
+  async getFeeChanges(): Promise<FeeChange[]> {
+    return await getDb().select().from(feeChanges).orderBy(desc(feeChanges.createdAt)).limit(50);
   }
 
   async getStatsOffsets(): Promise<StatsOffset | null> {

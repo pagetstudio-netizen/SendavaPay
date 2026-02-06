@@ -24,6 +24,16 @@ import {
   sendDepositEmail
 } from "./email";
 
+function getCommissionRate(settings: any, transactionType: string): number {
+  if (transactionType === "withdrawal") {
+    return parseFloat(settings?.withdrawalRate || "7");
+  }
+  if (transactionType === "payment_received") {
+    return parseFloat(settings?.encaissementRate || "7");
+  }
+  return parseFloat(settings?.depositRate || "7");
+}
+
 function requireDatabase(req: Request, res: Response, next: NextFunction) {
   if (!isDatabaseConnected()) {
     return res.status(503).json({ 
@@ -543,7 +553,7 @@ export async function registerRoutes(
 
           // Calculer les frais
           const settings = await storage.getCommissionSettings();
-          const commissionRate = parseFloat(settings?.depositRate || "7");
+          const commissionRate = getCommissionRate(settings, "deposit");
           const fee = Math.round(amount * (commissionRate / 100));
           const netAmount = amount - fee;
 
@@ -740,7 +750,7 @@ export async function registerRoutes(
 
           // Calculer les frais
           const settings = await storage.getCommissionSettings();
-          const commissionRate = parseFloat(settings?.depositRate || "7");
+          const commissionRate = getCommissionRate(settings, "payment_received");
           const fee = Math.round(amount * (commissionRate / 100));
           const netAmount = amount - fee;
 
@@ -846,11 +856,7 @@ export async function registerRoutes(
       if (success && status === "SUCCESS") {
         const numAmount = parseFloat(amount) || parseFloat(payment.amount);
         
-        // Calculer les frais
         const settings = await storage.getCommissionSettings();
-        const commissionRate = parseFloat(settings?.depositRate || "7");
-        const fee = Math.round(numAmount * (commissionRate / 100));
-        const netAmount = numAmount - fee;
 
         await storage.updateLeekpayPayment(reference, {
           status: "completed",
@@ -859,6 +865,10 @@ export async function registerRoutes(
         });
 
         if (payment.type === "deposit" && payment.userId) {
+          const commissionRate = getCommissionRate(settings, "deposit");
+          const fee = Math.round(numAmount * (commissionRate / 100));
+          const netAmount = numAmount - fee;
+
           await storage.createTransaction({
             userId: payment.userId,
             type: "deposit",
@@ -874,6 +884,10 @@ export async function registerRoutes(
           await storage.updateUserBalance(payment.userId, netAmount.toString());
           console.log(`✅ SoleasPay webhook: Dépôt confirmé utilisateur #${payment.userId}: ${netAmount}`);
         } else if (payment.type === "payment_link" && payment.paymentLinkId) {
+          const commissionRate = getCommissionRate(settings, "payment_received");
+          const fee = Math.round(numAmount * (commissionRate / 100));
+          const netAmount = numAmount - fee;
+
           const link = await storage.getPaymentLink(payment.paymentLinkId);
           if (link) {
             await storage.updatePaymentLink(link.id, {
@@ -1015,7 +1029,7 @@ export async function registerRoutes(
       console.log("LeekPay confirmed payment completed, crediting user...");
       
       const settings = await storage.getCommissionSettings();
-      const commissionRate = parseFloat(settings?.depositRate || "7");
+      const commissionRate = getCommissionRate(settings, "deposit");
       const amount = parseFloat(leekpayPayment.amount);
       const fee = Math.round(amount * (commissionRate / 100));
       const netAmount = amount - fee;
@@ -1155,7 +1169,7 @@ export async function registerRoutes(
       console.log("✅ LeekPay confirme le paiement, traitement en cours...");
       
       const settings = await storage.getCommissionSettings();
-      const commissionRate = parseFloat(settings?.depositRate || "7");
+      const commissionRate = getCommissionRate(settings, "deposit");
       const amount = leekpayAmount || (leekpayPayment ? parseFloat(leekpayPayment.amount) : 0);
       const fee = Math.round(amount * (commissionRate / 100));
       const netAmount = amount - fee;
@@ -1320,7 +1334,7 @@ export async function registerRoutes(
       }
 
       const settings = await storage.getCommissionSettings();
-      const commissionRate = parseFloat(settings?.withdrawalRate || "7");
+      const commissionRate = getCommissionRate(settings, "withdrawal");
       const fee = Math.round(numericAmount * (commissionRate / 100));
       const netAmount = numericAmount - fee;
 
@@ -1861,7 +1875,7 @@ export async function registerRoutes(
         // Credit the API owner's balance
         const amount = verifyResult.data?.amount || parseFloat(transaction.amount);
         const commissionSettings = await storage.getCommissionSettings();
-        const feeRate = parseFloat(commissionSettings?.depositRate || "7");
+        const feeRate = getCommissionRate(commissionSettings, "payment_received");
         const fee = (amount * feeRate) / 100;
         const netAmount = amount - fee;
 
@@ -2180,7 +2194,7 @@ export async function registerRoutes(
       console.log("LeekPay confirmed link payment completed, crediting user...");
       
       const settings = await storage.getCommissionSettings();
-      const commissionRate = parseFloat(settings?.depositRate || "7");
+      const commissionRate = getCommissionRate(settings, "payment_received");
       const amount = parseFloat(leekpayPayment.amount);
       const fee = Math.round(amount * (commissionRate / 100));
       const netAmount = amount - fee;
@@ -2536,7 +2550,7 @@ export async function registerRoutes(
   app.get("/api/admin/commissions", requireAdmin, async (req, res) => {
     try {
       const settings = await storage.getCommissionSettings();
-      res.json(settings || { depositRate: "7", withdrawalRate: "7" });
+      res.json(settings || { depositRate: "7", encaissementRate: "7", withdrawalRate: "7" });
     } catch (error) {
       console.error("Get commissions error:", error);
       res.status(500).json({ message: "Erreur serveur" });
@@ -2545,9 +2559,10 @@ export async function registerRoutes(
 
   app.put("/api/admin/commissions", requireAdmin, async (req, res) => {
     try {
-      const { depositRate, withdrawalRate } = req.body;
+      const { depositRate, withdrawalRate, encaissementRate } = req.body;
       const settings = await storage.updateCommissionSettings(
         depositRate,
+        encaissementRate || "7",
         withdrawalRate,
         req.session.userId!
       );
@@ -2719,7 +2734,7 @@ export async function registerRoutes(
   app.get("/api/admin/settings", requireAdmin, async (req, res) => {
     try {
       const settings = await storage.getCommissionSettings();
-      res.json(settings || { depositRate: "7", withdrawalRate: "7" });
+      res.json(settings || { depositRate: "7", encaissementRate: "7", withdrawalRate: "7" });
     } catch (error) {
       console.error("Get admin settings error:", error);
       res.status(500).json({ message: "Erreur serveur" });
@@ -2728,15 +2743,73 @@ export async function registerRoutes(
 
   app.post("/api/admin/settings", requireAdmin, async (req, res) => {
     try {
-      const { depositRate, withdrawalRate } = req.body;
+      const { depositRate, withdrawalRate, encaissementRate } = req.body;
       const settings = await storage.updateCommissionSettings(
         depositRate || "7",
+        encaissementRate || "7",
         withdrawalRate || "7",
         req.session.userId!
       );
       res.json(settings);
     } catch (error) {
       console.error("Update admin settings error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/fees/update", requireAdmin, async (req, res) => {
+    try {
+      const { depositRate, encaissementRate, withdrawalRate, reason } = req.body;
+      
+      const rates = { depositRate, encaissementRate, withdrawalRate };
+      for (const [key, value] of Object.entries(rates)) {
+        if (value !== undefined) {
+          const numVal = parseFloat(value as string);
+          if (isNaN(numVal) || numVal < 0 || numVal > 20) {
+            return res.status(400).json({ message: `Le taux ${key} doit être entre 0 et 20%` });
+          }
+        }
+      }
+
+      const currentSettings = await storage.getCommissionSettings();
+      const currentDeposit = currentSettings?.depositRate || "7";
+      const currentEncaissement = currentSettings?.encaissementRate || "7";
+      const currentWithdrawal = currentSettings?.withdrawalRate || "7";
+
+      const newDeposit = depositRate !== undefined ? depositRate : currentDeposit;
+      const newEncaissement = encaissementRate !== undefined ? encaissementRate : currentEncaissement;
+      const newWithdrawal = withdrawalRate !== undefined ? withdrawalRate : currentWithdrawal;
+
+      if (depositRate !== undefined && depositRate !== currentDeposit) {
+        await storage.createFeeChange(req.session.userId!, "deposit", currentDeposit, depositRate, reason);
+      }
+      if (encaissementRate !== undefined && encaissementRate !== currentEncaissement) {
+        await storage.createFeeChange(req.session.userId!, "encaissement", currentEncaissement, encaissementRate, reason);
+      }
+      if (withdrawalRate !== undefined && withdrawalRate !== currentWithdrawal) {
+        await storage.createFeeChange(req.session.userId!, "withdraw", currentWithdrawal, withdrawalRate, reason);
+      }
+
+      const settings = await storage.updateCommissionSettings(
+        newDeposit,
+        newEncaissement,
+        newWithdrawal,
+        req.session.userId!
+      );
+
+      res.json(settings);
+    } catch (error) {
+      console.error("Update fees error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/admin/fee-changes", requireAdmin, async (req, res) => {
+    try {
+      const changes = await storage.getFeeChanges();
+      res.json(changes);
+    } catch (error) {
+      console.error("Get fee changes error:", error);
       res.status(500).json({ message: "Erreur serveur" });
     }
   });
@@ -3005,10 +3078,7 @@ export async function registerRoutes(
       }
 
       const settings = await storage.getCommissionSettings();
-      const commissionRate = parseFloat(settings?.depositRate || "7");
       const amount = parseFloat(leekpayPayment.amount);
-      const fee = Math.round(amount * (commissionRate / 100));
-      const netAmount = amount - fee;
 
       // Update LeekPay payment status
       await storage.updateLeekpayPayment(leekpayPaymentId, {
@@ -3018,6 +3088,10 @@ export async function registerRoutes(
       });
 
       if (leekpayPayment.type === "deposit" && leekpayPayment.userId) {
+        const commissionRate = getCommissionRate(settings, "deposit");
+        const fee = Math.round(amount * (commissionRate / 100));
+        const netAmount = amount - fee;
+
         // Create transaction
         await storage.createTransaction({
           userId: leekpayPayment.userId,
@@ -3037,6 +3111,10 @@ export async function registerRoutes(
         console.log(`Admin: Manually processed deposit for user ${leekpayPayment.userId}, amount: ${netAmount}`);
         res.json({ success: true, message: `Dépôt de ${netAmount} ${leekpayPayment.currency} crédité` });
       } else if (leekpayPayment.type === "payment_link" && leekpayPayment.paymentLinkId) {
+        const commissionRate = getCommissionRate(settings, "payment_received");
+        const fee = Math.round(amount * (commissionRate / 100));
+        const netAmount = amount - fee;
+
         const link = await storage.getPaymentLink(leekpayPayment.paymentLinkId);
         if (link) {
           await storage.updatePaymentLink(link.id, {
@@ -3219,12 +3297,13 @@ export async function registerRoutes(
         // Si le paiement est réussi, créditer le compte
         if (status === "completed") {
           const settings = await storage.getCommissionSettings();
-          const commissionRate = parseFloat(settings?.depositRate || "7");
           const amount = paymentAmount || parseFloat(leekpayPayment.amount);
-          const fee = Math.round(amount * (commissionRate / 100));
-          const netAmount = amount - fee;
 
           if (leekpayPayment.type === "deposit" && leekpayPayment.userId) {
+            const commissionRate = getCommissionRate(settings, "deposit");
+            const fee = Math.round(amount * (commissionRate / 100));
+            const netAmount = amount - fee;
+
             // Créer la transaction
             await storage.createTransaction({
               userId: leekpayPayment.userId,
@@ -3256,6 +3335,10 @@ export async function registerRoutes(
             
             console.log(`✅ Paiement confirmé pour utilisateur #${leekpayPayment.userId}: référence=${paymentReference}, montant=${netAmount} ${paymentCurrency}`);
           } else if (leekpayPayment.type === "payment_link" && leekpayPayment.paymentLinkId) {
+            const commissionRate = getCommissionRate(settings, "payment_received");
+            const fee = Math.round(amount * (commissionRate / 100));
+            const netAmount = amount - fee;
+
             const link = await storage.getPaymentLink(leekpayPayment.paymentLinkId);
             if (link) {
               await storage.updatePaymentLink(link.id, {
@@ -3315,7 +3398,7 @@ export async function registerRoutes(
         
         if (isSuccess && userId && paymentAmount) {
           const settings = await storage.getCommissionSettings();
-          const commissionRate = parseFloat(settings?.depositRate || "7");
+          const commissionRate = getCommissionRate(settings, "deposit");
           const fee = Math.round(paymentAmount * (commissionRate / 100));
           const netAmount = paymentAmount - fee;
 
