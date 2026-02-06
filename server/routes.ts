@@ -241,6 +241,20 @@ export async function registerRoutes(
     });
   });
 
+  app.get("/api/commission-rates", requireAuth, async (req, res) => {
+    try {
+      const settings = await storage.getCommissionSettings();
+      res.json({
+        depositRate: parseFloat(settings?.depositRate || "7"),
+        encaissementRate: parseFloat(settings?.encaissementRate || "7"),
+        withdrawalRate: parseFloat(settings?.withdrawalRate || "7"),
+      });
+    } catch (error) {
+      console.error("Get commission rates error:", error);
+      res.json({ depositRate: 7, encaissementRate: 7, withdrawalRate: 7 });
+    }
+  });
+
   app.get("/api/user", requireAuth, async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);

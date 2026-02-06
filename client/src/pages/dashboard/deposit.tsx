@@ -106,7 +106,10 @@ export default function DepositPage() {
   const selectedService = services.find(s => s.id.toString() === selectedServiceId);
   const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
 
-  const commissionRate = 7;
+  const { data: commissionRates } = useQuery<{ depositRate: number; encaissementRate: number; withdrawalRate: number }>({
+    queryKey: ["/api/commission-rates"],
+  });
+  const commissionRate = commissionRates?.depositRate ?? 7;
   const numericAmount = parseFloat(amount) || 0;
   const fee = Math.round(numericAmount * (commissionRate / 100));
   const netAmount = numericAmount - fee;

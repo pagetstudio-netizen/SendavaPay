@@ -97,7 +97,10 @@ export default function WithdrawPage() {
     setPaymentMethod("");
   }, [country]);
 
-  const commissionRate = 7;
+  const { data: commissionRates } = useQuery<{ depositRate: number; encaissementRate: number; withdrawalRate: number }>({
+    queryKey: ["/api/commission-rates"],
+  });
+  const commissionRate = commissionRates?.withdrawalRate ?? 7;
   const balance = parseFloat(user?.balance || "0");
   const numericAmount = parseFloat(amount) || 0;
   const fee = Math.round(numericAmount * (commissionRate / 100));
