@@ -82,7 +82,7 @@ shared/           # Shared code between client/server
 - **SoleasPay** - Primary payment gateway for deposits and payment links (replaced LeekPay)
   - API Endpoint: https://soleaspay.com/api/agent/bills/V3
   - Verification: https://soleaspay.com/api/agent/verif-pay
-  - Webhook URL: https://smart-glass.fun/api/webhook/soleaspay
+  - Webhook URL: https://sendavapay.com/api/webhook/soleaspay
   - Supported currencies: XOF, XAF, CDF
   - Flow: Direct API call with wallet number → User confirms on phone → Polling verification every 3 seconds
   - Service IDs by country/operator defined in server/soleaspay.ts
