@@ -318,7 +318,7 @@ export async function registerRoutes(
 
       const currency = country === "rdc" ? "CDF" : (country === "cm" || country === "cg") ? "XAF" : "XOF";
       // Toujours utiliser l'URL de production pour les redirections LeekPay
-      const baseUrl = "https://smart-glass.fun";
+      const baseUrl = "https://sendavapay.com";
       
       // Créer le checkout LeekPay - l'ID sera retourné par LeekPay
       const checkoutResult = await leekpay.createCheckout({
@@ -461,7 +461,7 @@ export async function registerRoutes(
       }
 
       const orderId = `DEP-${Date.now()}-${req.session.userId}`;
-      const baseUrl = "https://smart-glass.fun";
+      const baseUrl = "https://sendavapay.com";
 
       console.log(`📤 SoleasPay: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
 
@@ -653,7 +653,7 @@ export async function registerRoutes(
       }
 
       const orderId = `PAY-${linkCode}-${Date.now()}`;
-      const baseUrl = "https://smart-glass.fun";
+      const baseUrl = "https://sendavapay.com";
 
       console.log(`📤 SoleasPay: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}`);
 
@@ -2110,7 +2110,7 @@ export async function registerRoutes(
 
       const currency = payerCountry === "CD" ? "CDF" : (payerCountry === "CM" || payerCountry === "CG") ? "XAF" : "XOF";
       // Toujours utiliser l'URL de production pour les redirections LeekPay
-      const baseUrl = "https://smart-glass.fun";
+      const baseUrl = "https://sendavapay.com";
 
       // Create LeekPay checkout - l'URL de retour inclut le vendeur_id
       const checkoutResult = await leekpay.createCheckout({
