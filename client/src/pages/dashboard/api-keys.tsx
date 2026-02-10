@@ -27,6 +27,7 @@ export default function ApiKeysPage() {
   const { user, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
   const [newKeyName, setNewKeyName] = useState("");
+  const [appName, setAppName] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [redirectUrl, setRedirectUrl] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -43,13 +44,14 @@ export default function ApiKeysPage() {
   });
 
   const createKeyMutation = useMutation({
-    mutationFn: async (data: { name: string; webhookUrl?: string; redirectUrl?: string }) => {
+    mutationFn: async (data: { name: string; appName?: string; webhookUrl?: string; redirectUrl?: string }) => {
       const res = await apiRequest("POST", "/api/api-keys", data);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/api-keys"] });
       setNewKeyName("");
+      setAppName("");
       setWebhookUrl("");
       setRedirectUrl("");
       toast({ title: "Clé créée", description: "Votre nouvelle clé API a été créée" });
@@ -86,6 +88,7 @@ export default function ApiKeysPage() {
     }
     createKeyMutation.mutate({
       name: newKeyName.trim(),
+      appName: appName.trim() || undefined,
       webhookUrl: webhookUrl.trim() || undefined,
       redirectUrl: redirectUrl.trim() || undefined,
     });
@@ -221,6 +224,20 @@ export default function ApiKeysPage() {
                 data-testid="input-key-name"
               />
             </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="appName">Nom de l'application</Label>
+              <Input
+                id="appName"
+                placeholder="Ex: MaBoutique, MonApp.com"
+                value={appName}
+                onChange={(e) => setAppName(e.target.value)}
+                data-testid="input-app-name"
+              />
+              <p className="text-xs text-muted-foreground">
+                Ce nom sera affiché sur la page de paiement au lieu de votre nom personnel
+              </p>
+            </div>
             
             <div className="space-y-2">
               <Label htmlFor="redirectUrl">URL de redirection (après paiement)</Label>
@@ -305,6 +322,11 @@ export default function ApiKeysPage() {
                             {key.isActive ? "Active" : "Inactive"}
                           </Badge>
                         </div>
+                        {key.appName && (
+                          <p className="text-sm text-muted-foreground">
+                            Application : {key.appName}
+                          </p>
+                        )}
                         <code className="text-sm text-muted-foreground font-mono block truncate">
                           {key.apiKey}
                         </code>

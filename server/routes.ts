@@ -292,6 +292,23 @@ export async function registerRoutes(
     }
   });
 
+  app.put("/api/user/merchant-name", requireAuth, async (req, res) => {
+    try {
+      const { merchantName } = req.body;
+      if (!merchantName || typeof merchantName !== "string" || merchantName.trim().length === 0) {
+        return res.status(400).json({ message: "Le nom marchand est requis" });
+      }
+      if (merchantName.trim().length > 100) {
+        return res.status(400).json({ message: "Le nom marchand ne peut pas dépasser 100 caractères" });
+      }
+      const user = await storage.updateUser(req.session.userId!, { merchantName: merchantName.trim() });
+      res.json({ message: "Nom marchand mis à jour", merchantName: user?.merchantName });
+    } catch (error) {
+      console.error("Update merchant name error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.get("/api/transactions", requireAuth, async (req, res) => {
     try {
       const transactions = await storage.getTransactions(req.session.userId!);
@@ -1773,11 +1790,17 @@ export async function registerRoutes(
       if (!transaction) {
         return res.status(404).json({ message: "Transaction introuvable" });
       }
-      // Get the user who created this API transaction
       const user = await storage.getUser(transaction.userId);
+      let displayName = user?.fullName || "SendavaPay";
+      if (transaction.apiKeyId) {
+        const apiKey = await storage.getApiKeyById(transaction.apiKeyId);
+        if (apiKey?.appName) {
+          displayName = apiKey.appName;
+        }
+      }
       res.json({
         ...transaction,
-        ownerName: user?.fullName || "SendavaPay",
+        ownerName: displayName,
       });
     } catch (error) {
       console.error("Get API transaction error:", error);
@@ -2072,7 +2095,9 @@ export async function registerRoutes(
       if (!link) {
         return res.status(404).json({ message: "Lien introuvable" });
       }
-      res.json(link);
+      const owner = await storage.getUser(link.userId);
+      const merchantDisplayName = owner?.merchantName || owner?.fullName || "SendavaPay";
+      res.json({ ...link, merchantName: merchantDisplayName });
     } catch (error) {
       console.error("Get payment link error:", error);
       res.status(500).json({ message: "Erreur serveur" });
@@ -2283,7 +2308,7 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Compte non vérifié" });
       }
 
-      const { name, webhookUrl, redirectUrl } = req.body;
+      const { name, appName, webhookUrl, redirectUrl } = req.body;
       if (!name) {
         return res.status(400).json({ message: "Nom requis" });
       }
@@ -2294,6 +2319,7 @@ export async function registerRoutes(
       const key = await storage.createApiKey({
         userId: req.session.userId!,
         name,
+        appName: appName || null,
         redirectUrl: redirectUrl || null,
         webhookUrl: webhookUrl || null,
         webhookSecret: webhookSecret || null,

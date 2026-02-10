@@ -46,6 +46,10 @@ import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
 import type { PaymentLink } from "@shared/schema";
 
+interface PaymentLinkWithMerchant extends PaymentLink {
+  merchantName?: string;
+}
+
 interface SoleasPayCountry {
   code: string;
   name: string;
@@ -112,7 +116,7 @@ export default function PaymentPage() {
     enabled: !!selectedCountry,
   });
 
-  const { data: paymentLink, isLoading, error } = useQuery<PaymentLink>({
+  const { data: paymentLink, isLoading, error } = useQuery<PaymentLinkWithMerchant>({
     queryKey: ["/api/pay", params?.code],
     queryFn: async () => {
       const res = await fetch(`/api/pay/${params?.code}`);
@@ -581,6 +585,11 @@ export default function PaymentPage() {
                   )}
                   <div className="flex-1 min-w-0">
                     <h2 className="font-semibold text-lg line-clamp-2">{paymentLink.title}</h2>
+                    {paymentLink.merchantName && (
+                      <p className="text-xs text-muted-foreground" data-testid="text-merchant-name">
+                        par {paymentLink.merchantName}
+                      </p>
+                    )}
                     {paymentLink.description && (
                       <div className="flex items-center gap-2 mt-1">
                         <p className="text-sm text-muted-foreground line-clamp-1 flex-1">{paymentLink.description}</p>
