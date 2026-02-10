@@ -20,6 +20,7 @@ import {
   Shield,
   Eye,
   EyeOff,
+  Store,
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -27,6 +28,7 @@ export default function SettingsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
 
+  const [merchantName, setMerchantName] = useState(user?.merchantName || "");
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [passwordData, setPasswordData] = useState({
@@ -34,6 +36,40 @@ export default function SettingsPage() {
     newPassword: "",
     confirmPassword: "",
   });
+
+  const updateMerchantNameMutation = useMutation({
+    mutationFn: async (data: { merchantName: string }) => {
+      const res = await apiRequest("PUT", "/api/user/merchant-name", data);
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+      toast({
+        title: "Nom marchand mis à jour",
+        description: "Votre nom marchand a été modifié avec succès.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Erreur",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleMerchantNameSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!merchantName.trim()) {
+      toast({
+        title: "Nom requis",
+        description: "Veuillez entrer un nom marchand.",
+        variant: "destructive",
+      });
+      return;
+    }
+    updateMerchantNameMutation.mutate({ merchantName: merchantName.trim() });
+  };
 
   const updatePasswordMutation = useMutation({
     mutationFn: async (data: { currentPassword: string; newPassword: string }) => {
@@ -148,6 +184,50 @@ export default function SettingsPage() {
                 </div>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Store className="h-5 w-5" />
+              Nom marchand
+            </CardTitle>
+            <CardDescription>
+              Ce nom sera affiché sur vos pages de paiement (liens de paiement)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleMerchantNameSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="merchantName">Nom marchand / entreprise</Label>
+                <Input
+                  id="merchantName"
+                  value={merchantName}
+                  onChange={(e) => setMerchantName(e.target.value)}
+                  placeholder="Ex: Ma Boutique, MonSite.com"
+                  maxLength={100}
+                  data-testid="input-merchant-name"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Ce nom apparaîtra sur les pages de paiement au lieu de votre nom complet
+                </p>
+              </div>
+              <Button
+                type="submit"
+                disabled={updateMerchantNameMutation.isPending}
+                data-testid="button-update-merchant-name"
+              >
+                {updateMerchantNameMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Mise à jour...
+                  </>
+                ) : (
+                  "Enregistrer le nom marchand"
+                )}
+              </Button>
+            </form>
           </CardContent>
         </Card>
 
