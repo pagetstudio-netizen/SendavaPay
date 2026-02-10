@@ -21,6 +21,7 @@ export const users = pgTable("users", {
   isVerified: boolean("is_verified").default(false).notNull(),
   isBlocked: boolean("is_blocked").default(false).notNull(),
   country: text("country"),
+  merchantName: text("merchant_name"),
   adminNote: text("admin_note"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -99,6 +100,7 @@ export const apiKeys = pgTable("api_keys", {
   userId: integer("user_id").notNull().references(() => users.id),
   apiKey: text("api_key").notNull().unique(),
   name: text("name").notNull(),
+  appName: text("app_name"),
   redirectUrl: text("redirect_url"),
   webhookUrl: text("webhook_url"),
   webhookSecret: text("webhook_secret"),
