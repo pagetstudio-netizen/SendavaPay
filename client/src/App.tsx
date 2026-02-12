@@ -19,7 +19,6 @@ import KycPage from "@/pages/dashboard/kyc";
 import ApiKeysPage from "@/pages/dashboard/api-keys";
 import SettingsPage from "@/pages/dashboard/settings";
 import DashboardHelpPage from "@/pages/dashboard/help";
-import ApiDocsPage from "@/pages/api-docs";
 import PaymentPage from "@/pages/pay";
 import PayApiPage from "@/pages/pay-api";
 import SuccessPage from "@/pages/success";
@@ -35,7 +34,6 @@ function Router() {
     <Switch>
       <Route path="/" component={HomePage} />
       <Route path="/auth" component={AuthPage} />
-      <Route path="/api-docs" component={ApiDocsPage} />
       <Route path="/pay/:code" component={PaymentPage} />
       <Route path="/pay/api/:reference" component={PayApiPage} />
       <Route path="/success" component={SuccessPage} />
@@ -44,8 +42,6 @@ function Router() {
       <Route path="/about" component={AboutPage} />
       <Route path="/help" component={HelpPage} />
       <Route path="/docs" component={DocsPage} />
-      <Route path="/merchant/dashboard">{() => { window.location.href = "/dashboard/api-keys"; return null; }}</Route>
-      <Route path="/merchant">{() => { window.location.href = "/dashboard/api-keys"; return null; }}</Route>
       
       <ProtectedRoute path="/dashboard" component={DashboardPage} />
       <ProtectedRoute path="/dashboard/deposit" component={DepositPage} />
