@@ -117,6 +117,16 @@ async function initializeWithTimeout<T>(
 
   await registerRoutes(httpServer, app);
 
+  app.get("/api-docs", (_req, res) => {
+    res.redirect(301, "/docs");
+  });
+  app.get("/merchant/dashboard", (_req, res) => {
+    res.redirect(301, "/dashboard/api-keys");
+  });
+  app.get("/merchant", (_req, res) => {
+    res.redirect(301, "/dashboard/api-keys");
+  });
+
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
