@@ -23,6 +23,14 @@ import {
   sendTransferReceivedEmail,
   sendDepositEmail
 } from "./email";
+import {
+  notifyDeposit,
+  notifyPaymentReceived,
+  notifyWithdrawalRequest,
+  notifyWithdrawalApproved,
+  notifyWithdrawalRejected,
+  notifyNewUser,
+} from "./telegram";
 
 function getCommissionRate(settings: any, transactionType: string): number {
   if (transactionType === "withdrawal") {
@@ -192,6 +200,13 @@ export async function registerRoutes(
       sendWelcomeEmail(email, fullName).catch(err => 
         console.error("Failed to send welcome email:", err)
       );
+
+      notifyNewUser({
+        userName: fullName,
+        userId: user.id,
+        email,
+        phone,
+      });
       
       res.json(userWithoutPassword);
     } catch (error) {
@@ -625,6 +640,18 @@ export async function registerRoutes(
             }).catch(err => console.error("Failed to send deposit email:", err));
           }
 
+          notifyDeposit({
+            userName: depositUser?.fullName || "Inconnu",
+            userId: existingPayment.userId,
+            amount,
+            fee,
+            netAmount,
+            currency: existingPayment.currency || "XOF",
+            phone: existingPayment.payerPhone || undefined,
+            operator: existingPayment.paymentMethod || undefined,
+            reference: payId,
+          });
+
           return res.json({ 
             status: "SUCCESS", 
             message: `Paiement confirmé! ${netAmount} ${existingPayment.currency} crédités sur votre compte.`,
@@ -831,6 +858,20 @@ export async function registerRoutes(
               paymentLinkTitle: link.title
             }).catch(err => console.error("Failed to send payment received email:", err));
           }
+
+          notifyPaymentReceived({
+            merchantName: merchant?.fullName || "Inconnu",
+            merchantId: link.userId,
+            amount,
+            fee,
+            netAmount,
+            currency: existingPayment.currency || "XOF",
+            payerPhone: existingPayment.payerPhone || undefined,
+            payerName: existingPayment.payerName || undefined,
+            paymentLinkTitle: link.title,
+            reference: payId,
+            source: "link",
+          });
 
           return res.json({ 
             status: "SUCCESS", 
@@ -1388,6 +1429,18 @@ export async function registerRoutes(
         walletName: walletName || null,
       });
 
+      notifyWithdrawalRequest({
+        userName: user.fullName,
+        userId: req.session.userId!,
+        amount: numericAmount.toString(),
+        fee: fee.toString(),
+        netAmount: netAmount.toString(),
+        paymentMethod: selectedOperator.name,
+        mobileNumber,
+        country,
+        walletName: walletName || null,
+      });
+
       res.json({ 
         message: "Votre demande de retrait a été soumise. Un administrateur la traitera dans les plus brefs délais.",
         request: withdrawalRequest
@@ -1579,6 +1632,15 @@ export async function registerRoutes(
           operator: withdrawalRequest.paymentMethod || "Mobile Money"
         }).catch(err => console.error("Failed to send withdrawal email:", err));
       }
+
+      notifyWithdrawalApproved({
+        userName: user?.fullName || "Inconnu",
+        userId: withdrawalRequest.userId,
+        amount: withdrawalRequest.amount,
+        netAmount: withdrawalRequest.netAmount,
+        paymentMethod: withdrawalRequest.paymentMethod || "Mobile Money",
+        mobileNumber: withdrawalRequest.mobileNumber,
+      });
       
       console.log("✅ Withdrawal approved for user", withdrawalRequest.userId, "Amount:", withdrawalRequest.amount);
       res.json({ message: "Retrait approuvé et traité avec succès" });
@@ -1624,6 +1686,15 @@ export async function registerRoutes(
         rejectionReason: reason,
         reviewedBy: req.session.userId,
         reviewedAt: new Date(),
+      });
+
+      notifyWithdrawalRejected({
+        userName: user?.fullName || "Inconnu",
+        userId: withdrawalRequest.userId,
+        amount: withdrawalRequest.amount,
+        paymentMethod: withdrawalRequest.paymentMethod || "Mobile Money",
+        mobileNumber: withdrawalRequest.mobileNumber,
+        reason,
       });
       
       res.json({ message: "Demande de retrait rejetée et solde remboursé" });
@@ -1957,6 +2028,20 @@ export async function registerRoutes(
             paymentLinkTitle: transaction.description || "Paiement API"
           }).catch(err => console.error("Failed to send API payment received email:", err));
         }
+
+        notifyPaymentReceived({
+          merchantName: apiMerchant?.fullName || "Inconnu",
+          merchantId: transaction.userId,
+          amount,
+          fee,
+          netAmount,
+          currency: transaction.currency || "XOF",
+          payerPhone: transaction.customerPhone || undefined,
+          payerName: transaction.customerName || undefined,
+          paymentLinkTitle: transaction.description || "Paiement API",
+          reference: transaction.reference,
+          source: "api",
+        });
 
         // Get API key configuration using the apiKeyId stored in the transaction
         let apiKeyConfig = null;
@@ -3394,6 +3479,18 @@ export async function registerRoutes(
                 operator: leekpayPayment.paymentMethod || "Mobile Money"
               }).catch(err => console.error("Failed to send deposit email:", err));
             }
+
+            notifyDeposit({
+              userName: depositUser?.fullName || "Inconnu",
+              userId: leekpayPayment.userId,
+              amount,
+              fee,
+              netAmount,
+              currency: paymentCurrency || "XOF",
+              phone: leekpayPayment.payerPhone || undefined,
+              operator: leekpayPayment.paymentMethod || undefined,
+              reference: paymentReference!,
+            });
             
             console.log(`✅ Paiement confirmé pour utilisateur #${leekpayPayment.userId}: référence=${paymentReference}, montant=${netAmount} ${paymentCurrency}`);
           } else if (leekpayPayment.type === "payment_link" && leekpayPayment.paymentLinkId) {
@@ -3444,6 +3541,20 @@ export async function registerRoutes(
                   paymentLinkTitle: link.title
                 }).catch(err => console.error("Failed to send payment received email:", err));
               }
+
+              notifyPaymentReceived({
+                merchantName: merchant?.fullName || "Inconnu",
+                merchantId: link.userId,
+                amount,
+                fee,
+                netAmount,
+                currency: paymentCurrency || "XOF",
+                payerPhone: leekpayPayment.payerPhone || undefined,
+                payerName: leekpayPayment.payerName || undefined,
+                paymentLinkTitle: link.title,
+                reference: paymentReference!,
+                source: "link",
+              });
               
               console.log(`✅ Paiement confirmé pour marchand #${link.userId}: référence=${paymentReference}, montant=${netAmount} ${paymentCurrency}`);
             }

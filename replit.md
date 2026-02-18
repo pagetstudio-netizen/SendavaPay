@@ -99,6 +99,10 @@ shared/           # Shared code between client/server
 ### Third-Party Services
 - **SoleasPay** - Payment processing (API key in SOLEASPAY_API_KEY secret)
 - **Nodemailer** - Email notifications
+- **Telegram Bot** - Real-time admin notifications for all transactions (server/telegram.ts)
+  - Sends alerts for: new users, deposits, payment link payments, API payments, withdrawal requests, withdrawal approvals/rejections
+  - Uses TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID secrets
+  - Bot username: @SendavaPaybot
 - **OpenAI / Google Generative AI** - AI features (listed in dependencies)
 
 ### File Storage
@@ -116,6 +120,8 @@ shared/           # Shared code between client/server
 The following secrets must be configured in deployment environment:
 - **SUPABASE_DATABASE_URL** - PostgreSQL connection string for Supabase database
 - **SOLEASPAY_API_KEY** - SoleasPay payment gateway API key
+- **TELEGRAM_BOT_TOKEN** - Telegram bot token for admin notifications
+- **TELEGRAM_CHAT_ID** - Telegram chat ID to receive notifications
 
 ### Server Configuration
 - The server includes connection retry logic (3 attempts with exponential backoff)
