@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initializeAdminAccount } from "./init-admin";
 import { testDatabaseConnection, isDatabaseConnected, startBackgroundReconnection } from "./db";
+import { notifyStartup } from "./telegram";
 
 const app = express();
 const httpServer = createServer(app);
@@ -150,6 +151,7 @@ async function initializeWithTimeout<T>(
     },
     () => {
       log(`serving on port ${port}`);
+      notifyStartup().catch(err => log(`Telegram startup notification failed: ${err}`, "telegram"));
     },
   );
 })();
