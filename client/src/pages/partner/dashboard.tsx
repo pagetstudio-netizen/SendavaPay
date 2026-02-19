@@ -963,12 +963,6 @@ function SupportSection() {
                 WhatsApp : +228 92 29 97 72
               </Button>
             </a>
-            <a href="https://t.me/sendavapay" target="_blank" rel="noopener noreferrer" className="block">
-              <Button className="w-full bg-blue-500 dark:bg-blue-600" data-testid="button-support-telegram">
-                <MessageSquare className="h-4 w-4 mr-2" />
-                Telegram : @sendavapay
-              </Button>
-            </a>
           </div>
         </CardContent>
       </Card>
@@ -992,7 +986,7 @@ function SupportSection() {
             </div>
             <div className="flex items-center gap-2">
               <Globe className="h-4 w-4 text-muted-foreground" />
-              <a href="https://sendavapay.com" target="_blank" rel="noopener noreferrer" className="text-sm text-primary" data-testid="text-support-website">www.sendavapay.com</a>
+              <a href="https://SendavaPay.com" target="_blank" rel="noopener noreferrer" className="text-sm text-primary" data-testid="text-support-website">https://SendavaPay.com</a>
             </div>
             <div className="mt-4 pt-3 border-t">
               <p className="text-xs text-muted-foreground mb-2">Horaires du service client :</p>
