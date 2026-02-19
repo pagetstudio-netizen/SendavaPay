@@ -590,4 +590,277 @@ export function registerPartnerRoutes(app: Express) {
       res.status(500).json({ success: false, message: "Erreur serveur" });
     }
   });
+
+  // ========== PARTNER DEPOSIT ROUTES ==========
+
+  app.get("/api/partner/deposit/countries", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      const { SOLEASPAY_COUNTRIES } = await import("./soleaspay");
+      res.json(SOLEASPAY_COUNTRIES);
+    } catch (error) {
+      console.error("Partner get countries error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/partner/deposit/services/:countryCode", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      const { getServicesByCountry } = await import("./soleaspay");
+      const { countryCode } = req.params;
+      const services = getServicesByCountry(countryCode);
+      const operators = await storage.getOperators();
+      const availableServices = services.map((service: any) => {
+        const operator = operators.find((op: any) => op.code === service.id.toString());
+        return { ...service, inMaintenance: operator?.inMaintenance ?? false };
+      });
+      res.json(availableServices);
+    } catch (error) {
+      console.error("Partner get services error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/partner/deposit", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      const { amount, serviceId, phoneNumber } = req.body;
+      const numericAmount = parseFloat(amount);
+      if (isNaN(numericAmount) || numericAmount < 100) {
+        return res.status(400).json({ message: "Montant minimum: 100" });
+      }
+      if (!serviceId || !phoneNumber) {
+        return res.status(400).json({ message: "Service et numéro de téléphone requis" });
+      }
+      const partner = await storage.getPartner(req.session.partnerId!);
+      if (!partner) return res.status(404).json({ message: "Partenaire non trouvé" });
+
+      const { getServiceById, soleaspay } = await import("./soleaspay");
+      const service = getServiceById(parseInt(serviceId));
+      if (!service) return res.status(400).json({ message: "Service non trouvé" });
+
+      const operators = await storage.getOperators();
+      const operator = operators.find((op: any) => op.code === serviceId.toString());
+      if (operator?.inMaintenance) {
+        return res.status(400).json({ message: "Ce moyen de paiement est actuellement en maintenance" });
+      }
+
+      const orderId = `PDEP-${Date.now()}-P${req.session.partnerId}`;
+      const baseUrl = "https://sendavapay.com";
+
+      const result = await soleaspay.collectPayment({
+        wallet: phoneNumber,
+        amount: numericAmount,
+        currency: service.currency,
+        orderId,
+        description: `Dépôt Partenaire - ${partner.name}`,
+        payer: partner.name,
+        payerEmail: partner.email,
+        serviceId: service.id,
+        successUrl: `${baseUrl}/partner/dashboard`,
+        failureUrl: `${baseUrl}/partner/dashboard`,
+      });
+
+      if (!result.success) {
+        return res.status(500).json({ message: result.message || "Erreur lors du paiement" });
+      }
+
+      const payId = result.data?.reference || orderId;
+      const waveUrl = result.wave_launch_url || result.payment_url || result.redirect_url || 
+                      result.data?.wave_launch_url || result.data?.payment_url || result.data?.redirect_url;
+      const isWaveOperator = service.operator === "Wave" || service.id === 32;
+
+      await storage.createPartnerLog({
+        partnerId: req.session.partnerId!,
+        action: "api_call",
+        details: `Dépôt initié: ${numericAmount} ${service.currency} via ${service.operator}`,
+        ipAddress: req.ip || req.socket.remoteAddress,
+      });
+
+      res.json({ 
+        success: true, payId, orderId, status: result.status,
+        message: isWaveOperator && waveUrl 
+          ? "Redirection vers Wave..." 
+          : (result.message || "Veuillez confirmer sur votre téléphone."),
+        waveUrl: waveUrl || null, isWave: isWaveOperator,
+      });
+    } catch (error) {
+      console.error("Partner deposit error:", error);
+      res.status(500).json({ message: "Erreur lors du dépôt" });
+    }
+  });
+
+  app.get("/api/partner/verify-deposit/:orderId/:payId", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      const { orderId, payId } = req.params;
+      const { soleaspay } = await import("./soleaspay");
+      const result = await soleaspay.verifyPayment(orderId, payId);
+      
+      if (result.success && (result.status === "SUCCESSFUL" || result.status === "completed" || result.status === "SUCCESS")) {
+        res.json({ status: "completed", message: "Paiement confirmé" });
+      } else if (result.status === "FAILED" || result.status === "failed") {
+        res.json({ status: "failed", message: "Paiement échoué" });
+      } else {
+        res.json({ status: "pending", message: "En attente de confirmation" });
+      }
+    } catch (error) {
+      res.json({ status: "pending", message: "Vérification en cours..." });
+    }
+  });
+
+  // ========== PARTNER WITHDRAWAL ROUTES ==========
+
+  app.get("/api/partner/withdraw/operators", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      const operators = await storage.getOperators();
+      const countries = await storage.getCountries();
+      const countryOperators = countries.map((country: any) => {
+        const countryOps = operators
+          .filter((op: any) => op.countryId === country.id)
+          .map((op: any) => ({ id: op.code || op.id.toString(), name: op.name, inMaintenance: op.inMaintenance ?? false }));
+        return { id: country.code.toLowerCase(), name: country.name, currency: country.currency, methods: countryOps };
+      }).filter((c: any) => c.methods.length > 0);
+      res.json(countryOperators);
+    } catch (error) {
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/partner/withdraw", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      const partner = await storage.getPartner(req.session.partnerId!);
+      if (!partner) return res.status(404).json({ message: "Partenaire non trouvé" });
+
+      const { amount, paymentMethod, mobileNumber, country, walletName } = req.body;
+      const numericAmount = parseFloat(amount);
+      const balance = parseFloat(partner.balance);
+
+      if (isNaN(numericAmount) || numericAmount < 500) {
+        return res.status(400).json({ message: "Montant minimum: 500" });
+      }
+      if (numericAmount > balance) {
+        return res.status(400).json({ message: "Solde insuffisant" });
+      }
+      if (!mobileNumber) {
+        return res.status(400).json({ message: "Numéro de téléphone requis" });
+      }
+
+      const countries = await storage.getCountries();
+      const operators = await storage.getOperators();
+      const selectedCountry = countries.find((c: any) => c.code.toLowerCase() === country.toLowerCase());
+      if (!selectedCountry) return res.status(400).json({ message: "Pays invalide" });
+
+      const countryOperators = operators.filter((op: any) => op.countryId === selectedCountry.id);
+      const selectedOperator = countryOperators.find((op: any) => 
+        op.code === paymentMethod || op.id.toString() === paymentMethod || op.name.toLowerCase() === paymentMethod.toLowerCase()
+      );
+      if (!selectedOperator) return res.status(400).json({ message: "Moyen de paiement invalide" });
+      if (selectedOperator.inMaintenance) return res.status(400).json({ message: "Ce moyen de paiement est en maintenance" });
+
+      const settings = await storage.getCommissionSettings();
+      const commissionRate = parseFloat(settings?.withdrawalRate || "7");
+      const fee = Math.round(numericAmount * (commissionRate / 100));
+      const netAmount = numericAmount - fee;
+
+      await storage.updatePartnerBalance(req.session.partnerId!, (-numericAmount).toString());
+
+      await storage.createPartnerLog({
+        partnerId: req.session.partnerId!,
+        action: "api_call",
+        details: `Retrait demandé: ${numericAmount} FCFA via ${selectedOperator.name} (${mobileNumber}). Frais: ${fee}, Net: ${netAmount}`,
+        ipAddress: req.ip || req.socket.remoteAddress,
+      });
+
+      const withdrawalRequest = await storage.createWithdrawalRequest({
+        userId: 0,
+        amount: numericAmount.toString(),
+        fee: fee.toString(),
+        netAmount: netAmount.toString(),
+        paymentMethod: selectedOperator.name,
+        mobileNumber,
+        country,
+        walletName: `PARTENAIRE:${partner.name}` + (walletName ? ` - ${walletName}` : ""),
+      });
+
+      res.json({ 
+        message: "Votre demande de retrait a été soumise. Elle sera traitée dans les plus brefs délais.",
+        request: withdrawalRequest
+      });
+    } catch (error) {
+      console.error("Partner withdraw error:", error);
+      res.status(500).json({ message: "Erreur lors du retrait" });
+    }
+  });
+
+  app.get("/api/partner/withdrawal-requests", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      res.json([]);
+    } catch (error) {
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // ========== PARTNER PAYMENT LINK ROUTES ==========
+
+  app.get("/api/partner/payment-links", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      const { db } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const result = await db.execute(sql`SELECT * FROM payment_links WHERE partner_id = ${req.session.partnerId} ORDER BY created_at DESC`);
+      res.json(result.rows || []);
+    } catch (error) {
+      console.error("Partner get payment links error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/partner/payment-links", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      const partner = await storage.getPartner(req.session.partnerId!);
+      if (!partner) return res.status(404).json({ message: "Partenaire non trouvé" });
+
+      const { title, description, amount, allowCustomAmount, minimumAmount, redirectUrl } = req.body;
+      const numericAmount = parseFloat(amount);
+      if (!title || isNaN(numericAmount) || numericAmount < 100) {
+        return res.status(400).json({ message: "Titre requis et montant minimum 100" });
+      }
+      const numericMinAmount = minimumAmount ? parseFloat(minimumAmount) : null;
+      if (allowCustomAmount && numericMinAmount !== null && numericMinAmount < 100) {
+        return res.status(400).json({ message: "Le montant minimum doit être d'au moins 100" });
+      }
+
+      const linkCode = crypto.randomBytes(6).toString("hex");
+      const { db } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      
+      const result = await db.execute(sql`
+        INSERT INTO payment_links (user_id, link_code, title, description, amount, product_image, allow_custom_amount, minimum_amount, redirect_url, partner_id)
+        VALUES (NULL, ${linkCode}, ${title}, ${description || null}, ${numericAmount.toString()}, ${null}, ${allowCustomAmount || false}, ${numericMinAmount ? numericMinAmount.toString() : null}, ${redirectUrl || null}, ${req.session.partnerId})
+        RETURNING *
+      `);
+
+      await storage.createPartnerLog({
+        partnerId: req.session.partnerId!,
+        action: "api_call",
+        details: `Lien de paiement créé: ${title} - ${numericAmount} FCFA`,
+        ipAddress: req.ip || req.socket.remoteAddress,
+      });
+
+      res.json(result.rows?.[0] || { linkCode, title, amount: numericAmount });
+    } catch (error) {
+      console.error("Partner create payment link error:", error);
+      res.status(500).json({ message: "Erreur lors de la création du lien" });
+    }
+  });
+
+  app.get("/api/partner/commission-rates", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      const settings = await storage.getCommissionSettings();
+      res.json({
+        depositRate: parseFloat(settings?.depositRate || "7"),
+        withdrawalRate: parseFloat(settings?.withdrawalRate || "7"),
+        encaissementRate: parseFloat(settings?.encaissementRate || "7"),
+      });
+    } catch (error) {
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
 }
