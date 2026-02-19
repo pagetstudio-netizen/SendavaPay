@@ -77,6 +77,7 @@ import {
   RotateCcw,
   Activity,
 } from "lucide-react";
+import { PartnersContent } from "@/pages/admin/partners";
 import type { 
   User as UserType, 
   Transaction, 
@@ -3780,6 +3781,7 @@ export default function AdminDashboardPage() {
     if (location === "/admin/withdrawal-numbers") return <WithdrawalNumbersContent />;
     if (location === "/admin/countries") return <CountriesContent />;
     if (location === "/admin/payment-links") return <AdminPaymentLinksContent />;
+    if (location === "/admin/partners") return <PartnersContent />;
     if (location === "/admin/logs") return <LogsContent />;
     return <DashboardContent />;
   };

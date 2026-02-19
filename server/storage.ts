@@ -30,6 +30,9 @@ import {
   type ApiLog,
   type GlobalNotification,
   type InsertGlobalNotification,
+  type Partner,
+  type PartnerLog,
+  type PartnerTransaction,
   users,
   transactions,
   transfers,
@@ -55,6 +58,9 @@ import {
   apiLogs,
   statsOffsets,
   globalNotifications,
+  partners,
+  partnerLogs,
+  partnerTransactions,
   type StatsOffset,
 } from "@shared/schema";
 import { db as dbInstance } from "./db";
@@ -204,6 +210,27 @@ export interface IStorage {
   getActiveGlobalNotifications(): Promise<GlobalNotification[]>;
   updateGlobalNotification(id: number, updates: Partial<GlobalNotification>): Promise<GlobalNotification | undefined>;
   deleteGlobalNotification(id: number): Promise<void>;
+
+  // Partner methods
+  createPartner(partner: Partial<Partner>): Promise<Partner>;
+  getPartner(id: number): Promise<Partner | undefined>;
+  getPartnerByEmail(email: string): Promise<Partner | undefined>;
+  getPartnerBySlug(slug: string): Promise<Partner | undefined>;
+  getPartnerByApiKey(apiKey: string): Promise<Partner | undefined>;
+  updatePartner(id: number, updates: Partial<Partner>): Promise<Partner | undefined>;
+  deletePartner(id: number): Promise<void>;
+  getAllPartners(): Promise<Partner[]>;
+  updatePartnerBalance(id: number, amount: string): Promise<Partner | undefined>;
+
+  createPartnerLog(log: Partial<PartnerLog>): Promise<PartnerLog>;
+  getPartnerLogs(partnerId: number): Promise<PartnerLog[]>;
+  getAllPartnerLogs(): Promise<PartnerLog[]>;
+
+  createPartnerTransaction(transaction: Partial<PartnerTransaction>): Promise<PartnerTransaction>;
+  getPartnerTransaction(id: number): Promise<PartnerTransaction | undefined>;
+  getPartnerTransactionByReference(reference: string): Promise<PartnerTransaction | undefined>;
+  getPartnerTransactions(partnerId: number): Promise<PartnerTransaction[]>;
+  updatePartnerTransaction(id: number, updates: Partial<PartnerTransaction>): Promise<PartnerTransaction | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1034,6 +1061,92 @@ export class DatabaseStorage implements IStorage {
 
   async deleteGlobalNotification(id: number): Promise<void> {
     await getDb().delete(globalNotifications).where(eq(globalNotifications.id, id));
+  }
+
+  async createPartner(partner: Partial<Partner>): Promise<Partner> {
+    const [newPartner] = await getDb().insert(partners).values(partner as any).returning();
+    return newPartner;
+  }
+
+  async getPartner(id: number): Promise<Partner | undefined> {
+    const [partner] = await getDb().select().from(partners).where(eq(partners.id, id));
+    return partner;
+  }
+
+  async getPartnerByEmail(email: string): Promise<Partner | undefined> {
+    const [partner] = await getDb().select().from(partners).where(eq(partners.email, email));
+    return partner;
+  }
+
+  async getPartnerBySlug(slug: string): Promise<Partner | undefined> {
+    const [partner] = await getDb().select().from(partners).where(eq(partners.slug, slug));
+    return partner;
+  }
+
+  async getPartnerByApiKey(apiKey: string): Promise<Partner | undefined> {
+    const [partner] = await getDb().select().from(partners).where(eq(partners.apiKey, apiKey));
+    return partner;
+  }
+
+  async updatePartner(id: number, updates: Partial<Partner>): Promise<Partner | undefined> {
+    const [updated] = await getDb().update(partners).set(updates).where(eq(partners.id, id)).returning();
+    return updated;
+  }
+
+  async deletePartner(id: number): Promise<void> {
+    await getDb().delete(partnerLogs).where(eq(partnerLogs.partnerId, id));
+    await getDb().delete(partnerTransactions).where(eq(partnerTransactions.partnerId, id));
+    await getDb().delete(partners).where(eq(partners.id, id));
+  }
+
+  async getAllPartners(): Promise<Partner[]> {
+    return getDb().select().from(partners).orderBy(desc(partners.createdAt));
+  }
+
+  async updatePartnerBalance(id: number, amount: string): Promise<Partner | undefined> {
+    const [updated] = await getDb()
+      .update(partners)
+      .set({ balance: sql`${partners.balance} + ${amount}` })
+      .where(eq(partners.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createPartnerLog(log: Partial<PartnerLog>): Promise<PartnerLog> {
+    const [newLog] = await getDb().insert(partnerLogs).values(log as any).returning();
+    return newLog;
+  }
+
+  async getPartnerLogs(partnerId: number): Promise<PartnerLog[]> {
+    return getDb().select().from(partnerLogs).where(eq(partnerLogs.partnerId, partnerId)).orderBy(desc(partnerLogs.createdAt)).limit(200);
+  }
+
+  async getAllPartnerLogs(): Promise<PartnerLog[]> {
+    return getDb().select().from(partnerLogs).orderBy(desc(partnerLogs.createdAt)).limit(500);
+  }
+
+  async createPartnerTransaction(transaction: Partial<PartnerTransaction>): Promise<PartnerTransaction> {
+    const [newTransaction] = await getDb().insert(partnerTransactions).values(transaction as any).returning();
+    return newTransaction;
+  }
+
+  async getPartnerTransaction(id: number): Promise<PartnerTransaction | undefined> {
+    const [transaction] = await getDb().select().from(partnerTransactions).where(eq(partnerTransactions.id, id));
+    return transaction;
+  }
+
+  async getPartnerTransactionByReference(reference: string): Promise<PartnerTransaction | undefined> {
+    const [transaction] = await getDb().select().from(partnerTransactions).where(eq(partnerTransactions.reference, reference));
+    return transaction;
+  }
+
+  async getPartnerTransactions(partnerId: number): Promise<PartnerTransaction[]> {
+    return getDb().select().from(partnerTransactions).where(eq(partnerTransactions.partnerId, partnerId)).orderBy(desc(partnerTransactions.createdAt));
+  }
+
+  async updatePartnerTransaction(id: number, updates: Partial<PartnerTransaction>): Promise<PartnerTransaction | undefined> {
+    const [updated] = await getDb().update(partnerTransactions).set(updates).where(eq(partnerTransactions.id, id)).returning();
+    return updated;
   }
 }
 
