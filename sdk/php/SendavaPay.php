@@ -52,16 +52,62 @@ class SendavaPay {
         return json_decode($response, true);
     }
 
+    /**
+     * Initiate a payment - sends USSD push directly to customer's phone
+     *
+     * @param array $data Required: amount, phoneNumber, operator, country
+     *   - amount: float - Amount to charge
+     *   - phoneNumber: string - Customer's mobile number
+     *   - operator: string - MTN, Moov, Orange, TMoney, Wave, Vodacom, Airtel
+     *   - country: string - Country code: TG, BJ, BF, CM, CI, COD, COG
+     *   - currency: string (optional) - Auto-detected from country
+     *   - customerName: string (optional)
+     *   - customerEmail: string (optional)
+     *   - description: string (optional)
+     *   - callbackUrl: string (optional) - Webhook for status updates
+     *   - metadata: array (optional)
+     * @return array Payment result with reference for verification
+     */
     public function createPayment($data) {
         return $this->request("POST", "/api/sdk/payment", $data);
     }
 
+    /**
+     * Request a withdrawal to a mobile money account
+     */
     public function createWithdraw($data) {
         return $this->request("POST", "/api/sdk/withdraw", $data);
     }
 
+    /**
+     * Verify payment status - checks with payment provider
+     */
     public function verifyPayment($reference) {
         return $this->request("POST", "/api/sdk/verify", ["reference" => $reference]);
+    }
+
+    /**
+     * Poll payment status until completed or timeout
+     *
+     * @param string $reference Transaction reference
+     * @param int $intervalSec Polling interval in seconds (default: 3)
+     * @param int $timeoutSec Maximum wait time in seconds (default: 120)
+     * @param callable|null $onStatus Callback for each status check
+     * @return array Final payment result
+     */
+    public function waitForPayment($reference, $intervalSec = 3, $timeoutSec = 120, $onStatus = null) {
+        $start = time();
+        while (time() - $start < $timeoutSec) {
+            $result = $this->verifyPayment($reference);
+            if ($onStatus) {
+                $onStatus($result);
+            }
+            if (in_array($result["status"] ?? "", ["SUCCESS", "FAILED", "CANCELLED"])) {
+                return $result;
+            }
+            sleep($intervalSec);
+        }
+        return ["success" => false, "status" => "TIMEOUT", "reference" => $reference, "message" => "Timeout - le client n'a pas confirmé"];
     }
 
     public function getTransaction($reference) {

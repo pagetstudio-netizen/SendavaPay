@@ -37,13 +37,30 @@ class SendavaPay {
     return res.json();
   }
 
-  async createPayment({ amount, currency = "XOF", customerName, customerEmail, customerPhone, description, callbackUrl, redirectUrl, metadata }) {
+  /**
+   * Initiate a payment - sends USSD push directly to customer's phone
+   * @param {Object} params
+   * @param {number} params.amount - Amount to charge
+   * @param {string} params.phoneNumber - Customer's phone number
+   * @param {string} params.operator - Mobile operator (MTN, Moov, Orange, TMoney, Wave, Vodacom, Airtel)
+   * @param {string} params.country - Country code (TG, BJ, BF, CM, CI, COD, COG)
+   * @param {string} [params.currency] - Currency (auto-detected from country if not set)
+   * @param {string} [params.customerName] - Customer name
+   * @param {string} [params.customerEmail] - Customer email
+   * @param {string} [params.description] - Payment description
+   * @param {string} [params.callbackUrl] - Webhook URL for payment status updates
+   * @param {Object} [params.metadata] - Additional metadata
+   * @returns {Promise<Object>} Payment result with reference for verification
+   */
+  async createPayment({ amount, phoneNumber, operator, country, currency, customerName, customerEmail, description, callbackUrl, redirectUrl, metadata }) {
     return this.request("POST", "/api/sdk/payment", {
       amount,
+      phoneNumber,
+      operator,
+      country,
       currency,
       customerName,
       customerEmail,
-      customerPhone,
       description,
       callbackUrl,
       redirectUrl,
@@ -51,6 +68,9 @@ class SendavaPay {
     });
   }
 
+  /**
+   * Request a withdrawal to a mobile money account
+   */
   async createWithdraw({ amount, phoneNumber, operator, country, currency = "XOF", description }) {
     return this.request("POST", "/api/sdk/withdraw", {
       amount,
@@ -62,8 +82,34 @@ class SendavaPay {
     });
   }
 
+  /**
+   * Verify payment status - checks with payment provider
+   * @param {string} reference - Transaction reference from createPayment
+   * @returns {Promise<Object>} Payment status (PROCESSING, SUCCESS, FAILED)
+   */
   async verifyPayment(reference) {
     return this.request("POST", "/api/sdk/verify", { reference });
+  }
+
+  /**
+   * Poll payment status until completed or timeout
+   * @param {string} reference - Transaction reference
+   * @param {number} [intervalMs=3000] - Polling interval in milliseconds
+   * @param {number} [timeoutMs=120000] - Maximum wait time (default 2 minutes)
+   * @param {Function} [onStatus] - Callback for each status check
+   * @returns {Promise<Object>} Final payment result
+   */
+  async waitForPayment(reference, intervalMs = 3000, timeoutMs = 120000, onStatus) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const result = await this.verifyPayment(reference);
+      if (onStatus) onStatus(result);
+      if (result.status === "SUCCESS" || result.status === "FAILED" || result.status === "CANCELLED") {
+        return result;
+      }
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+    return { success: false, status: "TIMEOUT", reference, message: "Timeout - le client n'a pas confirmé" };
   }
 
   async getTransaction(reference) {
