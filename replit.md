@@ -45,18 +45,37 @@ Preferred communication style: Simple, everyday language.
 - `kycRequests` - KYC verification requests with document paths
 - `commissionSettings` - Configurable fee structures (deposit, encaissement, withdrawal rates)
 - `feeChanges` - Audit trail for fee rate modifications
+- `partners` - Partner accounts with separate auth, API keys, slugs, commission rates
+- `partnerLogs` - Activity logs for partner actions (login, API calls, profile updates)
+- `partnerTransactions` - Transactions processed through partner SDK/API
 
 ### Authentication & Authorization
 - Session-based authentication stored server-side
 - Role-based access control (user vs admin)
+- Partner authentication: separate session-based login (`req.session.partnerId`)
+- Partner API SDK: API key + secret authentication for external integrations
 - Protected routes on frontend via `ProtectedRoute` and `AdminRoute` components
 - KYC verification workflow for user identity verification
+
+### Partner System
+- **Two admin levels**: Super Admin (full access via admin dashboard) and Partner Admin (restricted to own account)
+- **Partner routes**: `server/partner-routes.ts` - auth, profile, stats, transactions, logs, API SDK
+- **Partner dashboard**: `/partner/dashboard` with sidebar (stats, profile, transactions, logs, API keys, support)
+- **Partner login**: `/partner/login` - separate from main user/admin auth
+- **Public partner pages**: `/partner.by_<slug>` - shows partner info or "Accès non autorisé" if inactive
+- **Admin management**: `/admin/partners` tab for creating, editing, toggling, deleting partners
+- **SDK API endpoints**: `/api/sdk/create-payment`, `/api/sdk/payment/:reference`, `/api/sdk/transactions`, `/api/sdk/balance`
+- **SDK authentication**: `X-Partner-Key` and `X-Partner-Secret` headers
 
 ### API Structure
 - RESTful API endpoints under `/api/` prefix
 - Authentication endpoints: `/api/auth/login`, `/api/auth/register`
+- Partner auth endpoints: `/api/partner/login`, `/api/partner/logout`, `/api/partner/me`
+- Partner SDK endpoints: `/api/sdk/create-payment`, `/api/sdk/payment/:reference`
+- Admin partner endpoints: `/api/admin/partners`, `/api/admin/create-partner`
 - User endpoints: `/api/user`
 - Payment link endpoints: `/api/pay/:code`
+- Public partner page: `/api/partner-page/:slug`
 - All API responses are JSON
 
 ### Project Structure
