@@ -187,7 +187,7 @@ export function PartnersContent() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: Record<string, string> }) => {
+    mutationFn: async ({ id, data }: { id: number; data: Record<string, any> }) => {
       await apiRequest("PATCH", `/api/admin/partners/${id}`, data);
     },
     onSuccess: () => {
