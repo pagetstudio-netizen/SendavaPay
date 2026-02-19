@@ -113,6 +113,7 @@ export function registerPartnerRoutes(app: Express) {
       const { password, apiSecret, ...safePartner } = partner;
       res.json(safePartner);
     } catch (error: any) {
+      console.error("Partner login error:", error);
       res.status(500).json({ message: "Erreur serveur" });
     }
   });
