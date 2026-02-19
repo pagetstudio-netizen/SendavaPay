@@ -66,6 +66,8 @@ import {
   Phone,
   Globe,
   MessageSquare,
+  Search,
+  X,
 } from "lucide-react";
 
 type Section = "dashboard" | "profile" | "transactions" | "logs" | "api-keys" | "support";
@@ -502,10 +504,15 @@ function TransactionsSection() {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
+      (tx.id && String(tx.id).includes(q)) ||
+      (tx.reference && tx.reference.toLowerCase().includes(q)) ||
       (tx.customerName && tx.customerName.toLowerCase().includes(q)) ||
       (tx.customerEmail && tx.customerEmail.toLowerCase().includes(q)) ||
       (tx.customerPhone && tx.customerPhone.toLowerCase().includes(q)) ||
-      (tx.reference && tx.reference.toLowerCase().includes(q))
+      (tx.amount && String(tx.amount).includes(q)) ||
+      (tx.paymentMethod && tx.paymentMethod.toLowerCase().includes(q)) ||
+      (tx.status && tx.status.toLowerCase().includes(q)) ||
+      (tx.description && tx.description.toLowerCase().includes(q))
     );
   });
 
@@ -568,13 +575,13 @@ function TransactionsSection() {
 
       <div className="relative">
         <Input
-          placeholder="Rechercher par nom, email, téléphone ou référence..."
+          placeholder="Rechercher par ID, référence, nom, email, téléphone, montant..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="pl-10"
           data-testid="input-search-transactions"
         />
-        <svg xmlns="http://www.w3.org/2000/svg" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
       </div>
 
       {selectedTx && (
@@ -582,7 +589,7 @@ function TransactionsSection() {
           <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
             <CardTitle className="text-lg">Détails de la transaction</CardTitle>
             <Button variant="ghost" size="icon" onClick={() => setSelectedTx(null)} data-testid="button-close-tx-details">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              <X className="h-4 w-4" />
             </Button>
           </CardHeader>
           <CardContent>
