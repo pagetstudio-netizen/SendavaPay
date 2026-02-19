@@ -26,6 +26,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
   LayoutGrid,
   Wallet,
@@ -38,6 +39,7 @@ import {
   Cog,
   LogOut,
   Users,
+  User,
   TrendingUp,
   MessageSquare,
   Percent,
@@ -231,20 +233,65 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           <header className="sticky top-0 z-40 flex h-14 items-center gap-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 px-4 lg:px-6">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
             <div className="flex-1" />
-            {user && (
-              <div className="flex items-center gap-2">
-                {user.isVerified ? (
-                  <Badge variant="secondary" className="text-green-600 bg-green-100 dark:bg-green-900/30 dark:text-green-400">
-                    <CheckCircle className="h-3 w-3 mr-1" />
-                    Vérifié
-                  </Badge>
-                ) : (
-                  <Badge variant="secondary" className="text-orange-600 bg-orange-100 dark:bg-orange-900/30 dark:text-orange-400">
-                    Non vérifié
-                  </Badge>
-                )}
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {user && (
+                <>
+                  {user.isVerified ? (
+                    <Badge variant="secondary" className="text-green-600 bg-green-100 dark:bg-green-900/30 dark:text-green-400">
+                      <CheckCircle className="h-3 w-3 mr-1" />
+                      Vérifié
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary" className="text-orange-600 bg-orange-100 dark:bg-orange-900/30 dark:text-orange-400">
+                      Non vérifié
+                    </Badge>
+                  )}
+                </>
+              )}
+              <ThemeToggle />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="gap-2" data-testid="button-user-menu">
+                    <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center">
+                      <User className="h-4 w-4 text-primary-foreground" />
+                    </div>
+                    <span className="hidden sm:inline-block text-sm font-medium">
+                      {user?.fullName?.split(" ")[0] || "Utilisateur"}
+                    </span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>
+                    <div>
+                      <p className="font-medium">{user?.fullName}</p>
+                      <p className="text-xs text-muted-foreground">{user?.email}</p>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/dashboard/settings" className="w-full cursor-pointer">
+                      <Cog className="h-4 w-4 mr-2" />
+                      Paramètres
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/docs" className="w-full cursor-pointer">
+                      <FileText className="h-4 w-4 mr-2" />
+                      Documentation API
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => logoutMutation.mutate()}
+                    className="text-destructive cursor-pointer"
+                    data-testid="button-header-logout"
+                  >
+                    <LogOut className="h-4 w-4 mr-2" />
+                    Déconnexion
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </header>
           <div className="p-4 lg:p-6">{children}</div>
         </main>
