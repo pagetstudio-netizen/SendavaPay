@@ -1418,6 +1418,11 @@ function WithdrawalsContent() {
                       <div className="space-y-2 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-sm text-muted-foreground">#{request.id}</span>
+                          {request.walletName?.startsWith("PARTENAIRE:") && (
+                            <Badge className="bg-purple-600 text-white dark:bg-purple-700 dark:text-white" data-testid={`badge-partner-withdrawal-${request.id}`}>
+                              PARTENAIRE
+                            </Badge>
+                          )}
                           <Badge className={
                             request.status === "approved" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : 
                             request.status === "pending" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" : 
@@ -1430,8 +1435,12 @@ function WithdrawalsContent() {
                         
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
                           <div>
-                            <span className="text-muted-foreground">Utilisateur:</span>{" "}
-                            <span className="font-medium">{request.user?.fullName || `User #${request.userId}`}</span>
+                            <span className="text-muted-foreground">{request.walletName?.startsWith("PARTENAIRE:") ? "Partenaire:" : "Utilisateur:"}</span>{" "}
+                            <span className="font-medium">
+                              {request.walletName?.startsWith("PARTENAIRE:")
+                                ? request.walletName.replace("PARTENAIRE:", "").split(" - ")[0].trim()
+                                : (request.user?.fullName || `User #${request.userId}`)}
+                            </span>
                           </div>
                           <div>
                             <span className="text-muted-foreground">Email:</span>{" "}
