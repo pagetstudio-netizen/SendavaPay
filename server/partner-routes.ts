@@ -191,6 +191,43 @@ export function registerPartnerRoutes(app: Express) {
     }
   });
 
+  app.post("/api/partner/change-password", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      const partnerId = req.session.partnerId!;
+      const { currentPassword, newPassword } = req.body;
+
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ message: "Mot de passe actuel et nouveau requis" });
+      }
+      if (newPassword.length < 6) {
+        return res.status(400).json({ message: "Le nouveau mot de passe doit contenir au moins 6 caractères" });
+      }
+
+      const partner = await storage.getPartner(partnerId);
+      if (!partner) return res.status(404).json({ message: "Partenaire non trouvé" });
+
+      const validPassword = await bcrypt.compare(currentPassword, partner.password);
+      if (!validPassword) {
+        return res.status(401).json({ message: "Mot de passe actuel incorrect" });
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      await storage.updatePartner(partnerId, { password: hashedPassword });
+
+      await storage.createPartnerLog({
+        partnerId,
+        action: "profile_update",
+        details: "Mot de passe modifié",
+        ipAddress: req.ip || req.socket.remoteAddress,
+      });
+
+      res.json({ message: "Mot de passe modifié avec succès" });
+    } catch (error) {
+      console.error("Partner change password error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.get("/api/partner/stats", requirePartnerAuth, async (req: Request, res: Response) => {
     try {
       const partnerId = req.session.partnerId!;

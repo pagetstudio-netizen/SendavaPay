@@ -92,6 +92,7 @@ import {
   CheckCircle,
   XCircle,
   Wallet,
+  Lock,
 } from "lucide-react";
 
 type Section = "dashboard" | "deposit" | "withdraw" | "payment-links" | "profile" | "transactions" | "logs" | "api-keys" | "support";
@@ -1288,7 +1289,138 @@ function ProfileSection({ partner }: { partner: any }) {
           </div>
         </CardContent>
       </Card>
+
+      <ChangePasswordCard />
     </div>
+  );
+}
+
+function ChangePasswordCard() {
+  const { toast } = useToast();
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const changePasswordMutation = useMutation({
+    mutationFn: (data: { currentPassword: string; newPassword: string }) =>
+      apiRequest("POST", "/api/partner/change-password", data),
+    onSuccess: () => {
+      toast({ title: "Mot de passe modifié", description: "Votre mot de passe a été mis à jour avec succès." });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    },
+    onError: (err: Error) => {
+      toast({ title: "Erreur", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const handleSubmit = () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      toast({ title: "Erreur", description: "Veuillez remplir tous les champs.", variant: "destructive" });
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast({ title: "Erreur", description: "Le nouveau mot de passe doit contenir au moins 6 caractères.", variant: "destructive" });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast({ title: "Erreur", description: "Les mots de passe ne correspondent pas.", variant: "destructive" });
+      return;
+    }
+    changePasswordMutation.mutate({ currentPassword, newPassword });
+  };
+
+  return (
+    <Card data-testid="card-change-password">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Lock className="h-5 w-5" />
+          Modifier le mot de passe
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="currentPassword">Mot de passe actuel</Label>
+          <div className="relative">
+            <Input
+              id="currentPassword"
+              type={showCurrent ? "text" : "password"}
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              data-testid="input-current-password"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute right-0 top-0"
+              onClick={() => setShowCurrent(!showCurrent)}
+              data-testid="button-toggle-current-password"
+            >
+              {showCurrent ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </Button>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="newPassword">Nouveau mot de passe</Label>
+          <div className="relative">
+            <Input
+              id="newPassword"
+              type={showNew ? "text" : "password"}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              data-testid="input-new-password"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute right-0 top-0"
+              onClick={() => setShowNew(!showNew)}
+              data-testid="button-toggle-new-password"
+            >
+              {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </Button>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="confirmPassword">Confirmer le nouveau mot de passe</Label>
+          <div className="relative">
+            <Input
+              id="confirmPassword"
+              type={showConfirm ? "text" : "password"}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              data-testid="input-confirm-password"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute right-0 top-0"
+              onClick={() => setShowConfirm(!showConfirm)}
+              data-testid="button-toggle-confirm-password"
+            >
+              {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </Button>
+          </div>
+        </div>
+        <div className="flex justify-end pt-2">
+          <Button
+            onClick={handleSubmit}
+            disabled={changePasswordMutation.isPending}
+            data-testid="button-change-password"
+          >
+            <Lock className="h-4 w-4 mr-2" />
+            {changePasswordMutation.isPending ? "Modification..." : "Modifier le mot de passe"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
