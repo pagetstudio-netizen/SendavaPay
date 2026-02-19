@@ -945,30 +945,59 @@ function SupportSection() {
     <div className="space-y-6" data-testid="section-support">
       <h2 className="text-2xl font-bold">Support</h2>
 
+      <Card className="border-primary/20 bg-primary/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Phone className="h-5 w-5" />
+            Besoin d'aide immédiate ?
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Notre équipe de support est disponible du lundi au samedi, de 8h à 20h.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <a href="https://wa.me/22892299772" target="_blank" rel="noopener noreferrer" className="block">
+              <Button className="w-full bg-green-500 dark:bg-green-600" data-testid="button-support-whatsapp">
+                <MessageSquare className="h-4 w-4 mr-2" />
+                WhatsApp : +228 92 29 97 72
+              </Button>
+            </a>
+            <a href="https://t.me/sendavapay" target="_blank" rel="noopener noreferrer" className="block">
+              <Button className="w-full bg-blue-500 dark:bg-blue-600" data-testid="button-support-telegram">
+                <MessageSquare className="h-4 w-4 mr-2" />
+                Telegram : @sendavapay
+              </Button>
+            </a>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Mail className="h-5 w-5" />
-              Contactez-nous
+              Nos coordonnées
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Phone className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm" data-testid="text-support-phone">+228 92 29 97 72</span>
+            </div>
             <div className="flex items-center gap-2">
               <Mail className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm" data-testid="text-support-email">support@sendavapay.com</span>
             </div>
             <div className="flex items-center gap-2">
-              <Phone className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm" data-testid="text-support-phone">+228 90 00 00 00</span>
-            </div>
-            <div className="flex items-center gap-2">
               <Globe className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm" data-testid="text-support-website">www.sendavapay.com</span>
+              <a href="https://sendavapay.com" target="_blank" rel="noopener noreferrer" className="text-sm text-primary" data-testid="text-support-website">www.sendavapay.com</a>
             </div>
-            <div className="flex items-center gap-2">
-              <MessageSquare className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm" data-testid="text-support-telegram">Telegram: @sendavapay</span>
+            <div className="mt-4 pt-3 border-t">
+              <p className="text-xs text-muted-foreground mb-2">Horaires du service client :</p>
+              <p className="text-sm">Lundi - Vendredi : 8h00 - 20h00</p>
+              <p className="text-sm">Samedi : 9h00 - 18h00</p>
             </div>
           </CardContent>
         </Card>
@@ -977,7 +1006,7 @@ function SupportSection() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <HelpCircle className="h-5 w-5" />
-              FAQ
+              FAQ Partenaires
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -996,13 +1025,19 @@ function SupportSection() {
             <div data-testid="faq-item-3">
               <h4 className="font-semibold text-sm">Quels sont les frais de transaction ?</h4>
               <p className="text-sm text-muted-foreground mt-1">
-                Les frais varient selon le volume de transactions. Contactez notre équipe commerciale pour obtenir un tarif personnalisé.
+                Votre taux de commission est défini lors de la création de votre compte partenaire. Contactez le support pour toute modification.
               </p>
             </div>
             <div data-testid="faq-item-4">
-              <h4 className="font-semibold text-sm">Comment tester l'intégration ?</h4>
+              <h4 className="font-semibold text-sm">Comment intégrer le SDK sur mon site ?</h4>
               <p className="text-sm text-muted-foreground mt-1">
-                Utilisez vos clés API en mode test pour effectuer des transactions de test sans frais réels.
+                Consultez la section "Clés API & SDK" pour obtenir le code d'intégration et la documentation complète.
+              </p>
+            </div>
+            <div data-testid="faq-item-5">
+              <h4 className="font-semibold text-sm">En cas de problème technique urgent ?</h4>
+              <p className="text-sm text-muted-foreground mt-1">
+                Contactez-nous immédiatement via WhatsApp au +228 92 29 97 72. En dehors des heures de service, envoyez un email à support@sendavapay.com.
               </p>
             </div>
           </CardContent>
