@@ -96,9 +96,11 @@ import {
   Code,
   BookOpen,
   Terminal,
+  Settings,
+  ToggleLeft,
 } from "lucide-react";
 
-type Section = "dashboard" | "deposit" | "withdraw" | "payment-links" | "profile" | "transactions" | "logs" | "api-keys" | "sdk-docs" | "support";
+type Section = "dashboard" | "deposit" | "withdraw" | "payment-links" | "profile" | "transactions" | "logs" | "api-keys" | "sdk-docs" | "config" | "support";
 
 const operatorLogos: Record<string, string> = {
   "MTN": mtnLogo,
@@ -131,6 +133,7 @@ const sidebarItems = [
   { key: "logs" as Section, icon: Clock, label: "Journaux" },
   { key: "api-keys" as Section, icon: KeyRound, label: "Clés API" },
   { key: "sdk-docs" as Section, icon: BookOpen, label: "Documentation SDK" },
+  { key: "config" as Section, icon: Settings, label: "Configuration" },
   { key: "support" as Section, icon: HelpCircle, label: "Support" },
 ];
 
@@ -292,6 +295,7 @@ export default function PartnerDashboard() {
             {activeSection === "logs" && <LogsSection />}
             {activeSection === "api-keys" && <ApiKeysSection />}
             {activeSection === "sdk-docs" && <SdkDocsSection />}
+            {activeSection === "config" && <ConfigSection partner={partner} />}
             {activeSection === "support" && <SupportSection />}
           </div>
         </main>
@@ -325,7 +329,23 @@ function DashboardSection() {
     );
   }
 
+  const { data: partnerData } = useQuery<any>({
+    queryKey: ["/api/partner/me"],
+  });
+
+  const formatBalance = (bal: string | number) => {
+    const num = typeof bal === "string" ? parseFloat(bal) : bal;
+    return new Intl.NumberFormat("fr-FR").format(num);
+  };
+
   const statCards = [
+    {
+      title: "Solde disponible",
+      value: `${formatBalance(partnerData?.balance ?? 0)} FCFA`,
+      icon: Wallet,
+      testId: "stat-balance",
+      highlight: true,
+    },
     {
       title: "Total transactions",
       value: stats?.totalTransactions ?? 0,
@@ -355,15 +375,15 @@ function DashboardSection() {
   return (
     <div className="space-y-6" data-testid="section-dashboard">
       <h2 className="text-2xl font-bold">Tableau de bord</h2>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {statCards.map((stat) => (
-          <Card key={stat.testId}>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        {statCards.map((stat: any) => (
+          <Card key={stat.testId} className={stat.highlight ? "border-primary bg-primary/5" : ""}>
             <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">{stat.title}</CardTitle>
-              <stat.icon className="h-4 w-4 text-muted-foreground" />
+              <stat.icon className={`h-4 w-4 ${stat.highlight ? "text-primary" : "text-muted-foreground"}`} />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold" data-testid={stat.testId}>{stat.value}</div>
+              <div className={`text-2xl font-bold ${stat.highlight ? "text-primary" : ""}`} data-testid={stat.testId}>{stat.value}</div>
             </CardContent>
           </Card>
         ))}
@@ -1871,6 +1891,230 @@ console.log(data.status); // "completed" | "pending" | "failed"`}
 }`}
             </pre>
           </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+const ALL_COUNTRIES = [
+  { code: "BJ", name: "Bénin", currency: "XOF" },
+  { code: "BF", name: "Burkina Faso", currency: "XOF" },
+  { code: "CM", name: "Cameroun", currency: "XAF" },
+  { code: "CI", name: "Côte d'Ivoire", currency: "XOF" },
+  { code: "COG", name: "Congo Brazzaville", currency: "XAF" },
+  { code: "COD", name: "RDC", currency: "CDF" },
+  { code: "TG", name: "Togo", currency: "XOF" },
+];
+
+const ALL_OPERATORS = [
+  { code: "MTN", name: "MTN Mobile Money", countries: ["BJ", "CM", "CI", "COG"] },
+  { code: "Moov", name: "Moov Money", countries: ["BJ", "BF", "CI", "TG"] },
+  { code: "Orange", name: "Orange Money", countries: ["BF", "CM", "CI", "COD"] },
+  { code: "TMoney", name: "T-Money", countries: ["TG"] },
+  { code: "Wave", name: "Wave", countries: ["CI"] },
+  { code: "Vodacom", name: "Vodacom M-Pesa", countries: ["COD"] },
+  { code: "Airtel", name: "Airtel Money", countries: ["COD", "COG"] },
+];
+
+function ConfigSection({ partner }: { partner: any }) {
+  const { toast } = useToast();
+
+  const parseJsonArray = (val: string | null | undefined): string[] => {
+    if (!val) return [];
+    try { return JSON.parse(val); } catch { return []; }
+  };
+
+  const savedCountries = parseJsonArray(partner.allowedCountries);
+  const savedOperators = parseJsonArray(partner.allowedOperators);
+
+  const [selectedCountries, setSelectedCountries] = useState<string[]>(
+    savedCountries.length > 0 ? savedCountries : ALL_COUNTRIES.map(c => c.code)
+  );
+  const [selectedOperators, setSelectedOperators] = useState<string[]>(
+    savedOperators.length > 0 ? savedOperators : ALL_OPERATORS.map(o => o.code)
+  );
+
+  const configMutation = useMutation({
+    mutationFn: async (data: { allowedCountries: string[]; allowedOperators: string[] }) => {
+      await apiRequest("PATCH", "/api/partner/config", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/me"] });
+      toast({ title: "Configuration sauvegardée", description: "Vos préférences de pays et opérateurs ont été mises à jour." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur", description: err.message || "Échec de la sauvegarde", variant: "destructive" });
+    },
+  });
+
+  const toggleCountry = (code: string) => {
+    setSelectedCountries(prev =>
+      prev.includes(code) ? prev.filter(c => c !== code) : [...prev, code]
+    );
+  };
+
+  const toggleOperator = (code: string) => {
+    setSelectedOperators(prev =>
+      prev.includes(code) ? prev.filter(o => o !== code) : [...prev, code]
+    );
+  };
+
+  const availableOperators = ALL_OPERATORS.filter(op =>
+    op.countries.some(c => selectedCountries.includes(c))
+  );
+
+  const handleSave = () => {
+    configMutation.mutate({
+      allowedCountries: selectedCountries,
+      allowedOperators: selectedOperators,
+    });
+  };
+
+  return (
+    <div className="space-y-6" data-testid="section-config">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-2xl font-bold">Configuration</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Choisissez les pays et modes de paiement disponibles sur votre site
+          </p>
+        </div>
+        <Button onClick={handleSave} disabled={configMutation.isPending} data-testid="button-save-config">
+          {configMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+          Sauvegarder
+        </Button>
+      </div>
+
+      {!partner.enableDeposit && !partner.enableWithdrawal && !partner.enablePaymentLinks && (
+        <Card className="border-destructive">
+          <CardContent className="p-4">
+            <p className="text-sm text-destructive flex items-center gap-2">
+              <AlertCircle className="h-4 w-4" />
+              Toutes les fonctions API sont désactivées par l'administrateur. Contactez le support pour les activer.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ToggleLeft className="h-5 w-5" />
+            Fonctions API
+          </CardTitle>
+          <CardDescription>
+            Fonctions activées par l'administrateur pour votre compte
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="flex items-center justify-between p-3 rounded-md border">
+              <div className="flex items-center gap-2">
+                <ArrowDownToLine className="h-4 w-4" />
+                <span className="text-sm font-medium">Encaissement</span>
+              </div>
+              <Badge variant={partner.enableDeposit ? "default" : "secondary"}>
+                {partner.enableDeposit ? "Actif" : "Désactivé"}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-md border">
+              <div className="flex items-center gap-2">
+                <ArrowUpFromLine className="h-4 w-4" />
+                <span className="text-sm font-medium">Retrait</span>
+              </div>
+              <Badge variant={partner.enableWithdrawal ? "default" : "secondary"}>
+                {partner.enableWithdrawal ? "Actif" : "Désactivé"}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-md border">
+              <div className="flex items-center gap-2">
+                <Link2 className="h-4 w-4" />
+                <span className="text-sm font-medium">Liens de paiement</span>
+              </div>
+              <Badge variant={partner.enablePaymentLinks ? "default" : "secondary"}>
+                {partner.enablePaymentLinks ? "Actif" : "Désactivé"}
+              </Badge>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="h-5 w-5" />
+            Pays disponibles
+          </CardTitle>
+          <CardDescription>
+            Sélectionnez les pays que vous souhaitez afficher sur votre page de paiement
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {ALL_COUNTRIES.map(country => (
+              <div
+                key={country.code}
+                className={`flex items-center justify-between p-3 rounded-md border cursor-pointer transition-colors ${
+                  selectedCountries.includes(country.code) ? "border-primary bg-primary/5" : "opacity-60"
+                }`}
+                onClick={() => toggleCountry(country.code)}
+                data-testid={`toggle-country-${country.code}`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{country.name}</span>
+                  <Badge variant="secondary" className="text-xs">{country.currency}</Badge>
+                </div>
+                <Switch
+                  checked={selectedCountries.includes(country.code)}
+                  onCheckedChange={() => toggleCountry(country.code)}
+                />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CreditCard className="h-5 w-5" />
+            Modes de paiement
+          </CardTitle>
+          <CardDescription>
+            Sélectionnez les opérateurs de paiement mobile à afficher
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {availableOperators.map(op => {
+              const logo = operatorLogos[op.code];
+              return (
+                <div
+                  key={op.code}
+                  className={`flex items-center justify-between p-3 rounded-md border cursor-pointer transition-colors ${
+                    selectedOperators.includes(op.code) ? "border-primary bg-primary/5" : "opacity-60"
+                  }`}
+                  onClick={() => toggleOperator(op.code)}
+                  data-testid={`toggle-operator-${op.code}`}
+                >
+                  <div className="flex items-center gap-2">
+                    {logo && <img src={logo} alt={op.name} className="h-6 w-6 object-contain" />}
+                    <span className="text-sm font-medium">{op.name}</span>
+                  </div>
+                  <Switch
+                    checked={selectedOperators.includes(op.code)}
+                    onCheckedChange={() => toggleOperator(op.code)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          {availableOperators.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              Sélectionnez au moins un pays pour voir les opérateurs disponibles
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>
