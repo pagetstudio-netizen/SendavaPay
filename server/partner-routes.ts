@@ -301,6 +301,32 @@ export function registerPartnerRoutes(app: Express) {
     }
   });
 
+  app.patch("/api/partner/config", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      const partnerId = req.session.partnerId!;
+      const partner = await storage.getPartner(partnerId);
+      if (!partner) return res.status(404).json({ message: "Partenaire introuvable" });
+
+      const { allowedCountries, allowedOperators } = req.body;
+      const updates: any = {};
+      if (allowedCountries !== undefined) updates.allowedCountries = JSON.stringify(allowedCountries);
+      if (allowedOperators !== undefined) updates.allowedOperators = JSON.stringify(allowedOperators);
+
+      const updated = await storage.updatePartner(partnerId, updates);
+      await storage.createPartnerLog({
+        partnerId,
+        action: "profile_update",
+        details: "Configuration pays/opérateurs mise à jour",
+        ipAddress: req.ip || req.socket.remoteAddress,
+      });
+
+      const { password, apiSecret, ...safePartner } = updated!;
+      res.json(safePartner);
+    } catch (error: any) {
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   // ==========================================
   // SUPER ADMIN - PARTNER MANAGEMENT
   // ==========================================
@@ -403,6 +429,9 @@ export function registerPartnerRoutes(app: Express) {
       if (password) {
         updates.password = await bcrypt.hash(password, 10);
       }
+      if (req.body.enableDeposit !== undefined) updates.enableDeposit = req.body.enableDeposit;
+      if (req.body.enableWithdrawal !== undefined) updates.enableWithdrawal = req.body.enableWithdrawal;
+      if (req.body.enablePaymentLinks !== undefined) updates.enablePaymentLinks = req.body.enablePaymentLinks;
 
       const updated = await storage.updatePartner(partnerId, updates);
       if (!updated) {
@@ -609,6 +638,11 @@ export function registerPartnerRoutes(app: Express) {
   app.post("/api/sdk/payment", requirePartnerApiKey, async (req: Request, res: Response) => {
     try {
       const partner = (req as any).partner;
+
+      if (!partner.enableDeposit) {
+        return res.status(403).json({ success: false, status: "ERROR", message: "La fonction de paiement/encaissement est désactivée pour ce partenaire" });
+      }
+
       const { amount, currency, customerName, customerEmail, customerPhone, description, callbackUrl, redirectUrl, metadata } = req.body;
 
       if (!amount || parseFloat(amount) <= 0) {
@@ -660,6 +694,11 @@ export function registerPartnerRoutes(app: Express) {
   app.post("/api/sdk/withdraw", requirePartnerApiKey, async (req: Request, res: Response) => {
     try {
       const partner = (req as any).partner;
+
+      if (!partner.enableWithdrawal) {
+        return res.status(403).json({ success: false, status: "ERROR", message: "La fonction de retrait est désactivée pour ce partenaire" });
+      }
+
       const { amount, phoneNumber, operator, country, currency, description } = req.body;
 
       if (!amount || parseFloat(amount) <= 0) {
