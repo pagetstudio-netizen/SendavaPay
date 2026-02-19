@@ -587,6 +587,11 @@ export function registerPartnerRoutes(app: Express) {
   app.post("/api/sdk/create-payment", requirePartnerApiKey, async (req: Request, res: Response) => {
     try {
       const partner = (req as any).partner;
+
+      if (!partner.enableDeposit) {
+        return res.status(403).json({ success: false, status: "ERROR", message: "La fonction de paiement/encaissement est désactivée pour ce partenaire" });
+      }
+
       const { amount, currency, customerName, customerEmail, customerPhone, description, callbackUrl, redirectUrl, metadata } = req.body;
 
       if (!amount || parseFloat(amount) <= 0) {
