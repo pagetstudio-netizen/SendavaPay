@@ -86,6 +86,8 @@ async function initializePartnerTables() {
         completed_at TIMESTAMP
       );
     `);
+    await client.query(`ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS partner_id INTEGER;`);
+    await client.query(`ALTER TABLE payment_links ALTER COLUMN user_id DROP NOT NULL;`);
     log("Partner tables initialized successfully", "init");
   } catch (error) {
     log(`Partner tables initialization error: ${(error as Error).message}`, "init");

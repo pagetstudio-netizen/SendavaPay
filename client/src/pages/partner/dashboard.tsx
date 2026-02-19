@@ -1,10 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/theme-toggle";
 import logoPath from "@assets/20251211_105226_1765450558306.png";
+import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
+import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
+import orangeLogo from "@assets/images_1769443862827.png";
+import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
+import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
+import vodacomLogo from "@assets/vodacom_1769443862923.png";
 import {
   Sidebar,
   SidebarContent,
@@ -27,11 +33,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -68,12 +83,45 @@ import {
   MessageSquare,
   Search,
   X,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Link2,
+  ExternalLink,
+  Info,
+  Loader2,
+  CheckCircle,
+  XCircle,
+  Wallet,
 } from "lucide-react";
 
-type Section = "dashboard" | "profile" | "transactions" | "logs" | "api-keys" | "support";
+type Section = "dashboard" | "deposit" | "withdraw" | "payment-links" | "profile" | "transactions" | "logs" | "api-keys" | "support";
+
+const operatorLogos: Record<string, string> = {
+  "MTN": mtnLogo,
+  "Moov": moovLogo,
+  "Orange": orangeLogo,
+  "TMoney": tmoneyLogo,
+  "Airtel": airtelLogo,
+  "Vodacom": vodacomLogo,
+  "Wave": orangeLogo,
+};
+
+const methodLogos: Record<string, string> = {
+  mtn: mtnLogo,
+  moov: moovLogo,
+  orange: orangeLogo,
+  tmoney: tmoneyLogo,
+  "t-money": tmoneyLogo,
+  airtel: airtelLogo,
+  vodacom: vodacomLogo,
+  wave: orangeLogo,
+};
 
 const sidebarItems = [
   { key: "dashboard" as Section, icon: LayoutGrid, label: "Tableau de bord" },
+  { key: "deposit" as Section, icon: ArrowDownToLine, label: "Dépôt" },
+  { key: "withdraw" as Section, icon: ArrowUpFromLine, label: "Retrait" },
+  { key: "payment-links" as Section, icon: Link2, label: "Liens de paiement" },
   { key: "profile" as Section, icon: UserCircle, label: "Mon Profil" },
   { key: "transactions" as Section, icon: CreditCard, label: "Transactions" },
   { key: "logs" as Section, icon: Clock, label: "Journaux" },
@@ -231,6 +279,9 @@ export default function PartnerDashboard() {
 
           <div className="p-4 lg:p-6">
             {activeSection === "dashboard" && <DashboardSection />}
+            {activeSection === "deposit" && <PartnerDepositSection />}
+            {activeSection === "withdraw" && <PartnerWithdrawSection partner={partner} />}
+            {activeSection === "payment-links" && <PartnerPaymentLinksSection />}
             {activeSection === "profile" && <ProfileSection partner={partner} />}
             {activeSection === "transactions" && <TransactionsSection />}
             {activeSection === "logs" && <LogsSection />}
@@ -311,6 +362,755 @@ function DashboardSection() {
           </Card>
         ))}
       </div>
+    </div>
+  );
+}
+
+interface SoleasPayCountry {
+  code: string;
+  name: string;
+  flag: string;
+  currency: string;
+}
+
+interface SoleasPayService {
+  id: number;
+  name: string;
+  description: string;
+  country: string;
+  countryCode: string;
+  currency: string;
+  operator: string;
+  inMaintenance?: boolean;
+}
+
+const quickAmounts = [5000, 10000, 25000, 50000, 100000];
+
+function PartnerDepositSection() {
+  const { toast } = useToast();
+  const [amount, setAmount] = useState("");
+  const [selectedCountry, setSelectedCountry] = useState("");
+  const [selectedServiceId, setSelectedServiceId] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState<"idle" | "processing" | "pending" | "completed" | "failed">("idle");
+  const [verificationMessage, setVerificationMessage] = useState("");
+  const [currentPayId, setCurrentPayId] = useState("");
+  const [currentOrderId, setCurrentOrderId] = useState("");
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const pollingAttemptsRef = useRef(0);
+  const maxPollingAttempts = 40;
+
+  const { data: countries = [] } = useQuery<SoleasPayCountry[]>({
+    queryKey: ["/api/partner/deposit/countries"],
+  });
+
+  const { data: services = [] } = useQuery<SoleasPayService[]>({
+    queryKey: ["/api/partner/deposit/services", selectedCountry],
+    queryFn: async () => {
+      const res = await fetch(`/api/partner/deposit/services/${selectedCountry}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch services");
+      return res.json();
+    },
+    enabled: !!selectedCountry,
+  });
+
+  const { data: commissionRates } = useQuery<{ depositRate: number; withdrawalRate: number; encaissementRate: number }>({
+    queryKey: ["/api/partner/commission-rates"],
+  });
+
+  useEffect(() => {
+    if (countries.length > 0 && !selectedCountry) {
+      setSelectedCountry(countries[0].code);
+    }
+  }, [countries, selectedCountry]);
+
+  useEffect(() => {
+    if (services.length > 0 && (!selectedServiceId || !services.find(s => s.id.toString() === selectedServiceId))) {
+      const availableService = services.find(s => !s.inMaintenance);
+      if (availableService) setSelectedServiceId(availableService.id.toString());
+      else setSelectedServiceId("");
+    }
+  }, [services, selectedServiceId]);
+
+  const selectedService = services.find(s => s.id.toString() === selectedServiceId);
+  const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
+  const commissionRate = commissionRates?.depositRate ?? 7;
+  const numericAmount = parseFloat(amount) || 0;
+  const fee = Math.round(numericAmount * (commissionRate / 100));
+  const netAmount = numericAmount - fee;
+
+  const checkPaymentStatus = useCallback(async () => {
+    if (!currentOrderId || !currentPayId) return;
+    try {
+      const response = await fetch(`/api/partner/verify-deposit/${currentOrderId}/${currentPayId}`, { credentials: "include" });
+      const data = await response.json();
+      if (data.status === "completed") {
+        setPaymentStatus("completed");
+        setVerificationMessage(data.message || "Paiement confirmé!");
+        localStorage.removeItem("partner_deposit_payment");
+        if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+        queryClient.invalidateQueries({ queryKey: ["/api/partner/me"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/partner/stats"] });
+      } else if (data.status === "failed") {
+        setPaymentStatus("failed");
+        setVerificationMessage(data.message || "Paiement échoué.");
+        localStorage.removeItem("partner_deposit_payment");
+        if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+      } else {
+        pollingAttemptsRef.current += 1;
+        setVerificationMessage(`Vérification en cours... (${pollingAttemptsRef.current}/${maxPollingAttempts})`);
+        if (pollingAttemptsRef.current >= maxPollingAttempts) {
+          setPaymentStatus("pending");
+          setVerificationMessage("Le paiement est en attente. Veuillez confirmer sur votre téléphone.");
+          if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+        }
+      }
+    } catch {
+      pollingAttemptsRef.current += 1;
+      if (pollingAttemptsRef.current >= maxPollingAttempts) {
+        setVerificationMessage("Impossible de vérifier le paiement.");
+        if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+      }
+    }
+  }, [currentOrderId, currentPayId]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("partner_deposit_payment");
+    if (saved) {
+      try {
+        const { orderId, payId } = JSON.parse(saved);
+        if (orderId && payId) {
+          setCurrentOrderId(orderId);
+          setCurrentPayId(payId);
+          setPaymentStatus("processing");
+          pollingAttemptsRef.current = 0;
+        }
+      } catch { localStorage.removeItem("partner_deposit_payment"); }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (paymentStatus === "processing" && currentOrderId && currentPayId) {
+      checkPaymentStatus();
+      pollingRef.current = setInterval(checkPaymentStatus, 3000);
+    }
+    return () => { if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; } };
+  }, [paymentStatus, currentOrderId, currentPayId, checkPaymentStatus]);
+
+  const depositMutation = useMutation({
+    mutationFn: async (data: { amount: number; serviceId: string; phoneNumber: string }) => {
+      const response = await apiRequest("POST", "/api/partner/deposit", data);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      if (data.success && data.payId && data.orderId) {
+        localStorage.setItem("partner_deposit_payment", JSON.stringify({ orderId: data.orderId, payId: data.payId }));
+        setCurrentOrderId(data.orderId);
+        setCurrentPayId(data.payId);
+        if (data.isWave && data.waveUrl) {
+          toast({ title: "Redirection vers Wave", description: "Confirmez le paiement dans Wave." });
+          window.open(data.waveUrl, "_blank");
+        } else {
+          toast({ title: "Paiement initié", description: "Veuillez confirmer sur votre téléphone." });
+        }
+        setPaymentStatus("processing");
+        pollingAttemptsRef.current = 0;
+        setVerificationMessage(data.message || "Veuillez confirmer le paiement sur votre téléphone.");
+      } else {
+        toast({ title: "Erreur", description: data.message || "Erreur lors du paiement", variant: "destructive" });
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (numericAmount < 100) {
+      toast({ title: "Montant invalide", description: `Montant minimum: 100 ${currency}`, variant: "destructive" });
+      return;
+    }
+    if (!phoneNumber || phoneNumber.length < 8) {
+      toast({ title: "Numéro invalide", description: "Entrez un numéro valide.", variant: "destructive" });
+      return;
+    }
+    depositMutation.mutate({ amount: numericAmount, serviceId: selectedServiceId, phoneNumber: phoneNumber.replace(/\s/g, "") });
+  };
+
+  const resetPayment = () => {
+    setPaymentStatus("idle");
+    setVerificationMessage("");
+    setCurrentOrderId("");
+    setCurrentPayId("");
+    localStorage.removeItem("partner_deposit_payment");
+    pollingAttemptsRef.current = 0;
+    if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+  };
+
+  if (paymentStatus !== "idle") {
+    return (
+      <div className="max-w-2xl mx-auto space-y-6">
+        <h2 className="text-2xl font-bold">Dépôt</h2>
+        <Card>
+          <CardContent className="p-8 text-center space-y-6">
+            {paymentStatus === "completed" ? (
+              <>
+                <div className="mx-auto w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                  <CheckCircle className="h-8 w-8 text-green-600" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-semibold text-green-600">Paiement réussi!</h3>
+                  <p className="text-muted-foreground">{verificationMessage}</p>
+                </div>
+                <Button onClick={resetPayment} data-testid="button-partner-deposit-done">Nouveau dépôt</Button>
+              </>
+            ) : paymentStatus === "failed" ? (
+              <>
+                <div className="mx-auto w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                  <XCircle className="h-8 w-8 text-red-600" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-semibold text-red-600">Paiement échoué</h3>
+                  <p className="text-muted-foreground">{verificationMessage}</p>
+                </div>
+                <Button variant="outline" onClick={resetPayment} data-testid="button-partner-deposit-retry">Réessayer</Button>
+              </>
+            ) : (
+              <>
+                <div className="mx-auto w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                  <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-semibold">
+                    {paymentStatus === "pending" ? "Paiement en attente" : "Vérification du paiement..."}
+                  </h3>
+                  <p className="text-muted-foreground">
+                    {verificationMessage || "Veuillez confirmer le paiement sur votre téléphone."}
+                  </p>
+                </div>
+                {paymentStatus === "pending" ? (
+                  <Button variant="outline" onClick={resetPayment} data-testid="button-partner-deposit-new">Nouveau dépôt</Button>
+                ) : (
+                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Clock className="h-4 w-4" />
+                    <span>Vérification automatique toutes les 3 secondes</span>
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold">Dépôt</h2>
+        <p className="text-muted-foreground">Rechargez votre compte partenaire</p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Dépôt Mobile Money</CardTitle>
+          <CardDescription>Sélectionnez le pays, l'opérateur et entrez le montant</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-4">
+              <Label>Choisir le pays</Label>
+              <Select value={selectedCountry} onValueChange={setSelectedCountry}>
+                <SelectTrigger data-testid="select-partner-deposit-country">
+                  <SelectValue placeholder="Sélectionnez un pays" />
+                </SelectTrigger>
+                <SelectContent>
+                  {countries.map((c) => (
+                    <SelectItem key={c.code} value={c.code}>{c.flag} {c.name} ({c.currency})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {services.length > 0 && (
+              <div className="space-y-4">
+                <Label>Opérateur Mobile Money</Label>
+                <RadioGroup
+                  value={selectedServiceId}
+                  onValueChange={(val) => {
+                    const srv = services.find(s => s.id.toString() === val);
+                    if (!srv?.inMaintenance) setSelectedServiceId(val);
+                  }}
+                  className="grid grid-cols-2 gap-4"
+                >
+                  {services.map((service) => (
+                    <div key={service.id} className="relative">
+                      <RadioGroupItem value={service.id.toString()} id={`pdep-${service.id}`} className="peer sr-only" disabled={service.inMaintenance} />
+                      <Label
+                        htmlFor={`pdep-${service.id}`}
+                        className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all ${
+                          service.inMaintenance ? "opacity-50 cursor-not-allowed bg-muted" : "cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5"
+                        }`}
+                        data-testid={`radio-partner-service-${service.id}`}
+                      >
+                        <img src={operatorLogos[service.operator] || mtnLogo} alt={service.operator} className="h-12 w-12 object-contain rounded-full bg-white shadow-sm p-1" />
+                        <span className="text-xs font-bold text-center">{service.description}</span>
+                        {service.inMaintenance && <span className="text-xs text-orange-600 font-medium">En maintenance</span>}
+                      </Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Numéro de téléphone Mobile Money</Label>
+              <div className="relative">
+                <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                <Input
+                  type="tel"
+                  placeholder="Ex: 90123456"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  className="pl-10"
+                  data-testid="input-partner-deposit-phone"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <Label>Montant ({currency})</Label>
+              <Input
+                type="number"
+                placeholder="Entrez le montant"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="text-2xl h-14 font-semibold"
+                min="100"
+                data-testid="input-partner-deposit-amount"
+              />
+              <div className="flex flex-wrap gap-2">
+                {quickAmounts.map((qa) => (
+                  <Button key={qa} type="button" variant={numericAmount === qa ? "default" : "outline"} size="sm" onClick={() => setAmount(qa.toString())} data-testid={`button-partner-quick-${qa}`}>
+                    {qa.toLocaleString()} {currency}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {numericAmount > 0 && (
+              <Card className="bg-muted/50 border-none">
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>Montant</span>
+                    <span>{numericAmount.toLocaleString()} {currency}</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-muted-foreground">
+                    <span className="flex items-center gap-1"><Info className="h-3 w-3" />Frais ({commissionRate}%)</span>
+                    <span>-{fee.toLocaleString()} {currency}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold pt-2 border-t">
+                    <span>Vous recevez</span>
+                    <span className="text-green-600">{netAmount.toLocaleString()} {currency}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <Button type="submit" className="w-full h-12 text-lg font-bold" disabled={numericAmount < 100 || !phoneNumber || depositMutation.isPending} data-testid="button-partner-deposit-submit">
+              {depositMutation.isPending ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Traitement...</>) : `Déposer ${numericAmount > 0 ? numericAmount.toLocaleString() + " " + currency : ""}`}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+interface WithdrawCountry {
+  id: string;
+  name: string;
+  currency: string;
+  methods: { id: string; name: string; inMaintenance?: boolean }[];
+}
+
+function PartnerWithdrawSection({ partner }: { partner: any }) {
+  const { toast } = useToast();
+  const [amount, setAmount] = useState("");
+  const [country, setCountry] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("");
+  const [mobileNumber, setMobileNumber] = useState("");
+  const [walletName, setWalletName] = useState("");
+
+  const { data: countries = [], isLoading: countriesLoading } = useQuery<WithdrawCountry[]>({
+    queryKey: ["/api/partner/withdraw/operators"],
+  });
+
+  const { data: commissionRates } = useQuery<{ depositRate: number; withdrawalRate: number; encaissementRate: number }>({
+    queryKey: ["/api/partner/commission-rates"],
+  });
+
+  const selectedCountry = countries.find(c => c.id === country);
+  const availableMethods = selectedCountry?.methods || [];
+  const commissionRate = commissionRates?.withdrawalRate ?? 7;
+  const balance = parseFloat(partner?.balance || "0");
+  const numericAmount = parseFloat(amount) || 0;
+  const fee = Math.round(numericAmount * (commissionRate / 100));
+  const netAmount = numericAmount - fee;
+  const minWithdrawal = 500;
+
+  useEffect(() => { setPaymentMethod(""); }, [country]);
+
+  const withdrawMutation = useMutation({
+    mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string; country: string; walletName: string }) => {
+      const res = await apiRequest("POST", "/api/partner/withdraw", data);
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Demande soumise", description: data.message || "Votre demande de retrait a été soumise." });
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/me"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/stats"] });
+      setAmount("");
+      setWalletName("");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (numericAmount < minWithdrawal) {
+      toast({ title: "Montant insuffisant", description: `Minimum: ${minWithdrawal} FCFA`, variant: "destructive" });
+      return;
+    }
+    if (numericAmount > balance) {
+      toast({ title: "Solde insuffisant", description: "Vous n'avez pas assez de fonds.", variant: "destructive" });
+      return;
+    }
+    if (!country) { toast({ title: "Pays requis", description: "Sélectionnez un pays.", variant: "destructive" }); return; }
+    if (!paymentMethod) { toast({ title: "Moyen de paiement requis", description: "Sélectionnez un opérateur.", variant: "destructive" }); return; }
+    if (!mobileNumber) { toast({ title: "Numéro requis", description: "Entrez un numéro de téléphone.", variant: "destructive" }); return; }
+    withdrawMutation.mutate({ amount: numericAmount, paymentMethod, mobileNumber, country, walletName });
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold">Retrait</h2>
+        <p className="text-muted-foreground">Retirez vers votre Mobile Money</p>
+      </div>
+
+      <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground">
+        <CardContent className="p-6">
+          <p className="text-sm opacity-80">Solde disponible</p>
+          <p className="text-3xl font-bold mt-1" data-testid="text-partner-balance">{balance.toLocaleString()} FCFA</p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Nouvelle demande de retrait</CardTitle>
+          <CardDescription>Minimum: {minWithdrawal.toLocaleString()} FCFA. Tous les retraits nécessitent une validation administrateur.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-1">
+                <Label>Montant (FCFA)</Label>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setAmount(Math.floor(balance).toString())}>
+                  Max: {balance.toLocaleString()} FCFA
+                </Button>
+              </div>
+              <Input
+                type="number"
+                placeholder="Entrez le montant"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="text-2xl h-14 font-semibold"
+                min={minWithdrawal}
+                max={balance}
+                data-testid="input-partner-withdraw-amount"
+              />
+            </div>
+
+            {numericAmount > 0 && (
+              <Card className="bg-muted/50 border-none">
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>Montant demandé</span>
+                    <span>{numericAmount.toLocaleString()} FCFA</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-muted-foreground">
+                    <span className="flex items-center gap-1"><Info className="h-3 w-3" />Frais ({commissionRate}%)</span>
+                    <span>-{fee.toLocaleString()} FCFA</span>
+                  </div>
+                  <div className="flex justify-between font-semibold pt-2 border-t">
+                    <span>Vous recevez</span>
+                    <span className="text-green-600">{netAmount.toLocaleString()} FCFA</span>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="space-y-2">
+              <Label>Pays de réception</Label>
+              <Select value={country} onValueChange={(val) => { setCountry(val); setPaymentMethod(""); }}>
+                <SelectTrigger data-testid="select-partner-withdraw-country">
+                  <SelectValue placeholder="Sélectionnez un pays" />
+                </SelectTrigger>
+                <SelectContent>
+                  {countries.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {availableMethods.length > 0 && (
+              <div className="space-y-4">
+                <Label>Moyen de paiement</Label>
+                <RadioGroup
+                  value={paymentMethod}
+                  onValueChange={(val) => {
+                    const method = availableMethods.find(m => m.id === val);
+                    if (!method?.inMaintenance) setPaymentMethod(val);
+                  }}
+                  className="grid grid-cols-2 md:grid-cols-3 gap-4"
+                >
+                  {availableMethods.map((method) => {
+                    const logoKey = method.name.toLowerCase().replace(/\s+/g, "").replace("-", "");
+                    return (
+                      <div key={method.id} className="relative">
+                        <RadioGroupItem value={method.id} id={`pw-${method.id}`} className="peer sr-only" disabled={method.inMaintenance} />
+                        <Label
+                          htmlFor={`pw-${method.id}`}
+                          className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-all ${
+                            method.inMaintenance ? "opacity-50 cursor-not-allowed bg-muted" : "cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5"
+                          }`}
+                        >
+                          <img src={methodLogos[logoKey] || methodLogos[method.name.toLowerCase()] || moovLogo} alt={method.name} className="h-12 w-12 object-contain rounded-full" />
+                          <span className="text-xs font-medium text-center">{method.name}</span>
+                          {method.inMaintenance && <span className="text-xs text-orange-600 font-medium">En maintenance</span>}
+                        </Label>
+                      </div>
+                    );
+                  })}
+                </RadioGroup>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Numéro de téléphone destinataire</Label>
+              <Input type="tel" placeholder="+228 99 99 99 99" value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} data-testid="input-partner-withdraw-mobile" />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="flex items-center gap-2"><Wallet className="h-4 w-4" />Nom du portefeuille (optionnel)</Label>
+              <Input type="text" placeholder="Ex: Mon portefeuille" value={walletName} onChange={(e) => setWalletName(e.target.value)} data-testid="input-partner-wallet-name" />
+            </div>
+
+            <Button type="submit" className="w-full" size="lg" disabled={withdrawMutation.isPending || numericAmount < minWithdrawal || numericAmount > balance || !country || !paymentMethod || !mobileNumber} data-testid="button-partner-withdraw-submit">
+              {withdrawMutation.isPending ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Envoi...</>) : `Demander le retrait${numericAmount > 0 ? ` de ${numericAmount.toLocaleString()} FCFA` : ""}`}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function PartnerPaymentLinksSection() {
+  const { toast } = useToast();
+  const [showCreate, setShowCreate] = useState(false);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useState("");
+  const [allowCustomAmount, setAllowCustomAmount] = useState(false);
+  const [minimumAmount, setMinimumAmount] = useState("");
+  const [redirectUrl, setRedirectUrl] = useState("");
+
+  const { data: links = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/partner/payment-links"],
+  });
+
+  const { data: commissionRates } = useQuery<{ depositRate: number; withdrawalRate: number; encaissementRate: number }>({
+    queryKey: ["/api/partner/commission-rates"],
+  });
+  const encaissementRate = commissionRates?.encaissementRate ?? 7;
+
+  const createLinkMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/partner/payment-links", data);
+      return await res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Lien créé", description: "Votre lien de paiement a été créé avec succès." });
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/payment-links"] });
+      setShowCreate(false);
+      setTitle(""); setDescription(""); setAmount(""); setAllowCustomAmount(false); setMinimumAmount(""); setRedirectUrl("");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleCreateSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const numericAmount = parseFloat(amount);
+    const numericMinAmount = minimumAmount ? parseFloat(minimumAmount) : null;
+
+    if (!title.trim()) {
+      toast({ title: "Titre requis", description: "Veuillez saisir un titre.", variant: "destructive" });
+      return;
+    }
+    if (!allowCustomAmount && (isNaN(numericAmount) || numericAmount < 100)) {
+      toast({ title: "Montant invalide", description: "Montant minimum: 100 FCFA", variant: "destructive" });
+      return;
+    }
+
+    createLinkMutation.mutate({
+      title: title.trim(),
+      description: description.trim() || undefined,
+      amount: allowCustomAmount ? (numericMinAmount || 100) : numericAmount,
+      allowCustomAmount,
+      minimumAmount: allowCustomAmount && numericMinAmount ? numericMinAmount : undefined,
+      redirectUrl: redirectUrl.trim() || undefined,
+    });
+  };
+
+  const copyLink = (code: string) => {
+    navigator.clipboard.writeText(`https://sendavapay.com/pay/${code}`);
+    toast({ title: "Lien copié", description: "Le lien a été copié dans le presse-papiers." });
+  };
+
+  if (showCreate) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => setShowCreate(false)} data-testid="button-partner-back-links">
+            <X className="h-4 w-4" />
+          </Button>
+          <div>
+            <h2 className="text-2xl font-bold">Créer un lien de paiement</h2>
+            <p className="text-muted-foreground">Créez un lien personnalisé pour recevoir des paiements</p>
+          </div>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Link2 className="h-5 w-5" />Nouveau lien</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleCreateSubmit} className="space-y-6">
+              <div className="space-y-2">
+                <Label>Titre du produit/service *</Label>
+                <Input placeholder="Ex: Consultation, Produit X..." value={title} onChange={(e) => setTitle(e.target.value)} data-testid="input-partner-link-title" />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Description (optionnel)</Label>
+                <Textarea placeholder="Détails supplémentaires..." value={description} onChange={(e) => setDescription(e.target.value)} rows={3} data-testid="input-partner-link-desc" />
+              </div>
+
+              <div className="flex items-center justify-between p-4 border rounded-md bg-muted/30">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-medium cursor-pointer">Le client choisit le montant</Label>
+                  <p className="text-xs text-muted-foreground">Permettre au client de saisir son montant</p>
+                </div>
+                <Switch checked={allowCustomAmount} onCheckedChange={setAllowCustomAmount} data-testid="switch-partner-custom-amount" />
+              </div>
+
+              {allowCustomAmount ? (
+                <div className="space-y-2">
+                  <Label>Montant minimum (FCFA)</Label>
+                  <Input type="number" placeholder="Ex: 1000 (minimum 100)" value={minimumAmount} onChange={(e) => setMinimumAmount(e.target.value)} min="100" data-testid="input-partner-min-amount" />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label>Montant à payer (FCFA) *</Label>
+                  <Input type="number" placeholder="Ex: 10000" value={amount} onChange={(e) => setAmount(e.target.value)} min="100" data-testid="input-partner-link-amount" />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2"><ExternalLink className="h-4 w-4" />URL de redirection (optionnel)</Label>
+                <Input type="url" placeholder="https://example.com/merci" value={redirectUrl} onChange={(e) => setRedirectUrl(e.target.value)} data-testid="input-partner-redirect" />
+              </div>
+
+              <div className="rounded-md bg-muted/50 p-4">
+                <div className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <Info className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>Des frais d'encaissement de {encaissementRate}% seront appliqués sur chaque paiement.</span>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <Button type="button" variant="outline" className="flex-1" onClick={() => setShowCreate(false)} data-testid="button-partner-cancel-link">Annuler</Button>
+                <Button type="submit" className="flex-1" disabled={createLinkMutation.isPending} data-testid="button-partner-submit-link">
+                  {createLinkMutation.isPending ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Création...</>) : "Créer le lien"}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-2xl font-bold">Liens de paiement</h2>
+          <p className="text-muted-foreground">Gérez vos liens de paiement personnalisés</p>
+        </div>
+        <Button onClick={() => setShowCreate(true)} data-testid="button-partner-create-link">
+          <Link2 className="h-4 w-4 mr-2" />
+          Créer un lien
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-4">
+          {[1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full" />)}
+        </div>
+      ) : links.length === 0 ? (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <Link2 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">Aucun lien de paiement</h3>
+            <p className="text-muted-foreground mb-4">Créez votre premier lien pour commencer à recevoir des paiements.</p>
+            <Button onClick={() => setShowCreate(true)} data-testid="button-partner-create-first-link">Créer un lien</Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {links.map((link: any) => (
+            <Card key={link.id}>
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between flex-wrap gap-2">
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <h3 className="font-semibold truncate">{link.title}</h3>
+                    <p className="text-sm text-muted-foreground">{parseFloat(link.amount).toLocaleString()} FCFA</p>
+                    {link.allowCustomAmount && <Badge variant="secondary">Montant libre</Badge>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => copyLink(link.linkCode)} data-testid={`button-copy-link-${link.id}`}>
+                      <Copy className="h-3 w-3 mr-1" />
+                      Copier
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => window.open(`/pay/${link.linkCode}`, "_blank")} data-testid={`button-open-link-${link.id}`}>
+                      <ExternalLink className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

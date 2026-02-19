@@ -40,7 +40,7 @@ Preferred communication style: Simple, everyday language.
 - `users` - User accounts with roles (user/admin), balance, verification status
 - `transactions` - All financial transactions (deposits, withdrawals, transfers)
 - `transfers` - Peer-to-peer money transfers
-- `paymentLinks` - Shareable payment links with unique codes
+- `paymentLinks` - Shareable payment links with unique codes (has optional `partner_id` column for partner-created links)
 - `apiKeys` - Developer API keys for integration
 - `kycRequests` - KYC verification requests with document paths
 - `commissionSettings` - Configurable fee structures (deposit, encaissement, withdrawal rates)
@@ -59,8 +59,9 @@ Preferred communication style: Simple, everyday language.
 
 ### Partner System
 - **Two admin levels**: Super Admin (full access via admin dashboard) and Partner Admin (restricted to own account)
-- **Partner routes**: `server/partner-routes.ts` - auth, profile, stats, transactions, logs, API SDK
-- **Partner dashboard**: `/partner/dashboard` with sidebar (stats, profile, transactions, logs, API keys, support)
+- **Partner routes**: `server/partner-routes.ts` - auth, profile, stats, transactions, logs, API SDK, deposit, withdraw, payment links
+- **Partner dashboard**: `/partner/dashboard` with sidebar (stats, deposit, withdraw, payment links, profile, transactions, logs, API keys, support)
+- **Partner financial operations**: Partners can make deposits (SoleasPay), request withdrawals, and create payment links from their dashboard
 - **Partner login**: `/partner/login` - separate from main user/admin auth
 - **Public partner pages**: `/partner.by_<slug>` - shows partner info or "Accès non autorisé" if inactive
 - **Admin management**: `/admin/partners` tab for creating, editing, toggling, deleting partners
