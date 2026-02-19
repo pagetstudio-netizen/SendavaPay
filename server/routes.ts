@@ -153,6 +153,7 @@ export async function registerRoutes(
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567";
   app.use(`/object-storage/${bucketId}`, express.static(`/${bucketId}`));
   app.use("/uploads", express.static("uploads"));
+  app.use("/sdk", express.static("sdk"));
 
   // Register object storage routes for permanent file storage
   registerObjectStorageRoutes(app);

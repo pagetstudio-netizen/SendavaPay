@@ -93,9 +93,12 @@ import {
   XCircle,
   Wallet,
   Lock,
+  Code,
+  BookOpen,
+  Terminal,
 } from "lucide-react";
 
-type Section = "dashboard" | "deposit" | "withdraw" | "payment-links" | "profile" | "transactions" | "logs" | "api-keys" | "support";
+type Section = "dashboard" | "deposit" | "withdraw" | "payment-links" | "profile" | "transactions" | "logs" | "api-keys" | "sdk-docs" | "support";
 
 const operatorLogos: Record<string, string> = {
   "MTN": mtnLogo,
@@ -126,7 +129,8 @@ const sidebarItems = [
   { key: "profile" as Section, icon: UserCircle, label: "Mon Profil" },
   { key: "transactions" as Section, icon: CreditCard, label: "Transactions" },
   { key: "logs" as Section, icon: Clock, label: "Journaux" },
-  { key: "api-keys" as Section, icon: KeyRound, label: "Clés API & SDK" },
+  { key: "api-keys" as Section, icon: KeyRound, label: "Clés API" },
+  { key: "sdk-docs" as Section, icon: BookOpen, label: "Documentation SDK" },
   { key: "support" as Section, icon: HelpCircle, label: "Support" },
 ];
 
@@ -287,6 +291,7 @@ export default function PartnerDashboard() {
             {activeSection === "transactions" && <TransactionsSection />}
             {activeSection === "logs" && <LogsSection />}
             {activeSection === "api-keys" && <ApiKeysSection />}
+            {activeSection === "sdk-docs" && <SdkDocsSection />}
             {activeSection === "support" && <SupportSection />}
           </div>
         </main>
@@ -1969,6 +1974,368 @@ function SupportSection() {
           </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
+
+function SdkDocsSection() {
+  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState<"javascript" | "php" | "python">("javascript");
+
+  const copyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    toast({ title: "Copié", description: "Code copié dans le presse-papiers." });
+  };
+
+  const baseUrl = window.location.origin;
+
+  const jsInstall = `npm install node-fetch`;
+  const jsExample = `import SendavaPay from "./sendavapay.js";
+
+const client = new SendavaPay(
+  "VOTRE_API_KEY",
+  "VOTRE_API_SECRET",
+  "${baseUrl}"
+);
+
+// Créer un paiement
+const payment = await client.createPayment({
+  amount: 5000,
+  currency: "XOF",
+  customerName: "Jean Dupont",
+  customerPhone: "+22890000000",
+  description: "Achat produit",
+  callbackUrl: "https://votre-site.com/callback"
+});
+console.log(payment);
+// { success: true, status: "PENDING", txid: "PTR_...", ... }
+
+// Vérifier un paiement
+const status = await client.verifyPayment(payment.txid);
+console.log(status);
+// { success: true/false, status: "SUCCESS"/"PENDING", ... }
+
+// Effectuer un retrait
+const withdraw = await client.createWithdraw({
+  amount: 3000,
+  phoneNumber: "+22890000000",
+  operator: "tmoney",
+  country: "TG"
+});
+
+// Consulter le solde
+const balance = await client.getBalance();
+
+// Lister les transactions
+const transactions = await client.getTransactions();`;
+
+  const phpExample = `<?php
+require_once "SendavaPay.php";
+
+$client = new SendavaPay(
+  "VOTRE_API_KEY",
+  "VOTRE_API_SECRET",
+  "${baseUrl}"
+);
+
+// Créer un paiement
+$payment = $client->createPayment([
+  "amount" => 5000,
+  "currency" => "XOF",
+  "customerName" => "Jean Dupont",
+  "customerPhone" => "+22890000000",
+  "description" => "Achat produit",
+  "callbackUrl" => "https://votre-site.com/callback"
+]);
+print_r($payment);
+// ["success" => true, "status" => "PENDING", "txid" => "PTR_...", ...]
+
+// Vérifier un paiement
+$status = $client->verifyPayment($payment["txid"]);
+
+// Effectuer un retrait
+$withdraw = $client->createWithdraw([
+  "amount" => 3000,
+  "phoneNumber" => "+22890000000",
+  "operator" => "tmoney",
+  "country" => "TG"
+]);
+
+// Consulter le solde
+$balance = $client->getBalance();
+
+// Lister les transactions
+$transactions = $client->getTransactions();
+?>`;
+
+  const pyExample = `from sendavapay import SendavaPay
+
+client = SendavaPay(
+    api_key="VOTRE_API_KEY",
+    api_secret="VOTRE_API_SECRET",
+    base_url="${baseUrl}"
+)
+
+# Créer un paiement
+payment = client.create_payment(
+    amount=5000,
+    currency="XOF",
+    customer_name="Jean Dupont",
+    customer_phone="+22890000000",
+    description="Achat produit",
+    callback_url="https://votre-site.com/callback"
+)
+print(payment)
+# {"success": True, "status": "PENDING", "txid": "PTR_...", ...}
+
+# Vérifier un paiement
+status = client.verify_payment(payment["txid"])
+
+# Effectuer un retrait
+withdraw = client.create_withdraw(
+    amount=3000,
+    phone_number="+22890000000",
+    operator="tmoney",
+    country="TG"
+)
+
+# Consulter le solde
+balance = client.get_balance()
+
+# Lister les transactions
+transactions = client.get_transactions()`;
+
+  const hmacExplanation = `// Chaque requête est signée avec HMAC-SHA256
+// Le SDK le fait automatiquement pour vous.
+//
+// Headers envoyés :
+//   x-api-key: VOTRE_API_KEY
+//   x-signature: HMAC-SHA256(API_SECRET, JSON.stringify(payload))
+//
+// Le serveur vérifie la signature avant d'exécuter la requête.
+// Cela garantit que seul le détenteur du secret peut faire des appels.`;
+
+  const endpoints = [
+    { method: "POST", path: "/api/sdk/payment", desc: "Créer un paiement" },
+    { method: "POST", path: "/api/sdk/withdraw", desc: "Effectuer un retrait" },
+    { method: "POST", path: "/api/sdk/verify", desc: "Vérifier un paiement" },
+    { method: "GET", path: "/api/sdk/transaction/:id", desc: "Consulter une transaction" },
+    { method: "GET", path: "/api/sdk/transactions", desc: "Lister les transactions" },
+    { method: "GET", path: "/api/sdk/balance", desc: "Consulter le solde" },
+  ];
+
+  const responseExample = `{
+  "success": true,
+  "status": "SUCCESS",
+  "txid": "PTR_A1B2C3D4E5F6G7H8",
+  "reference": "PTR_A1B2C3D4E5F6G7H8",
+  "amount": "5000",
+  "fee": "250",
+  "currency": "XOF",
+  "message": "Paiement validé"
+}`;
+
+  const tabs = [
+    { key: "javascript" as const, label: "JavaScript (Node.js)" },
+    { key: "php" as const, label: "PHP" },
+    { key: "python" as const, label: "Python" },
+  ];
+
+  return (
+    <div className="space-y-6" data-testid="section-sdk-docs">
+      <div>
+        <h2 className="text-2xl font-bold">Documentation SDK</h2>
+        <p className="text-muted-foreground mt-1">
+          Intégrez SendavaPay directement sur votre site web en mode white-label.
+        </p>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Terminal className="h-5 w-5" />
+            URL de base de l'API
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 bg-muted px-3 py-2 rounded-md text-sm font-mono" data-testid="text-sdk-base-url">{baseUrl}</code>
+            <Button size="icon" variant="outline" onClick={() => copyCode(baseUrl)} data-testid="button-copy-base-url">
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Lock className="h-5 w-5" />
+            Authentification HMAC-SHA256
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Toutes les requêtes sont signées avec HMAC-SHA256 pour garantir la sécurité. Les SDK gèrent automatiquement la signature.
+          </p>
+          <div className="relative">
+            <pre className="bg-muted p-4 rounded-md text-xs overflow-x-auto font-mono whitespace-pre-wrap" data-testid="code-hmac-explanation">{hmacExplanation}</pre>
+            <Button size="icon" variant="ghost" className="absolute top-2 right-2" onClick={() => copyCode(hmacExplanation)} data-testid="button-copy-hmac">
+              <Copy className="h-3 w-3" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Globe className="h-5 w-5" />
+            Endpoints disponibles
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {endpoints.map((ep, i) => (
+              <div key={i} className="flex items-center gap-3 py-2 border-b last:border-b-0" data-testid={`endpoint-${i}`}>
+                <Badge className={ep.method === "POST" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"}>
+                  {ep.method}
+                </Badge>
+                <code className="text-sm font-mono flex-1">{ep.path}</code>
+                <span className="text-sm text-muted-foreground">{ep.desc}</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Code className="h-5 w-5" />
+            Exemples d'intégration
+          </CardTitle>
+          <div className="flex gap-2 mt-2 flex-wrap">
+            {tabs.map((tab) => (
+              <Button
+                key={tab.key}
+                variant={activeTab === tab.key ? "default" : "outline"}
+                size="sm"
+                onClick={() => setActiveTab(tab.key)}
+                data-testid={`button-tab-${tab.key}`}
+              >
+                {tab.label}
+              </Button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {activeTab === "javascript" && (
+            <div className="space-y-4" data-testid="code-example-javascript">
+              <div>
+                <p className="text-sm font-medium mb-2">1. Téléchargez le fichier SDK :</p>
+                <code className="bg-muted px-3 py-2 rounded-md text-sm font-mono block">sendavapay.js</code>
+              </div>
+              <div className="relative">
+                <p className="text-sm font-medium mb-2">2. Utilisation :</p>
+                <pre className="bg-muted p-4 rounded-md text-xs overflow-x-auto font-mono whitespace-pre-wrap">{jsExample}</pre>
+                <Button size="icon" variant="ghost" className="absolute top-8 right-2" onClick={() => copyCode(jsExample)} data-testid="button-copy-js">
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          )}
+          {activeTab === "php" && (
+            <div className="space-y-4" data-testid="code-example-php">
+              <div>
+                <p className="text-sm font-medium mb-2">1. Téléchargez le fichier SDK :</p>
+                <code className="bg-muted px-3 py-2 rounded-md text-sm font-mono block">SendavaPay.php</code>
+              </div>
+              <div className="relative">
+                <p className="text-sm font-medium mb-2">2. Utilisation :</p>
+                <pre className="bg-muted p-4 rounded-md text-xs overflow-x-auto font-mono whitespace-pre-wrap">{phpExample}</pre>
+                <Button size="icon" variant="ghost" className="absolute top-8 right-2" onClick={() => copyCode(phpExample)} data-testid="button-copy-php">
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          )}
+          {activeTab === "python" && (
+            <div className="space-y-4" data-testid="code-example-python">
+              <div>
+                <p className="text-sm font-medium mb-2">1. Installation :</p>
+                <code className="bg-muted px-3 py-2 rounded-md text-sm font-mono block">pip install requests</code>
+              </div>
+              <div>
+                <p className="text-sm font-medium mb-2">2. Téléchargez le fichier SDK :</p>
+                <code className="bg-muted px-3 py-2 rounded-md text-sm font-mono block">sendavapay.py</code>
+              </div>
+              <div className="relative">
+                <p className="text-sm font-medium mb-2">3. Utilisation :</p>
+                <pre className="bg-muted p-4 rounded-md text-xs overflow-x-auto font-mono whitespace-pre-wrap">{pyExample}</pre>
+                <Button size="icon" variant="ghost" className="absolute top-8 right-2" onClick={() => copyCode(pyExample)} data-testid="button-copy-python">
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Info className="h-5 w-5" />
+            Format de réponse
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Toutes les réponses de l'API suivent le format JSON suivant :
+          </p>
+          <div className="relative">
+            <pre className="bg-muted p-4 rounded-md text-xs overflow-x-auto font-mono whitespace-pre-wrap" data-testid="code-response-format">{responseExample}</pre>
+            <Button size="icon" variant="ghost" className="absolute top-2 right-2" onClick={() => copyCode(responseExample)} data-testid="button-copy-response">
+              <Copy className="h-3 w-3" />
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Statuts possibles :</p>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">PENDING</Badge>
+                  <span className="text-sm text-muted-foreground">En attente</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">PROCESSING</Badge>
+                  <span className="text-sm text-muted-foreground">En cours</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">SUCCESS</Badge>
+                  <span className="text-sm text-muted-foreground">Réussi</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">FAILED</Badge>
+                  <span className="text-sm text-muted-foreground">Échoué</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge className="bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400">CANCELLED</Badge>
+                  <span className="text-sm text-muted-foreground">Annulé</span>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Devises supportées :</p>
+              <div className="space-y-1 text-sm text-muted-foreground">
+                <p>XOF - Franc CFA (UEMOA)</p>
+                <p>XAF - Franc CFA (CEMAC)</p>
+                <p>CDF - Franc congolais</p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
