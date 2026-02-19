@@ -2380,6 +2380,16 @@ transactions = client.get_transactions()`;
   "message": "Paiement validé"
 }`;
 
+  const countriesOperators = [
+    { country: "B\u00e9nin", code: "BJ", currency: "XOF", operators: [{ name: "MTN", value: "MTN" }, { name: "Moov", value: "Moov" }] },
+    { country: "Burkina Faso", code: "BF", currency: "XOF", operators: [{ name: "Moov", value: "Moov" }, { name: "Orange", value: "Orange" }] },
+    { country: "Togo", code: "TG", currency: "XOF", operators: [{ name: "T-Money", value: "TMoney" }, { name: "Moov", value: "Moov" }] },
+    { country: "Cameroun", code: "CM", currency: "XAF", operators: [{ name: "MTN", value: "MTN" }, { name: "Orange", value: "Orange" }] },
+    { country: "C\u00f4te d'Ivoire", code: "CI", currency: "XOF", operators: [{ name: "Orange", value: "Orange" }, { name: "MTN", value: "MTN" }, { name: "Moov", value: "Moov" }, { name: "Wave", value: "Wave" }] },
+    { country: "RDC", code: "COD", currency: "CDF", operators: [{ name: "Vodacom", value: "Vodacom" }, { name: "Airtel", value: "Airtel" }, { name: "Orange", value: "Orange" }] },
+    { country: "Congo Brazzaville", code: "COG", currency: "XAF", operators: [{ name: "Airtel", value: "Airtel" }, { name: "MTN", value: "MTN" }] },
+  ];
+
   const tabs = [
     { key: "javascript" as const, label: "JavaScript (Node.js)" },
     { key: "php" as const, label: "PHP" },
@@ -2457,8 +2467,63 @@ transactions = client.get_transactions()`;
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
+            <Globe className="h-5 w-5" />
+            Pays et op\u00e9rateurs disponibles
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-4">
+            Voici les valeurs exactes \u00e0 utiliser pour les param\u00e8tres <code className="bg-muted px-1 rounded">country</code> et <code className="bg-muted px-1 rounded">operator</code> dans vos appels API.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" data-testid="table-countries-operators">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 pr-4 font-medium">Pays</th>
+                  <th className="text-left py-2 pr-4 font-medium">Code pays</th>
+                  <th className="text-left py-2 pr-4 font-medium">Devise</th>
+                  <th className="text-left py-2 font-medium">Op\u00e9rateurs (valeur \u00e0 envoyer)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {countriesOperators.map((c) => (
+                  <tr key={c.code} className="border-b last:border-b-0" data-testid={`row-country-${c.code}`}>
+                    <td className="py-2 pr-4">{c.country}</td>
+                    <td className="py-2 pr-4">
+                      <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">{c.code}</code>
+                    </td>
+                    <td className="py-2 pr-4">
+                      <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">{c.currency}</code>
+                    </td>
+                    <td className="py-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        {c.operators.map((op) => (
+                          <span key={op.value} className="inline-flex items-center gap-1">
+                            <span className="text-muted-foreground">{op.name}:</span>
+                            <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">{op.value}</code>
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-4 p-3 bg-muted rounded-md">
+            <p className="text-xs text-muted-foreground">
+              <strong>Exemple :</strong> Pour un paiement MTN au B\u00e9nin, utilisez <code className="px-1 rounded bg-background">country: "BJ"</code> et <code className="px-1 rounded bg-background">operator: "MTN"</code>.
+              Le num\u00e9ro de t\u00e9l\u00e9phone peut inclure l'indicatif pays (ex: +22990123456) ou \u00eatre au format local (ex: 90123456).
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
             <Code className="h-5 w-5" />
-            Exemples d'intégration
+            Exemples d'int\u00e9gration
           </CardTitle>
           <div className="flex gap-2 mt-2 flex-wrap">
             {tabs.map((tab) => (

@@ -287,7 +287,11 @@ export class SoleasPayClient {
       console.log("📡 SoleasPay: Amount:", params.amount, params.currency);
       console.log("📡 SoleasPay: Order ID:", params.orderId);
 
-      const response = await fetch(`${SOLEASPAY_API_URL}/api/agent/bills/v3`, {
+      let cleanWallet = params.wallet.replace(/[\s\-\(\)]/g, '');
+      if (cleanWallet.startsWith('+')) cleanWallet = cleanWallet.substring(1);
+      console.log("📡 SoleasPay: Clean wallet:", cleanWallet);
+
+      const response = await fetch(`${SOLEASPAY_API_URL}/api/agent/bills/V3`, {
         method: "POST",
         headers: {
           "x-api-key": this.apiKey,
@@ -296,7 +300,7 @@ export class SoleasPayClient {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          wallet: params.wallet,
+          wallet: cleanWallet,
           amount: params.amount,
           currency: params.currency,
           order_id: params.orderId,
