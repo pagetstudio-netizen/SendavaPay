@@ -669,6 +669,24 @@ export function registerPartnerRoutes(app: Express) {
       const countryUpper = country.toUpperCase();
       const operatorLower = operator.toLowerCase();
 
+      let partnerAllowedCountries: string[] = [];
+      let partnerAllowedOperators: string[] = [];
+      try {
+        if (partner.allowedCountries) partnerAllowedCountries = JSON.parse(partner.allowedCountries);
+      } catch {}
+      try {
+        if (partner.allowedOperators) partnerAllowedOperators = JSON.parse(partner.allowedOperators);
+      } catch {}
+
+      if (partnerAllowedCountries.length > 0 && !partnerAllowedCountries.includes(countryUpper)) {
+        return res.status(400).json({ success: false, status: "ERROR", message: `Le pays '${country}' n'est pas activé pour ce partenaire` });
+      }
+
+      const operatorCode = operator.charAt(0).toUpperCase() + operator.slice(1).toLowerCase();
+      if (partnerAllowedOperators.length > 0 && !partnerAllowedOperators.some(o => o.toLowerCase() === operatorLower)) {
+        return res.status(400).json({ success: false, status: "ERROR", message: `L'opérateur '${operator}' n'est pas activé pour ce partenaire` });
+      }
+
       const service = SOLEASPAY_SERVICES.find(s =>
         s.countryCode === countryUpper &&
         (s.operator.toLowerCase() === operatorLower ||
@@ -785,6 +803,25 @@ export function registerPartnerRoutes(app: Express) {
       }
       if (!phoneNumber) {
         return res.status(400).json({ success: false, status: "ERROR", message: "Numéro de téléphone requis" });
+      }
+
+      if (country) {
+        let partnerAllowedCountries: string[] = [];
+        try {
+          if (partner.allowedCountries) partnerAllowedCountries = JSON.parse(partner.allowedCountries);
+        } catch {}
+        if (partnerAllowedCountries.length > 0 && !partnerAllowedCountries.includes(country.toUpperCase())) {
+          return res.status(400).json({ success: false, status: "ERROR", message: `Le pays '${country}' n'est pas activé pour ce partenaire` });
+        }
+      }
+      if (operator) {
+        let partnerAllowedOperators: string[] = [];
+        try {
+          if (partner.allowedOperators) partnerAllowedOperators = JSON.parse(partner.allowedOperators);
+        } catch {}
+        if (partnerAllowedOperators.length > 0 && !partnerAllowedOperators.some((o: string) => o.toLowerCase() === operator.toLowerCase())) {
+          return res.status(400).json({ success: false, status: "ERROR", message: `L'opérateur '${operator}' n'est pas activé pour ce partenaire` });
+        }
       }
 
       const numericAmount = parseFloat(amount);
@@ -1040,7 +1077,16 @@ export function registerPartnerRoutes(app: Express) {
   app.get("/api/partner/deposit/countries", requirePartnerAuth, async (req: Request, res: Response) => {
     try {
       const { SOLEASPAY_COUNTRIES } = await import("./soleaspay");
-      res.json(SOLEASPAY_COUNTRIES);
+      const partner = await storage.getPartner(req.session.partnerId!);
+      let allowedCountries: string[] = [];
+      try {
+        if (partner?.allowedCountries) allowedCountries = JSON.parse(partner.allowedCountries);
+      } catch {}
+
+      const filtered = allowedCountries.length > 0
+        ? SOLEASPAY_COUNTRIES.filter((c: any) => allowedCountries.includes(c.code))
+        : SOLEASPAY_COUNTRIES;
+      res.json(filtered);
     } catch (error) {
       console.error("Partner get countries error:", error);
       res.status(500).json({ message: "Erreur serveur" });
@@ -1053,10 +1099,24 @@ export function registerPartnerRoutes(app: Express) {
       const { countryCode } = req.params;
       const services = getServicesByCountry(countryCode);
       const operators = await storage.getOperators();
-      const availableServices = services.map((service: any) => {
+
+      const partner = await storage.getPartner(req.session.partnerId!);
+      let allowedOperators: string[] = [];
+      try {
+        if (partner?.allowedOperators) allowedOperators = JSON.parse(partner.allowedOperators);
+      } catch {}
+
+      let availableServices = services.map((service: any) => {
         const operator = operators.find((op: any) => op.code === service.id.toString());
         return { ...service, inMaintenance: operator?.inMaintenance ?? false };
       });
+
+      if (allowedOperators.length > 0) {
+        availableServices = availableServices.filter((s: any) =>
+          allowedOperators.some(o => o.toLowerCase() === s.operator.toLowerCase())
+        );
+      }
+
       res.json(availableServices);
     } catch (error) {
       console.error("Partner get services error:", error);
@@ -1156,12 +1216,37 @@ export function registerPartnerRoutes(app: Express) {
     try {
       const operators = await storage.getOperators();
       const countries = await storage.getCountries();
-      const countryOperators = countries.map((country: any) => {
-        const countryOps = operators
+      const partner = await storage.getPartner(req.session.partnerId!);
+
+      let allowedCountries: string[] = [];
+      let allowedOperatorsList: string[] = [];
+      try {
+        if (partner?.allowedCountries) allowedCountries = JSON.parse(partner.allowedCountries);
+      } catch {}
+      try {
+        if (partner?.allowedOperators) allowedOperatorsList = JSON.parse(partner.allowedOperators);
+      } catch {}
+
+      let countryOperators = countries.map((country: any) => {
+        let countryOps = operators
           .filter((op: any) => op.countryId === country.id)
           .map((op: any) => ({ id: op.code || op.id.toString(), name: op.name, inMaintenance: op.inMaintenance ?? false }));
+
+        if (allowedOperatorsList.length > 0) {
+          countryOps = countryOps.filter((op: any) =>
+            allowedOperatorsList.some(o => o.toLowerCase() === op.name.toLowerCase() || o.toLowerCase() === (op.id || "").toLowerCase())
+          );
+        }
+
         return { id: country.code.toLowerCase(), name: country.name, currency: country.currency, methods: countryOps };
       }).filter((c: any) => c.methods.length > 0);
+
+      if (allowedCountries.length > 0) {
+        countryOperators = countryOperators.filter((c: any) =>
+          allowedCountries.some(ac => ac.toLowerCase() === c.id.toLowerCase())
+        );
+      }
+
       res.json(countryOperators);
     } catch (error) {
       res.status(500).json({ message: "Erreur serveur" });
