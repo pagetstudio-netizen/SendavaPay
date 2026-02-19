@@ -65,8 +65,9 @@ Preferred communication style: Simple, everyday language.
 - **Partner login**: `/partner/login` - separate from main user/admin auth
 - **Public partner pages**: `/partner.by_<slug>` - shows partner info or "Accès non autorisé" if inactive
 - **Admin management**: `/admin/partners` tab for creating, editing, toggling, deleting partners
-- **SDK API endpoints**: `/api/sdk/create-payment`, `/api/sdk/payment/:reference`, `/api/sdk/transactions`, `/api/sdk/balance`
-- **SDK authentication**: `X-Partner-Key` and `X-Partner-Secret` headers
+- **SDK API endpoints**: `/api/sdk/payment`, `/api/sdk/withdraw`, `/api/sdk/verify`, `/api/sdk/transaction/:id`, `/api/sdk/transactions`, `/api/sdk/balance`, `/api/sdk/create-payment` (legacy)
+- **SDK authentication**: HMAC-SHA256 signature (`x-api-key` + `x-signature`) or direct (`x-partner-key` + `x-partner-secret`)
+- **SDK clients**: `/sdk/javascript/sendavapay.js`, `/sdk/php/SendavaPay.php`, `/sdk/python/sendavapay.py`
 
 ### API Structure
 - RESTful API endpoints under `/api/` prefix

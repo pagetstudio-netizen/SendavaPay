@@ -498,16 +498,53 @@ export function registerPartnerRoutes(app: Express) {
   // ==========================================
 
   async function requirePartnerApiKey(req: Request, res: Response, next: NextFunction) {
-    const apiKey = req.headers["x-partner-key"] as string || req.query.api_key as string;
+    const apiKey = req.headers["x-api-key"] as string || req.headers["x-partner-key"] as string || req.query.api_key as string;
+    const signature = req.headers["x-signature"] as string;
     const apiSecret = req.headers["x-partner-secret"] as string || req.query.api_secret as string;
 
-    if (!apiKey || !apiSecret) {
-      return res.status(401).json({ success: false, message: "Clés API manquantes" });
+    if (!apiKey) {
+      return res.status(401).json({ success: false, message: "Clé API manquante (x-api-key)" });
     }
 
     const partner = await storage.getPartnerByApiKey(apiKey);
-    if (!partner || partner.apiSecret !== apiSecret) {
-      return res.status(401).json({ success: false, message: "Clés API invalides" });
+    if (!partner) {
+      await storage.createPartnerLog({
+        partnerId: 0,
+        action: "error",
+        details: `Tentative d'accès SDK avec clé invalide: ${apiKey}`,
+        ipAddress: req.ip || req.socket.remoteAddress,
+      }).catch(() => {});
+      return res.status(401).json({ success: false, message: "Clé API invalide" });
+    }
+
+    if (signature) {
+      const timestamp = req.headers["x-timestamp"] as string;
+      if (timestamp) {
+        const requestTime = parseInt(timestamp, 10);
+        const now = Math.floor(Date.now() / 1000);
+        if (isNaN(requestTime) || Math.abs(now - requestTime) > 300) {
+          return res.status(401).json({ success: false, message: "Requête expirée (timestamp invalide ou trop ancien)" });
+        }
+      }
+
+      const payload = req.method === "GET" ? JSON.stringify(req.query || {}) : JSON.stringify(req.body || {});
+      const signatureData = timestamp ? `${timestamp}.${payload}` : payload;
+      const expectedSignature = crypto.createHmac("sha256", partner.apiSecret).update(signatureData).digest("hex");
+      if (signature !== expectedSignature) {
+        await storage.createPartnerLog({
+          partnerId: partner.id,
+          action: "error",
+          details: `Signature HMAC invalide sur ${req.method} ${req.path}`,
+          ipAddress: req.ip || req.socket.remoteAddress,
+        });
+        return res.status(401).json({ success: false, message: "Signature HMAC invalide" });
+      }
+    } else if (apiSecret) {
+      if (partner.apiSecret !== apiSecret) {
+        return res.status(401).json({ success: false, message: "Secret API invalide" });
+      }
+    } else {
+      return res.status(401).json({ success: false, message: "Authentification requise (x-signature ou x-partner-secret)" });
     }
 
     if (partner.status !== "active") {
@@ -554,16 +591,225 @@ export function registerPartnerRoutes(app: Express) {
 
       res.json({
         success: true,
+        status: "PENDING",
+        txid: transaction.reference,
         reference: transaction.reference,
         amount: transaction.amount,
         fee: transaction.fee,
         currency: transaction.currency,
-        status: transaction.status,
+        message: "Paiement créé avec succès",
         paymentUrl: `/pay/partner/${transaction.reference}`,
       });
     } catch (error: any) {
       console.error("SDK create payment error:", error);
-      res.status(500).json({ success: false, message: "Erreur serveur" });
+      res.status(500).json({ success: false, status: "ERROR", message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/sdk/payment", requirePartnerApiKey, async (req: Request, res: Response) => {
+    try {
+      const partner = (req as any).partner;
+      const { amount, currency, customerName, customerEmail, customerPhone, description, callbackUrl, redirectUrl, metadata } = req.body;
+
+      if (!amount || parseFloat(amount) <= 0) {
+        return res.status(400).json({ success: false, status: "ERROR", message: "Montant invalide" });
+      }
+
+      const reference = "PTR_" + uuidv4().replace(/-/g, "").substring(0, 16).toUpperCase();
+      const fee = (parseFloat(amount) * parseFloat(partner.commissionRate) / 100).toFixed(2);
+
+      const transaction = await storage.createPartnerTransaction({
+        partnerId: partner.id,
+        reference,
+        amount: amount.toString(),
+        fee,
+        currency: currency || "XOF",
+        customerName: customerName || null,
+        customerEmail: customerEmail || null,
+        customerPhone: customerPhone || null,
+        description: description || null,
+        callbackUrl: callbackUrl || partner.callbackUrl || null,
+        redirectUrl: redirectUrl || null,
+        metadata: metadata ? JSON.stringify(metadata) : null,
+      });
+
+      await storage.createPartnerLog({
+        partnerId: partner.id,
+        action: "api_call",
+        details: `SDK Paiement: ${reference} - ${amount} ${currency || "XOF"}`,
+        ipAddress: req.ip || req.socket.remoteAddress,
+      });
+
+      res.json({
+        success: true,
+        status: "PENDING",
+        txid: transaction.reference,
+        reference: transaction.reference,
+        amount: transaction.amount,
+        fee: transaction.fee,
+        currency: transaction.currency,
+        message: "Paiement créé avec succès",
+        paymentUrl: `/pay/partner/${transaction.reference}`,
+      });
+    } catch (error: any) {
+      console.error("SDK payment error:", error);
+      res.status(500).json({ success: false, status: "ERROR", message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/sdk/withdraw", requirePartnerApiKey, async (req: Request, res: Response) => {
+    try {
+      const partner = (req as any).partner;
+      const { amount, phoneNumber, operator, country, currency, description } = req.body;
+
+      if (!amount || parseFloat(amount) <= 0) {
+        return res.status(400).json({ success: false, status: "ERROR", message: "Montant invalide" });
+      }
+      if (!phoneNumber) {
+        return res.status(400).json({ success: false, status: "ERROR", message: "Numéro de téléphone requis" });
+      }
+
+      const numericAmount = parseFloat(amount);
+      const settings = await storage.getCommissionSettings();
+      const withdrawalRate = parseFloat(settings?.withdrawalRate || "7");
+      const feeAmount = (numericAmount * withdrawalRate) / 100;
+      const totalDebit = numericAmount + feeAmount;
+
+      if (parseFloat(partner.balance) < totalDebit) {
+        return res.status(400).json({ success: false, status: "ERROR", message: "Solde insuffisant" });
+      }
+
+      const reference = "WDR_" + uuidv4().replace(/-/g, "").substring(0, 16).toUpperCase();
+
+      const { db } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`UPDATE partners SET balance = balance - ${totalDebit.toString()} WHERE id = ${partner.id}`);
+
+      const transaction = await storage.createPartnerTransaction({
+        partnerId: partner.id,
+        reference,
+        amount: numericAmount.toString(),
+        fee: feeAmount.toFixed(2),
+        currency: currency || "XOF",
+        customerName: null,
+        customerEmail: null,
+        customerPhone: phoneNumber,
+        description: description || `Retrait SDK vers ${phoneNumber}`,
+        callbackUrl: partner.callbackUrl || null,
+        redirectUrl: null,
+        metadata: JSON.stringify({ type: "withdrawal", operator: operator || null, country: country || null }),
+      });
+
+      await storage.createPartnerLog({
+        partnerId: partner.id,
+        action: "api_call",
+        details: `SDK Retrait: ${reference} - ${numericAmount} ${currency || "XOF"} vers ${phoneNumber}`,
+        ipAddress: req.ip || req.socket.remoteAddress,
+      });
+
+      res.json({
+        success: true,
+        status: "PENDING",
+        txid: reference,
+        reference,
+        amount: numericAmount.toString(),
+        fee: feeAmount.toFixed(2),
+        netAmount: (numericAmount - feeAmount).toFixed(2),
+        currency: currency || "XOF",
+        message: "Demande de retrait soumise avec succès",
+      });
+    } catch (error: any) {
+      console.error("SDK withdraw error:", error);
+      res.status(500).json({ success: false, status: "ERROR", message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/sdk/verify", requirePartnerApiKey, async (req: Request, res: Response) => {
+    try {
+      const partner = (req as any).partner;
+      const { reference, txid } = req.body;
+      const ref = reference || txid;
+
+      if (!ref) {
+        return res.status(400).json({ success: false, status: "ERROR", message: "Référence requise (reference ou txid)" });
+      }
+
+      const transaction = await storage.getPartnerTransactionByReference(ref);
+      if (!transaction || transaction.partnerId !== partner.id) {
+        return res.status(404).json({ success: false, status: "NOT_FOUND", message: "Transaction introuvable" });
+      }
+
+      const statusMap: Record<string, string> = {
+        pending: "PENDING",
+        processing: "PROCESSING",
+        completed: "SUCCESS",
+        failed: "FAILED",
+        cancelled: "CANCELLED",
+      };
+
+      await storage.createPartnerLog({
+        partnerId: partner.id,
+        action: "api_call",
+        details: `SDK Vérification: ${ref} → ${transaction.status}`,
+        ipAddress: req.ip || req.socket.remoteAddress,
+      });
+
+      res.json({
+        success: transaction.status === "completed",
+        status: statusMap[transaction.status] || transaction.status.toUpperCase(),
+        txid: transaction.reference,
+        reference: transaction.reference,
+        amount: transaction.amount,
+        fee: transaction.fee,
+        currency: transaction.currency,
+        message: transaction.status === "completed" ? "Paiement validé" :
+                 transaction.status === "pending" ? "Paiement en attente" :
+                 transaction.status === "processing" ? "Paiement en cours de traitement" :
+                 transaction.status === "failed" ? "Paiement échoué" : "Paiement annulé",
+        createdAt: transaction.createdAt,
+        completedAt: transaction.completedAt,
+      });
+    } catch (error: any) {
+      console.error("SDK verify error:", error);
+      res.status(500).json({ success: false, status: "ERROR", message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/sdk/transaction/:id", requirePartnerApiKey, async (req: Request, res: Response) => {
+    try {
+      const partner = (req as any).partner;
+      const transaction = await storage.getPartnerTransactionByReference(req.params.id);
+      
+      if (!transaction || transaction.partnerId !== partner.id) {
+        return res.status(404).json({ success: false, status: "NOT_FOUND", message: "Transaction introuvable" });
+      }
+
+      const statusMap: Record<string, string> = {
+        pending: "PENDING",
+        processing: "PROCESSING",
+        completed: "SUCCESS",
+        failed: "FAILED",
+        cancelled: "CANCELLED",
+      };
+
+      res.json({
+        success: true,
+        status: statusMap[transaction.status] || transaction.status.toUpperCase(),
+        txid: transaction.reference,
+        reference: transaction.reference,
+        amount: transaction.amount,
+        fee: transaction.fee,
+        currency: transaction.currency,
+        customerName: transaction.customerName,
+        customerEmail: transaction.customerEmail,
+        customerPhone: transaction.customerPhone,
+        description: transaction.description,
+        message: transaction.status === "completed" ? "Transaction validée" : "Transaction en cours",
+        createdAt: transaction.createdAt,
+        completedAt: transaction.completedAt,
+      });
+    } catch (error: any) {
+      res.status(500).json({ success: false, status: "ERROR", message: "Erreur serveur" });
     }
   });
 
@@ -578,11 +824,12 @@ export function registerPartnerRoutes(app: Express) {
 
       res.json({
         success: true,
+        status: transaction.status === "completed" ? "SUCCESS" : transaction.status.toUpperCase(),
+        txid: transaction.reference,
         reference: transaction.reference,
         amount: transaction.amount,
         fee: transaction.fee,
         currency: transaction.currency,
-        status: transaction.status,
         customerName: transaction.customerName,
         customerEmail: transaction.customerEmail,
         createdAt: transaction.createdAt,
@@ -600,11 +847,12 @@ export function registerPartnerRoutes(app: Express) {
       res.json({
         success: true,
         transactions: transactions.map(t => ({
+          txid: t.reference,
           reference: t.reference,
           amount: t.amount,
           fee: t.fee,
           currency: t.currency,
-          status: t.status,
+          status: t.status === "completed" ? "SUCCESS" : t.status.toUpperCase(),
           customerName: t.customerName,
           createdAt: t.createdAt,
           completedAt: t.completedAt,
