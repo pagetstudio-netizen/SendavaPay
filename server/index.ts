@@ -3,11 +3,96 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initializeAdminAccount } from "./init-admin";
-import { testDatabaseConnection, isDatabaseConnected, startBackgroundReconnection } from "./db";
+import { testDatabaseConnection, isDatabaseConnected, startBackgroundReconnection, pool } from "./db";
 import { notifyStartup } from "./telegram";
 
 const app = express();
 const httpServer = createServer(app);
+
+async function initializePartnerTables() {
+  if (!pool) return;
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      DO $$ BEGIN
+        CREATE TYPE partner_status AS ENUM ('active', 'inactive', 'suspended');
+      EXCEPTION WHEN duplicate_object THEN null;
+      END $$;
+    `);
+    await client.query(`
+      DO $$ BEGIN
+        CREATE TYPE partner_log_action AS ENUM ('login', 'logout', 'profile_update', 'api_call', 'payment_received', 'error', 'system');
+      EXCEPTION WHEN duplicate_object THEN null;
+      END $$;
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS partners (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL,
+        phone TEXT,
+        slug TEXT NOT NULL UNIQUE,
+        logo TEXT,
+        description TEXT,
+        website TEXT,
+        api_key TEXT NOT NULL UNIQUE,
+        api_secret TEXT NOT NULL,
+        commission_rate DECIMAL(5, 2) NOT NULL DEFAULT 5,
+        balance DECIMAL(15, 2) NOT NULL DEFAULT 0,
+        status partner_status NOT NULL DEFAULT 'active',
+        webhook_url TEXT,
+        callback_url TEXT,
+        primary_color TEXT DEFAULT '#0070F3',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        last_login_at TIMESTAMP
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS partner_logs (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        partner_id INTEGER NOT NULL REFERENCES partners(id),
+        action partner_log_action NOT NULL,
+        details TEXT,
+        ip_address TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      DO $$ BEGIN
+        CREATE TYPE api_transaction_status AS ENUM ('pending', 'processing', 'completed', 'failed', 'cancelled');
+      EXCEPTION WHEN duplicate_object THEN null;
+      END $$;
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS partner_transactions (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        partner_id INTEGER NOT NULL REFERENCES partners(id),
+        reference TEXT NOT NULL UNIQUE,
+        amount DECIMAL(15, 2) NOT NULL,
+        fee DECIMAL(15, 2) NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL DEFAULT 'XOF',
+        status api_transaction_status NOT NULL DEFAULT 'pending',
+        customer_name TEXT,
+        customer_email TEXT,
+        customer_phone TEXT,
+        payment_method TEXT,
+        description TEXT,
+        callback_url TEXT,
+        redirect_url TEXT,
+        metadata TEXT,
+        webhook_sent BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        completed_at TIMESTAMP
+      );
+    `);
+    log("Partner tables initialized successfully", "init");
+  } catch (error) {
+    log(`Partner tables initialization error: ${(error as Error).message}`, "init");
+  } finally {
+    client.release();
+  }
+}
 
 declare module "http" {
   interface IncomingMessage {
@@ -99,6 +184,12 @@ async function initializeWithTimeout<T>(
     if (dbConnected) {
       log("Database connection successful", "init");
       
+      await initializeWithTimeout(
+        initializePartnerTables(),
+        20000,
+        "Partner tables"
+      );
+
       await initializeWithTimeout(
         initializeAdminAccount(),
         20000,
