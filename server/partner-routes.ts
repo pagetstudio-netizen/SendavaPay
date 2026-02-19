@@ -649,48 +649,121 @@ export function registerPartnerRoutes(app: Express) {
         return res.status(403).json({ success: false, status: "ERROR", message: "La fonction de paiement/encaissement est désactivée pour ce partenaire" });
       }
 
-      const { amount, currency, customerName, customerEmail, customerPhone, description, callbackUrl, redirectUrl, metadata } = req.body;
+      const { amount, currency, customerName, customerEmail, customerPhone, phoneNumber, operator, country, description, callbackUrl, redirectUrl, metadata } = req.body;
+      const phone = phoneNumber || customerPhone;
 
       if (!amount || parseFloat(amount) <= 0) {
         return res.status(400).json({ success: false, status: "ERROR", message: "Montant invalide" });
       }
+      if (!phone) {
+        return res.status(400).json({ success: false, status: "ERROR", message: "Numéro de téléphone requis (phoneNumber)" });
+      }
+      if (!operator) {
+        return res.status(400).json({ success: false, status: "ERROR", message: "Opérateur requis (operator: MTN, Moov, Orange, TMoney, Wave, Vodacom, Airtel)" });
+      }
+      if (!country) {
+        return res.status(400).json({ success: false, status: "ERROR", message: "Code pays requis (country: TG, BJ, BF, CM, CI, COD, COG)" });
+      }
 
+      const { SOLEASPAY_SERVICES, soleaspay, getCurrencyByCountry } = await import("./soleaspay");
+      const countryUpper = country.toUpperCase();
+      const operatorLower = operator.toLowerCase();
+
+      const service = SOLEASPAY_SERVICES.find(s =>
+        s.countryCode === countryUpper &&
+        (s.operator.toLowerCase() === operatorLower ||
+         s.name.toLowerCase().includes(operatorLower) ||
+         operatorLower.includes(s.operator.toLowerCase()))
+      );
+
+      if (!service) {
+        return res.status(400).json({ success: false, status: "ERROR", message: `Opérateur '${operator}' non disponible pour le pays '${country}'` });
+      }
+
+      const numericAmount = parseFloat(amount);
+      const txCurrency = currency || getCurrencyByCountry(countryUpper);
       const reference = "PTR_" + uuidv4().replace(/-/g, "").substring(0, 16).toUpperCase();
-      const fee = (parseFloat(amount) * parseFloat(partner.commissionRate) / 100).toFixed(2);
+      const fee = (numericAmount * parseFloat(partner.commissionRate) / 100).toFixed(2);
 
       const transaction = await storage.createPartnerTransaction({
         partnerId: partner.id,
         reference,
-        amount: amount.toString(),
+        amount: numericAmount.toString(),
         fee,
-        currency: currency || "XOF",
+        currency: txCurrency,
         customerName: customerName || null,
         customerEmail: customerEmail || null,
-        customerPhone: customerPhone || null,
+        customerPhone: phone,
         description: description || null,
         callbackUrl: callbackUrl || partner.callbackUrl || null,
         redirectUrl: redirectUrl || null,
-        metadata: metadata ? JSON.stringify(metadata) : null,
+        metadata: metadata ? JSON.stringify({ ...metadata, operator, country: countryUpper, serviceId: service.id }) : JSON.stringify({ operator, country: countryUpper, serviceId: service.id }),
       });
 
-      await storage.createPartnerLog({
-        partnerId: partner.id,
-        action: "api_call",
-        details: `SDK Paiement: ${reference} - ${amount} ${currency || "XOF"}`,
-        ipAddress: req.ip || req.socket.remoteAddress,
+      const soleasResult = await soleaspay.collectPayment({
+        wallet: phone,
+        amount: numericAmount,
+        currency: txCurrency,
+        orderId: reference,
+        description: description || `Paiement ${partner.name}`,
+        payer: customerName || phone,
+        payerEmail: customerEmail || `${phone}@sendavapay.com`,
+        serviceId: service.id,
+        successUrl: redirectUrl || undefined,
+        failureUrl: redirectUrl || undefined,
       });
 
-      res.json({
-        success: true,
-        status: "PENDING",
-        txid: transaction.reference,
-        reference: transaction.reference,
-        amount: transaction.amount,
-        fee: transaction.fee,
-        currency: transaction.currency,
-        message: "Paiement créé avec succès",
-        paymentUrl: `/pay/partner/${transaction.reference}`,
-      });
+      console.log(`SDK Payment SoleasPay result for ${reference}:`, JSON.stringify(soleasResult));
+
+      let soleasRef = "";
+      if (soleasResult.data?.reference) {
+        soleasRef = soleasResult.data.reference;
+      }
+
+      if (soleasResult.code === 200 || soleasResult.status === "success" || soleasResult.data) {
+        const { db } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+        await db.execute(sql`UPDATE partner_transactions SET status = 'processing', metadata = ${JSON.stringify({ operator, country: countryUpper, serviceId: service.id, soleasRef })} WHERE reference = ${reference}`);
+
+        await storage.createPartnerLog({
+          partnerId: partner.id,
+          action: "api_call",
+          details: `SDK Paiement USSD envoyé: ${reference} - ${numericAmount} ${txCurrency} via ${service.operator} (${service.countryCode}) au ${phone}`,
+          ipAddress: req.ip || req.socket.remoteAddress,
+        });
+
+        res.json({
+          success: true,
+          status: "PROCESSING",
+          txid: reference,
+          reference,
+          soleasReference: soleasRef,
+          amount: numericAmount.toString(),
+          fee,
+          currency: txCurrency,
+          operator: service.operator,
+          country: service.countryCode,
+          message: "Notification USSD envoyée au client. Vérifiez le statut avec /api/sdk/verify",
+        });
+      } else {
+        const { db } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+        await db.execute(sql`UPDATE partner_transactions SET status = 'failed', metadata = ${JSON.stringify({ operator, country: countryUpper, serviceId: service.id, error: soleasResult.message })} WHERE reference = ${reference}`);
+
+        await storage.createPartnerLog({
+          partnerId: partner.id,
+          action: "api_call",
+          details: `SDK Paiement échoué: ${reference} - ${soleasResult.message || "Erreur SoleasPay"}`,
+          ipAddress: req.ip || req.socket.remoteAddress,
+        });
+
+        res.status(400).json({
+          success: false,
+          status: "FAILED",
+          reference,
+          message: soleasResult.message || "Échec de l'envoi USSD. Vérifiez le numéro et l'opérateur.",
+        });
+      }
     } catch (error: any) {
       console.error("SDK payment error:", error);
       res.status(500).json({ success: false, status: "ERROR", message: "Erreur serveur" });
@@ -784,6 +857,54 @@ export function registerPartnerRoutes(app: Express) {
         return res.status(404).json({ success: false, status: "NOT_FOUND", message: "Transaction introuvable" });
       }
 
+      if (transaction.status === "processing" || transaction.status === "pending") {
+        try {
+          const { soleaspay } = await import("./soleaspay");
+          let soleasRef = "";
+          try {
+            const meta = JSON.parse(transaction.metadata || "{}");
+            soleasRef = meta.soleasRef || "";
+          } catch {}
+
+          const verifyResult = await soleaspay.verifyPayment(ref, soleasRef || ref);
+          console.log(`SDK Verify SoleasPay for ${ref}:`, JSON.stringify(verifyResult));
+
+          if (verifyResult.code === 200 || verifyResult.status === "success") {
+            const { db } = await import("./db");
+            const { sql } = await import("drizzle-orm");
+            const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+
+            const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
+            if (rowsAffected > 0) {
+              const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
+              await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
+            }
+
+            await storage.createPartnerLog({
+              partnerId: partner.id,
+              action: "api_call",
+              details: `SDK Paiement confirmé: ${ref} - ${transaction.amount} ${transaction.currency}`,
+              ipAddress: req.ip || req.socket.remoteAddress,
+            });
+
+            return res.json({
+              success: true,
+              status: "SUCCESS",
+              txid: transaction.reference,
+              reference: transaction.reference,
+              amount: transaction.amount,
+              fee: transaction.fee,
+              currency: transaction.currency,
+              message: "Paiement confirmé avec succès",
+              createdAt: transaction.createdAt,
+              completedAt: new Date().toISOString(),
+            });
+          }
+        } catch (verifyError) {
+          console.error("SDK verify SoleasPay check error:", verifyError);
+        }
+      }
+
       const statusMap: Record<string, string> = {
         pending: "PENDING",
         processing: "PROCESSING",
@@ -791,13 +912,6 @@ export function registerPartnerRoutes(app: Express) {
         failed: "FAILED",
         cancelled: "CANCELLED",
       };
-
-      await storage.createPartnerLog({
-        partnerId: partner.id,
-        action: "api_call",
-        details: `SDK Vérification: ${ref} → ${transaction.status}`,
-        ipAddress: req.ip || req.socket.remoteAddress,
-      });
 
       res.json({
         success: transaction.status === "completed",
@@ -808,8 +922,8 @@ export function registerPartnerRoutes(app: Express) {
         fee: transaction.fee,
         currency: transaction.currency,
         message: transaction.status === "completed" ? "Paiement validé" :
-                 transaction.status === "pending" ? "Paiement en attente" :
-                 transaction.status === "processing" ? "Paiement en cours de traitement" :
+                 transaction.status === "pending" ? "En attente de confirmation du client" :
+                 transaction.status === "processing" ? "Le client n'a pas encore confirmé sur son téléphone" :
                  transaction.status === "failed" ? "Paiement échoué" : "Paiement annulé",
         createdAt: transaction.createdAt,
         completedAt: transaction.completedAt,

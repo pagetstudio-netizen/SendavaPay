@@ -2242,35 +2242,37 @@ const client = new SendavaPay(
   "${baseUrl}"
 );
 
-// Créer un paiement
+// 1. Collecter un paiement (USSD direct au téléphone du client)
 const payment = await client.createPayment({
   amount: 5000,
-  currency: "XOF",
+  phoneNumber: "+22890123456",  // Numéro du client
+  operator: "TMoney",           // MTN, Moov, Orange, TMoney, Wave...
+  country: "TG",                // TG, BJ, BF, CM, CI, COD, COG
   customerName: "Jean Dupont",
-  customerPhone: "+22890000000",
   description: "Achat produit",
   callbackUrl: "https://votre-site.com/callback"
 });
-console.log(payment);
-// { success: true, status: "PENDING", txid: "PTR_...", ... }
+// { success: true, status: "PROCESSING", reference: "PTR_..." }
 
-// Vérifier un paiement
-const status = await client.verifyPayment(payment.txid);
-console.log(status);
-// { success: true/false, status: "SUCCESS"/"PENDING", ... }
+// 2. Attendre la confirmation (polling automatique)
+const result = await client.waitForPayment(payment.reference);
+if (result.status === "SUCCESS") {
+  console.log("Paiement confirmé !");
+}
 
-// Effectuer un retrait
+// Ou vérifier manuellement
+const status = await client.verifyPayment(payment.reference);
+
+// 3. Retrait vers Mobile Money
 const withdraw = await client.createWithdraw({
   amount: 3000,
-  phoneNumber: "+22890000000",
-  operator: "tmoney",
+  phoneNumber: "+22890123456",
+  operator: "TMoney",
   country: "TG"
 });
 
-// Consulter le solde
+// 4. Solde et transactions
 const balance = await client.getBalance();
-
-// Lister les transactions
 const transactions = await client.getTransactions();`;
 
   const phpExample = `<?php
@@ -2282,33 +2284,33 @@ $client = new SendavaPay(
   "${baseUrl}"
 );
 
-// Créer un paiement
+// 1. Collecter un paiement (USSD direct au téléphone du client)
 $payment = $client->createPayment([
   "amount" => 5000,
-  "currency" => "XOF",
+  "phoneNumber" => "+22890123456",  // Numéro du client
+  "operator" => "TMoney",           // MTN, Moov, Orange, TMoney, Wave...
+  "country" => "TG",                // TG, BJ, BF, CM, CI, COD, COG
   "customerName" => "Jean Dupont",
-  "customerPhone" => "+22890000000",
   "description" => "Achat produit",
-  "callbackUrl" => "https://votre-site.com/callback"
 ]);
-print_r($payment);
-// ["success" => true, "status" => "PENDING", "txid" => "PTR_...", ...]
+// ["success" => true, "status" => "PROCESSING", "reference" => "PTR_..."]
 
-// Vérifier un paiement
-$status = $client->verifyPayment($payment["txid"]);
+// 2. Attendre la confirmation (polling automatique)
+$result = $client->waitForPayment($payment["reference"]);
+if ($result["status"] === "SUCCESS") {
+    echo "Paiement confirmé !";
+}
 
-// Effectuer un retrait
+// 3. Retrait vers Mobile Money
 $withdraw = $client->createWithdraw([
   "amount" => 3000,
-  "phoneNumber" => "+22890000000",
-  "operator" => "tmoney",
+  "phoneNumber" => "+22890123456",
+  "operator" => "TMoney",
   "country" => "TG"
 ]);
 
-// Consulter le solde
+// 4. Solde et transactions
 $balance = $client->getBalance();
-
-// Lister les transactions
 $transactions = $client->getTransactions();
 ?>`;
 
@@ -2320,33 +2322,32 @@ client = SendavaPay(
     base_url="${baseUrl}"
 )
 
-# Créer un paiement
+# 1. Collecter un paiement (USSD direct au téléphone du client)
 payment = client.create_payment(
     amount=5000,
-    currency="XOF",
+    phone_number="+22890123456",  # Numéro du client
+    operator="TMoney",            # MTN, Moov, Orange, TMoney, Wave...
+    country="TG",                 # TG, BJ, BF, CM, CI, COD, COG
     customer_name="Jean Dupont",
-    customer_phone="+22890000000",
     description="Achat produit",
-    callback_url="https://votre-site.com/callback"
 )
-print(payment)
-# {"success": True, "status": "PENDING", "txid": "PTR_...", ...}
+# {"success": True, "status": "PROCESSING", "reference": "PTR_..."}
 
-# Vérifier un paiement
-status = client.verify_payment(payment["txid"])
+# 2. Attendre la confirmation (polling automatique)
+result = client.wait_for_payment(payment["reference"])
+if result["status"] == "SUCCESS":
+    print("Paiement confirmé !")
 
-# Effectuer un retrait
+# 3. Retrait vers Mobile Money
 withdraw = client.create_withdraw(
     amount=3000,
-    phone_number="+22890000000",
-    operator="tmoney",
+    phone_number="+22890123456",
+    operator="TMoney",
     country="TG"
 )
 
-# Consulter le solde
+# 4. Solde et transactions
 balance = client.get_balance()
-
-# Lister les transactions
 transactions = client.get_transactions()`;
 
   const hmacExplanation = `// Chaque requête est signée avec HMAC-SHA256
@@ -2360,9 +2361,9 @@ transactions = client.get_transactions()`;
 // Cela garantit que seul le détenteur du secret peut faire des appels.`;
 
   const endpoints = [
-    { method: "POST", path: "/api/sdk/payment", desc: "Créer un paiement" },
+    { method: "POST", path: "/api/sdk/payment", desc: "Collecter un paiement (USSD direct)" },
     { method: "POST", path: "/api/sdk/withdraw", desc: "Effectuer un retrait" },
-    { method: "POST", path: "/api/sdk/verify", desc: "Vérifier un paiement" },
+    { method: "POST", path: "/api/sdk/verify", desc: "Vérifier / confirmer un paiement" },
     { method: "GET", path: "/api/sdk/transaction/:id", desc: "Consulter une transaction" },
     { method: "GET", path: "/api/sdk/transactions", desc: "Lister les transactions" },
     { method: "GET", path: "/api/sdk/balance", desc: "Consulter le solde" },
