@@ -621,3 +621,112 @@ export const insertGlobalNotificationSchema = createInsertSchema(globalNotificat
 
 export type GlobalNotification = typeof globalNotifications.$inferSelect;
 export type InsertGlobalNotification = z.infer<typeof insertGlobalNotificationSchema>;
+
+export const partnerStatusEnum = pgEnum("partner_status", ["active", "inactive", "suspended"]);
+
+export const partners = pgTable("partners", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  phone: text("phone"),
+  slug: text("slug").notNull().unique(),
+  logo: text("logo"),
+  description: text("description"),
+  website: text("website"),
+  apiKey: text("api_key").notNull().unique(),
+  apiSecret: text("api_secret").notNull(),
+  commissionRate: decimal("commission_rate", { precision: 5, scale: 2 }).default("5").notNull(),
+  balance: decimal("balance", { precision: 15, scale: 2 }).default("0").notNull(),
+  status: partnerStatusEnum("status").default("active").notNull(),
+  webhookUrl: text("webhook_url"),
+  callbackUrl: text("callback_url"),
+  primaryColor: text("primary_color").default("#0070F3"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  lastLoginAt: timestamp("last_login_at"),
+});
+
+export const partnerLogActionEnum = pgEnum("partner_log_action", ["login", "logout", "profile_update", "api_call", "payment_received", "error", "system"]);
+
+export const partnerLogs = pgTable("partner_logs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  partnerId: integer("partner_id").notNull().references(() => partners.id),
+  action: partnerLogActionEnum("action").notNull(),
+  details: text("details"),
+  ipAddress: text("ip_address"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const partnerTransactions = pgTable("partner_transactions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  partnerId: integer("partner_id").notNull().references(() => partners.id),
+  reference: text("reference").notNull().unique(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  fee: decimal("fee", { precision: 15, scale: 2 }).default("0").notNull(),
+  currency: text("currency").default("XOF").notNull(),
+  status: apiTransactionStatusEnum("status").default("pending").notNull(),
+  customerName: text("customer_name"),
+  customerEmail: text("customer_email"),
+  customerPhone: text("customer_phone"),
+  paymentMethod: text("payment_method"),
+  description: text("description"),
+  callbackUrl: text("callback_url"),
+  redirectUrl: text("redirect_url"),
+  metadata: text("metadata"),
+  webhookSent: boolean("webhook_sent").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const partnersRelations = relations(partners, ({ many }) => ({
+  logs: many(partnerLogs),
+  transactions: many(partnerTransactions),
+}));
+
+export const partnerLogsRelations = relations(partnerLogs, ({ one }) => ({
+  partner: one(partners, {
+    fields: [partnerLogs.partnerId],
+    references: [partners.id],
+  }),
+}));
+
+export const partnerTransactionsRelations = relations(partnerTransactions, ({ one }) => ({
+  partner: one(partners, {
+    fields: [partnerTransactions.partnerId],
+    references: [partners.id],
+  }),
+}));
+
+export const insertPartnerSchema = createInsertSchema(partners).omit({
+  id: true,
+  createdAt: true,
+  apiKey: true,
+  apiSecret: true,
+  balance: true,
+  status: true,
+  lastLoginAt: true,
+});
+
+export const partnerLoginSchema = z.object({
+  email: z.string().email("Email invalide"),
+  password: z.string().min(1, "Mot de passe requis"),
+});
+
+export const insertPartnerLogSchema = createInsertSchema(partnerLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertPartnerTransactionSchema = createInsertSchema(partnerTransactions).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+  webhookSent: true,
+});
+
+export type Partner = typeof partners.$inferSelect;
+export type InsertPartner = z.infer<typeof insertPartnerSchema>;
+export type PartnerLog = typeof partnerLogs.$inferSelect;
+export type InsertPartnerLog = z.infer<typeof insertPartnerLogSchema>;
+export type PartnerTransaction = typeof partnerTransactions.$inferSelect;
+export type InsertPartnerTransaction = z.infer<typeof insertPartnerTransactionSchema>;

@@ -8,6 +8,9 @@ import { ProtectedRoute, AdminRoute } from "@/lib/protected-route";
 import NotFound from "@/pages/not-found";
 import HomePage from "@/pages/home";
 import AuthPage from "@/pages/auth";
+import PartnerLoginPage from "@/pages/partner/login";
+import PartnerDashboardPage from "@/pages/partner/dashboard";
+import PartnerPublicPage from "@/pages/partner-public";
 import DashboardPage from "@/pages/dashboard/index";
 import DepositPage from "@/pages/dashboard/deposit";
 import WithdrawPage from "@/pages/dashboard/withdraw";
@@ -34,6 +37,9 @@ function Router() {
     <Switch>
       <Route path="/" component={HomePage} />
       <Route path="/auth" component={AuthPage} />
+      <Route path="/partner/login" component={PartnerLoginPage} />
+      <Route path="/partner/dashboard" component={PartnerDashboardPage} />
+      <Route path="/partner.by_:slug" component={PartnerPublicPage} />
       <Route path="/pay/:code" component={PaymentPage} />
       <Route path="/pay/api/:reference" component={PayApiPage} />
       <Route path="/success" component={SuccessPage} />
@@ -69,6 +75,7 @@ function Router() {
       <AdminRoute path="/admin/messaging" component={AdminDashboardPage} />
       <AdminRoute path="/admin/logs" component={AdminDashboardPage} />
       <AdminRoute path="/admin/reports" component={AdminDashboardPage} />
+      <AdminRoute path="/admin/partners" component={AdminDashboardPage} />
       <AdminRoute path="/admin/settings" component={AdminDashboardPage} />
       
       <Route component={NotFound} />

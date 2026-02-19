@@ -13,6 +13,7 @@ import { leekpay } from "./leekpay";
 import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById } from "./soleaspay";
 import { isDatabaseConnected } from "./db";
 import merchantApi from "./merchant-api";
+import { registerPartnerRoutes } from "./partner-routes";
 import { registerObjectStorageRoutes, ObjectStorageService } from "./replit_integrations/object_storage";
 import { 
   sendWelcomeEmail, 
@@ -155,6 +156,9 @@ export async function registerRoutes(
 
   // Register object storage routes for permanent file storage
   registerObjectStorageRoutes(app);
+
+  // Register partner routes
+  registerPartnerRoutes(app);
 
   app.use("/api", (req, res, next) => {
     if (req.path === "/health") {
