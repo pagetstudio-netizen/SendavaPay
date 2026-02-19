@@ -1141,6 +1141,10 @@ export function registerPartnerRoutes(app: Express) {
       const partner = await storage.getPartner(req.session.partnerId!);
       if (!partner) return res.status(404).json({ message: "Partenaire non trouvé" });
 
+      if (!partner.enablePaymentLinks) {
+        return res.status(403).json({ message: "La fonction de liens de paiement est désactivée pour votre compte" });
+      }
+
       const { title, description, amount, allowCustomAmount, minimumAmount, redirectUrl } = req.body;
       const numericAmount = parseFloat(amount);
       if (!title || isNaN(numericAmount) || numericAmount < 100) {

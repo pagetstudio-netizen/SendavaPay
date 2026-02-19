@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -51,6 +52,11 @@ interface Partner {
   apiKey?: string;
   logo?: string;
   primaryColor?: string;
+  enableDeposit: boolean;
+  enableWithdrawal: boolean;
+  enablePaymentLinks: boolean;
+  allowedCountries?: string;
+  allowedOperators?: string;
   createdAt: string;
   updatedAt?: string;
 }
@@ -121,6 +127,11 @@ export function PartnersContent() {
     website: "",
     commissionRate: "",
     slug: "",
+  });
+  const [editPermissions, setEditPermissions] = useState({
+    enableDeposit: true,
+    enableWithdrawal: true,
+    enablePaymentLinks: true,
   });
 
   const { data: partners, isLoading } = useQuery<Partner[]>({
@@ -229,6 +240,11 @@ export function PartnersContent() {
       commissionRate: String(partner.commissionRate || ""),
       slug: partner.slug || "",
     });
+    setEditPermissions({
+      enableDeposit: partner.enableDeposit ?? true,
+      enableWithdrawal: partner.enableWithdrawal ?? true,
+      enablePaymentLinks: partner.enablePaymentLinks ?? true,
+    });
     setShowEditDialog(true);
   };
 
@@ -249,7 +265,7 @@ export function PartnersContent() {
 
   const handleUpdate = () => {
     if (!selectedPartner) return;
-    const data: Record<string, string> = {};
+    const data: Record<string, any> = {};
     if (editForm.name) data.name = editForm.name;
     if (editForm.email) data.email = editForm.email;
     if (editForm.password) data.password = editForm.password;
@@ -258,6 +274,9 @@ export function PartnersContent() {
     if (editForm.website) data.website = editForm.website;
     if (editForm.commissionRate) data.commissionRate = editForm.commissionRate;
     if (editForm.slug) data.slug = editForm.slug;
+    data.enableDeposit = editPermissions.enableDeposit;
+    data.enableWithdrawal = editPermissions.enableWithdrawal;
+    data.enablePaymentLinks = editPermissions.enablePaymentLinks;
     updateMutation.mutate({ id: selectedPartner.id, data });
   };
 
@@ -315,6 +334,7 @@ export function PartnersContent() {
                   <TableHead>Email</TableHead>
                   <TableHead>Slug</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Permissions</TableHead>
                   <TableHead>Commission</TableHead>
                   <TableHead>Balance</TableHead>
                   <TableHead>Actions</TableHead>
@@ -323,13 +343,13 @@ export function PartnersContent() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center p-8">
+                    <TableCell colSpan={8} className="text-center p-8">
                       <Skeleton className="h-8 w-full" />
                     </TableCell>
                   </TableRow>
                 ) : !filteredPartners.length ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center p-8 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center p-8 text-muted-foreground">
                       Aucun partenaire trouvé
                     </TableCell>
                   </TableRow>
@@ -357,6 +377,16 @@ export function PartnersContent() {
                         >
                           {partner.status === "active" ? "Actif" : "Inactif"}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1" data-testid={`permissions-partner-${partner.id}`}>
+                          {partner.enableDeposit && <Badge variant="secondary" className="text-xs">Dépôt</Badge>}
+                          {partner.enableWithdrawal && <Badge variant="secondary" className="text-xs">Retrait</Badge>}
+                          {partner.enablePaymentLinks && <Badge variant="secondary" className="text-xs">Liens</Badge>}
+                          {!partner.enableDeposit && !partner.enableWithdrawal && !partner.enablePaymentLinks && (
+                            <Badge variant="destructive" className="text-xs">Aucun</Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell data-testid={`text-partner-commission-${partner.id}`}>
                         {partner.commissionRate}%
@@ -611,6 +641,44 @@ export function PartnersContent() {
                 onChange={(e) => setEditForm((f) => ({ ...f, slug: e.target.value }))}
                 data-testid="input-edit-slug"
               />
+            </div>
+            <div className="space-y-3 pt-2 border-t">
+              <Label className="text-base font-semibold">Permissions API</Label>
+              <div className="grid gap-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Encaissement / Paiement</p>
+                    <p className="text-xs text-muted-foreground">Autoriser la collecte de paiements via l'API</p>
+                  </div>
+                  <Switch
+                    checked={editPermissions.enableDeposit}
+                    onCheckedChange={(v) => setEditPermissions(p => ({ ...p, enableDeposit: v }))}
+                    data-testid="switch-enable-deposit"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Retrait automatique</p>
+                    <p className="text-xs text-muted-foreground">Autoriser les retraits via l'API</p>
+                  </div>
+                  <Switch
+                    checked={editPermissions.enableWithdrawal}
+                    onCheckedChange={(v) => setEditPermissions(p => ({ ...p, enableWithdrawal: v }))}
+                    data-testid="switch-enable-withdrawal"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Liens de paiement</p>
+                    <p className="text-xs text-muted-foreground">Autoriser la création de liens de paiement</p>
+                  </div>
+                  <Switch
+                    checked={editPermissions.enablePaymentLinks}
+                    onCheckedChange={(v) => setEditPermissions(p => ({ ...p, enablePaymentLinks: v }))}
+                    data-testid="switch-enable-payment-links"
+                  />
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter>
