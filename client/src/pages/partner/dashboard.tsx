@@ -309,6 +309,15 @@ function DashboardSection() {
     queryKey: ["/api/partner/stats"],
   });
 
+  const { data: partnerData } = useQuery<any>({
+    queryKey: ["/api/partner/me"],
+  });
+
+  const formatBalance = (bal: string | number) => {
+    const num = typeof bal === "string" ? parseFloat(bal) : bal;
+    return new Intl.NumberFormat("fr-FR").format(num);
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6" data-testid="loading-stats">
@@ -328,15 +337,6 @@ function DashboardSection() {
       </div>
     );
   }
-
-  const { data: partnerData } = useQuery<any>({
-    queryKey: ["/api/partner/me"],
-  });
-
-  const formatBalance = (bal: string | number) => {
-    const num = typeof bal === "string" ? parseFloat(bal) : bal;
-    return new Intl.NumberFormat("fr-FR").format(num);
-  };
 
   const statCards = [
     {
