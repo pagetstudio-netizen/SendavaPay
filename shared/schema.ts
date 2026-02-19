@@ -642,6 +642,11 @@ export const partners = pgTable("partners", {
   webhookUrl: text("webhook_url"),
   callbackUrl: text("callback_url"),
   primaryColor: text("primary_color").default("#0070F3"),
+  allowedCountries: text("allowed_countries"),
+  allowedOperators: text("allowed_operators"),
+  enableDeposit: boolean("enable_deposit").default(true).notNull(),
+  enableWithdrawal: boolean("enable_withdrawal").default(true).notNull(),
+  enablePaymentLinks: boolean("enable_payment_links").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastLoginAt: timestamp("last_login_at"),
 });
