@@ -491,8 +491,22 @@ function ProfileSection({ partner }: { partner: any }) {
 }
 
 function TransactionsSection() {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTx, setSelectedTx] = useState<any>(null);
+
   const { data: transactions, isLoading } = useQuery<any[]>({
     queryKey: ["/api/partner/transactions"],
+  });
+
+  const filteredTransactions = (transactions || []).filter((tx: any) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (tx.customerName && tx.customerName.toLowerCase().includes(q)) ||
+      (tx.customerEmail && tx.customerEmail.toLowerCase().includes(q)) ||
+      (tx.customerPhone && tx.customerPhone.toLowerCase().includes(q)) ||
+      (tx.reference && tx.reference.toLowerCase().includes(q))
+    );
   });
 
   const getStatusBadge = (status: string) => {
@@ -501,11 +515,31 @@ function TransactionsSection() {
         return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-status-${status}`}>Complété</Badge>;
       case "pending":
         return <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-status-${status}`}>En attente</Badge>;
+      case "processing":
+        return <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-status-${status}`}>En cours</Badge>;
       case "failed":
         return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-status-${status}`}>Échoué</Badge>;
+      case "cancelled":
+        return <Badge className="bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400 no-default-hover-elevate no-default-active-elevate" data-testid={`badge-status-${status}`}>Annulé</Badge>;
       default:
         return <Badge variant="secondary" data-testid={`badge-status-${status}`}>{status}</Badge>;
     }
+  };
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return "-";
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  };
+
+  const formatTime = (dateStr: string) => {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  };
+
+  const formatAmount = (amount: string | number) => {
+    return Number(amount).toLocaleString("fr-FR");
   };
 
   if (isLoading) {
@@ -525,39 +559,142 @@ function TransactionsSection() {
 
   return (
     <div className="space-y-6" data-testid="section-transactions">
-      <h2 className="text-2xl font-bold">Transactions</h2>
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <h2 className="text-2xl font-bold">Transactions</h2>
+        <Badge variant="secondary" className="no-default-hover-elevate no-default-active-elevate" data-testid="badge-tx-count">
+          {filteredTransactions.length} transaction{filteredTransactions.length !== 1 ? "s" : ""}
+        </Badge>
+      </div>
+
+      <div className="relative">
+        <Input
+          placeholder="Rechercher par nom, email, téléphone ou référence..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-10"
+          data-testid="input-search-transactions"
+        />
+        <svg xmlns="http://www.w3.org/2000/svg" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+      </div>
+
+      {selectedTx && (
+        <Card data-testid="card-tx-details">
+          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-3">
+            <CardTitle className="text-lg">Détails de la transaction</CardTitle>
+            <Button variant="ghost" size="icon" onClick={() => setSelectedTx(null)} data-testid="button-close-tx-details">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Référence</p>
+                <p className="font-mono text-sm font-medium" data-testid="text-detail-reference">{selectedTx.reference}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Nom complet</p>
+                <p className="font-medium" data-testid="text-detail-name">{selectedTx.customerName || "-"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Email</p>
+                <p className="text-sm" data-testid="text-detail-email">{selectedTx.customerEmail || "-"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Téléphone</p>
+                <p className="text-sm" data-testid="text-detail-phone">{selectedTx.customerPhone || "-"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Montant</p>
+                <p className="font-bold text-lg" data-testid="text-detail-amount">{formatAmount(selectedTx.amount)} {selectedTx.currency || "FCFA"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Frais</p>
+                <p className="text-sm" data-testid="text-detail-fee">{formatAmount(selectedTx.fee || 0)} {selectedTx.currency || "FCFA"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Mode de paiement</p>
+                <p className="text-sm" data-testid="text-detail-method">{selectedTx.paymentMethod || "-"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Statut</p>
+                <div data-testid="text-detail-status">{getStatusBadge(selectedTx.status)}</div>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Devise</p>
+                <p className="text-sm" data-testid="text-detail-currency">{selectedTx.currency || "XOF"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Date</p>
+                <p className="text-sm" data-testid="text-detail-date">{formatDate(selectedTx.createdAt)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Heure</p>
+                <p className="text-sm" data-testid="text-detail-time">{formatTime(selectedTx.createdAt)}</p>
+              </div>
+              {selectedTx.completedAt && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Complété le</p>
+                  <p className="text-sm" data-testid="text-detail-completed">{formatDate(selectedTx.completedAt)} {formatTime(selectedTx.completedAt)}</p>
+                </div>
+              )}
+              {selectedTx.description && (
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <p className="text-xs text-muted-foreground">Description</p>
+                  <p className="text-sm" data-testid="text-detail-description">{selectedTx.description}</p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Référence</TableHead>
-                <TableHead>Montant</TableHead>
-                <TableHead>Statut</TableHead>
-                <TableHead>Client</TableHead>
-                <TableHead>Date</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {transactions && transactions.length > 0 ? (
-                transactions.map((tx: any, index: number) => (
-                  <TableRow key={tx.id || index} data-testid={`row-transaction-${index}`}>
-                    <TableCell className="font-mono text-sm" data-testid={`text-tx-reference-${index}`}>{tx.reference}</TableCell>
-                    <TableCell data-testid={`text-tx-amount-${index}`}>{tx.amount} FCFA</TableCell>
-                    <TableCell>{getStatusBadge(tx.status)}</TableCell>
-                    <TableCell data-testid={`text-tx-customer-${index}`}>{tx.customer || tx.customerPhone || "-"}</TableCell>
-                    <TableCell data-testid={`text-tx-date-${index}`}>{tx.createdAt ? new Date(tx.createdAt).toLocaleDateString("fr-FR") : "-"}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground" data-testid="text-no-transactions">
-                    Aucune transaction trouvée
-                  </TableCell>
+                  <TableHead>Référence</TableHead>
+                  <TableHead>Nom complet</TableHead>
+                  <TableHead>Téléphone</TableHead>
+                  <TableHead>Montant</TableHead>
+                  <TableHead>Frais</TableHead>
+                  <TableHead>Mode de paiement</TableHead>
+                  <TableHead>Statut</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Heure</TableHead>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filteredTransactions.length > 0 ? (
+                  filteredTransactions.map((tx: any, index: number) => (
+                    <TableRow
+                      key={tx.id || index}
+                      className="cursor-pointer hover-elevate"
+                      onClick={() => setSelectedTx(tx)}
+                      data-testid={`row-transaction-${index}`}
+                    >
+                      <TableCell className="font-mono text-xs" data-testid={`text-tx-reference-${index}`}>{tx.reference}</TableCell>
+                      <TableCell className="font-medium" data-testid={`text-tx-name-${index}`}>{tx.customerName || "-"}</TableCell>
+                      <TableCell className="text-sm" data-testid={`text-tx-phone-${index}`}>{tx.customerPhone || "-"}</TableCell>
+                      <TableCell className="font-medium" data-testid={`text-tx-amount-${index}`}>{formatAmount(tx.amount)} {tx.currency || "FCFA"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground" data-testid={`text-tx-fee-${index}`}>{formatAmount(tx.fee || 0)}</TableCell>
+                      <TableCell className="text-sm" data-testid={`text-tx-method-${index}`}>{tx.paymentMethod || "-"}</TableCell>
+                      <TableCell>{getStatusBadge(tx.status)}</TableCell>
+                      <TableCell className="text-sm" data-testid={`text-tx-date-${index}`}>{formatDate(tx.createdAt)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground" data-testid={`text-tx-time-${index}`}>{formatTime(tx.createdAt)}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-8 text-muted-foreground" data-testid="text-no-transactions">
+                      {searchQuery ? "Aucune transaction ne correspond à votre recherche" : "Aucune transaction trouvée"}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
     </div>
