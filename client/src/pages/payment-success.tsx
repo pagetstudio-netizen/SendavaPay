@@ -18,7 +18,7 @@ export default function PaymentSuccessPage() {
 
   useEffect(() => {
     const urlParams = new URLSearchParams(searchString);
-    let reference = urlParams.get("reference");
+    let reference = urlParams.get("reference") || urlParams.get("ref");
     const vendeur = urlParams.get("vendeur_id");
     
     setVendeurId(vendeur);

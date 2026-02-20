@@ -16,7 +16,7 @@ export default function SuccessPage() {
 
   useEffect(() => {
     const urlParams = new URLSearchParams(searchString);
-    let reference = urlParams.get("reference");
+    let reference = urlParams.get("reference") || urlParams.get("ref");
     
     // Si pas de référence dans l'URL, essayer de récupérer depuis localStorage
     if (!reference) {

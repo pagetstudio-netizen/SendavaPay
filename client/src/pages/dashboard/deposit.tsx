@@ -218,6 +218,7 @@ export default function DepositPage() {
           payId: data.payId,
           provider: "winipayer",
         }));
+        localStorage.setItem("lastPaymentId", data.payId);
         setCurrentOrderId(data.orderId);
         setCurrentPayId(data.payId);
         setCurrentProvider("winipayer");
