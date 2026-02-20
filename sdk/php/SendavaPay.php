@@ -53,22 +53,47 @@ class SendavaPay {
     }
 
     /**
-     * Initiate a payment - sends USSD push directly to customer's phone
+     * Initiate a payment via SoleasPay (USSD push) or WiniPayer (checkout redirect)
+     *
+     * For SoleasPay (default): sends USSD push to customer's phone
+     * For WiniPayer: returns a checkout URL to redirect the customer
      *
      * @param array $data Required: amount, phoneNumber, operator, country
      *   - amount: float - Amount to charge
-     *   - phoneNumber: string - Customer's mobile number
-     *   - operator: string - MTN, Moov, Orange, TMoney, Wave, Vodacom, Airtel
-     *   - country: string - Country code: TG, BJ, BF, CM, CI, COD, COG
+     *   - phoneNumber: string - Customer's mobile number (required for SoleasPay, optional for WiniPayer)
+     *   - operator: string - MTN, Moov, Orange, TMoney, Wave, Vodacom, Airtel (required for SoleasPay)
+     *   - country: string - Country code: TG, BJ, BF, CM, CI, COD, COG (required for SoleasPay)
      *   - currency: string (optional) - Auto-detected from country
      *   - customerName: string (optional)
      *   - customerEmail: string (optional)
      *   - description: string (optional)
      *   - callbackUrl: string (optional) - Webhook for status updates
+     *   - redirectUrl: string (optional) - Redirect after payment
      *   - metadata: array (optional)
+     *   - provider: string (optional) - "soleaspay" (default) or "winipayer"
      * @return array Payment result with reference for verification
      */
     public function createPayment($data) {
+        return $this->request("POST", "/api/sdk/payment", $data);
+    }
+
+    /**
+     * Initiate a payment via WiniPayer (checkout redirect)
+     * Creates a checkout link - redirect the customer to checkoutUrl
+     *
+     * @param array $data Required: amount
+     *   - amount: float - Amount to charge
+     *   - description: string (optional)
+     *   - customerName: string (optional)
+     *   - customerEmail: string (optional)
+     *   - phoneNumber: string (optional)
+     *   - callbackUrl: string (optional) - Webhook for status updates
+     *   - redirectUrl: string (optional) - Return URL after payment
+     *   - metadata: array (optional)
+     * @return array Result with checkoutUrl to redirect customer
+     */
+    public function createWiniPayerPayment($data) {
+        $data["provider"] = "winipayer";
         return $this->request("POST", "/api/sdk/payment", $data);
     }
 
@@ -80,7 +105,7 @@ class SendavaPay {
     }
 
     /**
-     * Verify payment status - checks with payment provider
+     * Verify payment status - checks with payment provider (SoleasPay or WiniPayer)
      */
     public function verifyPayment($reference) {
         return $this->request("POST", "/api/sdk/verify", ["reference" => $reference]);
@@ -88,6 +113,7 @@ class SendavaPay {
 
     /**
      * Poll payment status until completed or timeout
+     * Works with both SoleasPay and WiniPayer transactions
      *
      * @param string $reference Transaction reference
      * @param int $intervalSec Polling interval in seconds (default: 3)
@@ -102,7 +128,7 @@ class SendavaPay {
             if ($onStatus) {
                 $onStatus($result);
             }
-            if (in_array($result["status"] ?? "", ["SUCCESS", "FAILED", "CANCELLED"])) {
+            if (in_array($result["status"] ?? "", ["SUCCESS", "FAILED", "CANCELLED", "EXPIRED"])) {
                 return $result;
             }
             sleep($intervalSec);

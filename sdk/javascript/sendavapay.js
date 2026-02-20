@@ -38,7 +38,8 @@ class SendavaPay {
   }
 
   /**
-   * Initiate a payment - sends USSD push directly to customer's phone
+   * Initiate a payment via SoleasPay (USSD push) - default provider
+   * Sends a USSD notification directly to customer's phone
    * @param {Object} params
    * @param {number} params.amount - Amount to charge
    * @param {string} params.phoneNumber - Customer's phone number
@@ -49,10 +50,12 @@ class SendavaPay {
    * @param {string} [params.customerEmail] - Customer email
    * @param {string} [params.description] - Payment description
    * @param {string} [params.callbackUrl] - Webhook URL for payment status updates
+   * @param {string} [params.redirectUrl] - Redirect URL after payment
    * @param {Object} [params.metadata] - Additional metadata
+   * @param {string} [params.provider] - Payment provider: "soleaspay" (default, USSD) or "winipayer" (checkout redirect)
    * @returns {Promise<Object>} Payment result with reference for verification
    */
-  async createPayment({ amount, phoneNumber, operator, country, currency, customerName, customerEmail, description, callbackUrl, redirectUrl, metadata }) {
+  async createPayment({ amount, phoneNumber, operator, country, currency, customerName, customerEmail, description, callbackUrl, redirectUrl, metadata, provider }) {
     return this.request("POST", "/api/sdk/payment", {
       amount,
       phoneNumber,
@@ -65,6 +68,35 @@ class SendavaPay {
       callbackUrl,
       redirectUrl,
       metadata,
+      provider,
+    });
+  }
+
+  /**
+   * Initiate a payment via WiniPayer (checkout redirect)
+   * Creates a checkout link - redirect the customer to checkoutUrl to complete payment
+   * @param {Object} params
+   * @param {number} params.amount - Amount to charge
+   * @param {string} [params.description] - Payment description
+   * @param {string} [params.customerName] - Customer name
+   * @param {string} [params.customerEmail] - Customer email
+   * @param {string} [params.phoneNumber] - Customer phone number
+   * @param {string} [params.callbackUrl] - Webhook URL for payment status updates
+   * @param {string} [params.redirectUrl] - Return URL after successful payment
+   * @param {Object} [params.metadata] - Additional metadata
+   * @returns {Promise<Object>} Result with checkoutUrl to redirect customer
+   */
+  async createWiniPayerPayment({ amount, description, customerName, customerEmail, phoneNumber, callbackUrl, redirectUrl, metadata }) {
+    return this.request("POST", "/api/sdk/payment", {
+      amount,
+      description,
+      customerName,
+      customerEmail,
+      phoneNumber,
+      callbackUrl,
+      redirectUrl,
+      metadata,
+      provider: "winipayer",
     });
   }
 
@@ -83,9 +115,9 @@ class SendavaPay {
   }
 
   /**
-   * Verify payment status - checks with payment provider
+   * Verify payment status - checks with payment provider (SoleasPay or WiniPayer)
    * @param {string} reference - Transaction reference from createPayment
-   * @returns {Promise<Object>} Payment status (PROCESSING, SUCCESS, FAILED)
+   * @returns {Promise<Object>} Payment status (PROCESSING, SUCCESS, FAILED, EXPIRED)
    */
   async verifyPayment(reference) {
     return this.request("POST", "/api/sdk/verify", { reference });
@@ -93,6 +125,7 @@ class SendavaPay {
 
   /**
    * Poll payment status until completed or timeout
+   * Works with both SoleasPay and WiniPayer transactions
    * @param {string} reference - Transaction reference
    * @param {number} [intervalMs=3000] - Polling interval in milliseconds
    * @param {number} [timeoutMs=120000] - Maximum wait time (default 2 minutes)
@@ -104,7 +137,7 @@ class SendavaPay {
     while (Date.now() - start < timeoutMs) {
       const result = await this.verifyPayment(reference);
       if (onStatus) onStatus(result);
-      if (result.status === "SUCCESS" || result.status === "FAILED" || result.status === "CANCELLED") {
+      if (result.status === "SUCCESS" || result.status === "FAILED" || result.status === "CANCELLED" || result.status === "EXPIRED") {
         return result;
       }
       await new Promise(resolve => setTimeout(resolve, intervalMs));
