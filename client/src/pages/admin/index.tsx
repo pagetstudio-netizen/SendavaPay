@@ -3386,7 +3386,7 @@ function CountriesContent() {
                           <div className="flex items-center gap-3">
                             <span className="font-medium">{op.name}</span>
                             <Badge variant={op.paymentGateway === "soleaspay" ? "default" : "secondary"}>
-                              {op.paymentGateway === "soleaspay" ? "SoleaPay" : op.paymentGateway === "winnipay" ? "WinniPay" : op.paymentGateway}
+                              {op.paymentGateway === "soleaspay" ? "SoleasPay" : op.paymentGateway === "winipayer" ? "WiniPayer" : op.paymentGateway}
                             </Badge>
                             {op.inMaintenance && <Badge variant="destructive">Maintenance</Badge>}
                             {!op.isActive && <Badge variant="secondary">Inactif</Badge>}
@@ -3489,11 +3489,11 @@ function CountriesContent() {
               <Select value={operatorForm.paymentGateway} onValueChange={(v) => setOperatorForm({ ...operatorForm, paymentGateway: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="soleaspay">SoleaPay</SelectItem>
-                  <SelectItem value="winnipay">WinniPay</SelectItem>
+                  <SelectItem value="soleaspay">SoleasPay</SelectItem>
+                  <SelectItem value="winipayer">WiniPayer</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">SoleaPay: Bénin, Cameroun, Côte d'Ivoire, Togo | WinniPay: Autres pays</p>
+              <p className="text-xs text-muted-foreground">SoleasPay: Paiement direct USSD | WiniPayer: Redirection vers page de paiement</p>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -3553,11 +3553,11 @@ function CountriesContent() {
               <Select value={operatorForm.paymentGateway} onValueChange={(v) => setOperatorForm({ ...operatorForm, paymentGateway: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="soleaspay">SoleaPay</SelectItem>
-                  <SelectItem value="winnipay">WinniPay</SelectItem>
+                  <SelectItem value="soleaspay">SoleasPay</SelectItem>
+                  <SelectItem value="winipayer">WiniPayer</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">SoleaPay: Bénin, Cameroun, Côte d'Ivoire, Togo | WinniPay: Autres pays</p>
+              <p className="text-xs text-muted-foreground">SoleasPay: Paiement direct USSD | WiniPayer: Redirection vers page de paiement</p>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
