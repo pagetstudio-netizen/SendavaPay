@@ -291,7 +291,7 @@ export class SoleasPayClient {
       if (cleanWallet.startsWith('+')) cleanWallet = cleanWallet.substring(1);
       console.log("📡 SoleasPay: Clean wallet:", cleanWallet);
 
-      const response = await fetch(`${SOLEASPAY_API_URL}/api/agent/bills/V3`, {
+      const response = await fetch(`${SOLEASPAY_API_URL}/api/agent/bills/v3`, {
         method: "POST",
         headers: {
           "x-api-key": this.apiKey,
