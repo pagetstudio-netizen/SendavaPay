@@ -99,6 +99,7 @@ export default function PaymentPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
   const [currentOrderId, setCurrentOrderId] = useState("");
+  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "winipayer">("soleaspay");
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
   const maxPollingAttempts = 40;
@@ -145,7 +146,7 @@ export default function PaymentPage() {
   const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
 
   const checkPaymentStatus = useCallback(async () => {
-    if (!currentOrderId || !currentPayId) return;
+    if (!currentPayId || !currentOrderId) return;
 
     try {
       const response = await fetch(`/api/verify-link-soleaspay/${currentOrderId}/${currentPayId}`);
@@ -198,10 +199,11 @@ export default function PaymentPage() {
     const saved = localStorage.getItem("soleaspay_link_payment");
     if (saved) {
       try {
-        const { orderId, payId, linkCode } = JSON.parse(saved);
-        if (orderId && payId && linkCode === params?.code) {
-          setCurrentOrderId(orderId);
+        const { orderId, payId, linkCode, provider } = JSON.parse(saved);
+        if (payId && linkCode === params?.code) {
+          setCurrentOrderId(orderId || "");
           setCurrentPayId(payId);
+          setCurrentProvider(provider || "soleaspay");
           setStep("processing");
           pollingAttemptsRef.current = 0;
         } else {
@@ -214,7 +216,7 @@ export default function PaymentPage() {
   }, [params?.code]);
 
   useEffect(() => {
-    if (step === "processing" && currentOrderId && currentPayId) {
+    if (step === "processing" && currentPayId && currentOrderId) {
       checkPaymentStatus();
       pollingRef.current = setInterval(checkPaymentStatus, 3000);
     }
@@ -226,8 +228,6 @@ export default function PaymentPage() {
       }
     };
   }, [step, currentOrderId, currentPayId, checkPaymentStatus]);
-
-  const isWiniPayer = selectedService?.paymentGateway === "winipayer";
 
   const payMutation = useMutation({
     mutationFn: async (data: { 
@@ -242,32 +242,17 @@ export default function PaymentPage() {
       return await res.json();
     },
     onSuccess: (data) => {
-      if (data.success && data.provider === "winipayer" && data.checkoutUrl) {
+      if (data.success && data.payId && data.orderId) {
+        const provider = data.provider || "soleaspay";
         localStorage.setItem("soleaspay_link_payment", JSON.stringify({
           orderId: data.orderId,
           payId: data.payId,
           linkCode: params?.code,
-          provider: "winipayer",
+          provider,
         }));
         setCurrentOrderId(data.orderId);
         setCurrentPayId(data.payId);
-        toast({
-          title: "Redirection vers WiniPayer",
-          description: "Vous allez être redirigé vers la page de paiement.",
-        });
-        window.open(data.checkoutUrl, "_blank");
-        setStep("processing");
-        pollingAttemptsRef.current = 0;
-        setVerificationMessage("Complétez le paiement sur la page WiniPayer, puis revenez ici.");
-      } else if (data.success && data.payId && data.orderId) {
-        localStorage.setItem("soleaspay_link_payment", JSON.stringify({
-          orderId: data.orderId,
-          payId: data.payId,
-          linkCode: params?.code,
-          provider: "soleaspay",
-        }));
-        setCurrentOrderId(data.orderId);
-        setCurrentPayId(data.payId);
+        setCurrentProvider(provider);
         
         if (data.isWave && data.waveUrl) {
           toast({
@@ -362,7 +347,7 @@ export default function PaymentPage() {
       });
       return;
     }
-    if (!isWiniPayer && (!phoneNumber.trim() || phoneNumber.length < 8)) {
+    if (!phoneNumber.trim() || phoneNumber.length < 8) {
       toast({
         title: "Informations manquantes",
         description: "Veuillez entrer un numéro de téléphone valide.",
@@ -375,7 +360,7 @@ export default function PaymentPage() {
       linkCode: params?.code || "",
       amount: getPaymentAmount(),
       serviceId: selectedServiceId,
-      phoneNumber: isWiniPayer ? undefined : phoneNumber.replace(/\s/g, ""),
+      phoneNumber: phoneNumber.replace(/\s/g, ""),
       payerName: `${firstName} ${lastName}`,
       payerEmail: email || undefined,
     });
@@ -795,29 +780,23 @@ export default function PaymentPage() {
                     </div>
                   )}
 
-                  {isWiniPayer ? (
-                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-sm text-blue-700 dark:text-blue-300">
-                      Vous serez redirigé vers la page de paiement WiniPayer pour compléter la transaction.
+                  <div className="space-y-2">
+                    <Label htmlFor="phone" className="text-sm text-muted-foreground">
+                      Numéro de téléphone {selectedService?.operator || "Mobile Money"}
+                    </Label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                      <Input
+                        id="phone"
+                        type="tel"
+                        placeholder="Ex: 90123456"
+                        value={phoneNumber}
+                        onChange={(e) => setPhoneNumber(e.target.value)}
+                        className="pl-10"
+                        data-testid="input-phone-number"
+                      />
                     </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <Label htmlFor="phone" className="text-sm text-muted-foreground">
-                        Numéro de téléphone {selectedService?.operator || "Mobile Money"}
-                      </Label>
-                      <div className="relative">
-                        <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                        <Input
-                          id="phone"
-                          type="tel"
-                          placeholder="Ex: 90123456"
-                          value={phoneNumber}
-                          onChange={(e) => setPhoneNumber(e.target.value)}
-                          className="pl-10"
-                          data-testid="input-phone-number"
-                        />
-                      </div>
-                    </div>
-                  )}
+                  </div>
 
                   <Button
                     onClick={handleSubmitPayment}

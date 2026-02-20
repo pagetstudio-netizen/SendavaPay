@@ -501,9 +501,15 @@ export async function registerRoutes(
       const baseUrl = "https://sendavapay.com";
 
       if (paymentGateway === "winipayer") {
-        console.log(`📤 WiniPayer: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
+        if (!phoneNumber) {
+          return res.status(400).json({ message: "Numéro de téléphone requis" });
+        }
 
-        const { winipayer } = await import("./winipayer");
+        console.log(`📤 WiniPayer: Initiation dépôt DIRECT utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
+
+        const { winipayer, getWiniPayerOperator } = await import("./winipayer");
+        const winiOperator = getWiniPayerOperator(service.countryCode, service.operator);
+
         const winiResult = await winipayer.createCheckout({
           amount: numericAmount,
           description: `Dépôt SendavaPay - ${user.fullName} via ${service.operator} (${service.country})`,
@@ -519,8 +525,11 @@ export async function registerRoutes(
           reference: {
             identifier: orderId,
             name: user.fullName,
+            phone: phoneNumber,
             email: user.email,
           },
+          operator: winiOperator || undefined,
+          operatorInput: winiOperator ? { phone: phoneNumber } : undefined,
         });
 
         if (!winiResult.success || !winiResult.results) {
@@ -529,7 +538,6 @@ export async function registerRoutes(
         }
 
         const winiUuid = winiResult.results.uuid;
-        const checkoutUrl = winiResult.results.checkout_process;
 
         await storage.createLeekpayPayment({
           leekpayPaymentId: winiUuid,
@@ -540,21 +548,22 @@ export async function registerRoutes(
           status: "pending",
           description: `Dépôt via ${service.operator} (${service.country}) - WiniPayer`,
           customerEmail: user.email,
+          payerPhone: phoneNumber,
           paymentMethod: `winipayer_${service.name}`,
-          returnUrl: `${baseUrl}/success?reference=${winiUuid}`,
-          paymentUrl: checkoutUrl,
+          returnUrl: `${baseUrl}/success?reference=${orderId}`,
+          paymentUrl: "",
         });
 
-        console.log(`📤 WiniPayer: Checkout créé uuid=${winiUuid}`);
+        const operatorMessage = winiResult.results.operator_message || "Veuillez confirmer le paiement sur votre téléphone.";
+        console.log(`📤 WiniPayer: Paiement direct initié uuid=${winiUuid}, operator=${winiOperator || "N/A"}`);
 
         return res.json({
           success: true,
           payId: winiUuid,
           orderId,
-          status: "REDIRECT",
+          status: "PENDING",
           provider: "winipayer",
-          checkoutUrl,
-          message: "Redirection vers la page de paiement WiniPayer...",
+          message: operatorMessage,
         });
       }
 
@@ -770,9 +779,15 @@ export async function registerRoutes(
       const baseUrl = "https://sendavapay.com";
 
       if (paymentGateway === "winipayer") {
-        console.log(`📤 WiniPayer: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}`);
+        if (!phoneNumber) {
+          return res.status(400).json({ message: "Numéro de téléphone requis" });
+        }
 
-        const { winipayer } = await import("./winipayer");
+        console.log(`📤 WiniPayer: Paiement lien DIRECT ${linkCode} montant=${numericAmount} ${service.currency}`);
+
+        const { winipayer, getWiniPayerOperator } = await import("./winipayer");
+        const winiOperator = getWiniPayerOperator(service.countryCode, service.operator);
+
         const winiResult = await winipayer.createCheckout({
           amount: numericAmount,
           description: `Paiement à ${vendeur.fullName} - ${link.title}`,
@@ -788,8 +803,11 @@ export async function registerRoutes(
           reference: {
             identifier: orderId,
             name: payerName,
+            phone: phoneNumber,
             email: payerEmail || "",
           },
+          operator: winiOperator || undefined,
+          operatorInput: winiOperator ? { phone: phoneNumber } : undefined,
         });
 
         if (!winiResult.success || !winiResult.results) {
@@ -798,7 +816,6 @@ export async function registerRoutes(
         }
 
         const winiUuid = winiResult.results.uuid;
-        const checkoutUrl = winiResult.results.checkout_process;
 
         await storage.createLeekpayPayment({
           leekpayPaymentId: winiUuid,
@@ -811,23 +828,23 @@ export async function registerRoutes(
           description: `Paiement ${link.title}`,
           customerEmail: payerEmail,
           payerName,
-          payerPhone: phoneNumber || "",
+          payerPhone: phoneNumber,
           payerCountry: service.countryCode,
           paymentMethod: `winipayer_${service.name}`,
-          returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}`,
-          paymentUrl: checkoutUrl,
+          returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}`,
+          paymentUrl: "",
         });
 
-        console.log(`📤 WiniPayer: Paiement lien initié uuid=${winiUuid}`);
+        const operatorMessage = winiResult.results.operator_message || "Veuillez confirmer le paiement sur votre téléphone.";
+        console.log(`📤 WiniPayer: Paiement lien direct initié uuid=${winiUuid}, operator=${winiOperator || "N/A"}`);
 
         return res.json({
           success: true,
           payId: winiUuid,
           orderId,
-          status: "REDIRECT",
+          status: "PENDING",
           provider: "winipayer",
-          checkoutUrl,
-          message: "Redirection vers la page de paiement WiniPayer...",
+          message: operatorMessage,
         });
       }
 
