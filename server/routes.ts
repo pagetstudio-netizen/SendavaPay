@@ -30,6 +30,7 @@ import {
   notifyWithdrawalRequest,
   notifyWithdrawalApproved,
   notifyWithdrawalRejected,
+  notifyWithdrawalAutoProcessed,
   notifyNewUser,
 } from "./telegram";
 
@@ -1388,6 +1389,119 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/webhook/winipayer-payout", async (req, res) => {
+    try {
+      const data = req.body;
+      console.log("📥 === WiniPayer Payout Webhook reçu ===");
+      console.log("📥 Data:", JSON.stringify(data));
+
+      const uuid = data?.uuid;
+      if (!uuid) {
+        console.error("❌ WiniPayer payout webhook: UUID manquant");
+        return res.status(200).json({ message: "OK" });
+      }
+
+      const withdrawalRequest = await storage.getWithdrawalRequestByExternalRef(uuid);
+      if (!withdrawalRequest) {
+        console.log("⚠️ WiniPayer payout webhook: Demande de retrait non trouvée uuid=" + uuid);
+        return res.status(200).json({ message: "OK" });
+      }
+
+      if (withdrawalRequest.status === "approved" || withdrawalRequest.status === "rejected" || withdrawalRequest.status === "failed") {
+        console.log("⚠️ WiniPayer payout webhook: Retrait déjà traité (status=" + withdrawalRequest.status + ")");
+        return res.status(200).json({ message: "OK" });
+      }
+
+      const state = (data.state || "").toLowerCase();
+      const isPartnerWithdrawal = withdrawalRequest.userId === 0 && withdrawalRequest.walletName?.startsWith("PARTENAIRE:");
+      const user = isPartnerWithdrawal ? null : await storage.getUser(withdrawalRequest.userId);
+      const displayName = isPartnerWithdrawal ? (withdrawalRequest.walletName?.replace("PARTENAIRE:", "").split(" - ")[0] || "Partenaire") : (user?.fullName || "Inconnu");
+
+      if (state === "success") {
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+          status: "approved",
+          processedAt: new Date(),
+        });
+
+        if (!isPartnerWithdrawal) {
+          await storage.createTransaction({
+            userId: withdrawalRequest.userId,
+            type: "withdrawal",
+            amount: withdrawalRequest.amount,
+            fee: withdrawalRequest.fee,
+            netAmount: withdrawalRequest.netAmount,
+            status: "completed",
+            description: `Retrait automatique ${withdrawalRequest.paymentMethod} - ${withdrawalRequest.mobileNumber}`,
+            mobileNumber: withdrawalRequest.mobileNumber,
+            paymentMethod: withdrawalRequest.paymentMethod,
+          });
+
+          if (user?.email) {
+            sendWithdrawalEmail(user.email, {
+              userName: user.fullName,
+              amount: parseFloat(withdrawalRequest.netAmount),
+              currency: "XOF",
+              transactionId: withdrawalRequest.id.toString(),
+              phone: withdrawalRequest.mobileNumber,
+              operator: withdrawalRequest.paymentMethod || "Mobile Money",
+            }).catch(err => console.error("Failed to send withdrawal email:", err));
+          }
+        }
+
+        notifyWithdrawalAutoProcessed({
+          userName: displayName,
+          userId: withdrawalRequest.userId,
+          amount: withdrawalRequest.amount,
+          netAmount: withdrawalRequest.netAmount,
+          paymentMethod: withdrawalRequest.paymentMethod,
+          mobileNumber: withdrawalRequest.mobileNumber,
+          payoutUuid: uuid,
+          status: "success",
+        });
+
+        console.log(`✅ WiniPayer payout webhook: Retrait confirmé ${isPartnerWithdrawal ? "partenaire" : "utilisateur"} #${withdrawalRequest.userId}`);
+      } else if (state === "failed" || state === "cancelled") {
+        if (isPartnerWithdrawal) {
+          const partnerName = withdrawalRequest.walletName?.replace("PARTENAIRE:", "").split(" - ")[0] || "";
+          const partners = await storage.getAllPartners();
+          const partner = partners.find((p: any) => p.name === partnerName.trim());
+          if (partner) {
+            await storage.updatePartnerBalance(partner.id, parseFloat(withdrawalRequest.amount).toString());
+            console.log(`💰 WiniPayer payout webhook: Solde partenaire ${partner.name} restauré +${withdrawalRequest.amount}`);
+          }
+        } else {
+          await storage.setUserBalance(
+            withdrawalRequest.userId,
+            (parseFloat(user?.balance || "0") + parseFloat(withdrawalRequest.amount)).toString()
+          );
+        }
+
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+          status: "failed",
+          rejectionReason: "Le transfert a échoué auprès du fournisseur de paiement",
+        });
+
+        notifyWithdrawalAutoProcessed({
+          userName: displayName,
+          userId: withdrawalRequest.userId,
+          amount: withdrawalRequest.amount,
+          netAmount: withdrawalRequest.netAmount,
+          paymentMethod: withdrawalRequest.paymentMethod,
+          mobileNumber: withdrawalRequest.mobileNumber,
+          payoutUuid: uuid,
+          status: "failed",
+        });
+
+        console.log(`❌ WiniPayer payout webhook: Retrait échoué ${isPartnerWithdrawal ? "partenaire" : "utilisateur"}, solde restauré`);
+      }
+
+      res.status(200).json({ message: "OK" });
+    } catch (error) {
+      console.error("WiniPayer payout webhook error:", error);
+      res.status(200).json({ message: "OK" });
+    }
+  });
+
   app.get("/api/verify-winipayer/:payId", requireAuth, async (req, res) => {
     try {
       const { payId } = req.params;
@@ -1882,7 +1996,155 @@ export async function registerRoutes(
       console.log("💸 Withdrawal request - Country:", selectedCountry.code, "Operator:", paymentMethod);
       console.log("💸 Balance debited immediately:", numericAmount, "New balance:", newBalance);
 
-      // Créer la demande de retrait avec statut "pending" pour validation admin
+      const isWiniPayerOperator = selectedOperator.paymentGateway === "winipayer";
+
+      if (isWiniPayerOperator) {
+        const { createPayout, getWiniPayerPayoutOperator } = await import("./winipayer");
+        const payoutOperator = getWiniPayerPayoutOperator(selectedOperator.name, country);
+
+        if (!payoutOperator) {
+          const newBalance2 = balance;
+          await storage.setUserBalance(req.session.userId!, newBalance2.toString());
+          return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique" });
+        }
+
+        const withdrawalRequest = await storage.createWithdrawalRequest({
+          userId: req.session.userId!,
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          paymentMethod: selectedOperator.name,
+          mobileNumber,
+          country,
+          walletName: walletName || null,
+        });
+
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
+
+        console.log("💸 WiniPayer auto-withdrawal: operator=", payoutOperator, "amount=", netAmount, "phone=", mobileNumber);
+
+        try {
+          const payoutResult = await createPayout({
+            operator: payoutOperator,
+            recipients: [{
+              name: walletName || user.fullName || "Client",
+              account: mobileNumber.replace(/\s/g, ""),
+              amount: netAmount,
+            }],
+            description: `Retrait SendavaPay #${withdrawalRequest.id}`,
+            customData: { withdrawalId: withdrawalRequest.id, userId: req.session.userId },
+            callbackUrl: "https://sendavapay.com/api/webhook/winipayer-payout",
+          });
+
+          if (payoutResult.uuid) {
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              externalReference: payoutResult.uuid,
+              transactionReference: payoutResult.crypto || null,
+            });
+
+            const payoutState = payoutResult.state?.toLowerCase();
+
+            if (payoutState === "success") {
+              await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+                status: "approved",
+                processedAt: new Date(),
+              });
+
+              await storage.createTransaction({
+                userId: req.session.userId!,
+                type: "withdrawal",
+                amount: numericAmount.toString(),
+                fee: fee.toString(),
+                netAmount: netAmount.toString(),
+                status: "completed",
+                description: `Retrait automatique ${selectedOperator.name} - ${mobileNumber}`,
+                mobileNumber,
+                paymentMethod: selectedOperator.name,
+              });
+
+              if (user?.email) {
+                sendWithdrawalEmail(user.email, {
+                  userName: user.fullName,
+                  amount: netAmount,
+                  currency: "XOF",
+                  transactionId: withdrawalRequest.id.toString(),
+                  phone: mobileNumber,
+                  operator: selectedOperator.name,
+                }).catch(err => console.error("Failed to send withdrawal email:", err));
+              }
+
+              notifyWithdrawalAutoProcessed({
+                userName: user.fullName,
+                userId: req.session.userId!,
+                amount: numericAmount.toString(),
+                netAmount: netAmount.toString(),
+                paymentMethod: selectedOperator.name,
+                mobileNumber,
+                payoutUuid: payoutResult.uuid,
+                status: "success",
+              });
+
+              return res.json({
+                message: "Retrait effectué avec succès! L'argent a été envoyé sur votre compte mobile.",
+                request: { ...withdrawalRequest, status: "approved" },
+                autoProcessed: true,
+              });
+            } else {
+              notifyWithdrawalAutoProcessed({
+                userName: user.fullName,
+                userId: req.session.userId!,
+                amount: numericAmount.toString(),
+                netAmount: netAmount.toString(),
+                paymentMethod: selectedOperator.name,
+                mobileNumber,
+                payoutUuid: payoutResult.uuid,
+                status: "processing",
+              });
+
+              return res.json({
+                message: "Votre retrait est en cours de traitement. Vous recevrez l'argent dans quelques instants.",
+                request: { ...withdrawalRequest, status: "processing" },
+                autoProcessed: true,
+                payoutUuid: payoutResult.uuid,
+              });
+            }
+          } else {
+            console.error("❌ WiniPayer payout failed:", payoutResult.errors);
+            await storage.setUserBalance(req.session.userId!, balance.toString());
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              status: "failed",
+              rejectionReason: payoutResult.errors?.msg || "Échec du transfert automatique",
+            });
+
+            notifyWithdrawalAutoProcessed({
+              userName: user.fullName,
+              userId: req.session.userId!,
+              amount: numericAmount.toString(),
+              netAmount: netAmount.toString(),
+              paymentMethod: selectedOperator.name,
+              mobileNumber,
+              payoutUuid: "N/A",
+              status: "failed",
+            });
+
+            return res.status(500).json({
+              message: "Le retrait automatique a échoué. Votre solde a été restauré. Veuillez réessayer.",
+            });
+          }
+        } catch (payoutError) {
+          console.error("❌ WiniPayer payout exception:", payoutError);
+          await storage.setUserBalance(req.session.userId!, balance.toString());
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+            status: "failed",
+            rejectionReason: "Erreur technique lors du transfert automatique",
+          });
+
+          return res.status(500).json({
+            message: "Erreur technique lors du retrait. Votre solde a été restauré.",
+          });
+        }
+      }
+
       const withdrawalRequest = await storage.createWithdrawalRequest({
         userId: req.session.userId!,
         amount: numericAmount.toString(),
@@ -1952,68 +2214,131 @@ export async function registerRoutes(
         });
       }
 
-      // Si en cours de traitement et qu'on a une référence externe, vérifier le statut
       if (withdrawalRequest.status === "processing" && withdrawalRequest.externalReference) {
         console.log("🔍 Vérification du statut de retrait:", withdrawalRequest.externalReference);
+
+        const isWiniPayerPayout = withdrawalRequest.transactionReference?.startsWith("payout_") || false;
         
-        const transactionDetails = await soleaspay.getTransactionDetails(withdrawalRequest.externalReference);
-        
-        if (transactionDetails) {
-          console.log("📊 Statut SoleasPay:", transactionDetails.status);
-          
-          if (transactionDetails.status === "SUCCESS") {
-            // Débiter le solde maintenant
-            const user = await storage.getUser(withdrawalRequest.userId);
-            if (user) {
-              const balance = parseFloat(user.balance);
-              const amount = parseFloat(withdrawalRequest.amount);
-              const newBalance = balance - amount;
-              await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
+        if (isWiniPayerPayout) {
+          const { verifyPayout } = await import("./winipayer");
+          const payoutResult = await verifyPayout(withdrawalRequest.externalReference);
+
+          if (payoutResult.state) {
+            const payoutState = payoutResult.state.toLowerCase();
+
+            if (payoutState === "success") {
+              await storage.updateWithdrawalRequest(requestId, {
+                status: "approved",
+                processedAt: new Date(),
+              });
+
+              await storage.createTransaction({
+                userId: withdrawalRequest.userId,
+                type: "withdrawal",
+                amount: withdrawalRequest.amount,
+                fee: withdrawalRequest.fee,
+                netAmount: withdrawalRequest.netAmount,
+                status: "completed",
+                description: `Retrait automatique ${withdrawalRequest.paymentMethod} - ${withdrawalRequest.mobileNumber}`,
+                externalRef: withdrawalRequest.externalReference,
+              });
+
+              const user = await storage.getUser(withdrawalRequest.userId);
+              if (user?.email) {
+                sendWithdrawalEmail(user.email, {
+                  userName: user.fullName,
+                  amount: parseFloat(withdrawalRequest.netAmount),
+                  currency: "XOF",
+                  transactionId: withdrawalRequest.id.toString(),
+                  phone: withdrawalRequest.mobileNumber,
+                  operator: withdrawalRequest.paymentMethod || "Mobile Money",
+                }).catch(err => console.error("Failed to send withdrawal email:", err));
+              }
+
+              return res.json({
+                status: "approved",
+                message: "Retrait effectué avec succès!",
+                request: { ...withdrawalRequest, status: "approved" },
+              });
+            } else if (payoutState === "failed" || payoutState === "cancelled") {
+              await storage.setUserBalance(
+                withdrawalRequest.userId,
+                (parseFloat((await storage.getUser(withdrawalRequest.userId))?.balance || "0") + parseFloat(withdrawalRequest.amount)).toString()
+              );
+
+              await storage.updateWithdrawalRequest(requestId, {
+                status: "failed",
+                rejectionReason: "Le transfert automatique a échoué",
+              });
+
+              return res.json({
+                status: "failed",
+                message: "Le retrait a échoué. Votre solde a été restauré.",
+                request: { ...withdrawalRequest, status: "failed" },
+              });
             }
-            
-            // Mettre à jour le statut
-            await storage.updateWithdrawalRequest(requestId, {
-              status: "approved",
-              processedAt: new Date(),
-            });
-
-            // Créer la transaction
-            await storage.createTransaction({
-              userId: withdrawalRequest.userId,
-              type: "withdrawal",
-              amount: withdrawalRequest.amount,
-              fee: withdrawalRequest.fee,
-              netAmount: withdrawalRequest.netAmount,
-              status: "completed",
-              description: `Retrait ${withdrawalRequest.paymentMethod} - ${withdrawalRequest.mobileNumber}`,
-              externalRef: withdrawalRequest.externalReference,
-            });
 
             return res.json({
-              status: "approved",
-              message: "Retrait effectué avec succès!",
-              request: { ...withdrawalRequest, status: "approved" },
-            });
-          } else if (transactionDetails.status === "FAILED" || transactionDetails.status === "REJECTED") {
-            // Marquer comme échec sans débiter
-            await storage.updateWithdrawalRequest(requestId, {
-              status: "failed",
-              rejectionReason: "Le retrait a échoué auprès du service de paiement",
-            });
-
-            return res.json({
-              status: "failed",
-              message: "Le retrait a échoué. Votre solde n'a pas été débité.",
-              request: { ...withdrawalRequest, status: "failed" },
+              status: "processing",
+              message: "Retrait en cours de traitement...",
+              request: withdrawalRequest,
             });
           }
+        } else {
+          const transactionDetails = await soleaspay.getTransactionDetails(withdrawalRequest.externalReference);
           
-          // Toujours en cours
-          return res.json({
-            status: "processing",
-            message: "Retrait en cours de traitement...",
-            request: withdrawalRequest,
-          });
+          if (transactionDetails) {
+            console.log("📊 Statut SoleasPay:", transactionDetails.status);
+            
+            if (transactionDetails.status === "SUCCESS") {
+              const user = await storage.getUser(withdrawalRequest.userId);
+              if (user) {
+                const balance = parseFloat(user.balance);
+                const amount = parseFloat(withdrawalRequest.amount);
+                const newBalance = balance - amount;
+                await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
+              }
+              
+              await storage.updateWithdrawalRequest(requestId, {
+                status: "approved",
+                processedAt: new Date(),
+              });
+
+              await storage.createTransaction({
+                userId: withdrawalRequest.userId,
+                type: "withdrawal",
+                amount: withdrawalRequest.amount,
+                fee: withdrawalRequest.fee,
+                netAmount: withdrawalRequest.netAmount,
+                status: "completed",
+                description: `Retrait ${withdrawalRequest.paymentMethod} - ${withdrawalRequest.mobileNumber}`,
+                externalRef: withdrawalRequest.externalReference,
+              });
+
+              return res.json({
+                status: "approved",
+                message: "Retrait effectué avec succès!",
+                request: { ...withdrawalRequest, status: "approved" },
+              });
+            } else if (transactionDetails.status === "FAILED" || transactionDetails.status === "REJECTED") {
+              await storage.updateWithdrawalRequest(requestId, {
+                status: "failed",
+                rejectionReason: "Le retrait a échoué auprès du service de paiement",
+              });
+
+              return res.json({
+                status: "failed",
+                message: "Le retrait a échoué. Votre solde n'a pas été débité.",
+                request: { ...withdrawalRequest, status: "failed" },
+              });
+            }
+            
+            return res.json({
+              status: "processing",
+              message: "Retrait en cours de traitement...",
+              request: withdrawalRequest,
+            });
+          }
         }
       }
 

@@ -159,6 +159,33 @@ export function notifyWithdrawalApproved(data: {
   );
 }
 
+export function notifyWithdrawalAutoProcessed(data: {
+  userName: string;
+  userId: number;
+  amount: string;
+  netAmount: string;
+  paymentMethod: string;
+  mobileNumber: string;
+  payoutUuid: string;
+  status: string;
+}) {
+  const statusLabel = data.status === "success" ? "REUSSI" : data.status === "failed" ? "ECHOUE" : "EN COURS";
+  const emoji = data.status === "success" ? "✅" : data.status === "failed" ? "❌" : "⏳";
+  const msg =
+    `<b>${emoji} RETRAIT AUTOMATIQUE ${statusLabel}</b>\n\n` +
+    `<b>Utilisateur:</b> ${data.userName} (#${data.userId})\n` +
+    `<b>Montant:</b> ${formatAmount(data.amount)} XOF\n` +
+    `<b>Net envoye:</b> ${formatAmount(data.netAmount)} XOF\n` +
+    `<b>Operateur:</b> ${data.paymentMethod}\n` +
+    `<b>Numero:</b> ${data.mobileNumber}\n` +
+    `<b>Ref Payout:</b> ${data.payoutUuid}\n` +
+    `<b>Date:</b> ${formatDate()}`;
+
+  sendTelegramMessage(msg).catch((err) =>
+    console.error("[Telegram] Auto withdrawal notification error:", err)
+  );
+}
+
 export function notifyWithdrawalRejected(data: {
   userName: string;
   userId: number;

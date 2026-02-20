@@ -1547,6 +1547,86 @@ export function registerPartnerRoutes(app: Express) {
         ipAddress: req.ip || req.socket.remoteAddress,
       });
 
+      const isWiniPayerOperator = selectedOperator.paymentGateway === "winipayer";
+
+      if (isWiniPayerOperator) {
+        const { createPayout, getWiniPayerPayoutOperator } = await import("./winipayer");
+        const payoutOperator = getWiniPayerPayoutOperator(selectedOperator.name, country);
+
+        if (!payoutOperator) {
+          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+          return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique" });
+        }
+
+        const withdrawalRequest = await storage.createWithdrawalRequest({
+          userId: 0,
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          paymentMethod: selectedOperator.name,
+          mobileNumber,
+          country,
+          walletName: `PARTENAIRE:${partner.name}` + (walletName ? ` - ${walletName}` : ""),
+        });
+
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
+
+        try {
+          const payoutResult = await createPayout({
+            operator: payoutOperator,
+            recipients: [{
+              name: walletName || partner.name || "Partenaire",
+              account: mobileNumber.replace(/\s/g, ""),
+              amount: netAmount,
+            }],
+            description: `Retrait Partenaire SendavaPay #${withdrawalRequest.id}`,
+            customData: { withdrawalId: withdrawalRequest.id, partnerId: req.session.partnerId },
+            callbackUrl: "https://sendavapay.com/api/webhook/winipayer-payout",
+          });
+
+          if (payoutResult.uuid) {
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              externalReference: payoutResult.uuid,
+              transactionReference: payoutResult.crypto || null,
+            });
+
+            const payoutState = payoutResult.state?.toLowerCase();
+            if (payoutState === "success") {
+              await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+                status: "approved",
+                processedAt: new Date(),
+              });
+              return res.json({
+                message: "Retrait effectué avec succès!",
+                request: { ...withdrawalRequest, status: "approved" },
+                autoProcessed: true,
+              });
+            } else {
+              return res.json({
+                message: "Votre retrait est en cours de traitement automatique.",
+                request: { ...withdrawalRequest, status: "processing" },
+                autoProcessed: true,
+              });
+            }
+          } else {
+            await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              status: "failed",
+              rejectionReason: payoutResult.errors?.msg || "Échec du transfert automatique",
+            });
+            return res.status(500).json({ message: "Le retrait automatique a échoué. Votre solde a été restauré." });
+          }
+        } catch (payoutError) {
+          console.error("Partner WiniPayer payout error:", payoutError);
+          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+            status: "failed",
+            rejectionReason: "Erreur technique",
+          });
+          return res.status(500).json({ message: "Erreur technique lors du retrait. Votre solde a été restauré." });
+        }
+      }
+
       const withdrawalRequest = await storage.createWithdrawalRequest({
         userId: 0,
         amount: numericAmount.toString(),
