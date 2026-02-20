@@ -651,7 +651,6 @@ export function registerPartnerRoutes(app: Express) {
 
       const { amount, currency, customerName, customerEmail, customerPhone, phoneNumber, operator, country, description, callbackUrl, redirectUrl, metadata, provider } = req.body;
       const phone = phoneNumber || customerPhone;
-      const paymentProvider = (provider || "soleaspay").toLowerCase();
 
       if (!amount || parseFloat(amount) <= 0) {
         return res.status(400).json({ success: false, status: "ERROR", message: "Montant invalide" });
@@ -660,6 +659,29 @@ export function registerPartnerRoutes(app: Express) {
       const numericAmount = parseFloat(amount);
       const reference = "PTR_" + uuidv4().replace(/-/g, "").substring(0, 16).toUpperCase();
       const fee = (numericAmount * parseFloat(partner.commissionRate) / 100).toFixed(2);
+
+      let paymentProvider = (provider || "").toLowerCase();
+      if (!paymentProvider && operator && country) {
+        const { SOLEASPAY_SERVICES } = await import("./soleaspay");
+        const countryUp = country.toUpperCase();
+        const opLower = operator.toLowerCase();
+        const svc = SOLEASPAY_SERVICES.find(s =>
+          s.countryCode === countryUp &&
+          (s.operator.toLowerCase() === opLower || s.name.toLowerCase().includes(opLower))
+        );
+        if (svc) {
+          const operators = await storage.getOperators();
+          const dbOp = operators.find(op => op.code === svc.id.toString());
+          if (dbOp?.paymentGateway === "winipayer") {
+            paymentProvider = "winipayer";
+          } else {
+            paymentProvider = "soleaspay";
+          }
+        } else {
+          paymentProvider = "soleaspay";
+        }
+      }
+      if (!paymentProvider) paymentProvider = "soleaspay";
 
       if (paymentProvider === "winipayer") {
         const { winipayer } = await import("./winipayer");

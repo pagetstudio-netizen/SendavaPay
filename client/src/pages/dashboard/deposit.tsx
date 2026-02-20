@@ -42,6 +42,7 @@ interface SoleasPayService {
   currency: string;
   operator: string;
   inMaintenance?: boolean;
+  paymentGateway?: string;
 }
 
 const operatorLogos: Record<string, string> = {
@@ -67,6 +68,7 @@ export default function DepositPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
   const [currentOrderId, setCurrentOrderId] = useState("");
+  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "winipayer">("soleaspay");
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
   const maxPollingAttempts = 40;
@@ -115,10 +117,13 @@ export default function DepositPage() {
   const netAmount = numericAmount - fee;
 
   const checkPaymentStatus = useCallback(async () => {
-    if (!currentOrderId || !currentPayId) return;
+    if (!currentPayId) return;
 
     try {
-      const response = await fetch(`/api/verify-soleaspay/${currentOrderId}/${currentPayId}`, {
+      const verifyUrl = currentProvider === "winipayer" 
+        ? `/api/verify-winipayer/${currentPayId}`
+        : `/api/verify-soleaspay/${currentOrderId}/${currentPayId}`;
+      const response = await fetch(verifyUrl, {
         credentials: "include",
       });
       const data = await response.json();
@@ -167,16 +172,17 @@ export default function DepositPage() {
         }
       }
     }
-  }, [currentOrderId, currentPayId]);
+  }, [currentOrderId, currentPayId, currentProvider]);
 
   useEffect(() => {
     const saved = localStorage.getItem("soleaspay_payment");
     if (saved) {
       try {
-        const { orderId, payId } = JSON.parse(saved);
-        if (orderId && payId) {
-          setCurrentOrderId(orderId);
+        const { orderId, payId, provider } = JSON.parse(saved);
+        if (payId) {
+          setCurrentOrderId(orderId || "");
           setCurrentPayId(payId);
+          setCurrentProvider(provider || "soleaspay");
           setPaymentStatus("processing");
           pollingAttemptsRef.current = 0;
         }
@@ -187,7 +193,7 @@ export default function DepositPage() {
   }, []);
 
   useEffect(() => {
-    if (paymentStatus === "processing" && currentOrderId && currentPayId) {
+    if (paymentStatus === "processing" && currentPayId && (currentOrderId || currentProvider === "winipayer")) {
       checkPaymentStatus();
       pollingRef.current = setInterval(checkPaymentStatus, 3000);
     }
@@ -201,26 +207,43 @@ export default function DepositPage() {
   }, [paymentStatus, currentOrderId, currentPayId, checkPaymentStatus]);
 
   const depositMutation = useMutation({
-    mutationFn: async (data: { amount: number; serviceId: string; phoneNumber: string }) => {
+    mutationFn: async (data: { amount: number; serviceId: string; phoneNumber?: string }) => {
       const response = await apiRequest("POST", "/api/deposit-soleaspay", data);
       return response.json();
     },
     onSuccess: (data) => {
-      if (data.success && data.payId && data.orderId) {
+      if (data.success && data.provider === "winipayer" && data.checkoutUrl) {
         localStorage.setItem("soleaspay_payment", JSON.stringify({
           orderId: data.orderId,
           payId: data.payId,
+          provider: "winipayer",
         }));
         setCurrentOrderId(data.orderId);
         setCurrentPayId(data.payId);
+        setCurrentProvider("winipayer");
+        toast({
+          title: "Redirection vers WiniPayer",
+          description: "Vous allez être redirigé vers la page de paiement.",
+        });
+        window.open(data.checkoutUrl, "_blank");
+        setPaymentStatus("processing");
+        pollingAttemptsRef.current = 0;
+        setVerificationMessage("Complétez le paiement sur la page WiniPayer, puis revenez ici.");
+      } else if (data.success && data.payId && data.orderId) {
+        localStorage.setItem("soleaspay_payment", JSON.stringify({
+          orderId: data.orderId,
+          payId: data.payId,
+          provider: "soleaspay",
+        }));
+        setCurrentOrderId(data.orderId);
+        setCurrentPayId(data.payId);
+        setCurrentProvider("soleaspay");
         
-        // Check if Wave payment with redirect URL
         if (data.isWave && data.waveUrl) {
           toast({
             title: "Redirection vers Wave",
             description: "Vous allez être redirigé vers l'application Wave pour confirmer le paiement.",
           });
-          // Open Wave URL in new tab or redirect
           window.open(data.waveUrl, "_blank");
           setPaymentStatus("processing");
           pollingAttemptsRef.current = 0;
@@ -251,6 +274,8 @@ export default function DepositPage() {
     },
   });
 
+  const isWiniPayer = selectedService?.paymentGateway === "winipayer";
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (numericAmount < 100) {
@@ -261,7 +286,7 @@ export default function DepositPage() {
       });
       return;
     }
-    if (!phoneNumber || phoneNumber.length < 8) {
+    if (!isWiniPayer && (!phoneNumber || phoneNumber.length < 8)) {
       toast({
         title: "Numéro invalide",
         description: "Veuillez entrer un numéro de téléphone valide.",
@@ -272,7 +297,7 @@ export default function DepositPage() {
     depositMutation.mutate({
       amount: numericAmount,
       serviceId: selectedServiceId,
-      phoneNumber: phoneNumber.replace(/\s/g, ""),
+      ...(isWiniPayer ? {} : { phoneNumber: phoneNumber.replace(/\s/g, "") }),
     });
   };
 
@@ -461,24 +486,32 @@ export default function DepositPage() {
                 </div>
               )}
 
-              <div className="space-y-2">
-                <Label htmlFor="phone">Numéro de téléphone Mobile Money</Label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                  <Input
-                    id="phone"
-                    type="tel"
-                    placeholder="Ex: 90123456"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    className="pl-10 h-12"
-                    data-testid="input-phone-number"
-                  />
+              {isWiniPayer ? (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 p-4">
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    Vous serez redirigé vers la page de paiement WiniPayer pour compléter votre dépôt. Aucun numéro de téléphone n'est requis.
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Entrez le numéro associé à votre compte {selectedService?.operator || "Mobile Money"}
-                </p>
-              </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Numéro de téléphone Mobile Money</Label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                    <Input
+                      id="phone"
+                      type="tel"
+                      placeholder="Ex: 90123456"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      className="pl-10 h-12"
+                      data-testid="input-phone-number"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Entrez le numéro associé à votre compte {selectedService?.operator || "Mobile Money"}
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-4">
                 <Label htmlFor="amount">Montant ({currency})</Label>
@@ -533,7 +566,7 @@ export default function DepositPage() {
               <Button
                 type="submit"
                 className="w-full h-12 text-lg font-bold shadow-lg shadow-primary/20"
-                disabled={numericAmount < 100 || !phoneNumber || depositMutation.isPending}
+                disabled={numericAmount < 100 || (!isWiniPayer && !phoneNumber) || depositMutation.isPending}
                 data-testid="button-deposit-submit"
               >
                 {depositMutation.isPending ? (
