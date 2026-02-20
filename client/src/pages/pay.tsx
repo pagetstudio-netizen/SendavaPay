@@ -144,6 +144,7 @@ export default function PaymentPage() {
 
   const selectedService = services.find(s => s.id.toString() === selectedServiceId);
   const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
+  const isWiniPayer = selectedService?.paymentGateway === "winipayer";
 
   const checkPaymentStatus = useCallback(async () => {
     if (!currentPayId || !currentOrderId) return;
@@ -254,7 +255,16 @@ export default function PaymentPage() {
         setCurrentPayId(data.payId);
         setCurrentProvider(provider);
         
-        if (data.isWave && data.waveUrl) {
+        if (provider === "winipayer" && data.checkoutUrl) {
+          toast({
+            title: "Redirection vers WiniPayer",
+            description: "Vous allez être redirigé vers la page de paiement WiniPayer.",
+          });
+          window.open(data.checkoutUrl, "_blank");
+          setStep("processing");
+          pollingAttemptsRef.current = 0;
+          setVerificationMessage("Complétez le paiement sur la page WiniPayer, puis revenez ici.");
+        } else if (data.isWave && data.waveUrl) {
           toast({
             title: "Redirection vers Wave",
             description: "Vous allez être redirigé vers l'application Wave pour confirmer le paiement.",
@@ -347,7 +357,7 @@ export default function PaymentPage() {
       });
       return;
     }
-    if (!phoneNumber.trim() || phoneNumber.length < 8) {
+    if (!isWiniPayer && (!phoneNumber.trim() || phoneNumber.length < 8)) {
       toast({
         title: "Informations manquantes",
         description: "Veuillez entrer un numéro de téléphone valide.",
@@ -360,7 +370,7 @@ export default function PaymentPage() {
       linkCode: params?.code || "",
       amount: getPaymentAmount(),
       serviceId: selectedServiceId,
-      phoneNumber: phoneNumber.replace(/\s/g, ""),
+      phoneNumber: isWiniPayer ? undefined : phoneNumber.replace(/\s/g, ""),
       payerName: `${firstName} ${lastName}`,
       payerEmail: email || undefined,
     });
@@ -780,23 +790,29 @@ export default function PaymentPage() {
                     </div>
                   )}
 
-                  <div className="space-y-2">
-                    <Label htmlFor="phone" className="text-sm text-muted-foreground">
-                      Numéro de téléphone {selectedService?.operator || "Mobile Money"}
-                    </Label>
-                    <div className="relative">
-                      <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                      <Input
-                        id="phone"
-                        type="tel"
-                        placeholder="Ex: 90123456"
-                        value={phoneNumber}
-                        onChange={(e) => setPhoneNumber(e.target.value)}
-                        className="pl-10"
-                        data-testid="input-phone-number"
-                      />
+                  {isWiniPayer ? (
+                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-sm text-blue-700 dark:text-blue-300">
+                      Vous serez redirigé vers la page de paiement WiniPayer pour compléter la transaction.
                     </div>
-                  </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label htmlFor="phone" className="text-sm text-muted-foreground">
+                        Numéro de téléphone {selectedService?.operator || "Mobile Money"}
+                      </Label>
+                      <div className="relative">
+                        <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                        <Input
+                          id="phone"
+                          type="tel"
+                          placeholder="Ex: 90123456"
+                          value={phoneNumber}
+                          onChange={(e) => setPhoneNumber(e.target.value)}
+                          className="pl-10"
+                          data-testid="input-phone-number"
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   <Button
                     onClick={handleSubmitPayment}
