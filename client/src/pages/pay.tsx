@@ -257,13 +257,13 @@ export default function PaymentPage() {
         
         if (provider === "winipayer" && data.checkoutUrl) {
           toast({
-            title: "Redirection vers WiniPayer",
-            description: "Vous allez être redirigé vers la page de paiement WiniPayer.",
+            title: "Redirection en cours",
+            description: "Vous allez être redirigé vers la page de paiement.",
           });
           window.open(data.checkoutUrl, "_blank");
           setStep("processing");
           pollingAttemptsRef.current = 0;
-          setVerificationMessage("Complétez le paiement sur la page WiniPayer, puis revenez ici.");
+          setVerificationMessage("Complétez le paiement sur la page de paiement, puis revenez ici.");
         } else if (data.isWave && data.waveUrl) {
           toast({
             title: "Redirection vers Wave",
@@ -792,7 +792,7 @@ export default function PaymentPage() {
 
                   {isWiniPayer ? (
                     <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-sm text-blue-700 dark:text-blue-300">
-                      Vous serez redirigé vers la page de paiement WiniPayer pour compléter la transaction.
+                      Vous serez redirigé vers la page de paiement pour compléter la transaction.
                     </div>
                   ) : (
                     <div className="space-y-2">
