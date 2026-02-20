@@ -13,6 +13,12 @@ async function initializePartnerTables() {
   if (!pool) return;
   const client = await pool.connect();
   try {
+    try {
+      await client.query(`ALTER TYPE withdrawal_request_status ADD VALUE IF NOT EXISTS 'processing';`);
+    } catch (e) { /* already exists */ }
+    try {
+      await client.query(`ALTER TYPE withdrawal_request_status ADD VALUE IF NOT EXISTS 'failed';`);
+    } catch (e) { /* already exists */ }
     await client.query(`
       DO $$ BEGIN
         CREATE TYPE partner_status AS ENUM ('active', 'inactive', 'suspended');
