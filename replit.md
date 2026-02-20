@@ -100,13 +100,22 @@ shared/           # Shared code between client/server
 ## External Dependencies
 
 ### Payment Providers
-- **SoleasPay** - Primary payment gateway for deposits and payment links (replaced LeekPay)
-  - API Endpoint: https://soleaspay.com/api/agent/bills/V3
+- **SoleasPay** - Primary payment gateway for deposits and payment links (USSD direct flow)
+  - API Endpoint: https://soleaspay.com/api/agent/bills/v3 (lowercase v3!)
   - Verification: https://soleaspay.com/api/agent/verif-pay
   - Webhook URL: https://sendavapay.com/api/webhook/soleaspay
   - Supported currencies: XOF, XAF, CDF
   - Flow: Direct API call with wallet number → User confirms on phone → Polling verification every 3 seconds
   - Service IDs by country/operator defined in server/soleaspay.ts
+- **WiniPayer** - Secondary payment gateway (checkout redirect flow)
+  - Create Checkout: POST https://api-v2.winipayer.com/checkout/standard/create
+  - Verify: POST https://api-v2.winipayer.com/checkout/standard/detail/:uuid
+  - Webhook URL: https://sendavapay.com/api/webhook/winipayer
+  - Auth Headers: X-Merchant-Apply, X-Merchant-Token
+  - Hash validation: SHA256(private_key + uuid + crypto + amount + created_at)
+  - Flow: Create checkout → Redirect customer to checkout_process URL → Callback/webhook on completion
+  - Client module: server/winipayer.ts
+  - SDK param: `provider: "winipayer"` in /api/sdk/payment
 - **Supported Countries/Operators**:
   - Bénin (BJ): MTN (35), Moov (36)
   - Burkina Faso (BF): Moov (33), Orange (34)
@@ -143,6 +152,10 @@ The following secrets must be configured in deployment environment:
 - **SOLEASPAY_API_KEY** - SoleasPay payment gateway API key
 - **TELEGRAM_BOT_TOKEN** - Telegram bot token for admin notifications
 - **TELEGRAM_CHAT_ID** - Telegram chat ID to receive notifications
+- **WINIPAYER_MERCHANT_APPLY** - WiniPayer X-Merchant-Apply token
+- **WINIPAYER_MERCHANT_TOKEN** - WiniPayer X-Merchant-Token
+- **WINIPAYER_PRIVATE_KEY** - WiniPayer private key for hash validation
+- **WINIPAYER_ENV** - WiniPayer environment: "test" or "prod" (default: "prod")
 
 ### Server Configuration
 - The server includes connection retry logic (3 attempts with exponential backoff)

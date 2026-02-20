@@ -649,12 +649,115 @@ export function registerPartnerRoutes(app: Express) {
         return res.status(403).json({ success: false, status: "ERROR", message: "La fonction de paiement/encaissement est désactivée pour ce partenaire" });
       }
 
-      const { amount, currency, customerName, customerEmail, customerPhone, phoneNumber, operator, country, description, callbackUrl, redirectUrl, metadata } = req.body;
+      const { amount, currency, customerName, customerEmail, customerPhone, phoneNumber, operator, country, description, callbackUrl, redirectUrl, metadata, provider } = req.body;
       const phone = phoneNumber || customerPhone;
+      const paymentProvider = (provider || "soleaspay").toLowerCase();
 
       if (!amount || parseFloat(amount) <= 0) {
         return res.status(400).json({ success: false, status: "ERROR", message: "Montant invalide" });
       }
+
+      const numericAmount = parseFloat(amount);
+      const reference = "PTR_" + uuidv4().replace(/-/g, "").substring(0, 16).toUpperCase();
+      const fee = (numericAmount * parseFloat(partner.commissionRate) / 100).toFixed(2);
+
+      if (paymentProvider === "winipayer") {
+        const { winipayer } = await import("./winipayer");
+
+        const baseUrl = process.env.BASE_URL || "https://sendavapay.com";
+        const finalCallbackUrl = callbackUrl || partner.callbackUrl || `${baseUrl}/api/webhook/winipayer`;
+        const finalReturnUrl = redirectUrl || `${baseUrl}/pay/partner/${reference}/success`;
+        const cancelUrl = `${baseUrl}/pay/partner/${reference}/cancel`;
+
+        const transaction = await storage.createPartnerTransaction({
+          partnerId: partner.id,
+          reference,
+          amount: numericAmount.toString(),
+          fee,
+          currency: currency || "XOF",
+          customerName: customerName || null,
+          customerEmail: customerEmail || null,
+          customerPhone: phone || null,
+          description: description || null,
+          callbackUrl: finalCallbackUrl,
+          redirectUrl: finalReturnUrl,
+          metadata: JSON.stringify({ ...(metadata || {}), provider: "winipayer", country: country || null, operator: operator || null }),
+        });
+
+        const winiResult = await winipayer.createCheckout({
+          amount: numericAmount,
+          description: description || `Paiement ${partner.name} - ${reference}`,
+          cancelUrl,
+          returnUrl: finalReturnUrl,
+          callbackUrl: `${baseUrl}/api/webhook/winipayer`,
+          customData: { reference, partnerId: partner.id, ...(metadata || {}) },
+          clientPayFee: false,
+          reference: customerEmail || customerName ? {
+            name: customerName || undefined,
+            phone: phone || undefined,
+            email: customerEmail || undefined,
+          } : undefined,
+        });
+
+        console.log(`SDK Payment WiniPayer result for ${reference}:`, JSON.stringify(winiResult));
+
+        if (winiResult.success && winiResult.results) {
+          const { db } = await import("./db");
+          const { sql } = await import("drizzle-orm");
+          await db.execute(sql`UPDATE partner_transactions SET status = 'processing', metadata = ${JSON.stringify({
+            ...(metadata || {}),
+            provider: "winipayer",
+            winiUuid: winiResult.results.uuid,
+            winiCrypto: winiResult.results.crypto,
+            checkoutUrl: winiResult.results.checkout_process,
+            expiredAt: winiResult.results.expired_at,
+            country: country || null,
+            operator: operator || null,
+          })} WHERE reference = ${reference}`);
+
+          await storage.createPartnerLog({
+            partnerId: partner.id,
+            action: "api_call",
+            details: `SDK Paiement WiniPayer créé: ${reference} - ${numericAmount} ${currency || "XOF"} - Checkout: ${winiResult.results.checkout_process}`,
+            ipAddress: req.ip || req.socket.remoteAddress,
+          });
+
+          return res.json({
+            success: true,
+            status: "PROCESSING",
+            txid: reference,
+            reference,
+            provider: "winipayer",
+            checkoutUrl: winiResult.results.checkout_process,
+            uuid: winiResult.results.uuid,
+            amount: numericAmount.toString(),
+            fee,
+            currency: winiResult.results.currency || currency || "XOF",
+            expiredAt: winiResult.results.expired_at,
+            message: "Lien de paiement créé. Redirigez le client vers checkoutUrl pour finaliser le paiement.",
+          });
+        } else {
+          const { db } = await import("./db");
+          const { sql } = await import("drizzle-orm");
+          await db.execute(sql`UPDATE partner_transactions SET status = 'failed', metadata = ${JSON.stringify({ provider: "winipayer", error: winiResult.errors?.msg || "Erreur WiniPayer" })} WHERE reference = ${reference}`);
+
+          await storage.createPartnerLog({
+            partnerId: partner.id,
+            action: "api_call",
+            details: `SDK Paiement WiniPayer échoué: ${reference} - ${winiResult.errors?.msg || "Erreur WiniPayer"}`,
+            ipAddress: req.ip || req.socket.remoteAddress,
+          });
+
+          return res.status(400).json({
+            success: false,
+            status: "FAILED",
+            reference,
+            provider: "winipayer",
+            message: winiResult.errors?.msg || "Échec de la création du checkout WiniPayer.",
+          });
+        }
+      }
+
       if (!phone) {
         return res.status(400).json({ success: false, status: "ERROR", message: "Numéro de téléphone requis (phoneNumber)" });
       }
@@ -698,10 +801,7 @@ export function registerPartnerRoutes(app: Express) {
         return res.status(400).json({ success: false, status: "ERROR", message: `Opérateur '${operator}' non disponible pour le pays '${country}'` });
       }
 
-      const numericAmount = parseFloat(amount);
       const txCurrency = currency || getCurrencyByCountry(countryUpper);
-      const reference = "PTR_" + uuidv4().replace(/-/g, "").substring(0, 16).toUpperCase();
-      const fee = (numericAmount * parseFloat(partner.commissionRate) / 100).toFixed(2);
 
       const transaction = await storage.createPartnerTransaction({
         partnerId: partner.id,
@@ -715,7 +815,7 @@ export function registerPartnerRoutes(app: Express) {
         description: description || null,
         callbackUrl: callbackUrl || partner.callbackUrl || null,
         redirectUrl: redirectUrl || null,
-        metadata: metadata ? JSON.stringify({ ...metadata, operator, country: countryUpper, serviceId: service.id }) : JSON.stringify({ operator, country: countryUpper, serviceId: service.id }),
+        metadata: metadata ? JSON.stringify({ ...metadata, provider: "soleaspay", operator, country: countryUpper, serviceId: service.id }) : JSON.stringify({ provider: "soleaspay", operator, country: countryUpper, serviceId: service.id }),
       });
 
       const soleasResult = await soleaspay.collectPayment({
@@ -741,7 +841,7 @@ export function registerPartnerRoutes(app: Express) {
       if (soleasResult.code === 200 || soleasResult.status === "success" || soleasResult.data) {
         const { db } = await import("./db");
         const { sql } = await import("drizzle-orm");
-        await db.execute(sql`UPDATE partner_transactions SET status = 'processing', metadata = ${JSON.stringify({ operator, country: countryUpper, serviceId: service.id, soleasRef })} WHERE reference = ${reference}`);
+        await db.execute(sql`UPDATE partner_transactions SET status = 'processing', metadata = ${JSON.stringify({ provider: "soleaspay", operator, country: countryUpper, serviceId: service.id, soleasRef })} WHERE reference = ${reference}`);
 
         await storage.createPartnerLog({
           partnerId: partner.id,
@@ -755,6 +855,7 @@ export function registerPartnerRoutes(app: Express) {
           status: "PROCESSING",
           txid: reference,
           reference,
+          provider: "soleaspay",
           soleasReference: soleasRef,
           amount: numericAmount.toString(),
           fee,
@@ -766,7 +867,7 @@ export function registerPartnerRoutes(app: Express) {
       } else {
         const { db } = await import("./db");
         const { sql } = await import("drizzle-orm");
-        await db.execute(sql`UPDATE partner_transactions SET status = 'failed', metadata = ${JSON.stringify({ operator, country: countryUpper, serviceId: service.id, error: soleasResult.message })} WHERE reference = ${reference}`);
+        await db.execute(sql`UPDATE partner_transactions SET status = 'failed', metadata = ${JSON.stringify({ provider: "soleaspay", operator, country: countryUpper, serviceId: service.id, error: soleasResult.message })} WHERE reference = ${reference}`);
 
         await storage.createPartnerLog({
           partnerId: partner.id,
@@ -779,6 +880,7 @@ export function registerPartnerRoutes(app: Express) {
           success: false,
           status: "FAILED",
           reference,
+          provider: "soleaspay",
           message: soleasResult.message || "Échec de l'envoi USSD. Vérifiez le numéro et l'opérateur.",
         });
       }
@@ -895,52 +997,173 @@ export function registerPartnerRoutes(app: Express) {
       }
 
       if (transaction.status === "processing" || transaction.status === "pending") {
+        let txProvider = "soleaspay";
+        let txMeta: any = {};
         try {
-          const { soleaspay } = await import("./soleaspay");
-          let soleasRef = "";
+          txMeta = JSON.parse(transaction.metadata || "{}");
+          txProvider = txMeta.provider || "soleaspay";
+        } catch {}
+
+        if (txProvider === "winipayer") {
           try {
-            const meta = JSON.parse(transaction.metadata || "{}");
-            soleasRef = meta.soleasRef || "";
-          } catch {}
+            const { winipayer } = await import("./winipayer");
+            const winiUuid = txMeta.winiUuid;
+            if (winiUuid) {
+              const verifyResult = await winipayer.verifyPayment(winiUuid);
+              console.log(`SDK Verify WiniPayer for ${ref} (uuid: ${winiUuid}):`, JSON.stringify(verifyResult));
 
-          const verifyResult = await soleaspay.verifyPayment(ref, soleasRef || ref);
-          console.log(`SDK Verify SoleasPay for ${ref}:`, JSON.stringify(verifyResult));
+              if (verifyResult.success && verifyResult.results?.invoice) {
+                const invoice = verifyResult.results.invoice;
+                const state = invoice.state?.toLowerCase();
 
-          if (verifyResult.code === 200 || verifyResult.status === "success") {
-            const { db } = await import("./db");
-            const { sql } = await import("drizzle-orm");
-            const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+                if (state === "success" || state === "completed") {
+                  const hashValid = winipayer.validateHash({
+                    uuid: invoice.uuid,
+                    crypto: invoice.crypto,
+                    amount: invoice.amount,
+                    created_at: invoice.created_at,
+                    hash: invoice.hash,
+                  });
 
-            const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
-            if (rowsAffected > 0) {
-              const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
-              await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
+                  if (!hashValid) {
+                    console.error(`❌ WiniPayer verify: Hash invalide pour ${ref} - données potentiellement falsifiées`);
+                    await storage.createPartnerLog({
+                      partnerId: partner.id,
+                      action: "error",
+                      details: `SDK Verify WiniPayer: Hash invalide pour ${ref} - transaction non confirmée`,
+                      ipAddress: req.ip || req.socket.remoteAddress,
+                    });
+                    return res.json({
+                      success: false,
+                      status: "PROCESSING",
+                      txid: transaction.reference,
+                      reference: transaction.reference,
+                      provider: "winipayer",
+                      amount: transaction.amount,
+                      fee: transaction.fee,
+                      currency: transaction.currency,
+                      message: "Vérification de sécurité échouée - hash invalide",
+                      createdAt: transaction.createdAt,
+                    });
+                  }
+
+                  const { db } = await import("./db");
+                  const { sql } = await import("drizzle-orm");
+                  const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW(), metadata = ${JSON.stringify({
+                    ...txMeta,
+                    winiState: state,
+                    winiOperator: invoice.operator,
+                    winiOperatorRef: invoice.operator_ref,
+                    winiAmountAvailable: invoice.amount_available,
+                    winiCommission: invoice.commission_amount,
+                    winiHashValid: hashValid,
+                    winiCustomerName: invoice.customer_pay?.name,
+                    winiCustomerPhone: invoice.customer_pay?.phone,
+                  })} WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+
+                  const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
+                  if (rowsAffected > 0) {
+                    const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
+                    await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
+                  }
+
+                  await storage.createPartnerLog({
+                    partnerId: partner.id,
+                    action: "api_call",
+                    details: `SDK Paiement WiniPayer confirmé: ${ref} - ${transaction.amount} ${transaction.currency} via ${invoice.operator || "N/A"}`,
+                    ipAddress: req.ip || req.socket.remoteAddress,
+                  });
+
+                  return res.json({
+                    success: true,
+                    status: "SUCCESS",
+                    txid: transaction.reference,
+                    reference: transaction.reference,
+                    provider: "winipayer",
+                    amount: transaction.amount,
+                    fee: transaction.fee,
+                    currency: transaction.currency,
+                    operator: invoice.operator,
+                    customerName: invoice.customer_pay?.name,
+                    customerPhone: invoice.customer_pay?.phone,
+                    message: "Paiement confirmé avec succès via WiniPayer",
+                    createdAt: transaction.createdAt,
+                    completedAt: new Date().toISOString(),
+                  });
+                } else if (state === "failed" || state === "cancelled" || state === "expired") {
+                  const { db } = await import("./db");
+                  const { sql } = await import("drizzle-orm");
+                  await db.execute(sql`UPDATE partner_transactions SET status = 'failed', metadata = ${JSON.stringify({ ...txMeta, winiState: state })} WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+
+                  return res.json({
+                    success: false,
+                    status: state === "expired" ? "EXPIRED" : "FAILED",
+                    txid: transaction.reference,
+                    reference: transaction.reference,
+                    provider: "winipayer",
+                    amount: transaction.amount,
+                    fee: transaction.fee,
+                    currency: transaction.currency,
+                    message: state === "expired" ? "Le lien de paiement a expiré" : "Paiement échoué ou annulé",
+                    createdAt: transaction.createdAt,
+                  });
+                }
+              }
             }
-
-            await storage.createPartnerLog({
-              partnerId: partner.id,
-              action: "api_call",
-              details: `SDK Paiement confirmé: ${ref} - ${transaction.amount} ${transaction.currency}`,
-              ipAddress: req.ip || req.socket.remoteAddress,
-            });
-
-            return res.json({
-              success: true,
-              status: "SUCCESS",
-              txid: transaction.reference,
-              reference: transaction.reference,
-              amount: transaction.amount,
-              fee: transaction.fee,
-              currency: transaction.currency,
-              message: "Paiement confirmé avec succès",
-              createdAt: transaction.createdAt,
-              completedAt: new Date().toISOString(),
-            });
+          } catch (verifyError) {
+            console.error("SDK verify WiniPayer check error:", verifyError);
           }
-        } catch (verifyError) {
-          console.error("SDK verify SoleasPay check error:", verifyError);
+        } else {
+          try {
+            const { soleaspay } = await import("./soleaspay");
+            const soleasRef = txMeta.soleasRef || "";
+
+            const verifyResult = await soleaspay.verifyPayment(ref, soleasRef || ref);
+            console.log(`SDK Verify SoleasPay for ${ref}:`, JSON.stringify(verifyResult));
+
+            if (verifyResult.code === 200 || verifyResult.status === "success") {
+              const { db } = await import("./db");
+              const { sql } = await import("drizzle-orm");
+              const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+
+              const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
+              if (rowsAffected > 0) {
+                const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
+                await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
+              }
+
+              await storage.createPartnerLog({
+                partnerId: partner.id,
+                action: "api_call",
+                details: `SDK Paiement confirmé: ${ref} - ${transaction.amount} ${transaction.currency}`,
+                ipAddress: req.ip || req.socket.remoteAddress,
+              });
+
+              return res.json({
+                success: true,
+                status: "SUCCESS",
+                txid: transaction.reference,
+                reference: transaction.reference,
+                provider: "soleaspay",
+                amount: transaction.amount,
+                fee: transaction.fee,
+                currency: transaction.currency,
+                message: "Paiement confirmé avec succès",
+                createdAt: transaction.createdAt,
+                completedAt: new Date().toISOString(),
+              });
+            }
+          } catch (verifyError) {
+            console.error("SDK verify SoleasPay check error:", verifyError);
+          }
         }
       }
+
+      let txProvider = "soleaspay";
+      try {
+        const meta = JSON.parse(transaction.metadata || "{}");
+        txProvider = meta.provider || "soleaspay";
+      } catch {}
 
       const statusMap: Record<string, string> = {
         pending: "PENDING",
@@ -955,12 +1178,13 @@ export function registerPartnerRoutes(app: Express) {
         status: statusMap[transaction.status] || transaction.status.toUpperCase(),
         txid: transaction.reference,
         reference: transaction.reference,
+        provider: txProvider,
         amount: transaction.amount,
         fee: transaction.fee,
         currency: transaction.currency,
         message: transaction.status === "completed" ? "Paiement validé" :
                  transaction.status === "pending" ? "En attente de confirmation du client" :
-                 transaction.status === "processing" ? "Le client n'a pas encore confirmé sur son téléphone" :
+                 transaction.status === "processing" ? (txProvider === "winipayer" ? "En attente du paiement sur le portail WiniPayer" : "Le client n'a pas encore confirmé sur son téléphone") :
                  transaction.status === "failed" ? "Paiement échoué" : "Paiement annulé",
         createdAt: transaction.createdAt,
         completedAt: transaction.completedAt,
@@ -1381,6 +1605,130 @@ export function registerPartnerRoutes(app: Express) {
     } catch (error) {
       console.error("Partner create payment link error:", error);
       res.status(500).json({ message: "Erreur lors de la création du lien" });
+    }
+  });
+
+  app.post("/api/webhook/winipayer", async (req: Request, res: Response) => {
+    try {
+      const data = req.body;
+      console.log("📥 === WiniPayer Webhook reçu ===");
+      console.log("📥 Data:", JSON.stringify(data));
+
+      const invoice = data?.results?.invoice || data?.invoice || data;
+      const customData = invoice?.custom_data || {};
+      const reference = customData.reference;
+      const state = invoice?.state?.toLowerCase();
+
+      if (!reference) {
+        console.error("❌ WiniPayer webhook: Pas de référence dans custom_data");
+        return res.status(200).json({ message: "OK" });
+      }
+
+      const transaction = await storage.getPartnerTransactionByReference(reference);
+      if (!transaction) {
+        console.error("❌ WiniPayer webhook: Transaction introuvable:", reference);
+        return res.status(200).json({ message: "OK" });
+      }
+
+      if (transaction.status === "completed") {
+        console.log("ℹ️ WiniPayer webhook: Transaction déjà complétée:", reference);
+        return res.status(200).json({ message: "OK" });
+      }
+
+      const { db } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+
+      if (state === "success" || state === "completed") {
+        let hashValid = false;
+        try {
+          const { winipayer } = await import("./winipayer");
+          hashValid = winipayer.validateHash({
+            uuid: invoice.uuid,
+            crypto: invoice.crypto,
+            amount: invoice.amount || invoice.amount_init,
+            created_at: invoice.created_at,
+            hash: invoice.hash,
+          });
+        } catch {}
+
+        if (!hashValid) {
+          console.error(`❌ WiniPayer webhook: Hash invalide pour ${reference} - webhook rejeté`);
+          await storage.createPartnerLog({
+            partnerId: transaction.partnerId,
+            action: "error",
+            details: `WiniPayer webhook: Hash invalide pour ${reference} - paiement non confirmé (possible tentative de fraude)`,
+            ipAddress: req.ip || req.socket.remoteAddress,
+          });
+          return res.status(200).json({ message: "OK" });
+        }
+
+        const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW(), metadata = ${JSON.stringify({
+          provider: "winipayer",
+          winiUuid: invoice.uuid,
+          winiState: state,
+          winiOperator: invoice.operator,
+          winiOperatorRef: invoice.operator_ref,
+          winiAmountAvailable: invoice.amount_available,
+          winiCommission: invoice.commission_amount,
+          winiHashValid: hashValid,
+          winiCustomerName: invoice.customer_pay?.name,
+          winiCustomerPhone: invoice.customer_pay?.phone,
+        })} WHERE reference = ${reference} AND status IN ('processing', 'pending')`);
+
+        const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
+        if (rowsAffected > 0) {
+          const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
+          await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${transaction.partnerId}`);
+
+          await storage.createPartnerLog({
+            partnerId: transaction.partnerId,
+            action: "payment_received",
+            details: `WiniPayer webhook: Paiement confirmé ${reference} - ${transaction.amount} ${transaction.currency} via ${invoice.operator || "N/A"}`,
+            ipAddress: req.ip || req.socket.remoteAddress,
+          });
+        }
+
+        console.log(`✅ WiniPayer webhook: Transaction ${reference} complétée`);
+      } else if (state === "failed" || state === "cancelled" || state === "expired") {
+        await db.execute(sql`UPDATE partner_transactions SET status = 'failed', metadata = ${JSON.stringify({
+          provider: "winipayer",
+          winiUuid: invoice.uuid,
+          winiState: state,
+        })} WHERE reference = ${reference} AND status IN ('processing', 'pending')`);
+
+        await storage.createPartnerLog({
+          partnerId: transaction.partnerId,
+          action: "api_call",
+          details: `WiniPayer webhook: Paiement ${state}: ${reference}`,
+          ipAddress: req.ip || req.socket.remoteAddress,
+        });
+
+        console.log(`❌ WiniPayer webhook: Transaction ${reference} ${state}`);
+      }
+
+      if (transaction.callbackUrl) {
+        try {
+          await fetch(transaction.callbackUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              reference,
+              status: state === "success" || state === "completed" ? "SUCCESS" : "FAILED",
+              amount: transaction.amount,
+              currency: transaction.currency,
+              provider: "winipayer",
+              operator: invoice.operator,
+            }),
+          });
+        } catch (callbackErr) {
+          console.error("WiniPayer webhook: Callback error:", callbackErr);
+        }
+      }
+
+      res.status(200).json({ message: "OK" });
+    } catch (error) {
+      console.error("WiniPayer webhook error:", error);
+      res.status(200).json({ message: "OK" });
     }
   });
 
