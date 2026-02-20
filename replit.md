@@ -107,13 +107,18 @@ shared/           # Shared code between client/server
   - Supported currencies: XOF, XAF, CDF
   - Flow: Direct API call with wallet number → User confirms on phone → Polling verification every 3 seconds
   - Service IDs by country/operator defined in server/soleaspay.ts
-- **WiniPayer** - Secondary payment gateway (checkout redirect flow)
+- **WiniPayer** - Secondary payment gateway (checkout redirect flow + auto-payout)
   - Create Checkout: POST https://api-v2.winipayer.com/checkout/standard/create
   - Verify: POST https://api-v2.winipayer.com/checkout/standard/detail/:uuid
-  - Webhook URL: https://sendavapay.com/api/webhook/winipayer
+  - Create Payout: POST https://api-v2.winipayer.com/payout/standard/create
+  - Verify Payout: POST https://api-v2.winipayer.com/payout/standard/detail/:uuid
+  - Webhook URLs: /api/webhook/winipayer-deposit, /api/webhook/winipayer-payout
   - Auth Headers: X-Merchant-Apply, X-Merchant-Token
   - Hash validation: SHA256(private_key + uuid + crypto + amount + created_at)
-  - Flow: Create checkout → Redirect customer to checkout_process URL → Callback/webhook on completion
+  - Checkout Flow: Create checkout → Redirect customer to checkout_process URL → Callback/webhook on completion
+  - Payout Flow: User requests withdrawal → Auto-create payout → Money sent directly to Mobile Money → Verify via detail/:uuid
+  - Payout operators: wave-cote-divoire, mtn-cote-divoire, orange-cote-divoire, mobile-money-benin, mobile-money-togo, mobile-money-burkina-faso, mobile-money-senegal, mobile-money-mali, mobile-money-niger
+  - Withdrawals: WiniPayer operators get automatic instant withdrawal (no admin approval needed). SoleasPay operators still require admin approval.
   - Client module: server/winipayer.ts
   - SDK param: `provider: "winipayer"` in /api/sdk/payment
 - **Supported Countries/Operators**:

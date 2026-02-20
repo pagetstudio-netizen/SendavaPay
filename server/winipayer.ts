@@ -240,4 +240,210 @@ export class WiniPayerClient {
   }
 }
 
+export const WINIPAYER_PAYOUT_OPERATORS: Record<string, string> = {
+  "MTN": "mtn-cote-divoire",
+  "Wave": "wave-cote-divoire",
+  "Orange": "orange-cote-divoire",
+  "Moov": "moov-cote-divoire",
+  "MTN CI": "mtn-cote-divoire",
+  "Wave CI": "wave-cote-divoire",
+  "Orange CI": "orange-cote-divoire",
+  "Moov CI": "moov-cote-divoire",
+  "Mobile Money BJ": "mobile-money-benin",
+  "MTN BJ": "mobile-money-benin",
+  "Moov BJ": "mobile-money-benin",
+  "Mobile Money TG": "mobile-money-togo",
+  "T-Money": "mobile-money-togo",
+  "TMoney": "mobile-money-togo",
+  "Moov TG": "mobile-money-togo",
+  "Mobile Money BF": "mobile-money-burkina-faso",
+  "Moov BF": "mobile-money-burkina-faso",
+  "Orange BF": "mobile-money-burkina-faso",
+  "Mobile Money SN": "mobile-money-senegal",
+  "Mobile Money ML": "mobile-money-mali",
+  "Mobile Money NE": "mobile-money-niger",
+};
+
+export function getWiniPayerPayoutOperator(operatorName: string, countryCode: string): string | null {
+  const key1 = `${operatorName} ${countryCode.toUpperCase()}`;
+  if (WINIPAYER_PAYOUT_OPERATORS[key1]) return WINIPAYER_PAYOUT_OPERATORS[key1];
+
+  if (WINIPAYER_PAYOUT_OPERATORS[operatorName]) return WINIPAYER_PAYOUT_OPERATORS[operatorName];
+
+  const countryMap: Record<string, string> = {
+    "ci": "cote-divoire",
+    "bj": "benin",
+    "tg": "togo",
+    "bf": "burkina-faso",
+    "sn": "senegal",
+    "ml": "mali",
+    "ne": "niger",
+  };
+
+  const countrySlug = countryMap[countryCode.toLowerCase()];
+  if (!countrySlug) return null;
+
+  const opLower = operatorName.toLowerCase();
+  if (opLower.includes("wave")) return `wave-${countrySlug}`;
+  if (opLower.includes("mtn")) return `mtn-${countrySlug}`;
+  if (opLower.includes("orange")) return `orange-${countrySlug}`;
+  if (opLower.includes("moov")) return `moov-${countrySlug}`;
+  if (opLower.includes("t-money") || opLower.includes("tmoney")) return `mobile-money-${countrySlug}`;
+
+  return `mobile-money-${countrySlug}`;
+}
+
+export interface WiniPayerPayoutParams {
+  operator: string;
+  recipients: Array<{
+    name: string;
+    account: string;
+    amount: number;
+  }>;
+  description?: string;
+  customData?: Record<string, any>;
+  callbackUrl?: string;
+}
+
+export interface WiniPayerPayoutResponse {
+  uuid?: string;
+  crypto?: string;
+  env?: string;
+  operator?: string;
+  currency?: string;
+  amount?: number;
+  commission_rate?: number;
+  commission_fee?: number;
+  commission_amount?: number;
+  amount_total?: number;
+  description?: string;
+  recipients?: Array<{
+    uuid: string;
+    name: string;
+    account: string;
+    amount: number;
+    commission_amount: number;
+    amount_total: number;
+    operator_ref: string | null;
+    state: string;
+    state_at: string | null;
+  }>;
+  custom_data?: any;
+  callback_url?: string | null;
+  state?: string;
+  state_at?: string | null;
+  created_at?: string;
+  success?: boolean;
+  errors?: any;
+  messages?: any[];
+}
+
 export const winipayer = new WiniPayerClient();
+
+export async function createPayout(params: WiniPayerPayoutParams): Promise<WiniPayerPayoutResponse> {
+  try {
+    console.log("💸 WiniPayer Payout: Création du transfert...");
+    console.log("💸 WiniPayer Payout: Operator:", params.operator);
+    console.log("💸 WiniPayer Payout: Recipients:", JSON.stringify(params.recipients));
+
+    const formData = new URLSearchParams();
+    formData.append("env", "prod");
+    formData.append("operator", params.operator);
+    formData.append("recipients", JSON.stringify(params.recipients));
+
+    if (params.description) {
+      formData.append("description", params.description);
+    }
+    if (params.customData) {
+      formData.append("custom_data", JSON.stringify(params.customData));
+    }
+    if (params.callbackUrl) {
+      formData.append("callback_url", params.callbackUrl);
+    }
+
+    const merchantApply = process.env.WINIPAYER_MERCHANT_APPLY || "";
+    const merchantToken = process.env.WINIPAYER_MERCHANT_TOKEN || "";
+
+    const response = await fetch(`${WINIPAYER_API_URL}/payout/standard/create`, {
+      method: "POST",
+      headers: {
+        "X-Merchant-Apply": merchantApply,
+        "X-Merchant-Token": merchantToken,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: formData.toString(),
+    });
+
+    const responseText = await response.text();
+    console.log("💸 WiniPayer Payout: Response status:", response.status);
+    console.log("💸 WiniPayer Payout: Response body:", responseText);
+
+    let data: WiniPayerPayoutResponse;
+    try {
+      data = JSON.parse(responseText);
+    } catch (e) {
+      console.error("❌ WiniPayer Payout: Réponse JSON invalide");
+      return {
+        success: false,
+        errors: { code: 0, key: "parse", msg: "Réponse invalide de WiniPayer Payout" },
+        messages: [],
+      };
+    }
+
+    return data;
+  } catch (error) {
+    console.error("❌ WiniPayer Payout error:", error);
+    return {
+      success: false,
+      errors: { code: 0, key: "network", msg: "Erreur de connexion à WiniPayer Payout" },
+      messages: [],
+    };
+  }
+}
+
+export async function verifyPayout(uuid: string): Promise<WiniPayerPayoutResponse> {
+  try {
+    console.log("🔍 WiniPayer Payout: Vérification transfert UUID:", uuid);
+
+    const formData = new URLSearchParams();
+    formData.append("env", "prod");
+
+    const merchantApply = process.env.WINIPAYER_MERCHANT_APPLY || "";
+    const merchantToken = process.env.WINIPAYER_MERCHANT_TOKEN || "";
+
+    const response = await fetch(`${WINIPAYER_API_URL}/payout/standard/detail/${uuid}`, {
+      method: "POST",
+      headers: {
+        "X-Merchant-Apply": merchantApply,
+        "X-Merchant-Token": merchantToken,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: formData.toString(),
+    });
+
+    const responseText = await response.text();
+    console.log("🔍 WiniPayer Payout: Verify response status:", response.status);
+    console.log("🔍 WiniPayer Payout: Verify response body:", responseText);
+
+    let data: WiniPayerPayoutResponse;
+    try {
+      data = JSON.parse(responseText);
+    } catch (e) {
+      console.error("❌ WiniPayer Payout: Réponse JSON de vérification invalide");
+      return {
+        success: false,
+        errors: { code: 0, key: "parse", msg: "Réponse invalide" },
+        messages: [],
+      };
+    }
+
+    return data;
+  } catch (error) {
+    console.error("❌ WiniPayer Payout verify error:", error);
+    return {
+      success: false,
+      errors: { code: 0, key: "network", msg: "Erreur de connexion" },
+      messages: [],
+    };
+  }
+}
