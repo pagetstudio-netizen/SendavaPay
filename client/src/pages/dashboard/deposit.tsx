@@ -278,7 +278,7 @@ export default function DepositPage() {
       });
       return;
     }
-    if (!phoneNumber || phoneNumber.length < 8) {
+    if (!isWiniPayer && (!phoneNumber || phoneNumber.length < 8)) {
       toast({
         title: "Numéro invalide",
         description: "Veuillez entrer un numéro de téléphone valide.",
@@ -289,7 +289,7 @@ export default function DepositPage() {
     depositMutation.mutate({
       amount: numericAmount,
       serviceId: selectedServiceId,
-      phoneNumber: phoneNumber.replace(/\s/g, ""),
+      phoneNumber: isWiniPayer ? undefined : phoneNumber.replace(/\s/g, ""),
     });
   };
 
