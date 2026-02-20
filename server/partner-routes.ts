@@ -684,18 +684,12 @@ export function registerPartnerRoutes(app: Express) {
       if (!paymentProvider) paymentProvider = "soleaspay";
 
       if (paymentProvider === "winipayer") {
-        if (!phone) {
-          return res.status(400).json({ success: false, status: "ERROR", message: "Numéro de téléphone requis (phoneNumber) pour WiniPayer" });
-        }
-
-        const { winipayer, getWiniPayerOperator } = await import("./winipayer");
+        const { winipayer } = await import("./winipayer");
 
         const baseUrl = process.env.BASE_URL || "https://sendavapay.com";
         const finalCallbackUrl = callbackUrl || partner.callbackUrl || `${baseUrl}/api/webhook/winipayer`;
         const finalReturnUrl = redirectUrl || `${baseUrl}/pay/partner/${reference}/success`;
         const cancelUrl = `${baseUrl}/pay/partner/${reference}/cancel`;
-
-        const winiOperator = (country && operator) ? getWiniPayerOperator(country.toUpperCase(), operator) : null;
 
         const transaction = await storage.createPartnerTransaction({
           partnerId: partner.id,
@@ -712,7 +706,7 @@ export function registerPartnerRoutes(app: Express) {
           metadata: JSON.stringify({ ...(metadata || {}), provider: "winipayer", country: country || null, operator: operator || null }),
         });
 
-        console.log(`📤 WiniPayer SDK: Paiement DIRECT ${reference} montant=${numericAmount} operator=${winiOperator || "N/A"}`);
+        console.log(`📤 WiniPayer SDK: Paiement REDIRECT ${reference} montant=${numericAmount}`);
 
         const winiResult = await winipayer.createCheckout({
           amount: numericAmount,
@@ -725,11 +719,9 @@ export function registerPartnerRoutes(app: Express) {
           reference: {
             identifier: reference,
             name: customerName || undefined,
-            phone: phone,
+            phone: phone || undefined,
             email: customerEmail || undefined,
           },
-          operator: winiOperator || undefined,
-          operatorInput: winiOperator ? { phone } : undefined,
         });
 
         console.log(`SDK Payment WiniPayer result for ${reference}:`, JSON.stringify(winiResult));
@@ -742,17 +734,16 @@ export function registerPartnerRoutes(app: Express) {
             provider: "winipayer",
             winiUuid: winiResult.results.uuid,
             winiCrypto: winiResult.results.crypto,
+            checkoutUrl: winiResult.results.checkout_process,
             expiredAt: winiResult.results.expired_at,
             country: country || null,
             operator: operator || null,
           })} WHERE reference = ${reference}`);
 
-          const operatorMessage = winiResult.results.operator_message || "Veuillez confirmer le paiement sur votre téléphone.";
-
           await storage.createPartnerLog({
             partnerId: partner.id,
             action: "api_call",
-            details: `SDK Paiement WiniPayer direct créé: ${reference} - ${numericAmount} ${currency || "XOF"} - Operator: ${winiOperator || "N/A"}`,
+            details: `SDK Paiement WiniPayer créé: ${reference} - ${numericAmount} ${currency || "XOF"} - Checkout: ${winiResult.results.checkout_process}`,
             ipAddress: req.ip || req.socket.remoteAddress,
           });
 
@@ -762,12 +753,13 @@ export function registerPartnerRoutes(app: Express) {
             txid: reference,
             reference,
             provider: "winipayer",
+            checkoutUrl: winiResult.results.checkout_process,
             uuid: winiResult.results.uuid,
             amount: numericAmount.toString(),
             fee,
             currency: winiResult.results.currency || currency || "XOF",
             expiredAt: winiResult.results.expired_at,
-            message: operatorMessage,
+            message: "Redirigez le client vers checkoutUrl pour finaliser le paiement.",
           });
         } else {
           const { db } = await import("./db");
@@ -786,7 +778,7 @@ export function registerPartnerRoutes(app: Express) {
             status: "FAILED",
             reference,
             provider: "winipayer",
-            message: winiResult.errors?.msg || "Échec du paiement WiniPayer.",
+            message: winiResult.errors?.msg || "Échec de la création du checkout WiniPayer.",
           });
         }
       }

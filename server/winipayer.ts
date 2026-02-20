@@ -2,46 +2,6 @@ import crypto from "crypto";
 
 const WINIPAYER_API_URL = "https://api-v2.winipayer.com";
 
-const WINIPAYER_OPERATOR_MAP: Record<string, Record<string, string>> = {
-  CI: {
-    "MTN": "mtn-cote-divoire",
-    "Orange": "orange-cote-divoire",
-    "Moov": "moov-cote-divoire",
-    "Wave": "wave-cote-divoire",
-  },
-  BJ: {
-    "MTN": "mtn-benin",
-    "Moov": "moov-benin",
-  },
-  TG: {
-    "TMoney": "tmoney-togo",
-    "Moov": "moov-togo",
-  },
-  BF: {
-    "Moov": "moov-burkina-faso",
-    "Orange": "orange-burkina-faso",
-  },
-  SN: {
-    "Orange": "orange-senegal",
-    "Wave": "wave-senegal",
-    "Free": "free-senegal",
-  },
-  ML: {
-    "Orange": "orange-mali",
-    "Moov": "moov-mali",
-  },
-  NE: {
-    "Moov": "moov-niger",
-    "Airtel": "airtel-niger",
-  },
-};
-
-export function getWiniPayerOperator(countryCode: string, operator: string): string | null {
-  const country = WINIPAYER_OPERATOR_MAP[countryCode];
-  if (!country) return null;
-  return country[operator] || null;
-}
-
 export interface WiniPayerCreateParams {
   amount: number;
   description: string;
@@ -51,6 +11,13 @@ export interface WiniPayerCreateParams {
   env?: "test" | "prod";
   customData?: Record<string, any>;
   clientPayFee?: boolean;
+  items?: Array<{
+    name: string;
+    quantity: number;
+    price_unit: number;
+    description?: string;
+    price_total: number;
+  }>;
   channel?: string[];
   reference?: {
     identifier?: string;
@@ -58,8 +25,6 @@ export interface WiniPayerCreateParams {
     phone?: string;
     email?: string;
   };
-  operator?: string;
-  operatorInput?: { phone: string };
 }
 
 export interface WiniPayerCreateResponse {
@@ -146,9 +111,6 @@ export class WiniPayerClient {
       console.log("📡 WiniPayer: Création du checkout...");
       console.log("📡 WiniPayer: Amount:", params.amount);
       console.log("📡 WiniPayer: Description:", params.description);
-      if (params.operator) {
-        console.log("📡 WiniPayer: Operator (direct):", params.operator);
-      }
 
       const formData = new URLSearchParams();
       formData.append("env", params.env || this.env);
@@ -164,17 +126,14 @@ export class WiniPayerClient {
       if (params.clientPayFee !== undefined) {
         formData.append("client_pay_fee", params.clientPayFee.toString());
       }
+      if (params.items && params.items.length > 0) {
+        formData.append("items", JSON.stringify(params.items));
+      }
       if (params.channel && params.channel.length > 0) {
         formData.append("channel", JSON.stringify(params.channel));
       }
       if (params.reference) {
         formData.append("reference", JSON.stringify(params.reference));
-      }
-      if (params.operator) {
-        formData.append("operator", params.operator);
-      }
-      if (params.operatorInput) {
-        formData.append("operator_input", JSON.stringify(params.operatorInput));
       }
 
       const response = await fetch(`${WINIPAYER_API_URL}/checkout/standard/create`, {
