@@ -508,7 +508,7 @@ export async function registerRoutes(
           amount: numericAmount,
           description: `Dépôt SendavaPay - ${user.fullName} via ${service.operator} (${service.country})`,
           cancelUrl: `${baseUrl}/deposit`,
-          returnUrl: `${baseUrl}/success?ref=${orderId}`,
+          returnUrl: `${baseUrl}/success?reference=${orderId}`,
           callbackUrl: `${baseUrl}/api/webhook/winipayer-deposit`,
           customData: {
             orderId,
@@ -541,7 +541,7 @@ export async function registerRoutes(
           description: `Dépôt via ${service.operator} (${service.country}) - WiniPayer`,
           customerEmail: user.email,
           paymentMethod: `winipayer_${service.name}`,
-          returnUrl: `${baseUrl}/success?ref=${orderId}`,
+          returnUrl: `${baseUrl}/success?reference=${winiUuid}`,
           paymentUrl: checkoutUrl,
         });
 
@@ -777,7 +777,7 @@ export async function registerRoutes(
           amount: numericAmount,
           description: `Paiement à ${vendeur.fullName} - ${link.title}`,
           cancelUrl: `${baseUrl}/pay/${linkCode}`,
-          returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}&ref=${orderId}`,
+          returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}`,
           callbackUrl: `${baseUrl}/api/webhook/winipayer-deposit`,
           customData: {
             orderId,
@@ -1600,8 +1600,20 @@ export async function registerRoutes(
         return res.status(400).json({ status: "error", message: "Référence requise" });
       }
 
-      // 1. Chercher dans notre base de données
+      // 1. Chercher dans notre base de données (par leekpayPaymentId ou par orderId dans returnUrl)
       let leekpayPayment = await storage.getLeekpayPaymentById(reference);
+      
+      if (!leekpayPayment) {
+        const { db } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+        const { leekpayPayments } = await import("@shared/schema");
+        const results = await db!.select().from(leekpayPayments).where(
+          sql`${leekpayPayments.returnUrl} LIKE ${'%reference=' + reference + '%'}`
+        ).limit(1);
+        if (results.length > 0) {
+          leekpayPayment = results[0];
+        }
+      }
       
       // 2. Si déjà complété, retourner le statut
       if (leekpayPayment?.status === "completed") {
@@ -1620,27 +1632,65 @@ export async function registerRoutes(
         });
       }
 
-      // 3. Vérifier le statut auprès de LeekPay API
-      console.log("📡 Appel API LeekPay pour vérifier:", reference);
-      const statusResult = await leekpay.getPaymentStatus(reference);
-      console.log("📡 Réponse LeekPay:", JSON.stringify(statusResult));
+      // 3. Vérifier le statut auprès de l'API appropriée
+      const isWiniPayerRef = leekpayPayment?.paymentMethod?.startsWith("winipayer");
       
-      if (!statusResult.success) {
-        console.log("⚠️ API LeekPay indisponible ou référence inconnue");
-        return res.json({ 
-          status: "pending", 
-          message: "Vérification en cours. Veuillez patienter..." 
-        });
-      }
+      let leekpayStatus: string | undefined;
+      let leekpayAmount: number | undefined;
 
-      const leekpayStatus = statusResult.data?.status;
-      const leekpayAmount = statusResult.data?.amount;
-      console.log("📊 Statut LeekPay:", leekpayStatus, "Montant:", leekpayAmount);
+      if (isWiniPayerRef && leekpayPayment) {
+        console.log("📡 Appel API WiniPayer pour vérifier:", leekpayPayment.leekpayPaymentId);
+        const { winipayer } = await import("./winipayer");
+        const winiVerify = await winipayer.verifyPayment(leekpayPayment.leekpayPaymentId);
+        
+        if (winiVerify.success && winiVerify.results?.invoice) {
+          const invoice = winiVerify.results.invoice;
+          const state = invoice.state?.toLowerCase();
+          
+          if (state === "success" || state === "completed") {
+            const hashValid = winipayer.validateHash({
+              uuid: invoice.uuid,
+              crypto: invoice.crypto,
+              amount: invoice.amount,
+              created_at: invoice.created_at,
+              hash: invoice.hash,
+            });
+            if (hashValid) {
+              leekpayStatus = "completed";
+              leekpayAmount = invoice.amount;
+            } else {
+              return res.json({ status: "pending", message: "Vérification de sécurité en cours..." });
+            }
+          } else if (state === "failed" || state === "cancelled" || state === "expired") {
+            leekpayStatus = "failed";
+          } else {
+            leekpayStatus = "pending";
+          }
+        } else {
+          return res.json({ status: "pending", message: "Vérification en cours. Veuillez patienter..." });
+        }
+      } else {
+        console.log("📡 Appel API LeekPay pour vérifier:", reference);
+        const statusResult = await leekpay.getPaymentStatus(reference);
+        console.log("📡 Réponse LeekPay:", JSON.stringify(statusResult));
+        
+        if (!statusResult.success) {
+          console.log("⚠️ API LeekPay indisponible ou référence inconnue");
+          return res.json({ status: "pending", message: "Vérification en cours. Veuillez patienter..." });
+        }
+        
+        leekpayStatus = statusResult.data?.status;
+        leekpayAmount = statusResult.data?.amount;
+      }
+      
+      console.log("📊 Statut:", leekpayStatus, "Montant:", leekpayAmount);
       
       // 4. Si le paiement n'est pas encore complété
+      const paymentKey = leekpayPayment?.leekpayPaymentId || reference;
+      
       if (leekpayStatus !== "completed") {
         if (leekpayPayment && leekpayStatus && leekpayStatus !== leekpayPayment.status) {
-          await storage.updateLeekpayPayment(reference, { status: leekpayStatus as any });
+          await storage.updateLeekpayPayment(paymentKey, { status: leekpayStatus as any });
         }
         return res.json({ 
           status: leekpayStatus || "pending", 
@@ -1648,8 +1698,8 @@ export async function registerRoutes(
         });
       }
 
-      // 5. LeekPay confirme le paiement - créditer le compte
-      console.log("✅ LeekPay confirme le paiement, traitement en cours...");
+      // 5. Paiement confirmé - créditer le compte
+      console.log("✅ Paiement confirmé, traitement en cours...");
       
       const settings = await storage.getCommissionSettings();
       const commissionRate = getCommissionRate(settings, "deposit");
@@ -1660,8 +1710,7 @@ export async function registerRoutes(
       // Si on a un paiement dans notre base
       if (leekpayPayment) {
         // Idempotence: Mettre à jour le statut immédiatement avant de créditer
-        // Si le statut était déjà "completed", on ne crédite pas à nouveau
-        await storage.updateLeekpayPayment(reference, {
+        await storage.updateLeekpayPayment(paymentKey, {
           status: "completed",
           webhookReceived: true,
           completedAt: new Date(),
@@ -1672,7 +1721,7 @@ export async function registerRoutes(
           leekpayPayment.userId || 0
         );
         const alreadyProcessed = existingTransactions.some(
-          (t: { externalRef: string | null; status: string }) => t.externalRef === reference && t.status === "completed"
+          (t: { externalRef: string | null; status: string }) => (t.externalRef === reference || t.externalRef === paymentKey) && t.status === "completed"
         );
 
         if (alreadyProcessed) {
@@ -1700,7 +1749,7 @@ export async function registerRoutes(
             netAmount: netAmount.toString(),
             status: "completed",
             description: leekpayPayment.description || "Dépôt via LeekPay",
-            externalRef: reference,
+            externalRef: paymentKey,
             paymentMethod: leekpayPayment.paymentMethod || "leekpay",
           });
 
@@ -1733,7 +1782,7 @@ export async function registerRoutes(
               description: `Paiement reçu: ${link.title}`,
               paymentMethod: leekpayPayment.paymentMethod || "leekpay",
               paymentLinkId: link.id,
-              externalRef: reference,
+              externalRef: paymentKey,
               mobileNumber: leekpayPayment.payerPhone,
               payerName: leekpayPayment.payerName,
               payerEmail: leekpayPayment.customerEmail,
