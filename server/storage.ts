@@ -64,7 +64,7 @@ import {
   type StatsOffset,
 } from "@shared/schema";
 import { db as dbInstance } from "./db";
-import { eq, or, and, desc, sql } from "drizzle-orm";
+import { eq, ne, or, and, desc, sql } from "drizzle-orm";
 
 function getDb() {
   if (!dbInstance) {
@@ -176,6 +176,7 @@ export interface IStorage {
   createLeekpayPayment(payment: Partial<LeekpayPayment>): Promise<LeekpayPayment>;
   getLeekpayPaymentById(leekpayPaymentId: string): Promise<LeekpayPayment | undefined>;
   updateLeekpayPayment(leekpayPaymentId: string, updates: Partial<LeekpayPayment>): Promise<LeekpayPayment | undefined>;
+  claimLeekpayPayment(leekpayPaymentId: string): Promise<LeekpayPayment | null>;
   getLeekpayPaymentsByUser(userId: number): Promise<LeekpayPayment[]>;
   getPendingLeekpayPayments(): Promise<LeekpayPayment[]>;
   
@@ -796,6 +797,20 @@ export class DatabaseStorage implements IStorage {
   async updateLeekpayPayment(leekpayPaymentId: string, updates: Partial<LeekpayPayment>): Promise<LeekpayPayment | undefined> {
     const [updated] = await getDb().update(leekpayPayments).set(updates as any).where(eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId)).returning();
     return updated;
+  }
+
+  async claimLeekpayPayment(leekpayPaymentId: string): Promise<LeekpayPayment | null> {
+    const results = await getDb()
+      .update(leekpayPayments)
+      .set({ status: "completed" as any, webhookReceived: true, completedAt: new Date() })
+      .where(
+        and(
+          eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId),
+          ne(leekpayPayments.status, "completed")
+        )
+      )
+      .returning();
+    return results.length > 0 ? results[0] : null;
   }
 
   async getLeekpayPaymentsByUser(userId: number): Promise<LeekpayPayment[]> {

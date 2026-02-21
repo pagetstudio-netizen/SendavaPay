@@ -648,39 +648,20 @@ export async function registerRoutes(
       }
 
       if (result.success && result.status === "SUCCESS") {
-        // Paiement confirmé - créditer le compte
         const amount = result.data?.amount || (existingPayment ? parseFloat(existingPayment.amount) : 0);
         
         if (existingPayment && existingPayment.userId) {
-          // Vérifier idempotence
-          const existingTransactions = await storage.getTransactions(existingPayment.userId);
-          const alreadyProcessed = existingTransactions.some(
-            (t: { externalRef: string | null; status: string }) => t.externalRef === payId && t.status === "completed"
-          );
-
-          if (alreadyProcessed) {
+          const claimed = await storage.claimLeekpayPayment(payId);
+          if (!claimed) {
             console.log("⚠️ Transaction déjà traitée, pas de double crédit");
-            return res.json({ 
-              status: "SUCCESS", 
-              message: "Paiement déjà traité",
-              amount
-            });
+            return res.json({ status: "SUCCESS", message: "Paiement déjà traité", amount });
           }
 
-          // Calculer les frais
           const settings = await storage.getCommissionSettings();
           const commissionRate = getCommissionRate(settings, "deposit");
           const fee = Math.round(amount * (commissionRate / 100));
           const netAmount = amount - fee;
 
-          // Mettre à jour le paiement
-          await storage.updateLeekpayPayment(payId, {
-            status: "completed",
-            webhookReceived: true,
-            completedAt: new Date(),
-          });
-
-          // Créer la transaction
           await storage.createTransaction({
             userId: existingPayment.userId,
             type: "deposit",
@@ -697,7 +678,6 @@ export async function registerRoutes(
 
           console.log(`✅ SoleasPay: Dépôt confirmé pour utilisateur #${existingPayment.userId}: ${netAmount} ${existingPayment.currency}`);
 
-          // Envoyer email de confirmation de dépôt
           const depositUser = await storage.getUser(existingPayment.userId);
           if (depositUser?.email) {
             sendDepositEmail(depositUser.email, {
@@ -943,54 +923,42 @@ export async function registerRoutes(
               return res.json({ status: "PENDING", message: "Vérification de sécurité en cours..." });
             }
 
-            if (existingPayment && existingPayment.status !== "completed" && existingPayment.paymentLinkId) {
-              const link = await storage.getPaymentLink(existingPayment.paymentLinkId);
-              if (!link) {
-                return res.status(404).json({ message: "Lien de paiement non trouvé" });
-              }
+            if (existingPayment && existingPayment.paymentLinkId) {
+              const claimed = await storage.claimLeekpayPayment(payId);
+              if (claimed) {
+                const link = await storage.getPaymentLink(existingPayment.paymentLinkId);
+                if (link) {
+                  const numAmount = parseFloat(invoice.amount.toString()) || parseFloat(claimed.amount);
+                  const settings = await storage.getCommissionSettings();
+                  const commissionRate = getCommissionRate(settings, "payment_received");
+                  const fee = Math.round(numAmount * (commissionRate / 100));
+                  const netAmount = numAmount - fee;
 
-              const numAmount = parseFloat(invoice.amount.toString()) || parseFloat(existingPayment.amount);
-              const existingTransactions = await storage.getTransactions(link.userId);
-              const alreadyProcessed = existingTransactions.some(
-                (t: { externalRef: string | null; status: string }) => t.externalRef === payId && t.status === "completed"
-              );
+                  await storage.updatePaymentLink(link.id, {
+                    paidAt: new Date(),
+                    paidAmount: numAmount.toString(),
+                  });
 
-              if (!alreadyProcessed) {
-                const settings = await storage.getCommissionSettings();
-                const commissionRate = getCommissionRate(settings, "payment_received");
-                const fee = Math.round(numAmount * (commissionRate / 100));
-                const netAmount = numAmount - fee;
+                  await storage.createTransaction({
+                    userId: link.userId,
+                    type: "payment_received",
+                    amount: numAmount.toString(),
+                    fee: fee.toString(),
+                    netAmount: netAmount.toString(),
+                    status: "completed",
+                    description: `Paiement reçu - ${link.title}`,
+                    externalRef: payId,
+                    paymentMethod: claimed.paymentMethod || "winipayer",
+                    mobileNumber: invoice.customer_pay?.phone || claimed.payerPhone,
+                    payerName: invoice.customer_pay?.name || claimed.payerName,
+                    payerEmail: invoice.customer_pay?.email || claimed.customerEmail,
+                    payerCountry: claimed.payerCountry,
+                    paymentLinkId: link.id,
+                  });
 
-                await storage.updateLeekpayPayment(payId, {
-                  status: "completed",
-                  webhookReceived: true,
-                  completedAt: new Date(),
-                });
-
-                await storage.updatePaymentLink(link.id, {
-                  paidAt: new Date(),
-                  paidAmount: numAmount.toString(),
-                });
-
-                await storage.createTransaction({
-                  userId: link.userId,
-                  type: "payment_received",
-                  amount: numAmount.toString(),
-                  fee: fee.toString(),
-                  netAmount: netAmount.toString(),
-                  status: "completed",
-                  description: `Paiement reçu - ${link.title}`,
-                  externalRef: payId,
-                  paymentMethod: existingPayment.paymentMethod || "winipayer",
-                  mobileNumber: invoice.customer_pay?.phone || existingPayment.payerPhone,
-                  payerName: invoice.customer_pay?.name || existingPayment.payerName,
-                  payerEmail: invoice.customer_pay?.email || existingPayment.customerEmail,
-                  payerCountry: existingPayment.payerCountry,
-                  paymentLinkId: link.id,
-                });
-
-                await storage.updateUserBalance(link.userId, netAmount.toString());
-                console.log(`✅ WiniPayer lien: Paiement confirmé vendeur #${link.userId}: ${netAmount}`);
+                  await storage.updateUserBalance(link.userId, netAmount.toString());
+                  console.log(`✅ WiniPayer lien: Paiement confirmé vendeur #${link.userId}: ${netAmount}`);
+                }
               }
             }
 
@@ -1013,45 +981,27 @@ export async function registerRoutes(
         const amount = result.data?.amount || (existingPayment ? parseFloat(existingPayment.amount) : 0);
         
         if (existingPayment && existingPayment.paymentLinkId) {
+          const claimed = await storage.claimLeekpayPayment(payId);
+          if (!claimed) {
+            console.log("⚠️ Transaction déjà traitée");
+            return res.json({ status: "SUCCESS", message: "Paiement déjà traité", amount });
+          }
+
           const link = await storage.getPaymentLink(existingPayment.paymentLinkId);
           if (!link) {
             return res.status(404).json({ message: "Lien de paiement non trouvé" });
           }
 
-          // Vérifier idempotence
-          const existingTransactions = await storage.getTransactions(link.userId);
-          const alreadyProcessed = existingTransactions.some(
-            (t: { externalRef: string | null; status: string }) => t.externalRef === payId && t.status === "completed"
-          );
-
-          if (alreadyProcessed) {
-            console.log("⚠️ Transaction déjà traitée");
-            return res.json({ 
-              status: "SUCCESS", 
-              message: "Paiement déjà traité",
-              amount
-            });
-          }
-
-          // Calculer les frais
           const settings = await storage.getCommissionSettings();
           const commissionRate = getCommissionRate(settings, "payment_received");
           const fee = Math.round(amount * (commissionRate / 100));
           const netAmount = amount - fee;
-
-          // Mettre à jour le paiement et le lien
-          await storage.updateLeekpayPayment(payId, {
-            status: "completed",
-            webhookReceived: true,
-            completedAt: new Date(),
-          });
 
           await storage.updatePaymentLink(link.id, {
             paidAt: new Date(),
             paidAmount: amount.toString(),
           });
 
-          // Créer la transaction avec les informations du payeur
           await storage.createTransaction({
             userId: link.userId,
             type: "payment_received",
@@ -1061,11 +1011,11 @@ export async function registerRoutes(
             status: "completed",
             description: `Paiement reçu - ${link.title}`,
             externalRef: payId,
-            paymentMethod: existingPayment.paymentMethod || "soleaspay",
-            mobileNumber: existingPayment.payerPhone,
-            payerName: existingPayment.payerName,
-            payerEmail: existingPayment.customerEmail,
-            payerCountry: existingPayment.payerCountry,
+            paymentMethod: claimed.paymentMethod || "soleaspay",
+            mobileNumber: claimed.payerPhone,
+            payerName: claimed.payerName,
+            payerEmail: claimed.customerEmail,
+            payerCountry: claimed.payerCountry,
             paymentLinkId: link.id,
           });
 
@@ -1153,41 +1103,40 @@ export async function registerRoutes(
       }
 
       if (success && status === "SUCCESS") {
-        const numAmount = parseFloat(amount) || parseFloat(payment.amount);
-        
+        const claimed = await storage.claimLeekpayPayment(reference);
+        if (!claimed) {
+          console.log("⚠️ SoleasPay webhook: Paiement déjà réclamé par un autre processus");
+          return res.json({ received: true });
+        }
+
+        const numAmount = parseFloat(amount) || parseFloat(claimed.amount);
         const settings = await storage.getCommissionSettings();
 
-        await storage.updateLeekpayPayment(reference, {
-          status: "completed",
-          webhookReceived: true,
-          completedAt: new Date(),
-        });
-
-        if (payment.type === "deposit" && payment.userId) {
+        if (claimed.type === "deposit" && claimed.userId) {
           const commissionRate = getCommissionRate(settings, "deposit");
           const fee = Math.round(numAmount * (commissionRate / 100));
           const netAmount = numAmount - fee;
 
           await storage.createTransaction({
-            userId: payment.userId,
+            userId: claimed.userId,
             type: "deposit",
             amount: numAmount.toString(),
             fee: fee.toString(),
             netAmount: netAmount.toString(),
             status: "completed",
-            description: payment.description || "Dépôt via SoleasPay",
+            description: claimed.description || "Dépôt via SoleasPay",
             externalRef: reference,
-            paymentMethod: payment.paymentMethod || "soleaspay",
+            paymentMethod: claimed.paymentMethod || "soleaspay",
           });
 
-          await storage.updateUserBalance(payment.userId, netAmount.toString());
-          console.log(`✅ SoleasPay webhook: Dépôt confirmé utilisateur #${payment.userId}: ${netAmount}`);
-        } else if (payment.type === "payment_link" && payment.paymentLinkId) {
+          await storage.updateUserBalance(claimed.userId, netAmount.toString());
+          console.log(`✅ SoleasPay webhook: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
+        } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
           const commissionRate = getCommissionRate(settings, "payment_received");
           const fee = Math.round(numAmount * (commissionRate / 100));
           const netAmount = numAmount - fee;
 
-          const link = await storage.getPaymentLink(payment.paymentLinkId);
+          const link = await storage.getPaymentLink(claimed.paymentLinkId);
           if (link) {
             await storage.updatePaymentLink(link.id, {
               paidAt: new Date(),
@@ -1203,11 +1152,11 @@ export async function registerRoutes(
               status: "completed",
               description: `Paiement reçu - ${link.title}`,
               externalRef: reference,
-              paymentMethod: payment.paymentMethod || "soleaspay",
-              mobileNumber: payment.payerPhone,
-              payerName: payment.payerName,
-              payerEmail: payment.customerEmail,
-              payerCountry: payment.payerCountry,
+              paymentMethod: claimed.paymentMethod || "soleaspay",
+              mobileNumber: claimed.payerPhone,
+              payerName: claimed.payerName,
+              payerEmail: claimed.customerEmail,
+              payerCountry: claimed.payerCountry,
               paymentLinkId: link.id,
             });
 
@@ -1316,40 +1265,40 @@ export async function registerRoutes(
           return res.status(200).json({ message: "OK" });
         }
 
-        const numAmount = parseFloat(invoice.amount) || parseFloat(payment.amount);
+        const claimed = await storage.claimLeekpayPayment(uuid);
+        if (!claimed) {
+          console.log("⚠️ WiniPayer deposit webhook: Paiement déjà réclamé par un autre processus");
+          return res.status(200).json({ message: "OK" });
+        }
+
+        const numAmount = parseFloat(invoice.amount) || parseFloat(claimed.amount);
         const settings = await storage.getCommissionSettings();
 
-        await storage.updateLeekpayPayment(uuid, {
-          status: "completed",
-          webhookReceived: true,
-          completedAt: new Date(),
-        });
-
-        if (payment.type === "deposit" && payment.userId) {
+        if (claimed.type === "deposit" && claimed.userId) {
           const commissionRate = getCommissionRate(settings, "deposit");
           const fee = Math.round(numAmount * (commissionRate / 100));
           const netAmount = numAmount - fee;
 
           await storage.createTransaction({
-            userId: payment.userId,
+            userId: claimed.userId,
             type: "deposit",
             amount: numAmount.toString(),
             fee: fee.toString(),
             netAmount: netAmount.toString(),
             status: "completed",
-            description: payment.description || "Dépôt via WiniPayer",
+            description: claimed.description || "Dépôt via WiniPayer",
             externalRef: uuid,
-            paymentMethod: payment.paymentMethod || "winipayer",
+            paymentMethod: claimed.paymentMethod || "winipayer",
           });
 
-          await storage.updateUserBalance(payment.userId, netAmount.toString());
-          console.log(`✅ WiniPayer deposit webhook: Dépôt confirmé utilisateur #${payment.userId}: ${netAmount}`);
-        } else if (payment.type === "payment_link" && payment.paymentLinkId) {
+          await storage.updateUserBalance(claimed.userId, netAmount.toString());
+          console.log(`✅ WiniPayer deposit webhook: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
+        } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
           const commissionRate = getCommissionRate(settings, "payment_received");
           const fee = Math.round(numAmount * (commissionRate / 100));
           const netAmount = numAmount - fee;
 
-          const link = await storage.getPaymentLink(payment.paymentLinkId);
+          const link = await storage.getPaymentLink(claimed.paymentLinkId);
           if (link) {
             await storage.updatePaymentLink(link.id, {
               paidAt: new Date(),
@@ -1365,11 +1314,11 @@ export async function registerRoutes(
               status: "completed",
               description: `Paiement reçu - ${link.title}`,
               externalRef: uuid,
-              paymentMethod: payment.paymentMethod || "winipayer",
+              paymentMethod: claimed.paymentMethod || "winipayer",
               mobileNumber: invoice.customer_pay?.phone,
-              payerName: invoice.customer_pay?.name || payment.payerName,
-              payerEmail: invoice.customer_pay?.email || payment.customerEmail,
-              payerCountry: payment.payerCountry,
+              payerName: invoice.customer_pay?.name || claimed.payerName,
+              payerEmail: invoice.customer_pay?.email || claimed.customerEmail,
+              payerCountry: claimed.payerCountry,
               paymentLinkId: link.id,
             });
 
@@ -1531,34 +1480,29 @@ export async function registerRoutes(
             return res.json({ status: "PENDING", message: "Vérification de sécurité en cours..." });
           }
 
-          if (existingPayment && existingPayment.status !== "completed") {
-            const numAmount = parseFloat(invoice.amount.toString()) || parseFloat(existingPayment.amount);
-            const settings = await storage.getCommissionSettings();
-
-            await storage.updateLeekpayPayment(payId, {
-              status: "completed",
-              webhookReceived: true,
-              completedAt: new Date(),
-            });
-
-            if (existingPayment.type === "deposit" && existingPayment.userId) {
+          if (existingPayment) {
+            const claimed = await storage.claimLeekpayPayment(payId);
+            if (claimed && claimed.type === "deposit" && claimed.userId) {
+              const numAmount = parseFloat(invoice.amount.toString()) || parseFloat(claimed.amount);
+              const settings = await storage.getCommissionSettings();
               const commissionRate = getCommissionRate(settings, "deposit");
               const fee = Math.round(numAmount * (commissionRate / 100));
               const netAmount = numAmount - fee;
 
               await storage.createTransaction({
-                userId: existingPayment.userId,
+                userId: claimed.userId,
                 type: "deposit",
                 amount: numAmount.toString(),
                 fee: fee.toString(),
                 netAmount: netAmount.toString(),
                 status: "completed",
-                description: existingPayment.description || "Dépôt via WiniPayer",
+                description: claimed.description || "Dépôt via WiniPayer",
                 externalRef: payId,
-                paymentMethod: existingPayment.paymentMethod || "winipayer",
+                paymentMethod: claimed.paymentMethod || "winipayer",
               });
 
-              await storage.updateUserBalance(existingPayment.userId, netAmount.toString());
+              await storage.updateUserBalance(claimed.userId, netAmount.toString());
+              console.log(`✅ WiniPayer: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
             }
           }
 
@@ -1627,23 +1571,20 @@ export async function registerRoutes(
         });
       }
 
-      // LeekPay confirme que le paiement est complété - on peut créditer
       console.log("LeekPay confirmed payment completed, crediting user...");
       
+      const claimed = await storage.claimLeekpayPayment(paymentId);
+      if (!claimed) {
+        return res.json({ status: "completed", message: "Paiement déjà traité" });
+      }
+
       const settings = await storage.getCommissionSettings();
       const commissionRate = getCommissionRate(settings, "deposit");
-      const amount = parseFloat(leekpayPayment.amount);
+      const amount = parseFloat(claimed.amount);
       const fee = Math.round(amount * (commissionRate / 100));
       const netAmount = amount - fee;
 
-      // Mettre à jour le paiement LeekPay
-      await storage.updateLeekpayPayment(paymentId, {
-        status: "completed",
-        webhookReceived: true,
-        completedAt: new Date(),
-      });
-
-      if (leekpayPayment.type === "deposit" && leekpayPayment.userId) {
+      if (claimed.type === "deposit" && claimed.userId) {
         // Créer la transaction
         await storage.createTransaction({
           userId: leekpayPayment.userId,
