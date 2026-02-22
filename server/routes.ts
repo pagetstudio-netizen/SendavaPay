@@ -2711,39 +2711,51 @@ export async function registerRoutes(
       console.log(`🔍 SoleasPay API verify: orderId=${orderId}, payId=${payId}, result=`, JSON.stringify(verifyResult));
 
       if (verifyResult.success && verifyResult.status === "SUCCESS") {
-        // Credit the API owner's balance
+        if (transaction.status === "completed") {
+          const apiKeyConfig = transaction.apiKeyId ? await storage.getApiKeyById(transaction.apiKeyId) : null;
+          const redirectUrlToUse = transaction.redirectUrl || apiKeyConfig?.redirectUrl || null;
+          return res.json({ status: "completed", message: "Paiement déjà traité", redirectUrl: redirectUrlToUse, reference: transaction.reference, amount: parseFloat(transaction.amount) });
+        }
+
         const amount = verifyResult.data?.amount || parseFloat(transaction.amount);
         const commissionSettings = await storage.getCommissionSettings();
         const feeRate = getCommissionRate(commissionSettings, "payment_received");
         const fee = (amount * feeRate) / 100;
         const netAmount = amount - fee;
 
-        // Update transaction status with fee
-        await storage.updateApiTransaction(transaction.id, {
-          status: "completed",
-          completedAt: new Date(),
+        const claimed = await storage.claimApiTransaction(transaction.id, {
           externalReference: payId,
           fee: fee.toString(),
         });
+        if (!claimed) {
+          const apiKeyConfig = transaction.apiKeyId ? await storage.getApiKeyById(transaction.apiKeyId) : null;
+          const redirectUrlToUse = transaction.redirectUrl || apiKeyConfig?.redirectUrl || null;
+          return res.json({ status: "completed", message: "Paiement déjà traité", redirectUrl: redirectUrlToUse, reference: transaction.reference, amount: netAmount });
+        }
 
-        await storage.updateUserBalance(transaction.userId, netAmount.toString());
+        try {
+          await storage.updateUserBalance(transaction.userId, netAmount.toString());
 
-        // Create transaction record for the user
-        await storage.createTransaction({
-          userId: transaction.userId,
-          type: "payment_received",
-          amount: amount.toString(),
-          fee: fee.toString(),
-          netAmount: netAmount.toString(),
-          status: "completed",
-          description: transaction.description || `Paiement API reçu`,
-          externalRef: transaction.reference,
-          payerName: transaction.customerName,
-          payerEmail: transaction.customerEmail,
-          payerCountry: req.body.payerCountry,
-          paymentMethod: transaction.paymentMethod,
-          mobileNumber: transaction.customerPhone,
-        });
+          await storage.createTransaction({
+            userId: transaction.userId,
+            type: "payment_received",
+            amount: amount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: transaction.description || `Paiement API reçu`,
+            externalRef: transaction.reference,
+            payerName: transaction.customerName,
+            payerEmail: transaction.customerEmail,
+            payerCountry: req.body.payerCountry,
+            paymentMethod: transaction.paymentMethod,
+            mobileNumber: transaction.customerPhone,
+          });
+        } catch (creditError) {
+          console.error(`❌ CRITICAL: Claimed API transaction ${transaction.id} but failed to credit:`, creditError);
+          await storage.updateApiTransaction(transaction.id, { status: "pending" });
+          return res.status(500).json({ status: "error", message: "Erreur lors du crédit, veuillez réessayer" });
+        }
 
         console.log(`✅ SoleasPay API: Paiement confirmé pour utilisateur #${transaction.userId}: ${netAmount}`);
 

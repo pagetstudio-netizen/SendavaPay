@@ -195,6 +195,7 @@ export interface IStorage {
   getApiTransactionsByUser(userId: number): Promise<ApiTransaction[]>;
   getAllApiTransactions(): Promise<ApiTransaction[]>;
   updateApiTransaction(id: number, updates: Partial<ApiTransaction>): Promise<ApiTransaction | undefined>;
+  claimApiTransaction(id: number, extraUpdates?: Partial<ApiTransaction>): Promise<ApiTransaction | null>;
   
   createMerchantWebhook(webhook: Partial<MerchantWebhook>): Promise<MerchantWebhook>;
   getMerchantWebhooks(merchantId: number): Promise<MerchantWebhook[]>;
@@ -1023,6 +1024,15 @@ export class DatabaseStorage implements IStorage {
   async updateApiTransaction(id: number, updates: Partial<ApiTransaction>): Promise<ApiTransaction | undefined> {
     const [updated] = await getDb().update(apiTransactions).set(updates).where(eq(apiTransactions.id, id)).returning();
     return updated;
+  }
+
+  async claimApiTransaction(id: number, extraUpdates?: Partial<ApiTransaction>): Promise<ApiTransaction | null> {
+    const [claimed] = await getDb()
+      .update(apiTransactions)
+      .set({ status: "completed", completedAt: new Date(), updatedAt: new Date(), ...extraUpdates })
+      .where(and(eq(apiTransactions.id, id), ne(apiTransactions.status, "completed")))
+      .returning();
+    return claimed || null;
   }
 
   async createMerchantWebhook(webhook: Partial<MerchantWebhook>): Promise<MerchantWebhook> {
