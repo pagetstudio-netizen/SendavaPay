@@ -251,13 +251,13 @@ async function initializeWithTimeout<T>(
   // ===== System error alerts (T007) =====
   process.on("uncaughtException", (err) => {
     log(`Uncaught exception: ${err.message}`, "error");
-    notifySystemError("uncaughtException", err.message || String(err)).catch(() => {});
+    notifySystemError("uncaughtException", err.message || String(err));
   });
 
   process.on("unhandledRejection", (reason) => {
     const msg = reason instanceof Error ? reason.message : String(reason);
     log(`Unhandled rejection: ${msg}`, "error");
-    notifySystemError("unhandledRejection", msg).catch(() => {});
+    notifySystemError("unhandledRejection", msg);
   });
 
   // ===== Daily report scheduler (T006) =====
