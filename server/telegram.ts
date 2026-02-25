@@ -239,6 +239,143 @@ export function notifyNewUser(data: {
   );
 }
 
+export async function sendBotReply(chatId: string | number, text: string): Promise<boolean> {
+  if (!TELEGRAM_BOT_TOKEN) return false;
+  try {
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export function notifyKycSubmitted(data: {
+  userName: string;
+  userId: number;
+  documentType: string;
+  country: string;
+}) {
+  const msg =
+    `<b>📋 NOUVEAU DOSSIER KYC</b>\n\n` +
+    `<b>Utilisateur:</b> ${data.userName} (#${data.userId})\n` +
+    `<b>Type de document:</b> ${data.documentType}\n` +
+    `<b>Pays:</b> ${data.country}\n` +
+    `<b>Date:</b> ${formatDate()}\n\n` +
+    `Action requise dans le panneau admin → KYC.`;
+
+  sendTelegramMessage(msg).catch(err =>
+    console.error("[Telegram] KYC notification error:", err)
+  );
+}
+
+export function notifyAdminLogin(data: {
+  userName: string;
+  userId: number;
+  ip: string;
+}) {
+  const msg =
+    `<b>🔐 CONNEXION ADMINISTRATEUR</b>\n\n` +
+    `<b>Admin:</b> ${data.userName} (#${data.userId})\n` +
+    `<b>IP:</b> <code>${data.ip}</code>\n` +
+    `<b>Date:</b> ${formatDate()}`;
+
+  sendTelegramMessage(msg).catch(err =>
+    console.error("[Telegram] Admin login notification error:", err)
+  );
+}
+
+export function notifyPartnerWithdrawal(data: {
+  partnerName: string;
+  partnerId: number;
+  amount: string;
+  fee: string;
+  netAmount: string;
+  paymentMethod: string;
+  mobileNumber: string;
+  country: string;
+}) {
+  const msg =
+    `<b>🏢 RETRAIT PARTENAIRE</b>\n\n` +
+    `<b>Partenaire:</b> ${data.partnerName} (#${data.partnerId})\n` +
+    `<b>Montant:</b> ${formatAmount(data.amount)} FCFA\n` +
+    `<b>Frais:</b> ${formatAmount(data.fee)} FCFA\n` +
+    `<b>Net a envoyer:</b> ${formatAmount(data.netAmount)} FCFA\n` +
+    `<b>Operateur:</b> ${data.paymentMethod}\n` +
+    `<b>Numero:</b> ${data.mobileNumber}\n` +
+    `<b>Pays:</b> ${data.country}\n` +
+    `<b>Date:</b> ${formatDate()}\n\n` +
+    `Action requise dans le panneau admin.`;
+
+  sendTelegramMessage(msg).catch(err =>
+    console.error("[Telegram] Partner withdrawal notification error:", err)
+  );
+}
+
+export function notifyLargeAmount(data: {
+  type: string;
+  userName: string;
+  userId: number;
+  amount: number;
+  currency: string;
+  operator?: string;
+  reference?: string;
+}) {
+  const typeLabel = data.type === "deposit" ? "DEPOT" : data.type === "payment" ? "PAIEMENT" : data.type.toUpperCase();
+  const msg =
+    `<b>🚨 ALERTE GROS MONTANT</b>\n\n` +
+    `<b>Type:</b> ${typeLabel}\n` +
+    `<b>Utilisateur:</b> ${data.userName} (#${data.userId})\n` +
+    `<b>Montant:</b> ${formatAmount(data.amount)} ${data.currency}\n` +
+    (data.operator ? `<b>Operateur:</b> ${data.operator}\n` : "") +
+    (data.reference ? `<b>Reference:</b> ${data.reference}\n` : "") +
+    `<b>Date:</b> ${formatDate()}\n\n` +
+    `Verifiez cette transaction dans le panneau admin.`;
+
+  sendTelegramMessage(msg).catch(err =>
+    console.error("[Telegram] Large amount notification error:", err)
+  );
+}
+
+export function notifySystemError(errorType: string, message: string) {
+  const msg =
+    `<b>🔴 ERREUR SYSTEME CRITIQUE</b>\n\n` +
+    `<b>Type:</b> ${errorType}\n` +
+    `<b>Message:</b> ${message.substring(0, 500)}\n` +
+    `<b>Date:</b> ${formatDate()}`;
+
+  sendTelegramMessage(msg).catch(err =>
+    console.error("[Telegram] System error notification error:", err)
+  );
+}
+
+export async function notifyDailyReport(stats: {
+  totalUsers: number;
+  totalDeposits: string;
+  totalWithdrawals: string;
+  totalTransactionsCount: number;
+  totalTransactionsAmount: string;
+  totalCommissions: string;
+  platformBalance?: string;
+}) {
+  const msg =
+    `<b>📊 RAPPORT QUOTIDIEN - ${new Date().toLocaleDateString("fr-FR", { timeZone: "Africa/Lome", day: "2-digit", month: "2-digit", year: "numeric" })}</b>\n\n` +
+    `<b>👥 Utilisateurs:</b> ${stats.totalUsers.toLocaleString("fr-FR")}\n\n` +
+    `<b>💰 Volume depots:</b> ${formatAmount(stats.totalDeposits)} FCFA\n` +
+    `<b>💸 Volume retraits:</b> ${formatAmount(stats.totalWithdrawals)} FCFA\n\n` +
+    `<b>📈 Total transactions:</b> ${stats.totalTransactionsCount.toLocaleString("fr-FR")}\n` +
+    `<b>Volume total:</b> ${formatAmount(stats.totalTransactionsAmount)} FCFA\n\n` +
+    `<b>💼 Commissions:</b> ${formatAmount(stats.totalCommissions)} FCFA\n` +
+    (stats.platformBalance ? `<b>🏦 Solde plateforme:</b> ${formatAmount(stats.platformBalance)} FCFA\n` : "") +
+    `\n<b>Heure:</b> ${formatDate()}`;
+
+  return sendTelegramMessage(msg);
+}
+
 export async function notifyIpChanged(newIp: string) {
   const msg =
     `<b>⚠️ ALERTE IP SERVEUR CHANGEE</b>\n\n` +
@@ -255,14 +392,19 @@ export async function notifyIpChanged(newIp: string) {
 
 export async function notifyStartup() {
   const msg =
-    `<b>SendavaPay Bot Active</b>\n\n` +
-    `Le bot de notifications est connecte.\n` +
-    `Vous recevrez des alertes pour :\n` +
-    `- Nouveaux utilisateurs\n` +
-    `- Depots\n` +
-    `- Paiements recus (liens + API)\n` +
-    `- Demandes de retrait\n` +
-    `- Retraits approuves/rejetes\n\n` +
+    `<b>🚀 SendavaPay Bot Active</b>\n\n` +
+    `Le serveur a demarré. Alertes actives :\n` +
+    `• Nouveaux utilisateurs\n` +
+    `• Dépôts\n` +
+    `• Paiements reçus (liens + API)\n` +
+    `• Demandes & traitements de retrait\n` +
+    `• KYC soumis\n` +
+    `• Retrait partenaire\n` +
+    `• Gros montants (≥500 000 FCFA)\n` +
+    `• Connexion admin\n` +
+    `• Erreurs système critiques\n` +
+    `• Rapport quotidien (minuit Lome)\n\n` +
+    `Commandes: /stats | /ip | /help\n\n` +
     `<b>Date:</b> ${formatDate()}`;
 
   return sendTelegramMessage(msg);
