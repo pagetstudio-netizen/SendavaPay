@@ -1621,12 +1621,14 @@ export function registerPartnerRoutes(app: Express) {
               });
             }
           } else {
+            const winiError = payoutResult.errors?.msg || payoutResult.errors?.key || JSON.stringify(payoutResult.errors) || "Erreur inconnue";
+            console.error("❌ WiniPayer partner payout failed:", winiError, "| operator:", payoutOperator);
             await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
             await storage.updateWithdrawalRequest(withdrawalRequest.id, {
               status: "failed",
-              rejectionReason: payoutResult.errors?.msg || "Échec du transfert automatique",
+              rejectionReason: winiError,
             });
-            return res.status(500).json({ message: "Le retrait automatique a échoué. Votre solde a été restauré." });
+            return res.status(500).json({ message: `Le retrait automatique a échoué (${winiError}). Votre solde a été restauré.` });
           }
         } catch (payoutError) {
           console.error("Partner WiniPayer payout error:", payoutError);

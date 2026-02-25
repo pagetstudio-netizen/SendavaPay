@@ -2088,11 +2088,14 @@ export async function registerRoutes(
               });
             }
           } else {
+            const winiError = payoutResult.errors?.msg || payoutResult.errors?.key || JSON.stringify(payoutResult.errors) || "Erreur inconnue";
             console.error("❌ WiniPayer payout failed:", payoutResult.errors);
+            console.error("❌ WiniPayer payout error detail:", winiError);
+            console.error("❌ WiniPayer payout operator used:", payoutOperator);
             await storage.setUserBalance(req.session.userId!, balance.toString());
             await storage.updateWithdrawalRequest(withdrawalRequest.id, {
               status: "failed",
-              rejectionReason: payoutResult.errors?.msg || "Échec du transfert automatique",
+              rejectionReason: winiError,
             });
 
             notifyWithdrawalAutoProcessed({
@@ -2104,10 +2107,12 @@ export async function registerRoutes(
               mobileNumber,
               payoutUuid: "N/A",
               status: "failed",
+              errorDetail: winiError,
+              payoutOperator,
             });
 
-            const errorMsg = payoutResult.errors?.msg || "";
-            if (errorMsg.toLowerCase().includes("operator") && errorMsg.toLowerCase().includes("invalid")) {
+            const errorMsg = winiError.toLowerCase();
+            if (errorMsg.includes("operator") || errorMsg.includes("invalid") || errorMsg.includes("unauthorized") || errorMsg.includes("auth") || errorMsg.includes("ip")) {
               fetch("https://api.ipify.org")
                 .then(r => r.text())
                 .then(ip => notifyIpChanged(ip.trim()))
@@ -2115,7 +2120,7 @@ export async function registerRoutes(
             }
 
             return res.status(500).json({
-              message: "Le retrait automatique a échoué. Votre solde a été restauré. Veuillez réessayer.",
+              message: `Le retrait automatique a échoué (${winiError}). Votre solde a été restauré.`,
             });
           }
         } catch (payoutError) {
