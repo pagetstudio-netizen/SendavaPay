@@ -265,11 +265,6 @@ export const WINIPAYER_PAYOUT_OPERATORS: Record<string, string> = {
 };
 
 export function getWiniPayerPayoutOperator(operatorName: string, countryCode: string): string | null {
-  const key1 = `${operatorName} ${countryCode.toUpperCase()}`;
-  if (WINIPAYER_PAYOUT_OPERATORS[key1]) return WINIPAYER_PAYOUT_OPERATORS[key1];
-
-  if (WINIPAYER_PAYOUT_OPERATORS[operatorName]) return WINIPAYER_PAYOUT_OPERATORS[operatorName];
-
   const countryMap: Record<string, string> = {
     "ci": "cote-divoire",
     "bj": "benin",
@@ -278,19 +273,32 @@ export function getWiniPayerPayoutOperator(operatorName: string, countryCode: st
     "sn": "senegal",
     "ml": "mali",
     "ne": "niger",
+    "cm": "cameroun",
+    "cg": "congo-brazzaville",
+    "cd": "congo",
   };
 
+  // 1. Try exact country-specific key first (e.g. "Moov TG")
+  const key1 = `${operatorName} ${countryCode.toUpperCase()}`;
+  if (WINIPAYER_PAYOUT_OPERATORS[key1]) return WINIPAYER_PAYOUT_OPERATORS[key1];
+
+  // 2. Use country-based slug logic (country-aware, always checked before generic name)
   const countrySlug = countryMap[countryCode.toLowerCase()];
-  if (!countrySlug) return null;
+  if (countrySlug) {
+    const opLower = operatorName.toLowerCase();
+    if (opLower.includes("wave")) return `wave-${countrySlug}`;
+    if (opLower.includes("mtn")) return `mtn-${countrySlug}`;
+    if (opLower.includes("orange")) return `orange-${countrySlug}`;
+    if (opLower.includes("moov")) return `moov-${countrySlug}`;
+    if (opLower.includes("flooz")) return `moov-${countrySlug}`;
+    if (opLower.includes("t-money") || opLower.includes("tmoney")) return `mobile-money-${countrySlug}`;
+    return `mobile-money-${countrySlug}`;
+  }
 
-  const opLower = operatorName.toLowerCase();
-  if (opLower.includes("wave")) return `wave-${countrySlug}`;
-  if (opLower.includes("mtn")) return `mtn-${countrySlug}`;
-  if (opLower.includes("orange")) return `orange-${countrySlug}`;
-  if (opLower.includes("moov")) return `moov-${countrySlug}`;
-  if (opLower.includes("t-money") || opLower.includes("tmoney")) return `mobile-money-${countrySlug}`;
+  // 3. Last resort: generic name lookup (may be wrong for multi-country operators)
+  if (WINIPAYER_PAYOUT_OPERATORS[operatorName]) return WINIPAYER_PAYOUT_OPERATORS[operatorName];
 
-  return `mobile-money-${countrySlug}`;
+  return null;
 }
 
 export interface WiniPayerPayoutParams {

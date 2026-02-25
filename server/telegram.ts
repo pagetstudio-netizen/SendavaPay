@@ -168,6 +168,8 @@ export function notifyWithdrawalAutoProcessed(data: {
   mobileNumber: string;
   payoutUuid: string;
   status: string;
+  errorDetail?: string;
+  payoutOperator?: string;
 }) {
   const statusLabel = data.status === "success" ? "REUSSI" : data.status === "failed" ? "ECHOUE" : "EN COURS";
   const emoji = data.status === "success" ? "✅" : data.status === "failed" ? "❌" : "⏳";
@@ -177,8 +179,10 @@ export function notifyWithdrawalAutoProcessed(data: {
     `<b>Montant:</b> ${formatAmount(data.amount)} XOF\n` +
     `<b>Net envoye:</b> ${formatAmount(data.netAmount)} XOF\n` +
     `<b>Operateur:</b> ${data.paymentMethod}\n` +
+    (data.payoutOperator ? `<b>Slug WiniPayer:</b> <code>${data.payoutOperator}</code>\n` : "") +
     `<b>Numero:</b> ${data.mobileNumber}\n` +
     `<b>Ref Payout:</b> ${data.payoutUuid}\n` +
+    (data.errorDetail ? `<b>Erreur WiniPayer:</b> <code>${data.errorDetail}</code>\n` : "") +
     `<b>Date:</b> ${formatDate()}`;
 
   sendTelegramMessage(msg).catch((err) =>
