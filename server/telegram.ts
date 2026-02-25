@@ -239,6 +239,20 @@ export function notifyNewUser(data: {
   );
 }
 
+export async function notifyIpChanged(newIp: string) {
+  const msg =
+    `<b>⚠️ ALERTE IP SERVEUR CHANGEE</b>\n\n` +
+    `L'adresse IP du serveur a change. Les retraits automatiques WiniPayer sont bloques.\n\n` +
+    `<b>Nouvelle IP:</b> <code>${newIp}</code>\n\n` +
+    `<b>Action requise:</b>\n` +
+    `1. Connectez-vous sur manager.winipayer.com\n` +
+    `2. Allez dans "IPs whitelist (Payout)"\n` +
+    `3. Ajoutez l'IP: <code>${newIp}</code>\n\n` +
+    `<b>Date:</b> ${formatDate()}`;
+
+  return sendTelegramMessage(msg);
+}
+
 export async function notifyStartup() {
   const msg =
     `<b>SendavaPay Bot Active</b>\n\n` +

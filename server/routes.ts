@@ -32,6 +32,7 @@ import {
   notifyWithdrawalRejected,
   notifyWithdrawalAutoProcessed,
   notifyNewUser,
+  notifyIpChanged,
 } from "./telegram";
 
 function getCommissionRate(settings: any, transactionType: string): number {
@@ -2067,6 +2068,14 @@ export async function registerRoutes(
               payoutUuid: "N/A",
               status: "failed",
             });
+
+            const errorMsg = payoutResult.errors?.msg || "";
+            if (errorMsg.toLowerCase().includes("operator") && errorMsg.toLowerCase().includes("invalid")) {
+              fetch("https://api.ipify.org")
+                .then(r => r.text())
+                .then(ip => notifyIpChanged(ip.trim()))
+                .catch(err => console.error("❌ IP check error:", err));
+            }
 
             return res.status(500).json({
               message: "Le retrait automatique a échoué. Votre solde a été restauré. Veuillez réessayer.",
