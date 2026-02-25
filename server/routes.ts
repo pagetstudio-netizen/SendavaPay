@@ -33,6 +33,10 @@ import {
   notifyWithdrawalAutoProcessed,
   notifyNewUser,
   notifyIpChanged,
+  notifyKycSubmitted,
+  notifyAdminLogin,
+  notifyLargeAmount,
+  sendBotReply,
 } from "./telegram";
 
 function getCommissionRate(settings: any, transactionType: string): number {
@@ -246,6 +250,15 @@ export async function registerRoutes(
       }
 
       req.session.userId = user.id;
+
+      if (user.role === "admin") {
+        notifyAdminLogin({
+          userName: user.fullName,
+          userId: user.id,
+          ip: req.ip || req.socket?.remoteAddress || "inconnu",
+        });
+      }
+
       const { password: _, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
     } catch (error) {
@@ -703,6 +716,18 @@ export async function registerRoutes(
             reference: payId,
           });
 
+          if (amount >= 500000) {
+            notifyLargeAmount({
+              type: "deposit",
+              userName: depositUser?.fullName || "Inconnu",
+              userId: existingPayment.userId,
+              amount,
+              currency: existingPayment.currency || "XOF",
+              operator: existingPayment.paymentMethod || undefined,
+              reference: payId,
+            });
+          }
+
           return res.json({ 
             status: "SUCCESS", 
             message: `Paiement confirmé! ${netAmount} ${existingPayment.currency} crédités sur votre compte.`,
@@ -1050,6 +1075,18 @@ export async function registerRoutes(
             reference: payId,
             source: "link",
           });
+
+          if (amount >= 500000) {
+            notifyLargeAmount({
+              type: "payment",
+              userName: merchant?.fullName || "Inconnu",
+              userId: link.userId,
+              amount,
+              currency: existingPayment.currency || "XOF",
+              operator: existingPayment.paymentMethod || undefined,
+              reference: payId,
+            });
+          }
 
           return res.json({ 
             status: "SUCCESS", 
@@ -3252,6 +3289,14 @@ export async function registerRoutes(
         selfiePath,
       });
 
+      const kycUser = await storage.getUser(req.session.userId!);
+      notifyKycSubmitted({
+        userName: kycUser?.fullName || fullName || "Inconnu",
+        userId: req.session.userId!,
+        documentType,
+        country,
+      });
+
       res.json(kyc);
     } catch (error) {
       console.error("Submit KYC error:", error);
@@ -4243,6 +4288,18 @@ export async function registerRoutes(
               operator: leekpayPayment.paymentMethod || undefined,
               reference: paymentReference!,
             });
+
+            if (amount >= 500000) {
+              notifyLargeAmount({
+                type: "deposit",
+                userName: depositUser?.fullName || "Inconnu",
+                userId: leekpayPayment.userId,
+                amount,
+                currency: paymentCurrency || "XOF",
+                operator: leekpayPayment.paymentMethod || undefined,
+                reference: paymentReference!,
+              });
+            }
             
             console.log(`✅ Paiement confirmé pour utilisateur #${leekpayPayment.userId}: référence=${paymentReference}, montant=${netAmount} ${paymentCurrency}`);
           } else if (leekpayPayment.type === "payment_link" && leekpayPayment.paymentLinkId) {
@@ -4307,6 +4364,18 @@ export async function registerRoutes(
                 reference: paymentReference!,
                 source: "link",
               });
+
+              if (amount >= 500000) {
+                notifyLargeAmount({
+                  type: "payment",
+                  userName: merchant?.fullName || "Inconnu",
+                  userId: link.userId,
+                  amount,
+                  currency: paymentCurrency || "XOF",
+                  operator: leekpayPayment.paymentMethod || undefined,
+                  reference: paymentReference!,
+                });
+              }
               
               console.log(`✅ Paiement confirmé pour marchand #${link.userId}: référence=${paymentReference}, montant=${netAmount} ${paymentCurrency}`);
             }
@@ -4865,6 +4934,70 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Test email error:", error);
       res.status(500).json({ message: error.message || "Erreur lors de l'envoi de l'email de test" });
+    }
+  });
+
+  // ========== TELEGRAM BOT WEBHOOK ==========
+  app.post("/api/webhook/telegram", async (req, res) => {
+    try {
+      const update = req.body;
+      const message = update?.message || update?.edited_message;
+      if (!message || !message.text) return res.json({ ok: true });
+
+      const chatId = message.chat.id;
+      const text = (message.text as string).trim();
+      const command = text.split(" ")[0].toLowerCase().split("@")[0];
+
+      if (command === "/stats") {
+        try {
+          const stats = await storage.getStats();
+          const platformBalance = await storage.getPlatformBalance();
+          const reply =
+            `<b>📊 STATISTIQUES SENDAVAPAY</b>\n\n` +
+            `<b>👥 Utilisateurs:</b> ${stats.totalUsers.toLocaleString("fr-FR")}\n` +
+            `<b>💰 Depots:</b> ${stats.totalDeposits} | ${parseFloat(stats.totalDepositsAmount || "0").toLocaleString("fr-FR")} FCFA\n` +
+            `<b>💸 Retraits:</b> ${stats.totalWithdrawals} | ${parseFloat(stats.totalWithdrawalsAmount || "0").toLocaleString("fr-FR")} FCFA\n` +
+            `<b>📈 Transactions:</b> ${stats.totalTransactionsCount} | ${parseFloat(stats.totalTransactionsAmount || "0").toLocaleString("fr-FR")} FCFA\n` +
+            `<b>💼 Commissions:</b> ${parseFloat(stats.totalCommissions || "0").toLocaleString("fr-FR")} FCFA\n` +
+            `<b>🏦 Solde plateforme:</b> ${parseFloat(platformBalance?.totalBalance || "0").toLocaleString("fr-FR")} FCFA`;
+          await sendBotReply(chatId, reply);
+        } catch {
+          await sendBotReply(chatId, "❌ Impossible de récupérer les statistiques.");
+        }
+
+      } else if (command === "/ip") {
+        try {
+          const ipRes = await fetch("https://api.ipify.org");
+          const ip = await ipRes.text();
+          await sendBotReply(chatId, `<b>🌐 IP Serveur actuelle:</b> <code>${ip.trim()}</code>\n\nAjouter sur manager.winipayer.com → IPs whitelist (Payout)`);
+        } catch {
+          await sendBotReply(chatId, "❌ Impossible de récupérer l'IP du serveur.");
+        }
+
+      } else if (command === "/help") {
+        const help =
+          `<b>🤖 Commandes SendavaPay Bot</b>\n\n` +
+          `/stats — Statistiques en temps réel\n` +
+          `/ip — IP actuelle du serveur\n` +
+          `/help — Liste des commandes\n\n` +
+          `Alertes automatiques actives:\n` +
+          `• Nouveaux utilisateurs\n` +
+          `• Dépôts\n` +
+          `• Paiements reçus\n` +
+          `• Demandes & traitements de retrait\n` +
+          `• KYC soumis\n` +
+          `• Retrait partenaire\n` +
+          `• Gros montants (≥500 000 FCFA)\n` +
+          `• Connexion admin\n` +
+          `• Erreurs système critiques\n` +
+          `• Rapport quotidien (minuit)`;
+        await sendBotReply(chatId, help);
+      }
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Telegram webhook error:", error);
+      res.json({ ok: true });
     }
   });
 

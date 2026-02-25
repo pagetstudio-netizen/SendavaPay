@@ -4,7 +4,8 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initializeAdminAccount } from "./init-admin";
 import { testDatabaseConnection, isDatabaseConnected, startBackgroundReconnection, pool } from "./db";
-import { notifyStartup } from "./telegram";
+import { notifyStartup, notifySystemError, notifyDailyReport } from "./telegram";
+import { storage } from "./storage";
 
 const app = express();
 const httpServer = createServer(app);
@@ -247,6 +248,73 @@ async function initializeWithTimeout<T>(
     await setupVite(httpServer, app);
   }
 
+  // ===== System error alerts (T007) =====
+  process.on("uncaughtException", (err) => {
+    log(`Uncaught exception: ${err.message}`, "error");
+    notifySystemError("uncaughtException", err.message || String(err)).catch(() => {});
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    log(`Unhandled rejection: ${msg}`, "error");
+    notifySystemError("unhandledRejection", msg).catch(() => {});
+  });
+
+  // ===== Daily report scheduler (T006) =====
+  function scheduleDailyReport() {
+    const lomeNow = new Date(new Date().toLocaleString("en-US", { timeZone: "Africa/Lome" }));
+    const lomeMidnight = new Date(lomeNow);
+    lomeMidnight.setDate(lomeMidnight.getDate() + 1);
+    lomeMidnight.setHours(0, 0, 0, 0);
+    const delayMs = lomeMidnight.getTime() - lomeNow.getTime();
+
+    setTimeout(async () => {
+      try {
+        const stats = await storage.getStats();
+        const platformBalance = await storage.getPlatformBalance();
+        await notifyDailyReport({
+          totalUsers: stats.totalUsers,
+          totalDeposits: stats.totalDeposits,
+          totalWithdrawals: stats.totalWithdrawals,
+          totalTransactionsCount: stats.totalTransactionsCount,
+          totalTransactionsAmount: stats.totalTransactionsAmount,
+          totalCommissions: stats.totalCommissions,
+          platformBalance: platformBalance?.totalBalance,
+        });
+        log("Daily report sent to Telegram", "telegram");
+      } catch (err) {
+        log(`Daily report error: ${err}`, "telegram");
+      }
+      scheduleDailyReport();
+    }, delayMs);
+
+    const hours = Math.floor(delayMs / 3600000);
+    const minutes = Math.floor((delayMs % 3600000) / 60000);
+    log(`Daily report scheduled in ${hours}h${minutes}m`, "telegram");
+  }
+
+  // ===== Register Telegram webhook (T006) =====
+  async function registerTelegramWebhook() {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    if (!token) return;
+    try {
+      const webhookUrl = "https://sendavapay.com/api/webhook/telegram";
+      const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: webhookUrl, allowed_updates: ["message"] }),
+      });
+      const data = await res.json() as { ok: boolean; description?: string };
+      if (data.ok) {
+        log("Telegram webhook registered: " + webhookUrl, "telegram");
+      } else {
+        log("Telegram webhook registration failed: " + data.description, "telegram");
+      }
+    } catch (err) {
+      log(`Telegram webhook registration error: ${err}`, "telegram");
+    }
+  }
+
   httpServer.listen(
     {
       port,
@@ -256,6 +324,8 @@ async function initializeWithTimeout<T>(
     () => {
       log(`serving on port ${port}`);
       notifyStartup().catch(err => log(`Telegram startup notification failed: ${err}`, "telegram"));
+      scheduleDailyReport();
+      registerTelegramWebhook().catch(err => log(`Telegram webhook setup error: ${err}`, "telegram"));
     },
   );
 })();

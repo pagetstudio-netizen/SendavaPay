@@ -7,6 +7,7 @@ import { partnerLoginSchema } from "@shared/schema";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { notifyPartnerWithdrawal } from "./telegram";
 
 declare module "express-session" {
   interface SessionData {
@@ -1571,6 +1572,17 @@ export function registerPartnerRoutes(app: Express) {
 
         await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
 
+        notifyPartnerWithdrawal({
+          partnerName: partner.name,
+          partnerId: req.session.partnerId!,
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          paymentMethod: selectedOperator.name,
+          mobileNumber,
+          country,
+        });
+
         try {
           const payoutResult = await createPayout({
             operator: payoutOperator,
@@ -1636,6 +1648,17 @@ export function registerPartnerRoutes(app: Express) {
         mobileNumber,
         country,
         walletName: `PARTENAIRE:${partner.name}` + (walletName ? ` - ${walletName}` : ""),
+      });
+
+      notifyPartnerWithdrawal({
+        partnerName: partner.name,
+        partnerId: req.session.partnerId!,
+        amount: numericAmount.toString(),
+        fee: fee.toString(),
+        netAmount: netAmount.toString(),
+        paymentMethod: selectedOperator.name,
+        mobileNumber,
+        country,
       });
 
       res.json({ 
