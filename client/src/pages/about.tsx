@@ -6,44 +6,40 @@ import { ArrowLeft, Target, Eye, Heart, Users, Globe, Zap, Shield, TrendingUp, H
 const countries = [
   {
     name: "Togo",
-    flag: "TG",
-    payments: ["Moov Money", "TMoney"]
+    flag: "🇹🇬",
+    payments: ["TMoney", "Moov Money"]
   },
   {
     name: "Côte d'Ivoire",
-    flag: "CI",
-    payments: ["Wave", "MTN", "Orange Money", "Moov Money"]
+    flag: "🇨🇮",
+    payments: ["MTN", "Orange Money", "Moov Money", "Wave"]
   },
   {
     name: "Bénin",
-    flag: "BJ",
-    payments: ["Celtis", "Moov Money", "MTN"]
-  },
-  {
-    name: "Mali",
-    flag: "ML",
-    payments: ["Orange Money", "Moov Money"]
+    flag: "🇧🇯",
+    payments: ["MTN", "Moov Money"]
   },
   {
     name: "Burkina Faso",
-    flag: "BF",
-    payments: ["Moov Money"]
+    flag: "🇧🇫",
+    payments: ["Moov Money", "Orange Money"]
   },
   {
-    name: "Sénégal",
-    flag: "SN",
-    payments: ["Moov Money", "Orange Money", "Wave"]
+    name: "Cameroun",
+    flag: "🇨🇲",
+    payments: ["MTN", "Orange Money"]
+  },
+  {
+    name: "Congo Brazzaville",
+    flag: "🇨🇬",
+    payments: ["Airtel Money", "MTN"]
+  },
+  {
+    name: "RDC",
+    flag: "🇨🇩",
+    payments: ["Vodacom M-Pesa", "Airtel Money", "Orange Money"]
   }
 ];
-
-const flagEmojis: Record<string, string> = {
-  TG: "🇹🇬",
-  CI: "🇨🇮",
-  BJ: "🇧🇯",
-  ML: "🇲🇱",
-  BF: "🇧🇫",
-  SN: "🇸🇳"
-};
 
 export default function AboutPage() {
   return (
@@ -241,17 +237,17 @@ export default function AboutPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-center">Présence en Afrique de l'Ouest</CardTitle>
+              <CardTitle className="text-center">Présence en Afrique</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-center text-muted-foreground mb-6">
-                SendavaPay est disponible dans 6 pays avec différents moyens de paiement Mobile Money
+                SendavaPay est disponible dans 7 pays avec différents moyens de paiement Mobile Money
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {countries.map((country) => (
-                  <div key={country.flag} className="p-4 bg-muted/50 rounded-md" data-testid={`country-${country.flag}`}>
+                  <div key={country.name} className="p-4 bg-muted/50 rounded-md" data-testid={`country-${country.name}`}>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-2xl">{flagEmojis[country.flag]}</span>
+                      <span className="text-2xl">{country.flag}</span>
                       <p className="font-semibold">{country.name}</p>
                     </div>
                     <div className="flex flex-wrap gap-1">

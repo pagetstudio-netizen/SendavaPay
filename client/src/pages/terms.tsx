@@ -25,7 +25,7 @@ export default function TermsPage() {
       <main className="container mx-auto px-4 py-8 max-w-4xl">
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2" data-testid="text-page-title">Conditions d'utilisation et Politique de confidentialité</h1>
-          <p className="text-muted-foreground">Dernière mise à jour : Décembre 2024</p>
+          <p className="text-muted-foreground">Dernière mise à jour : 25 février 2026</p>
         </div>
 
         <div className="space-y-6">
