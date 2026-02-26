@@ -576,6 +576,66 @@ export async function registerRoutes(
         });
       }
 
+      if (paymentGateway === "maishapay") {
+        if (!phoneNumber) {
+          return res.status(400).json({ message: "Numéro de téléphone requis pour MaishaPay" });
+        }
+
+        console.log(`📤 MaishaPay: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
+
+        const { maishapay: mpClient, getMaishapayProvider } = await import("./maishapay");
+        const mpProvider = getMaishapayProvider(operator?.name || service.operator, service.countryCode);
+
+        if (!mpProvider) {
+          return res.status(400).json({ message: "Opérateur non supporté par MaishaPay" });
+        }
+
+        let cleanPhone = phoneNumber.replace(/[\s\-\(\)]/g, "");
+        if (!cleanPhone.startsWith("+")) cleanPhone = "+" + cleanPhone;
+
+        const mpResult = await mpClient.collectPayment({
+          transactionReference: orderId,
+          amount: numericAmount,
+          currency: service.currency,
+          customerFullName: user.fullName,
+          customerEmail: user.email,
+          provider: mpProvider,
+          walletID: cleanPhone,
+          callbackUrl: `${baseUrl}/api/webhook/maishapay`,
+        });
+
+        if (mpResult.status_code !== 202 || mpResult.transactionStatus?.trim().toUpperCase() === "FAILED") {
+          console.error("❌ MaishaPay collect error:", mpResult);
+          return res.status(500).json({ message: mpResult.message || "Erreur lors de l'initialisation du paiement MaishaPay" });
+        }
+
+        await storage.createLeekpayPayment({
+          leekpayPaymentId: orderId,
+          userId: req.session.userId!,
+          amount: numericAmount.toString(),
+          currency: service.currency,
+          type: "deposit",
+          status: "pending",
+          description: `Dépôt via ${service.operator} (${service.country}) - MaishaPay`,
+          customerEmail: user.email,
+          payerPhone: cleanPhone,
+          paymentMethod: `maishapay_${service.name}`,
+          returnUrl: `${baseUrl}/success`,
+          externalRef: mpResult.transactionId?.toString() || null,
+        });
+
+        console.log(`📤 MaishaPay: Collecte initiée ref=${orderId}, transactionId=${mpResult.transactionId}`);
+
+        return res.json({
+          success: true,
+          payId: orderId,
+          orderId,
+          status: "PENDING",
+          provider: "maishapay",
+          message: "Paiement initié. Veuillez confirmer sur votre téléphone.",
+        });
+      }
+
       if (!phoneNumber) {
         return res.status(400).json({ message: "Numéro de téléphone requis pour SoleasPay" });
       }
@@ -840,6 +900,69 @@ export async function registerRoutes(
           provider: "winipayer",
           checkoutUrl,
           message: "Vous allez être redirigé vers la page de paiement WiniPayer.",
+        });
+      }
+
+      if (paymentGateway === "maishapay") {
+        if (!phoneNumber) {
+          return res.status(400).json({ message: "Numéro de téléphone requis pour MaishaPay" });
+        }
+
+        console.log(`📤 MaishaPay: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}`);
+
+        const { maishapay: mpClient, getMaishapayProvider } = await import("./maishapay");
+        const mpProvider = getMaishapayProvider(operator?.name || service.operator, service.countryCode);
+
+        if (!mpProvider) {
+          return res.status(400).json({ message: "Opérateur non supporté par MaishaPay" });
+        }
+
+        let cleanPhone = phoneNumber.replace(/[\s\-\(\)]/g, "");
+        if (!cleanPhone.startsWith("+")) cleanPhone = "+" + cleanPhone;
+
+        const mpResult = await mpClient.collectPayment({
+          transactionReference: orderId,
+          amount: numericAmount,
+          currency: service.currency,
+          customerFullName: payerName,
+          customerEmail: payerEmail || "",
+          provider: mpProvider,
+          walletID: cleanPhone,
+          callbackUrl: `${baseUrl}/api/webhook/maishapay`,
+        });
+
+        if (mpResult.status_code !== 202 || mpResult.transactionStatus?.trim().toUpperCase() === "FAILED") {
+          console.error("❌ MaishaPay pay-link error:", mpResult);
+          return res.status(500).json({ message: mpResult.message || "Erreur lors de l'initialisation du paiement MaishaPay" });
+        }
+
+        await storage.createLeekpayPayment({
+          leekpayPaymentId: orderId,
+          userId: null,
+          paymentLinkId: link.id,
+          amount: numericAmount.toString(),
+          currency: service.currency,
+          type: "payment_link",
+          status: "pending",
+          description: `Paiement ${link.title} - MaishaPay`,
+          customerEmail: payerEmail,
+          payerName,
+          payerPhone: cleanPhone,
+          payerCountry: service.countryCode,
+          paymentMethod: `maishapay_${service.name}`,
+          returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}`,
+          externalRef: mpResult.transactionId?.toString() || null,
+        });
+
+        console.log(`📤 MaishaPay: Paiement lien initié ref=${orderId}, transactionId=${mpResult.transactionId}`);
+
+        return res.json({
+          success: true,
+          payId: orderId,
+          orderId,
+          status: "PENDING",
+          provider: "maishapay",
+          message: "Paiement initié. Veuillez confirmer sur votre téléphone.",
         });
       }
 
@@ -1560,6 +1683,222 @@ export async function registerRoutes(
     }
   });
 
+  // Vérification manuelle d'un paiement MaishaPay
+  app.get("/api/verify-maishapay/:reference", requireAuth, async (req, res) => {
+    try {
+      const { reference } = req.params;
+      console.log(`🔍 MaishaPay: Vérification manuelle ref=${reference}`);
+
+      const existingPayment = await storage.getLeekpayPaymentById(reference);
+      if (existingPayment?.status === "completed") {
+        return res.json({ status: "SUCCESS", message: "Paiement déjà traité", amount: existingPayment.amount });
+      }
+
+      if (!existingPayment) {
+        return res.status(404).json({ status: "NOT_FOUND", message: "Paiement non trouvé" });
+      }
+
+      const { maishapay: mpClient } = await import("./maishapay");
+      const checkResult = await mpClient.checkTransaction(reference);
+
+      if (checkResult.status_code === 200 && checkResult.transactionStatus?.trim().toUpperCase() === "SUCCESS") {
+        const claimed = await storage.claimLeekpayPayment(reference);
+        if (!claimed) {
+          return res.json({ status: "SUCCESS", message: "Paiement déjà traité", amount: existingPayment?.amount });
+        }
+
+        const amount = parseFloat(claimed.amount);
+        const settings = await storage.getCommissionSettings();
+
+        if (claimed.type === "deposit" && claimed.userId) {
+          const commissionRate = getCommissionRate(settings, "deposit");
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
+
+          await storage.createTransaction({
+            userId: claimed.userId,
+            type: "deposit",
+            amount: amount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: claimed.description || "Dépôt via MaishaPay",
+            externalRef: reference,
+            paymentMethod: claimed.paymentMethod || "maishapay",
+          });
+
+          await storage.updateUserBalance(claimed.userId, netAmount.toString());
+
+          const depositUser = await storage.getUser(claimed.userId);
+          if (depositUser?.email) {
+            sendDepositEmail(depositUser.email, {
+              userName: depositUser.fullName,
+              amount: netAmount,
+              currency: claimed.currency || "CDF",
+              transactionId: reference,
+            }).catch(err => console.error("Failed to send deposit email:", err));
+          }
+
+          console.log(`✅ MaishaPay verify: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
+          return res.json({ status: "SUCCESS", message: "Paiement confirmé avec succès", amount: netAmount });
+        } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
+          const commissionRate = getCommissionRate(settings, "payment_received");
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
+
+          const link = await storage.getPaymentLink(claimed.paymentLinkId);
+          if (link) {
+            await storage.updatePaymentLink(link.id, { paidAt: new Date(), paidAmount: amount.toString() });
+            await storage.createTransaction({
+              userId: link.userId,
+              type: "payment_received",
+              amount: amount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: `Paiement reçu - ${link.title}`,
+              externalRef: reference,
+              paymentMethod: claimed.paymentMethod || "maishapay",
+              mobileNumber: claimed.payerPhone,
+              payerName: claimed.payerName,
+              payerEmail: claimed.customerEmail,
+              payerCountry: claimed.payerCountry,
+              paymentLinkId: link.id,
+            });
+            await storage.updateUserBalance(link.userId, netAmount.toString());
+            console.log(`✅ MaishaPay verify: Paiement lien confirmé vendeur #${link.userId}: ${netAmount}`);
+          }
+          return res.json({ status: "SUCCESS", message: "Paiement confirmé", amount: netAmount });
+        }
+      } else if (checkResult.transactionStatus?.trim().toUpperCase() === "FAILED") {
+        await storage.updateLeekpayPayment(reference, { status: "failed" });
+        return res.json({ status: "FAILURE", message: "Le paiement a échoué" });
+      }
+
+      return res.json({ status: "PENDING", message: "Paiement en attente de confirmation" });
+    } catch (error) {
+      console.error("MaishaPay verify error:", error);
+      return res.json({ status: "PENDING", message: "Vérification en cours..." });
+    }
+  });
+
+  // Callback webhook MaishaPay
+  app.post("/api/webhook/maishapay", async (req, res) => {
+    try {
+      const data = req.body;
+      console.log("📥 === MaishaPay Webhook reçu ===");
+      console.log("📥 Data:", JSON.stringify(data));
+
+      res.status(200).json({ received: true });
+
+      const transactionStatus = (data?.transactionStatus || "").trim().toUpperCase();
+      const originatingTransactionId = data?.originatingTransactionId;
+
+      if (!originatingTransactionId) {
+        console.error("❌ MaishaPay webhook: originatingTransactionId manquant");
+        return;
+      }
+
+      const payment = await storage.getLeekpayPaymentById(originatingTransactionId);
+      if (!payment) {
+        console.log("⚠️ MaishaPay webhook: Paiement non trouvé ref=" + originatingTransactionId);
+        return;
+      }
+
+      if (payment.status === "completed") {
+        console.log("⚠️ MaishaPay webhook: Paiement déjà traité ref=" + originatingTransactionId);
+        return;
+      }
+
+      if (transactionStatus === "SUCCESS") {
+        const claimed = await storage.claimLeekpayPayment(originatingTransactionId);
+        if (!claimed) {
+          console.log("⚠️ MaishaPay webhook: Paiement déjà réclamé ref=" + originatingTransactionId);
+          return;
+        }
+
+        const amount = parseFloat(claimed.amount);
+        const settings = await storage.getCommissionSettings();
+
+        if (claimed.type === "deposit" && claimed.userId) {
+          const commissionRate = getCommissionRate(settings, "deposit");
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
+
+          await storage.createTransaction({
+            userId: claimed.userId,
+            type: "deposit",
+            amount: amount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: claimed.description || "Dépôt via MaishaPay",
+            externalRef: originatingTransactionId,
+            paymentMethod: claimed.paymentMethod || "maishapay",
+          });
+
+          await storage.updateUserBalance(claimed.userId, netAmount.toString());
+
+          const depositUser = await storage.getUser(claimed.userId);
+          if (depositUser?.email) {
+            sendDepositEmail(depositUser.email, {
+              userName: depositUser.fullName,
+              amount: netAmount,
+              currency: claimed.currency || "CDF",
+              transactionId: originatingTransactionId,
+            }).catch(err => console.error("Failed to send deposit email:", err));
+          }
+
+          const { notifyDeposit } = await import("./telegram");
+          notifyDeposit({
+            userName: depositUser?.fullName || "Inconnu",
+            userId: claimed.userId,
+            amount,
+            netAmount,
+            currency: claimed.currency || "CDF",
+            paymentMethod: claimed.paymentMethod || "maishapay",
+            transactionId: originatingTransactionId,
+            type: "deposit",
+          });
+
+          console.log(`✅ MaishaPay webhook: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
+        } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
+          const commissionRate = getCommissionRate(settings, "payment_received");
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
+
+          const link = await storage.getPaymentLink(claimed.paymentLinkId);
+          if (link) {
+            await storage.updatePaymentLink(link.id, { paidAt: new Date(), paidAmount: amount.toString() });
+            await storage.createTransaction({
+              userId: link.userId,
+              type: "payment_received",
+              amount: amount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: `Paiement reçu - ${link.title}`,
+              externalRef: originatingTransactionId,
+              paymentMethod: claimed.paymentMethod || "maishapay",
+              mobileNumber: claimed.payerPhone,
+              payerName: claimed.payerName,
+              payerEmail: claimed.customerEmail,
+              payerCountry: claimed.payerCountry,
+              paymentLinkId: link.id,
+            });
+            await storage.updateUserBalance(link.userId, netAmount.toString());
+            console.log(`✅ MaishaPay webhook: Paiement lien confirmé vendeur #${link.userId}: ${netAmount}`);
+          }
+        }
+      } else if (transactionStatus === "FAILED") {
+        await storage.updateLeekpayPayment(originatingTransactionId, { status: "failed" });
+        console.log(`❌ MaishaPay webhook: Paiement échoué ref=${originatingTransactionId}`);
+      }
+    } catch (error) {
+      console.error("MaishaPay webhook error:", error);
+    }
+  });
+
   // ========== FIN SOLEASPAY ROUTES ==========
 
   // Vérifier et créditer un paiement LeekPay (appelé au retour de LeekPay)
@@ -2129,6 +2468,138 @@ export async function registerRoutes(
           await storage.updateWithdrawalRequest(withdrawalRequest.id, {
             status: "failed",
             rejectionReason: "Erreur technique lors du transfert automatique",
+          });
+
+          return res.status(500).json({
+            message: "Erreur technique lors du retrait. Votre solde a été restauré.",
+          });
+        }
+      }
+
+      if (selectedOperator.paymentGateway === "maishapay") {
+        const { maishapay: mpClient, getMaishapayProvider } = await import("./maishapay");
+        const mpProvider = getMaishapayProvider(selectedOperator.name, selectedCountry.code);
+
+        if (!mpProvider) {
+          await storage.setUserBalance(req.session.userId!, balance.toString());
+          return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique MaishaPay" });
+        }
+
+        const currency = selectedCountry.currency || "XOF";
+        const withdrawalRequest = await storage.createWithdrawalRequest({
+          userId: req.session.userId!,
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          paymentMethod: selectedOperator.name,
+          mobileNumber,
+          country,
+          walletName: walletName || null,
+        });
+
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
+
+        let cleanPhone = mobileNumber.replace(/[\s\-\(\)]/g, "");
+        if (!cleanPhone.startsWith("+")) cleanPhone = "+" + cleanPhone;
+
+        console.log("💸 MaishaPay B2C auto-withdrawal: provider=", mpProvider, "amount=", netAmount, "phone=", cleanPhone, "currency=", currency);
+
+        try {
+          const b2cRef = `WD-${withdrawalRequest.id}-${Date.now()}`;
+          const b2cResult = await mpClient.b2cTransfer({
+            transactionReference: b2cRef,
+            amount: netAmount,
+            currency,
+            customerFullName: walletName || user.fullName || "Client",
+            customerEmail: user.email,
+            motif: `Retrait SendavaPay #${withdrawalRequest.id}`,
+            provider: mpProvider,
+            walletID: cleanPhone,
+            callbackUrl: "https://sendavapay.com/api/webhook/maishapay-payout",
+          });
+
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+            externalReference: b2cRef,
+            transactionReference: b2cResult.transactionId?.toString() || null,
+          });
+
+          if (b2cResult.status_code === 200 && b2cResult.transactionStatus?.trim().toUpperCase() === "SUCCESS") {
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              status: "approved",
+              processedAt: new Date(),
+            });
+
+            await storage.createTransaction({
+              userId: req.session.userId!,
+              type: "withdrawal",
+              amount: numericAmount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: `Retrait automatique ${selectedOperator.name} - ${mobileNumber}`,
+              mobileNumber,
+              paymentMethod: selectedOperator.name,
+            });
+
+            if (user?.email) {
+              sendWithdrawalEmail(user.email, {
+                userName: user.fullName,
+                amount: netAmount,
+                currency,
+                transactionId: withdrawalRequest.id.toString(),
+                phone: mobileNumber,
+                operator: selectedOperator.name,
+              }).catch(err => console.error("Failed to send withdrawal email:", err));
+            }
+
+            notifyWithdrawalAutoProcessed({
+              userName: user.fullName,
+              userId: req.session.userId!,
+              amount: numericAmount.toString(),
+              netAmount: netAmount.toString(),
+              paymentMethod: selectedOperator.name,
+              mobileNumber,
+              payoutUuid: b2cRef,
+              status: "success",
+            });
+
+            return res.json({
+              message: "Retrait effectué avec succès! L'argent a été envoyé sur votre compte mobile.",
+              request: { ...withdrawalRequest, status: "approved" },
+              autoProcessed: true,
+            });
+          } else {
+            const mpError = b2cResult.message || b2cResult.error || "Erreur MaishaPay inconnue";
+            console.error("❌ MaishaPay B2C failed:", b2cResult);
+            await storage.setUserBalance(req.session.userId!, balance.toString());
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              status: "failed",
+              rejectionReason: mpError,
+            });
+
+            notifyWithdrawalAutoProcessed({
+              userName: user.fullName,
+              userId: req.session.userId!,
+              amount: numericAmount.toString(),
+              netAmount: netAmount.toString(),
+              paymentMethod: selectedOperator.name,
+              mobileNumber,
+              payoutUuid: "N/A",
+              status: "failed",
+              errorDetail: mpError,
+              payoutOperator: mpProvider,
+            });
+
+            return res.status(500).json({
+              message: `Le retrait automatique a échoué (${mpError}). Votre solde a été restauré.`,
+            });
+          }
+        } catch (mpError) {
+          console.error("❌ MaishaPay B2C exception:", mpError);
+          await storage.setUserBalance(req.session.userId!, balance.toString());
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+            status: "failed",
+            rejectionReason: "Erreur technique lors du transfert automatique MaishaPay",
           });
 
           return res.status(500).json({

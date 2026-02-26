@@ -1641,6 +1641,92 @@ export function registerPartnerRoutes(app: Express) {
         }
       }
 
+      if (selectedOperator.paymentGateway === "maishapay") {
+        const { maishapay: mpClient, getMaishapayProvider } = await import("./maishapay");
+        const mpProvider = getMaishapayProvider(selectedOperator.name, selectedCountry.code);
+
+        if (!mpProvider) {
+          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+          return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique MaishaPay" });
+        }
+
+        const currency = selectedCountry.currency || "XOF";
+        const withdrawalRequest = await storage.createWithdrawalRequest({
+          userId: 0,
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          paymentMethod: selectedOperator.name,
+          mobileNumber,
+          country,
+          walletName: `PARTENAIRE:${partner.name}` + (walletName ? ` - ${walletName}` : ""),
+        });
+
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
+
+        notifyPartnerWithdrawal({
+          partnerName: partner.name,
+          partnerId: req.session.partnerId!,
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          paymentMethod: selectedOperator.name,
+          mobileNumber,
+          country,
+        });
+
+        let cleanPhone = mobileNumber.replace(/[\s\-\(\)]/g, "");
+        if (!cleanPhone.startsWith("+")) cleanPhone = "+" + cleanPhone;
+
+        try {
+          const b2cRef = `PWD-${withdrawalRequest.id}-${Date.now()}`;
+          const b2cResult = await mpClient.b2cTransfer({
+            transactionReference: b2cRef,
+            amount: netAmount,
+            currency,
+            customerFullName: walletName || partner.name || "Partenaire",
+            motif: `Retrait Partenaire SendavaPay #${withdrawalRequest.id}`,
+            provider: mpProvider,
+            walletID: cleanPhone,
+            callbackUrl: "https://sendavapay.com/api/webhook/maishapay-payout",
+          });
+
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+            externalReference: b2cRef,
+            transactionReference: b2cResult.transactionId?.toString() || null,
+          });
+
+          if (b2cResult.status_code === 200 && b2cResult.transactionStatus?.trim().toUpperCase() === "SUCCESS") {
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              status: "approved",
+              processedAt: new Date(),
+            });
+            return res.json({
+              message: "Retrait effectué avec succès!",
+              request: { ...withdrawalRequest, status: "approved" },
+              autoProcessed: true,
+            });
+          } else {
+            const mpError = b2cResult.message || b2cResult.error || "Erreur MaishaPay inconnue";
+            console.error("❌ MaishaPay partner B2C failed:", mpError, "| provider:", mpProvider);
+            await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              status: "failed",
+              rejectionReason: mpError,
+            });
+            return res.status(500).json({ message: `Le retrait automatique a échoué (${mpError}). Votre solde a été restauré.` });
+          }
+        } catch (mpError) {
+          console.error("Partner MaishaPay B2C error:", mpError);
+          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+            status: "failed",
+            rejectionReason: "Erreur technique MaishaPay",
+          });
+          return res.status(500).json({ message: "Erreur technique lors du retrait. Votre solde a été restauré." });
+        }
+      }
+
       const withdrawalRequest = await storage.createWithdrawalRequest({
         userId: 0,
         amount: numericAmount.toString(),

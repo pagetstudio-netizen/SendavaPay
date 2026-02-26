@@ -3385,8 +3385,8 @@ function CountriesContent() {
                         <div key={op.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
                           <div className="flex items-center gap-3">
                             <span className="font-medium">{op.name}</span>
-                            <Badge variant={op.paymentGateway === "soleaspay" ? "default" : "secondary"}>
-                              {op.paymentGateway === "soleaspay" ? "SoleasPay" : op.paymentGateway === "winipayer" ? "WiniPayer" : op.paymentGateway}
+                            <Badge variant={op.paymentGateway === "soleaspay" ? "default" : op.paymentGateway === "maishapay" ? "outline" : "secondary"}>
+                              {op.paymentGateway === "soleaspay" ? "SoleasPay" : op.paymentGateway === "winipayer" ? "WiniPayer" : op.paymentGateway === "maishapay" ? "MaishaPay" : op.paymentGateway}
                             </Badge>
                             {op.inMaintenance && <Badge variant="destructive">Maintenance</Badge>}
                             {!op.isActive && <Badge variant="secondary">Inactif</Badge>}
@@ -3491,9 +3491,10 @@ function CountriesContent() {
                 <SelectContent>
                   <SelectItem value="soleaspay">SoleasPay</SelectItem>
                   <SelectItem value="winipayer">WiniPayer</SelectItem>
+                  <SelectItem value="maishapay">MaishaPay</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">SoleasPay: Paiement direct USSD | WiniPayer: Redirection vers page de paiement</p>
+              <p className="text-xs text-muted-foreground">SoleasPay: USSD direct | WiniPayer: Redirection | MaishaPay: USSD direct (RDC, Congo, +)</p>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -3555,9 +3556,10 @@ function CountriesContent() {
                 <SelectContent>
                   <SelectItem value="soleaspay">SoleasPay</SelectItem>
                   <SelectItem value="winipayer">WiniPayer</SelectItem>
+                  <SelectItem value="maishapay">MaishaPay</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">SoleasPay: Paiement direct USSD | WiniPayer: Redirection vers page de paiement</p>
+              <p className="text-xs text-muted-foreground">SoleasPay: USSD direct | WiniPayer: Redirection | MaishaPay: USSD direct (RDC, Congo, +)</p>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">

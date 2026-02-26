@@ -2,7 +2,12 @@
 
 ## Overview
 
-SendavaPay is a fintech payment platform designed for West African markets (Togo, Benin, Burkina Faso, etc.). The application enables users to create payment links, transfer money, make deposits, and perform instant withdrawals via Mobile Money providers (MTN, Moov, Orange, TMoney). The platform includes both user-facing dashboards and an admin panel for managing users, transactions, KYC verification, and commission settings.
+SendavaPay is a fintech payment platform designed for West and Central African markets (Togo, Benin, Burkina Faso, Côte d'Ivoire, Cameroun, RDC, Congo Brazzaville). The application enables users to create payment links, transfer money, make deposits, and perform instant withdrawals via Mobile Money providers (MTN, Moov, Orange, TMoney, Airtel, M-Pesa). The platform includes both user-facing dashboards and an admin panel for managing users, transactions, KYC verification, and commission settings.
+
+**Payment Gateways:**
+- **SoleasPay** — USSD direct, primary gateway (XOF, XAF, CDF)
+- **WiniPayer** — Redirect checkout, asynchronous payout via webhook (XOF)
+- **MaishaPay** — USSD direct + synchronous B2C payout (XOF, XAF, CDF) — covers RDC, Congo, Cameroun, CI, Sénégal, Bénin, Togo
 
 ## User Preferences
 
