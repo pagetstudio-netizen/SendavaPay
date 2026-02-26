@@ -605,7 +605,8 @@ export async function registerRoutes(
 
         if (mpResult.status_code !== 202 || mpResult.transactionStatus?.trim().toUpperCase() === "FAILED") {
           console.error("❌ MaishaPay collect error:", mpResult);
-          return res.status(500).json({ message: mpResult.message || "Erreur lors de l'initialisation du paiement MaishaPay" });
+          const { extractMaishaPayError: extractErr } = await import("./maishapay");
+          return res.status(500).json({ message: extractErr(mpResult) });
         }
 
         await storage.createLeekpayPayment({
@@ -930,7 +931,8 @@ export async function registerRoutes(
 
         if (mpResult.status_code !== 202 || mpResult.transactionStatus?.trim().toUpperCase() === "FAILED") {
           console.error("❌ MaishaPay pay-link error:", mpResult);
-          return res.status(500).json({ message: mpResult.message || "Erreur lors de l'initialisation du paiement MaishaPay" });
+          const { extractMaishaPayError: extractErr } = await import("./maishapay");
+          return res.status(500).json({ message: extractErr(mpResult) });
         }
 
         await storage.createLeekpayPayment({

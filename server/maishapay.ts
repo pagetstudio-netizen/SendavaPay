@@ -33,6 +33,20 @@ export interface MaishaPayCollectResponse {
   };
   message?: string;
   error?: string;
+  title?: string;
+  errors?: { message?: string; details?: any[] } | Record<string, string[]>;
+}
+
+export function extractMaishaPayError(result: MaishaPayCollectResponse | MaishaPayB2CResponse | any): string {
+  if (result?.errors?.message) return result.errors.message;
+  if (result?.message) return result.message;
+  if (result?.title) return result.title;
+  if (result?.error) return result.error;
+  const firstFieldErrors = result?.errors && typeof result.errors === "object"
+    ? Object.values(result.errors as Record<string, string[]>).flat()[0]
+    : null;
+  if (firstFieldErrors) return firstFieldErrors;
+  return "Erreur lors de l'initialisation du paiement MaishaPay";
 }
 
 export interface MaishaPayB2CParams {
