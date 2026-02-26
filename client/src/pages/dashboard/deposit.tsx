@@ -68,7 +68,7 @@ export default function DepositPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
   const [currentOrderId, setCurrentOrderId] = useState("");
-  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "winipayer">("soleaspay");
+  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "winipayer" | "maishapay">("soleaspay");
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
   const maxPollingAttempts = 40;
