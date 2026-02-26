@@ -621,7 +621,6 @@ export async function registerRoutes(
           payerPhone: cleanPhone,
           paymentMethod: `maishapay_${service.name}`,
           returnUrl: `${baseUrl}/success`,
-          externalRef: mpResult.transactionId?.toString() || null,
         });
 
         console.log(`📤 MaishaPay: Collecte initiée ref=${orderId}, transactionId=${mpResult.transactionId}`);
@@ -951,7 +950,6 @@ export async function registerRoutes(
           payerCountry: service.countryCode,
           paymentMethod: `maishapay_${service.name}`,
           returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}`,
-          externalRef: mpResult.transactionId?.toString() || null,
         });
 
         console.log(`📤 MaishaPay: Paiement lien initié ref=${orderId}, transactionId=${mpResult.transactionId}`);
@@ -1736,6 +1734,8 @@ export async function registerRoutes(
               amount: netAmount,
               currency: claimed.currency || "CDF",
               transactionId: reference,
+              phone: claimed.payerPhone || "",
+              operator: claimed.paymentMethod?.replace("maishapay_", "") || "MaishaPay",
             }).catch(err => console.error("Failed to send deposit email:", err));
           }
 
@@ -1846,6 +1846,8 @@ export async function registerRoutes(
               amount: netAmount,
               currency: claimed.currency || "CDF",
               transactionId: originatingTransactionId,
+              phone: claimed.payerPhone || "",
+              operator: claimed.paymentMethod?.replace("maishapay_", "") || "MaishaPay",
             }).catch(err => console.error("Failed to send deposit email:", err));
           }
 
@@ -1854,11 +1856,12 @@ export async function registerRoutes(
             userName: depositUser?.fullName || "Inconnu",
             userId: claimed.userId,
             amount,
+            fee: amount - netAmount,
             netAmount,
             currency: claimed.currency || "CDF",
-            paymentMethod: claimed.paymentMethod || "maishapay",
-            transactionId: originatingTransactionId,
-            type: "deposit",
+            phone: claimed.payerPhone || "",
+            operator: claimed.paymentMethod?.replace("maishapay_", "") || "MaishaPay",
+            reference: originatingTransactionId,
           });
 
           console.log(`✅ MaishaPay webhook: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
@@ -5431,8 +5434,8 @@ export async function registerRoutes(
           const reply =
             `<b>📊 STATISTIQUES SENDAVAPAY</b>\n\n` +
             `<b>👥 Utilisateurs:</b> ${stats.totalUsers.toLocaleString("fr-FR")}\n` +
-            `<b>💰 Depots:</b> ${stats.totalDeposits} | ${parseFloat(stats.totalDepositsAmount || "0").toLocaleString("fr-FR")} FCFA\n` +
-            `<b>💸 Retraits:</b> ${stats.totalWithdrawals} | ${parseFloat(stats.totalWithdrawalsAmount || "0").toLocaleString("fr-FR")} FCFA\n` +
+            `<b>💰 Depots:</b> ${parseFloat(stats.totalDeposits || "0").toLocaleString("fr-FR")} FCFA\n` +
+            `<b>💸 Retraits:</b> ${parseFloat(stats.totalWithdrawals || "0").toLocaleString("fr-FR")} FCFA\n` +
             `<b>📈 Transactions:</b> ${stats.totalTransactionsCount} | ${parseFloat(stats.totalTransactionsAmount || "0").toLocaleString("fr-FR")} FCFA\n` +
             `<b>💼 Commissions:</b> ${parseFloat(stats.totalCommissions || "0").toLocaleString("fr-FR")} FCFA\n` +
             `<b>🏦 Solde plateforme:</b> ${parseFloat(platformBalance?.totalBalance || "0").toLocaleString("fr-FR")} FCFA`;
