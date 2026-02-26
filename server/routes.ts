@@ -583,15 +583,14 @@ export async function registerRoutes(
 
         console.log(`📤 MaishaPay: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
 
-        const { maishapay: mpClient, getMaishapayProvider } = await import("./maishapay");
+        const { maishapay: mpClient, getMaishapayProvider, formatPhoneForMaishapay } = await import("./maishapay");
         const mpProvider = getMaishapayProvider(operator?.name || service.operator, service.countryCode);
 
         if (!mpProvider) {
           return res.status(400).json({ message: "Opérateur non supporté par MaishaPay" });
         }
 
-        let cleanPhone = phoneNumber.replace(/[\s\-\(\)]/g, "");
-        if (!cleanPhone.startsWith("+")) cleanPhone = "+" + cleanPhone;
+        const cleanPhone = formatPhoneForMaishapay(phoneNumber, service.countryCode);
 
         const mpResult = await mpClient.collectPayment({
           transactionReference: orderId,
@@ -909,15 +908,14 @@ export async function registerRoutes(
 
         console.log(`📤 MaishaPay: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}`);
 
-        const { maishapay: mpClient, getMaishapayProvider } = await import("./maishapay");
+        const { maishapay: mpClient, getMaishapayProvider, formatPhoneForMaishapay } = await import("./maishapay");
         const mpProvider = getMaishapayProvider(operator?.name || service.operator, service.countryCode);
 
         if (!mpProvider) {
           return res.status(400).json({ message: "Opérateur non supporté par MaishaPay" });
         }
 
-        let cleanPhone = phoneNumber.replace(/[\s\-\(\)]/g, "");
-        if (!cleanPhone.startsWith("+")) cleanPhone = "+" + cleanPhone;
+        const cleanPhone = formatPhoneForMaishapay(phoneNumber, service.countryCode);
 
         const mpResult = await mpClient.collectPayment({
           transactionReference: orderId,
@@ -2480,7 +2478,7 @@ export async function registerRoutes(
       }
 
       if (selectedOperator.paymentGateway === "maishapay") {
-        const { maishapay: mpClient, getMaishapayProvider } = await import("./maishapay");
+        const { maishapay: mpClient, getMaishapayProvider, formatPhoneForMaishapay } = await import("./maishapay");
         const mpProvider = getMaishapayProvider(selectedOperator.name, selectedCountry.code);
 
         if (!mpProvider) {
@@ -2502,8 +2500,7 @@ export async function registerRoutes(
 
         await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
 
-        let cleanPhone = mobileNumber.replace(/[\s\-\(\)]/g, "");
-        if (!cleanPhone.startsWith("+")) cleanPhone = "+" + cleanPhone;
+        const cleanPhone = formatPhoneForMaishapay(mobileNumber, selectedCountry.code);
 
         console.log("💸 MaishaPay B2C auto-withdrawal: provider=", mpProvider, "amount=", netAmount, "phone=", cleanPhone, "currency=", currency);
 
