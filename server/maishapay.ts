@@ -178,6 +178,35 @@ export function getMaishapayProvider(operatorName: string, countryCode: string):
   return null;
 }
 
+const COUNTRY_PHONE_PREFIXES: Record<string, string> = {
+  TG: "228",
+  BJ: "229",
+  BF: "226",
+  CM: "237",
+  CI: "225",
+  COG: "242",
+  CG: "242",
+  COD: "243",
+  CD: "243",
+  SN: "221",
+};
+
+export function formatPhoneForMaishapay(phone: string, countryCode: string): string {
+  let cleaned = phone.replace(/[\s\-\(\)\.]/g, "");
+
+  if (cleaned.startsWith("+")) return cleaned;
+  if (cleaned.startsWith("00")) return "+" + cleaned.slice(2);
+
+  const prefix = COUNTRY_PHONE_PREFIXES[countryCode.toUpperCase()];
+  if (!prefix) return "+" + cleaned;
+
+  if (cleaned.startsWith("0")) cleaned = cleaned.slice(1);
+
+  if (cleaned.startsWith(prefix)) return "+" + cleaned;
+
+  return "+" + prefix + cleaned;
+}
+
 export class MaishaPayClient {
   private publicApiKey: string;
   private secretApiKey: string;

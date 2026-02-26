@@ -1642,7 +1642,7 @@ export function registerPartnerRoutes(app: Express) {
       }
 
       if (selectedOperator.paymentGateway === "maishapay") {
-        const { maishapay: mpClient, getMaishapayProvider } = await import("./maishapay");
+        const { maishapay: mpClient, getMaishapayProvider, formatPhoneForMaishapay } = await import("./maishapay");
         const mpProvider = getMaishapayProvider(selectedOperator.name, selectedCountry.code);
 
         if (!mpProvider) {
@@ -1675,8 +1675,7 @@ export function registerPartnerRoutes(app: Express) {
           country,
         });
 
-        let cleanPhone = mobileNumber.replace(/[\s\-\(\)]/g, "");
-        if (!cleanPhone.startsWith("+")) cleanPhone = "+" + cleanPhone;
+        const cleanPhone = formatPhoneForMaishapay(mobileNumber, selectedCountry.code);
 
         try {
           const b2cRef = `PWD-${withdrawalRequest.id}-${Date.now()}`;
