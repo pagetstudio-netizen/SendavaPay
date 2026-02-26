@@ -3782,6 +3782,27 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/test-maishapay", requireAdmin, async (req, res) => {
+    try {
+      const { currency = "CDF", provider = "AIRTEL", walletID = "+243999999999", amount = 500 } = req.body;
+      const { maishapay: mpClient } = await import("./maishapay");
+      const testRef = `TEST-${Date.now()}`;
+      const result = await mpClient.collectPayment({
+        transactionReference: testRef,
+        amount: Number(amount),
+        currency,
+        customerFullName: "Test SendavaPay",
+        customerEmail: "test@sendavapay.com",
+        provider,
+        walletID,
+        callbackUrl: "https://sendavapay.com/api/webhook/maishapay",
+      });
+      return res.json({ testRef, sent: { currency, provider, walletID, amount }, result });
+    } catch (err) {
+      return res.status(500).json({ message: String(err) });
+    }
+  });
+
   app.get("/api/admin/stats", requireAdmin, async (req, res) => {
     try {
       const stats = await storage.getStats();

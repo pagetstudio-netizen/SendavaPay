@@ -243,13 +243,16 @@ export class MaishaPayClient {
       console.log("📡 MaishaPay: Ref:", params.transactionReference, "Montant:", params.amount, params.currency);
       console.log("📡 MaishaPay: Provider:", params.provider, "WalletID:", params.walletID);
 
+      const publicKeyPreview = this.publicApiKey ? this.publicApiKey.substring(0, 15) + "..." : "NON CONFIGURÉE";
+      console.log("📡 MaishaPay: PublicKey:", publicKeyPreview);
+
       const body = {
         transactionReference: params.transactionReference,
         gatewayMode: "1",
         publicApiKey: this.publicApiKey,
         secretApiKey: this.secretApiKey,
         order: {
-          amount: params.amount.toString(),
+          amount: String(Math.round(params.amount)),
           currency: params.currency,
           customerFullName: params.customerFullName,
           customerEmailAdress: params.customerEmail || "",
@@ -262,6 +265,12 @@ export class MaishaPayClient {
         },
       };
 
+      console.log("📡 MaishaPay REQUÊTE:", JSON.stringify({
+        ...body,
+        publicApiKey: publicKeyPreview,
+        secretApiKey: "***",
+      }, null, 2));
+
       const response = await fetch(`${MAISHAPAY_API_URL}/collect/v2/store/mobileMoney`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -269,7 +278,7 @@ export class MaishaPayClient {
       });
 
       const responseText = await response.text();
-      console.log("📡 MaishaPay collect response status:", response.status);
+      console.log("📡 MaishaPay collect HTTP status:", response.status);
       console.log("📡 MaishaPay collect response body:", responseText);
 
       try {
