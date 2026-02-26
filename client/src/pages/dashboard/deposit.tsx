@@ -121,8 +121,10 @@ export default function DepositPage() {
     if (!currentPayId) return;
 
     try {
-      const verifyUrl = currentProvider === "winipayer" 
+      const verifyUrl = currentProvider === "winipayer"
         ? `/api/verify-winipayer/${currentPayId}`
+        : currentProvider === "maishapay"
+        ? `/api/verify-maishapay/${currentPayId}`
         : `/api/verify-soleaspay/${currentOrderId}/${currentPayId}`;
       const response = await fetch(verifyUrl, {
         credentials: "include",
