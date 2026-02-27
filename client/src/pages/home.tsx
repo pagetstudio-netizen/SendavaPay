@@ -50,6 +50,8 @@ import illuSupport from "@assets/PW20_case-customer_1772182143821.png";
 export default function HomePage() {
   const observerRef = useRef<IntersectionObserver | null>(null);
   const [currentPlatform, setCurrentPlatform] = useState(0);
+  const [activeFeature, setActiveFeature] = useState(0);
+  const carouselRef = useRef<HTMLDivElement>(null);
   
   const platforms = ["WhatsApp", "Instagram", "Facebook", "Telegram"];
   const platformColors = ["text-green-500", "text-pink-500", "text-blue-600", "text-blue-400"];
@@ -248,6 +250,9 @@ export default function HomePage() {
         .hero-gradient {
           background: linear-gradient(180deg, hsl(var(--primary)/0.08) 0%, hsl(var(--background)) 100%);
         }
+
+        /* === CAROUSEL SCROLLBAR HIDE === */
+        .carousel-scroll::-webkit-scrollbar { display: none; }
 
         /* === MARQUEE === */
         .logo-marquee {
@@ -526,17 +531,52 @@ export default function HomePage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-w-4xl mx-auto">
-            {features.map((feature, index) => (
-              <div
-                key={index}
-                className={`bg-blue-50 dark:bg-blue-950/20 rounded-2xl p-5 hover-elevate transition-all scroll-animate-scale scroll-animate stagger-${Math.min(index + 1, 4)}`}
-              >
-                <img src={feature.image} alt="" className="w-16 h-16 object-contain mb-4" />
-                <h3 className="font-bold text-base mb-1">{feature.title}</h3>
-                <p className="text-muted-foreground text-sm">{feature.description}</p>
-              </div>
-            ))}
+          {/* Carousel */}
+          <div className="relative">
+            <div
+              ref={carouselRef}
+              className="flex gap-4 overflow-x-auto pb-4 scroll-smooth carousel-scroll"
+              style={{ scrollSnapType: "x mandatory", scrollbarWidth: "none", msOverflowStyle: "none" }}
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                const cardWidth = el.scrollWidth / features.length;
+                setActiveFeature(Math.round(el.scrollLeft / cardWidth));
+              }}
+            >
+              {features.map((feature, index) => (
+                <div
+                  key={index}
+                  className="bg-blue-50 dark:bg-blue-950/20 rounded-2xl p-6 flex-none hover-elevate transition-all"
+                  style={{ scrollSnapAlign: "start", width: "calc(75% - 8px)", minWidth: "260px", maxWidth: "320px" }}
+                >
+                  <img src={feature.image} alt="" className="w-20 h-20 object-contain mb-5" />
+                  <h3 className="font-bold text-lg mb-2">{feature.title}</h3>
+                  <p className="text-muted-foreground text-sm">{feature.description}</p>
+                </div>
+              ))}
+              {/* trailing spacer */}
+              <div className="flex-none w-4" />
+            </div>
+
+            {/* Dots */}
+            <div className="flex justify-center gap-2 mt-4">
+              {features.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    if (!carouselRef.current) return;
+                    const cardWidth = carouselRef.current.scrollWidth / features.length;
+                    carouselRef.current.scrollTo({ left: cardWidth * i, behavior: "smooth" });
+                    setActiveFeature(i);
+                  }}
+                  className={`rounded-full transition-all duration-300 ${
+                    i === activeFeature
+                      ? "bg-primary w-5 h-2"
+                      : "bg-muted-foreground/30 w-2 h-2"
+                  }`}
+                />
+              ))}
+            </div>
           </div>
         </div>
       </section>
