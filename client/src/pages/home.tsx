@@ -332,8 +332,8 @@ export default function HomePage() {
                   className="w-full object-cover"
                 />
               </div>
-              <Link href="/auth?tab=register">
-                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold text-lg py-5 rounded-xl">
+              <Link href="/statistiques">
+                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-semibold text-base py-3 rounded-xl">
                   En savoir plus
                 </Button>
               </Link>
@@ -356,8 +356,8 @@ export default function HomePage() {
                   className="w-full object-cover"
                 />
               </div>
-              <Link href="/auth?tab=register">
-                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold text-lg py-5 rounded-xl">
+              <Link href="/liens-de-paiement">
+                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-semibold text-base py-3 rounded-xl">
                   En savoir plus
                 </Button>
               </Link>
@@ -380,8 +380,8 @@ export default function HomePage() {
                   className="w-full object-cover"
                 />
               </div>
-              <Link href="/auth?tab=register">
-                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold text-lg py-5 rounded-xl">
+              <Link href="/assistance">
+                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-semibold text-base py-3 rounded-xl">
                   En savoir plus
                 </Button>
               </Link>
@@ -404,8 +404,8 @@ export default function HomePage() {
                   className="w-full object-cover"
                 />
               </div>
-              <Link href="/auth?tab=register">
-                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold text-lg py-5 rounded-xl">
+              <Link href="/api-de-paiement">
+                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-semibold text-base py-3 rounded-xl">
                   En savoir plus
                 </Button>
               </Link>

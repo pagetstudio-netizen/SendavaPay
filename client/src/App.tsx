@@ -31,6 +31,10 @@ import TermsPage from "@/pages/terms";
 import AboutPage from "@/pages/about";
 import HelpPage from "@/pages/help";
 import DocsPage from "@/pages/docs";
+import StatistiquesPage from "@/pages/statistiques";
+import LiensPaiementPage from "@/pages/liens-paiement";
+import AssistancePage from "@/pages/assistance";
+import ApiPaiementPage from "@/pages/api-paiement";
 
 function Router() {
   return (
@@ -48,6 +52,10 @@ function Router() {
       <Route path="/about" component={AboutPage} />
       <Route path="/help" component={HelpPage} />
       <Route path="/docs" component={DocsPage} />
+      <Route path="/statistiques" component={StatistiquesPage} />
+      <Route path="/liens-de-paiement" component={LiensPaiementPage} />
+      <Route path="/assistance" component={AssistancePage} />
+      <Route path="/api-de-paiement" component={ApiPaiementPage} />
       
       <ProtectedRoute path="/dashboard" component={DashboardPage} />
       <ProtectedRoute path="/dashboard/deposit" component={DepositPage} />
