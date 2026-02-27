@@ -370,8 +370,8 @@ export default function HomePage() {
       </section>
 
       {/* Sections promotionnelles */}
-      <section className="bg-gray-100 dark:bg-muted/50 py-6 space-y-4">
-        <div className="max-w-lg mx-auto px-4 space-y-4">
+      <section className="bg-gray-100 dark:bg-muted/50 py-6">
+        <div className="max-w-4xl mx-auto px-4 grid grid-cols-1 md:grid-cols-2 gap-4">
 
           {/* Statistiques */}
           <div className="bg-white dark:bg-card rounded-2xl overflow-hidden reveal-card">
