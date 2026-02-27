@@ -12,12 +12,10 @@ import {
   Link2,
   Zap,
   CheckCircle,
-  Clock,
   ChevronDown,
   Headphones,
   Wallet,
   Share2,
-  Banknote,
   MessageSquare,
   Users,
   Star,
@@ -27,7 +25,6 @@ import {
   ShoppingBag,
   Megaphone,
   MousePointer,
-  Check,
 } from "lucide-react";
 
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
@@ -40,8 +37,9 @@ import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
 import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
 import heroImage1 from "@assets/benefits-3_1769443912067.webp";
-import heroImage2 from "@assets/xJ3fjboUJLVolfGqf752ILN4_1769443912093.png";
-import heroImage3 from "@assets/20260126_143225_1769443932093.png";
+import imgLiensPaiement from "@assets/IMG-20260224-WA0011_1772177956027.jpg";
+import imgBesoinAide from "@assets/sendavapay4_1772177760975.jpg";
+import imgApiPaiement from "@assets/IMG_20260227_073944_233_1772177997425.jpg";
 
 export default function HomePage() {
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -126,24 +124,6 @@ export default function HomePage() {
       title: "Recevez votre argent",
       description: "Vos clients paient par Mobile Money. Retirez vos fonds quand vous voulez.",
       icon: Wallet,
-    },
-  ];
-
-  const benefits = [
-    {
-      icon: Clock,
-      title: "Gagner du temps",
-      description: "Automatiser les réponses et la gestion des commandes",
-    },
-    {
-      icon: Shield,
-      title: "Paiements sécurisés",
-      description: "Transactions protégées et conformes aux normes",
-    },
-    {
-      icon: Banknote,
-      title: "Retrait rapide",
-      description: "Recevez vos fonds sous 1h à 24h sur Mobile Money",
     },
   ];
 
@@ -331,128 +311,85 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Hero Image 2 - Dashboard/Analytics */}
-      <section className="py-16 lg:py-24 bg-muted/30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid md:grid-cols-2 gap-12 items-center">
-            <div className="flex justify-center scroll-animate">
-              <img 
-                src={heroImage2} 
-                alt="Dashboard de ventes" 
-                className="max-w-md w-full"
-              />
-            </div>
-            <div className="scroll-animate stagger-1">
-              <h2 className="text-3xl md:text-4xl font-bold mb-6">
-                Suivez vos ventes en temps réel
+      {/* Section Liens de Paiement */}
+      <section className="py-12 bg-background">
+        <div className="max-w-2xl mx-auto px-4">
+          <div className="bg-white dark:bg-card rounded-3xl shadow-sm border border-border/40 overflow-hidden scroll-animate">
+            <div className="p-8">
+              <h2 className="text-3xl md:text-4xl font-black mb-4 leading-tight">
+                Liens de Paiement
               </h2>
-              <p className="text-lg text-muted-foreground mb-6">
-                Tableau de bord intuitif pour visualiser vos revenus, vos transactions et la croissance de votre activité. Prenez des décisions éclairées.
+              <p className="text-base text-muted-foreground mb-6">
+                Générez un lien, partagez-le, et encaissez vos paiements directement. Simple, rapide et 100 % sécurisé, même sans site web.
               </p>
-              <div className="flex flex-wrap gap-4">
-                <Link href="/auth?tab=register">
-                  <Button size="sm" className="gap-2 bg-foreground text-background hover:bg-foreground/90">
-                    Créer mon compte
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                </Link>
+              <div className="rounded-2xl overflow-hidden mb-6">
+                <img
+                  src={imgLiensPaiement}
+                  alt="Liens de paiement SendavaPay"
+                  className="w-full object-cover"
+                />
               </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Why SendavaPay Section */}
-      <section id="why-sendavapay" className="py-20 lg:py-28">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/20 bg-background text-sm font-medium mb-6 scroll-animate">
-              POURQUOI SENDAVAPAY
-            </div>
-            <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-6 scroll-animate stagger-1">
-              Le meilleur choix pour votre business
-            </h2>
-            <p className="text-lg text-muted-foreground scroll-animate stagger-2">
-              Que vous soyez étudiant, créateur de contenu, e-commerçant ou PME, SendavaPay s'adapte à vos objectifs.
-            </p>
-          </div>
-
-          {/* Stats */}
-          <div className="grid grid-cols-3 gap-4 max-w-2xl mx-auto mb-16 scroll-animate">
-            <div className="text-center p-4">
-              <div className="text-3xl md:text-4xl font-bold text-foreground">150+</div>
-              <div className="text-sm text-muted-foreground mt-1">Avis positifs</div>
-            </div>
-            <div className="text-center p-4 border-x">
-              <div className="text-3xl md:text-4xl font-bold text-foreground">1000+</div>
-              <div className="text-sm text-muted-foreground mt-1">Clients satisfaits</div>
-            </div>
-            <div className="text-center p-4">
-              <div className="text-3xl md:text-4xl font-bold text-foreground">4.9/5</div>
-              <div className="text-sm text-muted-foreground mt-1">Notes globales</div>
-            </div>
-          </div>
-
-          {/* Benefits */}
-          <div className="space-y-4 max-w-2xl mx-auto">
-            {benefits.map((benefit, index) => (
-              <Card 
-                key={index} 
-                className={`hover-elevate transition-all scroll-animate stagger-${index + 1}`}
-              >
-                <CardContent className="flex items-start gap-4 p-6">
-                  <div className="flex-shrink-0 h-12 w-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
-                    <benefit.icon className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-lg mb-1">{benefit.title}</h3>
-                    <p className="text-muted-foreground">{benefit.description}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Hero Image 3 - Features Showcase */}
-      <section className="py-16 lg:py-24 bg-muted/30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid md:grid-cols-2 gap-12 items-center">
-            <div className="order-2 md:order-1 scroll-animate">
-              <h2 className="text-3xl md:text-4xl font-bold mb-6">
-                Tout ce dont vous avez besoin
-              </h2>
-              <p className="text-lg text-muted-foreground mb-6">
-                Vente de produits digitaux, création de liens de paiement, monétisation de votre audience. Intégrez SendavaPay à vos applications grâce à notre API robuste et sécurisée.
-              </p>
-              <ul className="space-y-3 mb-6">
-                <li className="flex items-center gap-3 text-muted-foreground">
-                  <Check className="h-5 w-5 text-green-500" />
-                  Vente de produits digitaux
-                </li>
-                <li className="flex items-center gap-3 text-muted-foreground">
-                  <Check className="h-5 w-5 text-green-500" />
-                  Création de liens de paiement
-                </li>
-                <li className="flex items-center gap-3 text-muted-foreground">
-                  <Check className="h-5 w-5 text-green-500" />
-                  Intégration API SendavaPay
-                </li>
-              </ul>
               <Link href="/auth?tab=register">
-                <Button size="sm" className="gap-2 bg-foreground text-background hover:bg-foreground/90">
-                  Rejoindre SendavaPay
-                  <ArrowRight className="h-4 w-4" />
+                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold text-xl py-6 rounded-2xl">
+                  En savoir plus
                 </Button>
               </Link>
             </div>
-            <div className="order-1 md:order-2 flex justify-center scroll-animate stagger-1">
-              <img 
-                src={heroImage3} 
-                alt="Fonctionnalités SendavaPay" 
-                className="max-w-lg w-full rounded-xl"
-              />
+          </div>
+        </div>
+      </section>
+
+      {/* Section Besoin d'aide */}
+      <section className="py-12 bg-background">
+        <div className="max-w-2xl mx-auto px-4">
+          <div className="bg-white dark:bg-card rounded-3xl shadow-sm border border-border/40 overflow-hidden scroll-animate">
+            <div className="p-8">
+              <h2 className="text-3xl md:text-4xl font-black mb-4 leading-tight">
+                Besoin d'aide ?
+              </h2>
+              <p className="text-base text-muted-foreground mb-6">
+                Notre équipe d'assistance est à votre écoute à tout moment pour répondre à vos questions, vous aider dans vos paiements et résoudre vos problèmes en un instant. Contactez-nous en ligne, à tout moment, où que vous soyez.
+              </p>
+              <div className="rounded-2xl overflow-hidden mb-6">
+                <img
+                  src={imgBesoinAide}
+                  alt="Assistance SendavaPay"
+                  className="w-full object-cover"
+                />
+              </div>
+              <Link href="/auth?tab=register">
+                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold text-xl py-6 rounded-2xl">
+                  En savoir plus
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Section API de Paiement */}
+      <section className="py-12 bg-background">
+        <div className="max-w-2xl mx-auto px-4">
+          <div className="bg-white dark:bg-card rounded-3xl shadow-sm border border-border/40 overflow-hidden scroll-animate">
+            <div className="p-8">
+              <h2 className="text-3xl md:text-4xl font-black mb-4 leading-tight">
+                API DE PAIEMENT
+              </h2>
+              <p className="text-base text-muted-foreground mb-6">
+                Notre API et SDK simplifient la gestion des transactions. Acceptez les paiements, vérifiez les statuts et automatisez vos retraits depuis une seule intégration.
+              </p>
+              <div className="rounded-2xl overflow-hidden mb-6">
+                <img
+                  src={imgApiPaiement}
+                  alt="API de paiement SendavaPay"
+                  className="w-full object-cover"
+                />
+              </div>
+              <Link href="/auth?tab=register">
+                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold text-xl py-6 rounded-2xl">
+                  En savoir plus
+                </Button>
+              </Link>
             </div>
           </div>
         </div>
