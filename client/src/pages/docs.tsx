@@ -34,14 +34,14 @@ export default function ApiDocs() {
     document.title = "Documentation API - SendavaPay";
     const metaDescription = document.querySelector('meta[name="description"]');
     if (metaDescription) {
-      metaDescription.setAttribute("content", "Documentation compl\u00e8te de l'API SendavaPay pour int\u00e9grer les paiements Mobile Money dans vos applications. Exemples de code en JavaScript, PHP et Python.");
+      metaDescription.setAttribute("content", "Documentation complète de l'API SendavaPay pour intégrer les paiements Mobile Money dans vos applications. Exemples de code en JavaScript, PHP et Python.");
     }
   }, []);
 
   const copyCode = (code: string, id: string) => {
     navigator.clipboard.writeText(code);
     setCopiedCode(id);
-    toast({ title: "Code copi\u00e9" });
+    toast({ title: "Code copié" });
     setTimeout(() => setCopiedCode(null), 2000);
   };
 
@@ -67,17 +67,17 @@ export default function ApiDocs() {
     {
       method: "POST",
       path: "/api/v1/create-payment",
-      description: "Cr\u00e9er un nouveau lien de paiement",
+      description: "Créer un nouveau lien de paiement",
       params: [
         { name: "amount", type: "number", required: true, description: "Montant du paiement" },
-        { name: "currency", type: "string", required: false, description: "Devise (d\u00e9faut: XOF)" },
+        { name: "currency", type: "string", required: false, description: "Devise (défaut: XOF)" },
         { name: "description", type: "string", required: false, description: "Description du paiement" },
-        { name: "externalReference", type: "string", required: false, description: "R\u00e9f\u00e9rence externe" },
+        { name: "externalReference", type: "string", required: false, description: "Référence externe" },
         { name: "customerEmail", type: "string", required: false, description: "Email du client" },
-        { name: "customerPhone", type: "string", required: false, description: "T\u00e9l\u00e9phone du client" },
+        { name: "customerPhone", type: "string", required: false, description: "Téléphone du client" },
         { name: "customerName", type: "string", required: false, description: "Nom du client" },
-        { name: "redirectUrl", type: "string", required: false, description: "URL de redirection apr\u00e8s paiement" },
-        { name: "metadata", type: "object", required: false, description: "Donn\u00e9es personnalis\u00e9es" },
+        { name: "redirectUrl", type: "string", required: false, description: "URL de redirection après paiement" },
+        { name: "metadata", type: "object", required: false, description: "Données personnalisées" },
       ],
       response: `{
   "success": true,
@@ -94,9 +94,9 @@ export default function ApiDocs() {
     {
       method: "POST",
       path: "/api/v1/verify-payment",
-      description: "V\u00e9rifier le statut d'un paiement",
+      description: "Vérifier le statut d'un paiement",
       params: [
-        { name: "reference", type: "string", required: true, description: "R\u00e9f\u00e9rence du paiement" },
+        { name: "reference", type: "string", required: true, description: "Référence du paiement" },
       ],
       response: `{
   "success": true,
@@ -119,12 +119,12 @@ export default function ApiDocs() {
     {
       method: "POST",
       path: "/api/v1/credit-account",
-      description: "Cr\u00e9diter un compte utilisateur SendavaPay",
+      description: "Créditer un compte utilisateur SendavaPay",
       params: [
-        { name: "phone", type: "string", required: true, description: "Num\u00e9ro de t\u00e9l\u00e9phone du compte" },
-        { name: "amount", type: "number", required: true, description: "Montant \u00e0 cr\u00e9diter" },
-        { name: "description", type: "string", required: false, description: "Description du cr\u00e9dit" },
-        { name: "externalReference", type: "string", required: false, description: "R\u00e9f\u00e9rence externe" },
+        { name: "phone", type: "string", required: true, description: "Numéro de téléphone du compte" },
+        { name: "amount", type: "number", required: true, description: "Montant à créditer" },
+        { name: "description", type: "string", required: false, description: "Description du crédit" },
+        { name: "externalReference", type: "string", required: false, description: "Référence externe" },
       ],
       response: `{
   "success": true,
@@ -143,7 +143,7 @@ export default function ApiDocs() {
       path: "/api/v1/balance",
       description: "Consulter le solde d'un compte utilisateur",
       params: [
-        { name: "phone", type: "string", required: true, description: "Num\u00e9ro de t\u00e9l\u00e9phone (query param)" },
+        { name: "phone", type: "string", required: true, description: "Numéro de téléphone (query param)" },
       ],
       response: `{
   "success": true,
@@ -177,7 +177,7 @@ const axios = require('axios');
 const API_KEY = 'sk_live_votre_cle_api';
 const BASE_URL = 'https://sendavapay.com/api/v1';
 
-// Cr\u00e9er un paiement
+// Créer un paiement
 async function createPayment(amount, description) {
   try {
     const response = await axios.post(
@@ -196,7 +196,7 @@ async function createPayment(amount, description) {
       }
     );
     
-    console.log('Paiement cr\u00e9\u00e9:', response.data);
+    console.log('Paiement créé:', response.data);
     return response.data;
   } catch (error) {
     console.error('Erreur:', error.response?.data);
@@ -204,7 +204,7 @@ async function createPayment(amount, description) {
   }
 }
 
-// V\u00e9rifier un paiement
+// Vérifier un paiement
 async function verifyPayment(reference) {
   const response = await axios.post(
     \`\${BASE_URL}/v1/verify-payment\`,
@@ -220,7 +220,7 @@ async function verifyPayment(reference) {
   return response.data;
 }
 
-// Cr\u00e9diter un compte
+// Créditer un compte
 async function creditAccount(phone, amount, description) {
   const response = await axios.post(
     \`\${BASE_URL}/v1/credit-account\`,
@@ -255,7 +255,7 @@ async function getBalance(phone) {
 $apiKey = 'sk_live_votre_cle_api';
 $baseUrl = 'https://sendavapay.com/api/v1';
 
-// Fonction pour faire les requ\u00eates API
+// Fonction pour faire les requêtes API
 function sendRequest($method, $endpoint, $data = null) {
     global $apiKey, $baseUrl;
     
@@ -286,7 +286,7 @@ function sendRequest($method, $endpoint, $data = null) {
     ];
 }
 
-// Cr\u00e9er un paiement
+// Créer un paiement
 function createPayment($amount, $description, $customerEmail = null) {
     $data = [
         'amount' => $amount,
@@ -301,14 +301,14 @@ function createPayment($amount, $description, $customerEmail = null) {
     return sendRequest('POST', '/v1/create-payment', $data);
 }
 
-// V\u00e9rifier un paiement
+// Vérifier un paiement
 function verifyPayment($reference) {
     return sendRequest('POST', '/v1/verify-payment', [
         'reference' => $reference
     ]);
 }
 
-// Cr\u00e9diter un compte
+// Créditer un compte
 function creditAccount($phone, $amount, $description = null) {
     $data = [
         'phone' => $phone,
@@ -345,7 +345,7 @@ headers = {
 }
 
 def create_payment(amount, description, customer_email=None):
-    """Cr\u00e9er un nouveau paiement"""
+    """Créer un nouveau paiement"""
     data = {
         'amount': amount,
         'description': description,
@@ -364,7 +364,7 @@ def create_payment(amount, description, customer_email=None):
     return response.json()
 
 def verify_payment(reference):
-    """V\u00e9rifier le statut d'un paiement"""
+    """Vérifier le statut d'un paiement"""
     response = requests.post(
         f'{BASE_URL}/v1/verify-payment',
         headers=headers,
@@ -374,7 +374,7 @@ def verify_payment(reference):
     return response.json()
 
 def credit_account(phone, amount, description=None):
-    """Cr\u00e9diter un compte utilisateur"""
+    """Créditer un compte utilisateur"""
     data = {
         'phone': phone,
         'amount': amount
@@ -403,17 +403,17 @@ def get_balance(phone):
 
 # Exemple d'utilisation
 if __name__ == '__main__':
-    # Cr\u00e9er un paiement
+    # Créer un paiement
     result = create_payment(5000, 'Achat produit XYZ')
-    print('Paiement cr\u00e9\u00e9:', json.dumps(result, indent=2))
+    print('Paiement créé:', json.dumps(result, indent=2))
     
-    # V\u00e9rifier le paiement
+    # Vérifier le paiement
     if result.get('success'):
         reference = result['data']['reference']
         status = verify_payment(reference)
         print('Statut:', json.dumps(status, indent=2))`;
 
-  const webhookExample = `// Exemple de r\u00e9ception de webhook (Node.js/Express)
+  const webhookExample = `// Exemple de réception de webhook (Node.js/Express)
 const crypto = require('crypto');
 const express = require('express');
 const app = express();
@@ -422,7 +422,7 @@ app.use(express.json());
 
 const WEBHOOK_SECRET = 'whsec_votre_secret_webhook';
 
-// V\u00e9rifier la signature du webhook
+// Vérifier la signature du webhook
 function verifyWebhookSignature(payload, signature) {
   const expectedSignature = crypto
     .createHmac('sha256', WEBHOOK_SECRET)
@@ -436,28 +436,28 @@ app.post('/webhook/sendavapay', (req, res) => {
   const signature = req.headers['x-sendavapay-signature'];
   const event = req.headers['x-sendavapay-event'];
   
-  // V\u00e9rifier la signature
+  // Vérifier la signature
   if (!verifyWebhookSignature(req.body, signature)) {
     return res.status(401).json({ error: 'Invalid signature' });
   }
   
   const { data, timestamp } = req.body;
   
-  // Traiter l'\u00e9v\u00e9nement
+  // Traiter l'événement
   switch (event) {
     case 'payment.completed':
-      console.log('Paiement re\u00e7u:', data);
-      // Mettre \u00e0 jour votre base de donn\u00e9es
+      console.log('Paiement reçu:', data);
+      // Mettre à jour votre base de données
       // Envoyer un email de confirmation
       break;
       
     case 'payment.failed':
-      console.log('Paiement \u00e9chou\u00e9:', data);
-      // G\u00e9rer l'\u00e9chec
+      console.log('Paiement échoué:', data);
+      // Gérer l'échec
       break;
       
     case 'credit.completed':
-      console.log('Cr\u00e9dit effectu\u00e9:', data);
+      console.log('Crédit effectué:', data);
       break;
       
     default:
@@ -514,21 +514,22 @@ app.listen(3000);`;
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <a href="/" className="flex items-center gap-2 text-muted-foreground hover:text-foreground">
+        <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 md:gap-4 min-w-0">
+            <a href="/" className="flex items-center gap-1 text-muted-foreground hover:text-foreground shrink-0">
               <ArrowLeft className="h-4 w-4" />
-              Accueil
+              <span className="hidden sm:inline">Accueil</span>
             </a>
-            <div className="flex items-center gap-2">
-              <FileCode className="h-6 w-6 text-primary" />
-              <h1 className="font-bold text-xl">Documentation API</h1>
+            <div className="flex items-center gap-2 min-w-0">
+              <FileCode className="h-5 w-5 text-primary shrink-0" />
+              <h1 className="font-bold text-base md:text-xl truncate">Documentation API</h1>
             </div>
           </div>
-          <a href="/dashboard/api-keys">
-            <Button data-testid="button-api-keys-portal">
-              Gérer mes clés API
-              <Key className="h-4 w-4 ml-2" />
+          <a href="/dashboard/api-keys" className="shrink-0">
+            <Button size="sm" data-testid="button-api-keys-portal" className="text-xs md:text-sm">
+              <span className="hidden sm:inline">Gérer mes clés API</span>
+              <span className="sm:hidden">Clés API</span>
+              <Key className="h-3 w-3 ml-1 md:h-4 md:w-4 md:ml-2" />
             </Button>
           </a>
         </div>
@@ -539,16 +540,16 @@ app.listen(3000);`;
           <section className="text-center space-y-4">
             <h2 className="text-3xl font-bold">API SendavaPay</h2>
             <p className="text-lg text-muted-foreground">
-              Int\u00e9grez facilement les paiements Mobile Money dans vos applications
+              Intégrez facilement les paiements Mobile Money dans vos applications
             </p>
-            <div className="flex justify-center gap-4">
+            <div className="flex flex-wrap justify-center gap-2 md:gap-4">
               <Badge variant="outline" className="text-sm py-1 px-3">
                 <Zap className="h-3 w-3 mr-1" />
                 API RESTful
               </Badge>
               <Badge variant="outline" className="text-sm py-1 px-3">
                 <Shield className="h-3 w-3 mr-1" />
-                S\u00e9curis\u00e9 SSL
+                Sécurisé SSL
               </Badge>
               <Badge variant="outline" className="text-sm py-1 px-3">
                 <Webhook className="h-3 w-3 mr-1" />
@@ -561,7 +562,7 @@ app.listen(3000);`;
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Zap className="h-5 w-5" />
-                D\u00e9marrage rapide
+                Démarrage rapide
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -588,12 +589,12 @@ app.listen(3000);`;
                 Authentification
               </CardTitle>
               <CardDescription>
-                Toutes les requ\u00eates API doivent \u00eatre authentifi\u00e9es avec votre cl\u00e9 API
+                Toutes les requêtes API doivent être authentifiées avec votre clé API
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-muted-foreground">
-                Incluez votre cl\u00e9 API dans l'en-t\u00eate <code className="bg-muted px-2 py-1 rounded">Authorization</code> de chaque requ\u00eate:
+                Incluez votre clé API dans l'en-tête <code className="bg-muted px-2 py-1 rounded">Authorization</code> de chaque requête:
               </p>
               <CodeBlock
                 id="auth-header"
@@ -602,7 +603,7 @@ app.listen(3000);`;
               />
               <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
                 <p className="text-sm">
-                  <strong>Important:</strong> Ne partagez jamais votre cl\u00e9 API. Gardez-la c\u00f4t\u00e9 serveur uniquement.
+                  <strong>Important:</strong> Ne partagez jamais votre clé API. Gardez-la côté serveur uniquement.
                 </p>
               </div>
             </CardContent>
@@ -621,19 +622,19 @@ app.listen(3000);`;
             <CardContent className="space-y-8">
               {endpoints.map((endpoint, index) => (
                 <div key={index} className="border-b pb-6 last:border-0 last:pb-0">
-                  <div className="flex items-center gap-3 mb-3">
-                    <Badge className={endpoint.method === "GET" ? "bg-blue-500" : "bg-green-500"}>
+                  <div className="flex items-center gap-3 mb-3 flex-wrap">
+                    <Badge className={endpoint.method === "GET" ? "bg-blue-500 shrink-0" : "bg-green-500 shrink-0"}>
                       {endpoint.method}
                     </Badge>
-                    <code className="text-sm font-mono">{endpoint.path}</code>
+                    <code className="text-sm font-mono break-all">{endpoint.path}</code>
                   </div>
                   <p className="text-muted-foreground mb-4">{endpoint.description}</p>
                   
                   {endpoint.params.length > 0 && (
                     <div className="mb-4">
-                      <h4 className="font-medium mb-2">Param\u00e8tres</h4>
-                      <div className="bg-muted rounded-lg overflow-hidden">
-                        <table className="w-full text-sm">
+                      <h4 className="font-medium mb-2">Paramètres</h4>
+                      <div className="bg-muted rounded-lg overflow-x-auto">
+                        <table className="w-full text-sm min-w-[500px]">
                           <thead>
                             <tr className="border-b">
                               <th className="text-left p-3">Nom</th>
@@ -664,7 +665,7 @@ app.listen(3000);`;
                   )}
                   
                   <div>
-                    <h4 className="font-medium mb-2">R\u00e9ponse</h4>
+                    <h4 className="font-medium mb-2">Réponse</h4>
                     <CodeBlock id={`response-${index}`} language="json" code={endpoint.response} />
                   </div>
                 </div>
@@ -679,7 +680,7 @@ app.listen(3000);`;
                 Exemples de code
               </CardTitle>
               <CardDescription>
-                Exemples d'int\u00e9gration dans diff\u00e9rents langages
+                Exemples d'intégration dans différents langages
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -712,21 +713,21 @@ app.listen(3000);`;
                 Webhooks
               </CardTitle>
               <CardDescription>
-                Recevez des notifications en temps r\u00e9el pour les \u00e9v\u00e9nements de paiement
+                Recevez des notifications en temps réel pour les événements de paiement
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div>
-                <h4 className="font-medium mb-2">\u00c9v\u00e9nements disponibles</h4>
+                <h4 className="font-medium mb-2">Événements disponibles</h4>
                 <ul className="space-y-2 text-muted-foreground">
                   <li>
-                    <code className="bg-muted px-2 py-1 rounded">payment.completed</code> - Paiement r\u00e9ussi
+                    <code className="bg-muted px-2 py-1 rounded">payment.completed</code> - Paiement réussi
                   </li>
                   <li>
-                    <code className="bg-muted px-2 py-1 rounded">payment.failed</code> - Paiement \u00e9chou\u00e9
+                    <code className="bg-muted px-2 py-1 rounded">payment.failed</code> - Paiement échoué
                   </li>
                   <li>
-                    <code className="bg-muted px-2 py-1 rounded">credit.completed</code> - Cr\u00e9dit effectu\u00e9
+                    <code className="bg-muted px-2 py-1 rounded">credit.completed</code> - Crédit effectué
                   </li>
                 </ul>
               </div>
@@ -750,19 +751,19 @@ app.listen(3000);`;
               </div>
               
               <div>
-                <h4 className="font-medium mb-2">En-t\u00eates de la requ\u00eate</h4>
+                <h4 className="font-medium mb-2">En-têtes de la requête</h4>
                 <ul className="space-y-2 text-muted-foreground">
                   <li>
                     <code className="bg-muted px-2 py-1 rounded">X-SendavaPay-Signature</code> - Signature HMAC-SHA256
                   </li>
                   <li>
-                    <code className="bg-muted px-2 py-1 rounded">X-SendavaPay-Event</code> - Type d'\u00e9v\u00e9nement
+                    <code className="bg-muted px-2 py-1 rounded">X-SendavaPay-Event</code> - Type d'événement
                   </li>
                 </ul>
               </div>
               
               <div>
-                <h4 className="font-medium mb-2">Exemple de r\u00e9ception</h4>
+                <h4 className="font-medium mb-2">Exemple de réception</h4>
                 <CodeBlock id="webhook-example" language="javascript" code={webhookExample} />
               </div>
             </CardContent>
@@ -773,8 +774,8 @@ app.listen(3000);`;
               <CardTitle>Codes d'erreur</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="bg-muted rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
+              <div className="bg-muted rounded-lg overflow-x-auto">
+                <table className="w-full text-sm min-w-[400px]">
                   <thead>
                     <tr className="border-b">
                       <th className="text-left p-3">Code HTTP</th>
@@ -786,12 +787,12 @@ app.listen(3000);`;
                     <tr className="border-b">
                       <td className="p-3">401</td>
                       <td className="p-3 font-mono">UNAUTHORIZED</td>
-                      <td className="p-3 text-muted-foreground">Cl\u00e9 API manquante</td>
+                      <td className="p-3 text-muted-foreground">Clé API manquante</td>
                     </tr>
                     <tr className="border-b">
                       <td className="p-3">401</td>
                       <td className="p-3 font-mono">INVALID_API_KEY</td>
-                      <td className="p-3 text-muted-foreground">Cl\u00e9 API invalide</td>
+                      <td className="p-3 text-muted-foreground">Clé API invalide</td>
                     </tr>
                     <tr className="border-b">
                       <td className="p-3">403</td>
@@ -801,12 +802,12 @@ app.listen(3000);`;
                     <tr className="border-b">
                       <td className="p-3">404</td>
                       <td className="p-3 font-mono">PAYMENT_NOT_FOUND</td>
-                      <td className="p-3 text-muted-foreground">Paiement non trouv\u00e9</td>
+                      <td className="p-3 text-muted-foreground">Paiement non trouvé</td>
                     </tr>
                     <tr>
                       <td className="p-3">404</td>
                       <td className="p-3 font-mono">USER_NOT_FOUND</td>
-                      <td className="p-3 text-muted-foreground">Utilisateur non trouv\u00e9</td>
+                      <td className="p-3 text-muted-foreground">Utilisateur non trouvé</td>
                     </tr>
                   </tbody>
                 </table>
