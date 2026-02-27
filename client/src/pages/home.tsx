@@ -41,6 +41,11 @@ import imgLiensPaiement from "@assets/IMG-20260224-WA0011_1772177956027.jpg";
 import imgBesoinAide from "@assets/sendavapay4_1772177760975.jpg";
 import imgApiPaiement from "@assets/IMG_20260227_073944_233_1772177997425.jpg";
 import imgStatistiques from "@assets/Screenshot_20260227-073700_1772177874148.png";
+import illuPayments from "@assets/PW20_case-alternative_1772182143704.png";
+import illuLocal from "@assets/PW20_case-local_1772182143541.png";
+import illuCard from "@assets/PW20_case-cc_1772182143744.png";
+import illuReport from "@assets/PW20_case-reporting_1772182143681.png";
+import illuSupport from "@assets/PW20_case-customer_1772182143821.png";
 
 export default function HomePage() {
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -76,32 +81,32 @@ export default function HomePage() {
 
   const features = [
     {
-      icon: Smartphone,
+      image: illuPayments,
       title: "Moyens de Paiement",
       description: "MTN, Moov, Orange, TMoney, Wave",
     },
     {
-      icon: ShoppingBag,
+      image: illuLocal,
       title: "Tous Produits",
       description: "Vendez n'importe quel produit ou service",
     },
     {
-      icon: Megaphone,
-      title: "Partagez vos liens partout",
+      image: illuCard,
+      title: "Partagez vos liens",
       description: "WhatsApp, Instagram, Facebook...",
     },
     {
-      icon: MousePointer,
+      image: illuReport,
       title: "User Friendly",
       description: "Interface simple et intuitive",
     },
     {
-      icon: Phone,
+      image: illuSupport,
       title: "Support Réactif",
       description: "Assistance disponible 7j/7",
     },
     {
-      icon: CheckCircle2,
+      image: illuLocal,
       title: "Conformité KYC",
       description: "Vérification sécurisée",
     },
@@ -523,18 +528,14 @@ export default function HomePage() {
 
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-w-4xl mx-auto">
             {features.map((feature, index) => (
-              <Card 
-                key={index} 
-                className={`hover-elevate transition-all scroll-animate-scale scroll-animate stagger-${Math.min(index + 1, 4)}`}
+              <div
+                key={index}
+                className={`bg-blue-50 dark:bg-blue-950/20 rounded-2xl p-5 hover-elevate transition-all scroll-animate-scale scroll-animate stagger-${Math.min(index + 1, 4)}`}
               >
-                <CardContent className="p-6 text-center">
-                  <div className="inline-flex items-center justify-center h-14 w-14 rounded-2xl bg-primary/10 text-primary mb-4">
-                    <feature.icon className="h-7 w-7" />
-                  </div>
-                  <h3 className="font-bold text-base mb-1">{feature.title}</h3>
-                  <p className="text-muted-foreground text-sm">{feature.description}</p>
-                </CardContent>
-              </Card>
+                <img src={feature.image} alt="" className="w-16 h-16 object-contain mb-4" />
+                <h3 className="font-bold text-base mb-1">{feature.title}</h3>
+                <p className="text-muted-foreground text-sm">{feature.description}</p>
+              </div>
             ))}
           </div>
         </div>
