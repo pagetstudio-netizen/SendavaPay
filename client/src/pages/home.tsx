@@ -41,6 +41,10 @@ import imgLiensPaiement from "@assets/IMG-20260224-WA0011_1772177956027.jpg";
 import imgBesoinAide from "@assets/sendavapay4_1772177760975.jpg";
 import imgApiPaiement from "@assets/IMG_20260227_073944_233_1772177997425.jpg";
 import imgStatistiques from "@assets/Screenshot_20260227-073700_1772177874148.png";
+import illuStatistiques from "@assets/PW20_case-reporting_1772182143681.png";
+import illuLiens from "@assets/PW20_case-cc_1772182143744.png";
+import illuAssistance from "@assets/PW20_case-customer_1772182143821.png";
+import illuApi from "@assets/PW20_case-alternative_1772182143704.png";
 
 export default function HomePage() {
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -374,97 +378,73 @@ export default function HomePage() {
         <div className="max-w-4xl mx-auto px-4 grid grid-cols-1 md:grid-cols-2 gap-4">
 
           {/* Statistiques */}
-          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden reveal-card">
-            <div className="p-6">
-              <h2 className="text-4xl font-black mb-3 leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
+          <div className="bg-blue-50 dark:bg-blue-950/20 rounded-2xl reveal-card">
+            <div className="p-7 flex flex-col h-full">
+              <img src={illuStatistiques} alt="" className="w-24 h-24 object-contain mb-5" />
+              <h2 className="text-2xl font-bold mb-2 text-foreground">
                 Statistiques
               </h2>
-              <p className="text-base text-muted-foreground mb-4">
+              <p className="text-sm text-muted-foreground mb-5 flex-1">
                 Suivez vos transactions en temps réel et obtenez des rapports détaillés pour une meilleure prise de décision.
               </p>
-              <div className="rounded-xl overflow-hidden mb-4 border border-border/30">
-                <img
-                  src={imgStatistiques}
-                  alt="Tableau de bord statistiques SendavaPay"
-                  className="w-full object-cover"
-                />
-              </div>
               <Link href="/statistiques">
-                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-semibold text-base py-3 rounded-xl">
-                  En savoir plus
-                </Button>
+                <span className="inline-flex items-center gap-1 text-primary font-semibold text-sm hover:gap-2 transition-all">
+                  En savoir plus <ArrowRight className="h-4 w-4" />
+                </span>
               </Link>
             </div>
           </div>
 
           {/* Liens de Paiement */}
-          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden reveal-card stagger-1">
-            <div className="p-6">
-              <h2 className="text-4xl font-black mb-3 leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
+          <div className="bg-yellow-50 dark:bg-yellow-950/20 rounded-2xl reveal-card stagger-1">
+            <div className="p-7 flex flex-col h-full">
+              <img src={illuLiens} alt="" className="w-24 h-24 object-contain mb-5" />
+              <h2 className="text-2xl font-bold mb-2 text-foreground">
                 Liens de Paiement
               </h2>
-              <p className="text-base text-muted-foreground mb-4">
+              <p className="text-sm text-muted-foreground mb-5 flex-1">
                 Générez un lien, partagez-le, et encaissez vos paiements directement. Simple, rapide et 100 % sécurisé, même sans site web.
               </p>
-              <div className="rounded-xl overflow-hidden mb-4">
-                <img
-                  src={imgLiensPaiement}
-                  alt="Liens de paiement SendavaPay"
-                  className="w-full object-cover"
-                />
-              </div>
               <Link href="/liens-de-paiement">
-                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-semibold text-base py-3 rounded-xl">
-                  En savoir plus
-                </Button>
+                <span className="inline-flex items-center gap-1 text-primary font-semibold text-sm hover:gap-2 transition-all">
+                  En savoir plus <ArrowRight className="h-4 w-4" />
+                </span>
               </Link>
             </div>
           </div>
 
           {/* Besoin d'aide */}
-          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden reveal-card stagger-2">
-            <div className="p-6">
-              <h2 className="text-4xl font-black mb-3 leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
+          <div className="bg-red-50 dark:bg-red-950/20 rounded-2xl reveal-card stagger-2">
+            <div className="p-7 flex flex-col h-full">
+              <img src={illuAssistance} alt="" className="w-24 h-24 object-contain mb-5" />
+              <h2 className="text-2xl font-bold mb-2 text-foreground">
                 Besoin d'aide ?
               </h2>
-              <p className="text-sm text-muted-foreground mb-4">
-                Notre équipe d'assistance est à votre écoute à tout moment pour répondre à vos questions, vous aider dans vos paiements et résoudre vos problèmes en un instant. Contactez-nous en ligne, à tout moment, où que vous soyez.
+              <p className="text-sm text-muted-foreground mb-5 flex-1">
+                Notre équipe d'assistance est à votre écoute à tout moment pour répondre à vos questions, vous aider dans vos paiements et résoudre vos problèmes en un instant.
               </p>
-              <div className="rounded-xl overflow-hidden mb-4">
-                <img
-                  src={imgBesoinAide}
-                  alt="Assistance SendavaPay"
-                  className="w-full object-cover"
-                />
-              </div>
               <Link href="/assistance">
-                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-semibold text-base py-3 rounded-xl">
-                  En savoir plus
-                </Button>
+                <span className="inline-flex items-center gap-1 text-primary font-semibold text-sm hover:gap-2 transition-all">
+                  En savoir plus <ArrowRight className="h-4 w-4" />
+                </span>
               </Link>
             </div>
           </div>
 
           {/* API de Paiement */}
-          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden reveal-card stagger-3">
-            <div className="p-6">
-              <h2 className="text-4xl font-black mb-3 leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
+          <div className="bg-green-50 dark:bg-green-950/20 rounded-2xl reveal-card stagger-3">
+            <div className="p-7 flex flex-col h-full">
+              <img src={illuApi} alt="" className="w-24 h-24 object-contain mb-5" />
+              <h2 className="text-2xl font-bold mb-2 text-foreground">
                 API de Paiement
               </h2>
-              <p className="text-sm text-muted-foreground mb-4">
+              <p className="text-sm text-muted-foreground mb-5 flex-1">
                 Notre API et SDK simplifient la gestion des transactions. Acceptez les paiements, vérifiez les statuts et automatisez vos retraits depuis une seule intégration.
               </p>
-              <div className="rounded-xl overflow-hidden mb-4">
-                <img
-                  src={imgApiPaiement}
-                  alt="API de paiement SendavaPay"
-                  className="w-full object-cover"
-                />
-              </div>
               <Link href="/api-de-paiement">
-                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-semibold text-base py-3 rounded-xl">
-                  En savoir plus
-                </Button>
+                <span className="inline-flex items-center gap-1 text-primary font-semibold text-sm hover:gap-2 transition-all">
+                  En savoir plus <ArrowRight className="h-4 w-4" />
+                </span>
               </Link>
             </div>
           </div>
