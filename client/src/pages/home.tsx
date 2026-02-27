@@ -40,6 +40,7 @@ import heroImage1 from "@assets/benefits-3_1769443912067.webp";
 import imgLiensPaiement from "@assets/IMG-20260224-WA0011_1772177956027.jpg";
 import imgBesoinAide from "@assets/sendavapay4_1772177760975.jpg";
 import imgApiPaiement from "@assets/IMG_20260227_073944_233_1772177997425.jpg";
+import imgStatistiques from "@assets/Screenshot_20260227-073700_1772177874148.png";
 
 export default function HomePage() {
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -311,18 +312,44 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Section Liens de Paiement */}
-      <section className="py-12 bg-background">
-        <div className="max-w-2xl mx-auto px-4">
-          <div className="bg-white dark:bg-card rounded-3xl shadow-sm border border-border/40 overflow-hidden scroll-animate">
-            <div className="p-8">
-              <h2 className="text-3xl md:text-4xl font-black mb-4 leading-tight">
+      {/* Sections promotionnelles */}
+      <section className="bg-gray-100 dark:bg-muted/50 py-6 space-y-4">
+        <div className="max-w-lg mx-auto px-4 space-y-4">
+
+          {/* Statistiques */}
+          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden scroll-animate">
+            <div className="p-6">
+              <h2 className="text-4xl font-black mb-3 leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
+                Statistiques
+              </h2>
+              <p className="text-base text-muted-foreground mb-4">
+                Suivez vos transactions en temps réel et obtenez des rapports détaillés pour une meilleure prise de décision.
+              </p>
+              <div className="rounded-xl overflow-hidden mb-4 border border-border/30">
+                <img
+                  src={imgStatistiques}
+                  alt="Tableau de bord statistiques SendavaPay"
+                  className="w-full object-cover"
+                />
+              </div>
+              <Link href="/auth?tab=register">
+                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold text-lg py-5 rounded-xl">
+                  En savoir plus
+                </Button>
+              </Link>
+            </div>
+          </div>
+
+          {/* Liens de Paiement */}
+          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden scroll-animate">
+            <div className="p-6">
+              <h2 className="text-4xl font-black mb-3 leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
                 Liens de Paiement
               </h2>
-              <p className="text-base text-muted-foreground mb-6">
+              <p className="text-base text-muted-foreground mb-4">
                 Générez un lien, partagez-le, et encaissez vos paiements directement. Simple, rapide et 100 % sécurisé, même sans site web.
               </p>
-              <div className="rounded-2xl overflow-hidden mb-6">
+              <div className="rounded-xl overflow-hidden mb-4">
                 <img
                   src={imgLiensPaiement}
                   alt="Liens de paiement SendavaPay"
@@ -330,27 +357,23 @@ export default function HomePage() {
                 />
               </div>
               <Link href="/auth?tab=register">
-                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold text-xl py-6 rounded-2xl">
+                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold text-lg py-5 rounded-xl">
                   En savoir plus
                 </Button>
               </Link>
             </div>
           </div>
-        </div>
-      </section>
 
-      {/* Section Besoin d'aide */}
-      <section className="py-12 bg-background">
-        <div className="max-w-2xl mx-auto px-4">
-          <div className="bg-white dark:bg-card rounded-3xl shadow-sm border border-border/40 overflow-hidden scroll-animate">
-            <div className="p-8">
-              <h2 className="text-3xl md:text-4xl font-black mb-4 leading-tight">
+          {/* Besoin d'aide */}
+          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden scroll-animate">
+            <div className="p-6">
+              <h2 className="text-4xl font-black mb-3 leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
                 Besoin d'aide ?
               </h2>
-              <p className="text-base text-muted-foreground mb-6">
+              <p className="text-base text-muted-foreground mb-4">
                 Notre équipe d'assistance est à votre écoute à tout moment pour répondre à vos questions, vous aider dans vos paiements et résoudre vos problèmes en un instant. Contactez-nous en ligne, à tout moment, où que vous soyez.
               </p>
-              <div className="rounded-2xl overflow-hidden mb-6">
+              <div className="rounded-xl overflow-hidden mb-4">
                 <img
                   src={imgBesoinAide}
                   alt="Assistance SendavaPay"
@@ -358,27 +381,23 @@ export default function HomePage() {
                 />
               </div>
               <Link href="/auth?tab=register">
-                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold text-xl py-6 rounded-2xl">
+                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold text-lg py-5 rounded-xl">
                   En savoir plus
                 </Button>
               </Link>
             </div>
           </div>
-        </div>
-      </section>
 
-      {/* Section API de Paiement */}
-      <section className="py-12 bg-background">
-        <div className="max-w-2xl mx-auto px-4">
-          <div className="bg-white dark:bg-card rounded-3xl shadow-sm border border-border/40 overflow-hidden scroll-animate">
-            <div className="p-8">
-              <h2 className="text-3xl md:text-4xl font-black mb-4 leading-tight">
-                API DE PAIEMENT
+          {/* API de Paiement */}
+          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden scroll-animate">
+            <div className="p-6">
+              <h2 className="text-4xl font-black mb-3 leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
+                API de Paiement
               </h2>
-              <p className="text-base text-muted-foreground mb-6">
+              <p className="text-base text-muted-foreground mb-4">
                 Notre API et SDK simplifient la gestion des transactions. Acceptez les paiements, vérifiez les statuts et automatisez vos retraits depuis une seule intégration.
               </p>
-              <div className="rounded-2xl overflow-hidden mb-6">
+              <div className="rounded-xl overflow-hidden mb-4">
                 <img
                   src={imgApiPaiement}
                   alt="API de paiement SendavaPay"
@@ -386,12 +405,13 @@ export default function HomePage() {
                 />
               </div>
               <Link href="/auth?tab=register">
-                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold text-xl py-6 rounded-2xl">
+                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-bold text-lg py-5 rounded-xl">
                   En savoir plus
                 </Button>
               </Link>
             </div>
           </div>
+
         </div>
       </section>
 
