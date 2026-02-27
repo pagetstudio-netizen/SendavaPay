@@ -153,9 +153,9 @@ export default function HomePage() {
         /* === SCROLL ANIMATE: slide up === */
         .scroll-animate {
           opacity: 0;
-          transform: translateY(50px);
-          transition: opacity 1.2s cubic-bezier(0.22, 1, 0.36, 1),
-                      transform 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+          transform: translateY(32px);
+          transition: opacity 1.0s cubic-bezier(0.34, 1.4, 0.64, 1),
+                      transform 1.0s cubic-bezier(0.34, 1.4, 0.64, 1);
         }
         .scroll-animate.animate-in {
           opacity: 1;
@@ -165,9 +165,9 @@ export default function HomePage() {
         /* === SLIDE FROM LEFT === */
         .slide-left {
           opacity: 0;
-          transform: translateX(-60px);
-          transition: opacity 1.3s cubic-bezier(0.22, 1, 0.36, 1),
-                      transform 1.3s cubic-bezier(0.22, 1, 0.36, 1);
+          transform: translateX(-40px);
+          transition: opacity 1.1s cubic-bezier(0.34, 1.4, 0.64, 1),
+                      transform 1.1s cubic-bezier(0.34, 1.4, 0.64, 1);
         }
         .slide-left.animate-in {
           opacity: 1;
@@ -177,9 +177,9 @@ export default function HomePage() {
         /* === SLIDE FROM RIGHT === */
         .slide-right {
           opacity: 0;
-          transform: translateX(60px);
-          transition: opacity 1.3s cubic-bezier(0.22, 1, 0.36, 1),
-                      transform 1.3s cubic-bezier(0.22, 1, 0.36, 1);
+          transform: translateX(40px);
+          transition: opacity 1.1s cubic-bezier(0.34, 1.4, 0.64, 1),
+                      transform 1.1s cubic-bezier(0.34, 1.4, 0.64, 1);
         }
         .slide-right.animate-in {
           opacity: 1;
@@ -189,9 +189,9 @@ export default function HomePage() {
         /* === ZOOM IN (for cards) === */
         .zoom-in {
           opacity: 0;
-          transform: scale(0.88) translateY(30px);
-          transition: opacity 1.2s cubic-bezier(0.22, 1, 0.36, 1),
-                      transform 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+          transform: scale(0.92) translateY(24px);
+          transition: opacity 1.0s cubic-bezier(0.34, 1.4, 0.64, 1),
+                      transform 1.0s cubic-bezier(0.34, 1.4, 0.64, 1);
         }
         .zoom-in.animate-in {
           opacity: 1;
@@ -201,9 +201,9 @@ export default function HomePage() {
         /* === REVEAL CARD (for promo cards) === */
         .reveal-card {
           opacity: 0;
-          transform: translateY(60px) scale(0.95);
-          transition: opacity 1.4s cubic-bezier(0.22, 1, 0.36, 1),
-                      transform 1.4s cubic-bezier(0.22, 1, 0.36, 1);
+          transform: translateY(40px) scale(0.97);
+          transition: opacity 1.2s cubic-bezier(0.34, 1.4, 0.64, 1),
+                      transform 1.2s cubic-bezier(0.34, 1.4, 0.64, 1);
         }
         .reveal-card.animate-in {
           opacity: 1;
@@ -213,9 +213,9 @@ export default function HomePage() {
         /* === SCALE (for feature cards) === */
         .scroll-animate-scale {
           opacity: 0;
-          transform: scale(0.85) translateY(20px);
-          transition: opacity 1.1s cubic-bezier(0.22, 1, 0.36, 1),
-                      transform 1.1s cubic-bezier(0.22, 1, 0.36, 1);
+          transform: scale(0.92) translateY(18px);
+          transition: opacity 1.0s cubic-bezier(0.34, 1.4, 0.64, 1),
+                      transform 1.0s cubic-bezier(0.34, 1.4, 0.64, 1);
         }
         .scroll-animate-scale.animate-in {
           opacity: 1;
@@ -223,12 +223,12 @@ export default function HomePage() {
         }
 
         /* === STAGGER DELAYS === */
-        .stagger-1 { transition-delay: 0.15s; }
-        .stagger-2 { transition-delay: 0.30s; }
-        .stagger-3 { transition-delay: 0.45s; }
-        .stagger-4 { transition-delay: 0.60s; }
-        .stagger-5 { transition-delay: 0.75s; }
-        .stagger-6 { transition-delay: 0.90s; }
+        .stagger-1 { transition-delay: 0.12s; }
+        .stagger-2 { transition-delay: 0.24s; }
+        .stagger-3 { transition-delay: 0.36s; }
+        .stagger-4 { transition-delay: 0.48s; }
+        .stagger-5 { transition-delay: 0.60s; }
+        .stagger-6 { transition-delay: 0.72s; }
 
         /* === PLATFORM TEXT === */
         .platform-text {
