@@ -154,8 +154,8 @@ export default function HomePage() {
         .scroll-animate {
           opacity: 0;
           transform: translateY(50px);
-          transition: opacity 0.75s cubic-bezier(0.22, 1, 0.36, 1),
-                      transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
+          transition: opacity 1.2s cubic-bezier(0.22, 1, 0.36, 1),
+                      transform 1.2s cubic-bezier(0.22, 1, 0.36, 1);
         }
         .scroll-animate.animate-in {
           opacity: 1;
@@ -166,8 +166,8 @@ export default function HomePage() {
         .slide-left {
           opacity: 0;
           transform: translateX(-60px);
-          transition: opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
-                      transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+          transition: opacity 1.3s cubic-bezier(0.22, 1, 0.36, 1),
+                      transform 1.3s cubic-bezier(0.22, 1, 0.36, 1);
         }
         .slide-left.animate-in {
           opacity: 1;
@@ -178,8 +178,8 @@ export default function HomePage() {
         .slide-right {
           opacity: 0;
           transform: translateX(60px);
-          transition: opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
-                      transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+          transition: opacity 1.3s cubic-bezier(0.22, 1, 0.36, 1),
+                      transform 1.3s cubic-bezier(0.22, 1, 0.36, 1);
         }
         .slide-right.animate-in {
           opacity: 1;
@@ -190,8 +190,8 @@ export default function HomePage() {
         .zoom-in {
           opacity: 0;
           transform: scale(0.88) translateY(30px);
-          transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
-                      transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+          transition: opacity 1.2s cubic-bezier(0.22, 1, 0.36, 1),
+                      transform 1.2s cubic-bezier(0.22, 1, 0.36, 1);
         }
         .zoom-in.animate-in {
           opacity: 1;
@@ -202,8 +202,8 @@ export default function HomePage() {
         .reveal-card {
           opacity: 0;
           transform: translateY(60px) scale(0.95);
-          transition: opacity 0.9s cubic-bezier(0.22, 1, 0.36, 1),
-                      transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+          transition: opacity 1.4s cubic-bezier(0.22, 1, 0.36, 1),
+                      transform 1.4s cubic-bezier(0.22, 1, 0.36, 1);
         }
         .reveal-card.animate-in {
           opacity: 1;
@@ -214,8 +214,8 @@ export default function HomePage() {
         .scroll-animate-scale {
           opacity: 0;
           transform: scale(0.85) translateY(20px);
-          transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
-                      transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+          transition: opacity 1.1s cubic-bezier(0.22, 1, 0.36, 1),
+                      transform 1.1s cubic-bezier(0.22, 1, 0.36, 1);
         }
         .scroll-animate-scale.animate-in {
           opacity: 1;
@@ -223,12 +223,12 @@ export default function HomePage() {
         }
 
         /* === STAGGER DELAYS === */
-        .stagger-1 { transition-delay: 0.08s; }
-        .stagger-2 { transition-delay: 0.18s; }
-        .stagger-3 { transition-delay: 0.28s; }
-        .stagger-4 { transition-delay: 0.38s; }
-        .stagger-5 { transition-delay: 0.48s; }
-        .stagger-6 { transition-delay: 0.58s; }
+        .stagger-1 { transition-delay: 0.15s; }
+        .stagger-2 { transition-delay: 0.30s; }
+        .stagger-3 { transition-delay: 0.45s; }
+        .stagger-4 { transition-delay: 0.60s; }
+        .stagger-5 { transition-delay: 0.75s; }
+        .stagger-6 { transition-delay: 0.90s; }
 
         /* === PLATFORM TEXT === */
         .platform-text {
