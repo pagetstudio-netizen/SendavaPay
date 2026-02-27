@@ -181,7 +181,13 @@ export default function DepositPage() {
     const saved = localStorage.getItem("soleaspay_payment");
     if (saved) {
       try {
-        const { orderId, payId, provider } = JSON.parse(saved);
+        const { orderId, payId, provider, timestamp } = JSON.parse(saved);
+        const MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
+        const isExpired = !timestamp || Date.now() - timestamp > MAX_AGE_MS;
+        if (isExpired) {
+          localStorage.removeItem("soleaspay_payment");
+          return;
+        }
         if (payId) {
           setCurrentOrderId(orderId || "");
           setCurrentPayId(payId);
@@ -221,6 +227,7 @@ export default function DepositPage() {
           orderId: data.orderId,
           payId: data.payId,
           provider,
+          timestamp: Date.now(),
         }));
         setCurrentOrderId(data.orderId);
         setCurrentPayId(data.payId);
