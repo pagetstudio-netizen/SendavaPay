@@ -65,10 +65,10 @@ export default function HomePage() {
           }
         });
       },
-      { threshold: 0.1, rootMargin: "0px 0px -50px 0px" }
+      { threshold: 0.08, rootMargin: "0px 0px -40px 0px" }
     );
 
-    const elements = document.querySelectorAll(".scroll-animate");
+    const elements = document.querySelectorAll(".scroll-animate, .slide-left, .slide-right, .zoom-in, .reveal-card");
     elements.forEach((el) => observerRef.current?.observe(el));
 
     return () => observerRef.current?.disconnect();
@@ -150,44 +150,101 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
       <style>{`
+        /* === SCROLL ANIMATE: slide up === */
         .scroll-animate {
           opacity: 0;
-          transform: translateY(40px);
-          transition: opacity 0.8s ease-out, transform 0.8s ease-out;
+          transform: translateY(50px);
+          transition: opacity 0.75s cubic-bezier(0.22, 1, 0.36, 1),
+                      transform 0.75s cubic-bezier(0.22, 1, 0.36, 1);
         }
         .scroll-animate.animate-in {
           opacity: 1;
           transform: translateY(0);
         }
+
+        /* === SLIDE FROM LEFT === */
+        .slide-left {
+          opacity: 0;
+          transform: translateX(-60px);
+          transition: opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
+                      transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .slide-left.animate-in {
+          opacity: 1;
+          transform: translateX(0);
+        }
+
+        /* === SLIDE FROM RIGHT === */
+        .slide-right {
+          opacity: 0;
+          transform: translateX(60px);
+          transition: opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1),
+                      transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .slide-right.animate-in {
+          opacity: 1;
+          transform: translateX(0);
+        }
+
+        /* === ZOOM IN (for cards) === */
+        .zoom-in {
+          opacity: 0;
+          transform: scale(0.88) translateY(30px);
+          transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+                      transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .zoom-in.animate-in {
+          opacity: 1;
+          transform: scale(1) translateY(0);
+        }
+
+        /* === REVEAL CARD (for promo cards) === */
+        .reveal-card {
+          opacity: 0;
+          transform: translateY(60px) scale(0.95);
+          transition: opacity 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+                      transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .reveal-card.animate-in {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+
+        /* === SCALE (for feature cards) === */
         .scroll-animate-scale {
           opacity: 0;
-          transform: scale(0.9);
-          transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+          transform: scale(0.85) translateY(20px);
+          transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+                      transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
         }
         .scroll-animate-scale.animate-in {
           opacity: 1;
-          transform: scale(1);
+          transform: scale(1) translateY(0);
         }
-        .stagger-1 { transition-delay: 0.1s; }
-        .stagger-2 { transition-delay: 0.2s; }
-        .stagger-3 { transition-delay: 0.3s; }
-        .stagger-4 { transition-delay: 0.4s; }
+
+        /* === STAGGER DELAYS === */
+        .stagger-1 { transition-delay: 0.08s; }
+        .stagger-2 { transition-delay: 0.18s; }
+        .stagger-3 { transition-delay: 0.28s; }
+        .stagger-4 { transition-delay: 0.38s; }
+        .stagger-5 { transition-delay: 0.48s; }
+        .stagger-6 { transition-delay: 0.58s; }
+
+        /* === PLATFORM TEXT === */
         .platform-text {
-          animation: fadeInUp 0.5s ease-out;
+          animation: fadeInUp 0.45s cubic-bezier(0.22, 1, 0.36, 1);
         }
         @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(12px); }
+          to   { opacity: 1; transform: translateY(0); }
         }
+
+        /* === HERO GRADIENT === */
         .hero-gradient {
           background: linear-gradient(180deg, hsl(var(--primary)/0.08) 0%, hsl(var(--background)) 100%);
         }
+
+        /* === MARQUEE === */
         .logo-marquee {
           display: flex;
           animation: marquee 20s linear infinite;
@@ -196,7 +253,7 @@ export default function HomePage() {
           animation-play-state: paused;
         }
         @keyframes marquee {
-          0% { transform: translateX(0); }
+          0%   { transform: translateX(0); }
           100% { transform: translateX(-50%); }
         }
       `}</style>
@@ -285,7 +342,7 @@ export default function HomePage() {
       <section className="py-16 lg:py-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid md:grid-cols-2 gap-12 items-center">
-            <div className="order-2 md:order-1 scroll-animate">
+            <div className="order-2 md:order-1 slide-left">
               <h2 className="text-3xl md:text-4xl font-bold mb-6">
                 Transformez votre passion en revenus
               </h2>
@@ -301,7 +358,7 @@ export default function HomePage() {
                 </Link>
               </div>
             </div>
-            <div className="order-1 md:order-2 flex justify-center scroll-animate stagger-1">
+            <div className="order-1 md:order-2 flex justify-center slide-right">
               <img 
                 src={heroImage1} 
                 alt="Entrepreneur africaine" 
@@ -317,7 +374,7 @@ export default function HomePage() {
         <div className="max-w-lg mx-auto px-4 space-y-4">
 
           {/* Statistiques */}
-          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden scroll-animate">
+          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden reveal-card">
             <div className="p-6">
               <h2 className="text-4xl font-black mb-3 leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
                 Statistiques
@@ -341,7 +398,7 @@ export default function HomePage() {
           </div>
 
           {/* Liens de Paiement */}
-          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden scroll-animate">
+          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden reveal-card stagger-1">
             <div className="p-6">
               <h2 className="text-4xl font-black mb-3 leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
                 Liens de Paiement
@@ -365,7 +422,7 @@ export default function HomePage() {
           </div>
 
           {/* Besoin d'aide */}
-          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden scroll-animate">
+          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden reveal-card stagger-2">
             <div className="p-6">
               <h2 className="text-4xl font-black mb-3 leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
                 Besoin d'aide ?
@@ -389,7 +446,7 @@ export default function HomePage() {
           </div>
 
           {/* API de Paiement */}
-          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden scroll-animate">
+          <div className="bg-white dark:bg-card rounded-2xl overflow-hidden reveal-card stagger-3">
             <div className="p-6">
               <h2 className="text-4xl font-black mb-3 leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
                 API de Paiement
