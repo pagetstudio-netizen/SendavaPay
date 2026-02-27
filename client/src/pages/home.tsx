@@ -370,8 +370,8 @@ export default function HomePage() {
               <h2 className="text-4xl font-black mb-3 leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
                 Besoin d'aide ?
               </h2>
-              <p className="text-base text-muted-foreground mb-4">
-                Assistance 24h/24, 7j/7 — réponse rapide par chat ou WhatsApp.
+              <p className="text-xs text-muted-foreground mb-4">
+                Notre équipe d'assistance est à votre écoute à tout moment pour répondre à vos questions, vous aider dans vos paiements et résoudre vos problèmes en un instant. Contactez-nous en ligne, à tout moment, où que vous soyez.
               </p>
               <div className="rounded-xl overflow-hidden mb-4">
                 <img
@@ -394,8 +394,8 @@ export default function HomePage() {
               <h2 className="text-4xl font-black mb-3 leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
                 API de Paiement
               </h2>
-              <p className="text-base text-muted-foreground mb-4">
-                API et SDK pour encaisser, vérifier et retirer en une seule intégration.
+              <p className="text-xs text-muted-foreground mb-4">
+                Notre API et SDK simplifient la gestion des transactions. Acceptez les paiements, vérifiez les statuts et automatisez vos retraits depuis une seule intégration.
               </p>
               <div className="rounded-xl overflow-hidden mb-4">
                 <img
