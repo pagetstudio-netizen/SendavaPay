@@ -2285,15 +2285,29 @@ interface FeeChangeRecord {
   createdAt: string;
 }
 
+interface CountryFee {
+  id: number;
+  code: string;
+  name: string;
+  currency: string;
+  depositFeeRate: string | null;
+  withdrawFeeRate: string | null;
+}
+
 function CommissionsContent() {
   const { toast } = useToast();
   const [depositRate, setDepositRate] = useState("7");
   const [encaissementRate, setEncaissementRate] = useState("7");
   const [withdrawalRate, setWithdrawalRate] = useState("7");
   const [reason, setReason] = useState("");
+  const [editingFees, setEditingFees] = useState<Record<number, { deposit: string; withdraw: string }>>({});
 
   const { data: settings } = useQuery<{ depositRate: string; encaissementRate: string; withdrawalRate: string }>({
     queryKey: ["/api/admin/settings"],
+  });
+
+  const { data: countriesWithFees, isLoading: loadingCountryFees } = useQuery<CountryFee[]>({
+    queryKey: ["/api/admin/countries"],
   });
 
   const { data: feeChanges, isLoading: changesLoading } = useQuery<FeeChangeRecord[]>({
@@ -2316,10 +2330,24 @@ function CommissionsContent() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/settings"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/fee-changes"] });
       setReason("");
-      toast({ title: "Taux mis \u00e0 jour", description: "Les nouveaux taux seront appliqu\u00e9s aux prochaines transactions" });
+      toast({ title: "Taux mis à jour", description: "Les nouveaux taux sont actifs immédiatement pour les prochaines transactions." });
     },
     onError: () => {
-      toast({ title: "Erreur", description: "Impossible de mettre \u00e0 jour les taux", variant: "destructive" });
+      toast({ title: "Erreur", description: "Impossible de mettre à jour les taux", variant: "destructive" });
+    },
+  });
+
+  const updateCountryFeesMutation = useMutation({
+    mutationFn: async ({ id, depositFeeRate, withdrawFeeRate }: { id: number; depositFeeRate: string; withdrawFeeRate: string }) => {
+      await apiRequest("PUT", `/api/admin/countries/${id}/fees`, { depositFeeRate: depositFeeRate || null, withdrawFeeRate: withdrawFeeRate || null });
+    },
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/countries"] });
+      setEditingFees(prev => { const n = { ...prev }; delete n[vars.id]; return n; });
+      toast({ title: "Frais mis à jour", description: "Les frais spécifiques à ce pays sont actifs immédiatement." });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Impossible de mettre à jour les frais", variant: "destructive" });
     },
   });
 
@@ -2424,6 +2452,137 @@ function CommissionsContent() {
           >
             {updateMutation.isPending ? "Mise \u00e0 jour..." : "Mettre \u00e0 jour les taux"}
           </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Grille tarifaire par pays</CardTitle>
+          <CardDescription>
+            Définissez des frais spécifiques par pays. Si vide, le taux global s'applique.
+            Les frais incluent la commission SendavaPay et les frais partenaires.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingCountryFees ? (
+            <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Pays</TableHead>
+                    <TableHead>Devise</TableHead>
+                    <TableHead className="text-center">Frais dépôt (%)</TableHead>
+                    <TableHead className="text-center">Frais retrait (%)</TableHead>
+                    <TableHead className="text-center">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {countriesWithFees?.map((country) => {
+                    const isEditing = editingFees[country.id] !== undefined;
+                    const editVals = editingFees[country.id] || {
+                      deposit: country.depositFeeRate ?? "",
+                      withdraw: country.withdrawFeeRate ?? "",
+                    };
+                    const globalDepositRate = settings?.depositRate || "7";
+                    const globalWithdrawRate = settings?.withdrawalRate || "7";
+                    return (
+                      <TableRow key={country.id} data-testid={`row-country-fee-${country.id}`}>
+                        <TableCell className="font-medium">{country.name}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{country.currency}</Badge>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {isEditing ? (
+                            <Input
+                              type="number"
+                              className="w-20 mx-auto text-center"
+                              value={editVals.deposit}
+                              onChange={(e) => setEditingFees(prev => ({ ...prev, [country.id]: { ...editVals, deposit: e.target.value } }))}
+                              placeholder={globalDepositRate}
+                              min="0"
+                              max="20"
+                              step="0.1"
+                              data-testid={`input-deposit-fee-${country.id}`}
+                            />
+                          ) : (
+                            <span className={country.depositFeeRate ? "font-semibold text-primary" : "text-muted-foreground"}>
+                              {country.depositFeeRate ? `${country.depositFeeRate}%` : `${globalDepositRate}% (global)`}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {isEditing ? (
+                            <Input
+                              type="number"
+                              className="w-20 mx-auto text-center"
+                              value={editVals.withdraw}
+                              onChange={(e) => setEditingFees(prev => ({ ...prev, [country.id]: { ...editVals, withdraw: e.target.value } }))}
+                              placeholder={globalWithdrawRate}
+                              min="0"
+                              max="20"
+                              step="0.1"
+                              data-testid={`input-withdraw-fee-${country.id}`}
+                            />
+                          ) : (
+                            <span className={country.withdrawFeeRate ? "font-semibold text-primary" : "text-muted-foreground"}>
+                              {country.withdrawFeeRate ? `${country.withdrawFeeRate}%` : `${globalWithdrawRate}% (global)`}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          {isEditing ? (
+                            <div className="flex gap-1 justify-center">
+                              <Button
+                                size="sm"
+                                onClick={() => updateCountryFeesMutation.mutate({ id: country.id, depositFeeRate: editVals.deposit, withdrawFeeRate: editVals.withdraw })}
+                                disabled={updateCountryFeesMutation.isPending}
+                                data-testid={`button-save-fee-${country.id}`}
+                              >
+                                Enregistrer
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => setEditingFees(prev => { const n = { ...prev }; delete n[country.id]; return n; })}
+                                data-testid={`button-cancel-fee-${country.id}`}
+                              >
+                                Annuler
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex gap-1 justify-center">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setEditingFees(prev => ({ ...prev, [country.id]: { deposit: country.depositFeeRate ?? "", withdraw: country.withdrawFeeRate ?? "" } }))}
+                                data-testid={`button-edit-fee-${country.id}`}
+                              >
+                                <Edit className="h-3 w-3 mr-1" />
+                                Modifier
+                              </Button>
+                              {(country.depositFeeRate || country.withdrawFeeRate) && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-muted-foreground"
+                                  onClick={() => updateCountryFeesMutation.mutate({ id: country.id, depositFeeRate: "", withdrawFeeRate: "" })}
+                                  data-testid={`button-reset-fee-${country.id}`}
+                                >
+                                  Réinitialiser
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
