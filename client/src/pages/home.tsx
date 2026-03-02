@@ -336,7 +336,7 @@ export default function HomePage() {
       <section className="py-16 lg:py-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid md:grid-cols-2 gap-12 items-center">
-            <div className="order-2 md:order-1 slide-left space-y-6">
+            <div className="order-2 md:order-1 slide-left space-y-6 text-center md:text-left">
               <span className="inline-block text-xs font-semibold uppercase tracking-widest text-primary bg-primary/10 px-3 py-1 rounded-full">
                 Pour les entrepreneurs
               </span>
@@ -346,12 +346,14 @@ export default function HomePage() {
               <p className="text-base text-muted-foreground leading-relaxed">
                 Artisans, créateurs, couturiers — acceptez les paiements de vos clients en toute simplicité. Partagez votre lien et recevez l'argent directement sur Mobile Money.
               </p>
-              <Link href="/auth?tab=register">
-                <Button className="gap-2 bg-primary hover:bg-primary/90 text-white font-semibold px-6 py-3 rounded-xl text-base">
-                  Commencer maintenant
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </Link>
+              <div className="flex justify-center md:justify-start">
+                <Link href="/auth?tab=register">
+                  <Button className="gap-2 bg-primary hover:bg-primary/90 text-white font-semibold px-6 py-3 rounded-xl text-base">
+                    Commencer maintenant
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </Link>
+              </div>
             </div>
             <div className="order-1 md:order-2 flex justify-center slide-right">
               <img 
