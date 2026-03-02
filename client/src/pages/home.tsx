@@ -357,7 +357,7 @@ export default function HomePage() {
               <img 
                 src={heroImage1} 
                 alt="Entrepreneur africaine" 
-                className="max-w-sm w-full rounded-3xl shadow-xl"
+                className="max-w-sm w-full"
               />
             </div>
           </div>
