@@ -11,6 +11,7 @@ export interface OmniPayCollectParams {
   operator?: string;
   otp?: string;
   returnUrl?: string;
+  callbackUrl?: string;
 }
 
 export interface OmniPayCollectResponse {
@@ -186,6 +187,7 @@ export class OmniPayClient {
       }
       if (params.otp) body.otp = params.otp;
       if (params.returnUrl) body.return_url = params.returnUrl;
+      if (params.callbackUrl) body.callback_url = params.callbackUrl;
 
       console.log("📡 OmniPay REQUÊTE:", JSON.stringify({ ...body, apikey: "***" }, null, 2));
 

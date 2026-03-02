@@ -670,6 +670,7 @@ export async function registerRoutes(
           operator: opOperator ?? undefined,
           otp: otp || undefined,
           returnUrl: isWave ? `${baseUrl}/success?reference=${orderId}` : undefined,
+          callbackUrl: `${baseUrl}/api/webhook/omnipay`,
         });
 
         if (String(opResult.success) !== "1") {
@@ -1085,6 +1086,7 @@ export async function registerRoutes(
           operator: opOperator ?? undefined,
           otp: otp || undefined,
           returnUrl: isWave ? `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}` : undefined,
+          callbackUrl: `${baseUrl}/api/webhook/omnipay`,
         });
 
         if (String(opResult.success) !== "1") {
