@@ -1563,6 +1563,17 @@ function KycContent() {
 
   const { data: requests, isLoading } = useQuery<KycRequestWithUser[]>({ queryKey: ["/api/admin/kyc"] });
 
+  const { data: duplicateKyc = [] } = useQuery<KycRequestWithUser[]>({
+    queryKey: ["/api/admin/kyc/check-duplicate", selectedKyc?.documentNumber],
+    queryFn: async () => {
+      if (!selectedKyc?.documentNumber) return [];
+      const res = await fetch(`/api/admin/kyc/check-duplicate/${encodeURIComponent(selectedKyc.documentNumber)}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!selectedKyc?.documentNumber,
+  });
+
   const filteredRequests = useMemo(() => {
     return requests?.filter((req) => {
       const matchesSearch = 
@@ -1712,7 +1723,18 @@ function KycContent() {
               <div className="p-4 rounded-lg bg-muted/30">
                 <h4 className="font-semibold mb-3 flex items-center gap-2">
                   <FileText className="h-4 w-4" /> Document: {selectedKyc.documentType}
+                  {selectedKyc.documentNumber && (
+                    <span className="text-muted-foreground font-normal text-sm">— N° {selectedKyc.documentNumber}</span>
+                  )}
                 </h4>
+                {selectedKyc.documentNumber && duplicateKyc.filter(k => k.id !== selectedKyc.id).length > 0 && (
+                  <div className="mb-3 flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive font-medium" data-testid="alert-kyc-duplicate">
+                    ⚠️ Ce numéro de document (<strong>{selectedKyc.documentNumber}</strong>) a déjà été utilisé par {duplicateKyc.filter(k => k.id !== selectedKyc.id).length} autre(s) compte(s) :
+                    <span className="ml-1">
+                      {duplicateKyc.filter(k => k.id !== selectedKyc.id).map(k => `${k.user?.fullName || "Inconnu"} (ID ${k.userId})`).join(", ")}
+                    </span>
+                  </div>
+                )}
                 <p className="text-sm text-muted-foreground mb-4">
                   Soumis le {formatDate(selectedKyc.createdAt)}
                   {selectedKyc.reviewedAt && ` - Traité le ${formatDate(selectedKyc.reviewedAt)}`}

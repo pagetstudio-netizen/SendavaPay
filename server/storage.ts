@@ -117,6 +117,7 @@ export interface IStorage {
   updateKycRequest(id: number, updates: Partial<KycRequest>): Promise<KycRequest | undefined>;
   getPendingKycRequests(): Promise<KycRequest[]>;
   getAllKycRequests(): Promise<(KycRequest & { user?: User })[]>;
+  getKycByDocumentNumber(documentNumber: string): Promise<(KycRequest & { user?: User })[]>;
   
   getCommissionSettings(): Promise<CommissionSettings | undefined>;
   updateCommissionSettings(depositRate: string, encaissementRate: string, withdrawalRate: string, updatedBy: number): Promise<CommissionSettings>;
@@ -453,6 +454,16 @@ export class DatabaseStorage implements IStorage {
       })
     );
     return enrichedKyc;
+  }
+
+  async getKycByDocumentNumber(documentNumber: string): Promise<(KycRequest & { user?: User })[]> {
+    const matches = await getDb().select().from(kycRequests)
+      .where(eq(kycRequests.documentNumber, documentNumber))
+      .orderBy(desc(kycRequests.createdAt));
+    return Promise.all(matches.map(async (kyc) => {
+      const user = await this.getUser(kyc.userId);
+      return { ...kyc, user };
+    }));
   }
 
   async getCommissionSettings(): Promise<CommissionSettings | undefined> {
