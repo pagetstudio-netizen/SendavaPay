@@ -37,6 +37,7 @@ import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
 import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
 import heroImage1 from "@assets/benefits-3_1769443912067.webp";
+import heroCashpay from "@assets/Cashpay-Web-2_1772436554124.png";
 import imgLiensPaiement from "@assets/IMG-20260224-WA0011_1772177956027.jpg";
 import imgBesoinAide from "@assets/sendavapay4_1772177760975.jpg";
 import imgApiPaiement from "@assets/IMG_20260227_073944_233_1772177997425.jpg";
@@ -248,7 +249,7 @@ export default function HomePage() {
 
         /* === HERO GRADIENT === */
         .hero-gradient {
-          background: linear-gradient(180deg, hsl(var(--primary)/0.08) 0%, hsl(var(--background)) 100%);
+          background: linear-gradient(135deg, #5b7cf7 0%, #3a4dd4 60%, #2d3db8 100%);
         }
 
         /* === CAROUSEL SCROLLBAR HIDE === */
@@ -272,78 +273,61 @@ export default function HomePage() {
 
       {/* Hero Section */}
       <section className="relative overflow-hidden hero-gradient">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-16 lg:py-24">
-          <div className="text-center space-y-8">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/20 bg-background text-sm font-medium scroll-animate">
-              <Zap className="h-4 w-4 text-primary" />
-              Nouvelles Fonctionnalités
-            </div>
-            
-            <div className="space-y-6 scroll-animate stagger-1">
-              <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold tracking-tight leading-tight">
-                Encaissez vos clients sur{" "}
-                <span key={currentPlatform} className={`platform-text inline-block ${platformColors[currentPlatform]}`}>
-                  {platforms[currentPlatform]}
-                </span>
-                <br />
-                en <span className="text-primary">30 secondes</span>
-              </h1>
-              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                Créez un lien de paiement, partagez-le et recevez l'argent immédiatement par Mobile Money.
-              </p>
-            </div>
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 pt-14 pb-0 text-center">
 
-            <div className="flex flex-col items-center gap-4 scroll-animate stagger-2">
-              <div className="flex items-center gap-2 text-sm">
-                <CheckCircle className="h-5 w-5 text-primary" />
-                <span>Sécurisé & conforme KYC</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <CheckCircle className="h-5 w-5 text-primary" />
-                <span>7 pays d'Afrique</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <CheckCircle className="h-5 w-5 text-primary" />
-                <span>Support local</span>
-              </div>
-            </div>
+          {/* Title */}
+          <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold text-white leading-tight mb-4 scroll-animate">
+            Unifiez vos paiements avec
+          </h1>
 
-            <div className="scroll-animate stagger-3">
-              <Link href="/auth?tab=register">
-                <Button 
-                  size="sm" 
-                  className="gap-2 font-medium text-sm px-4 py-2 rounded-lg bg-foreground text-background hover:bg-foreground/90" 
-                  data-testid="button-hero-register"
-                >
-                  Créer un lien de paiement
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </Link>
-            </div>
-
-            {/* Mobile Money Providers - Scrolling Logos */}
-            <div className="pt-8 scroll-animate stagger-4">
-              <p className="text-sm text-muted-foreground mb-6">Moyens de paiement acceptés</p>
-              <div className="overflow-hidden max-w-3xl mx-auto">
-                <div className="logo-marquee gap-8">
-                  {[mtnLogo, moovLogo, orangeLogo, tmoneyLogo, airtelLogo, vodacomLogo, mtnLogo, moovLogo, orangeLogo, tmoneyLogo, airtelLogo, vodacomLogo].map((logo, index) => (
-                    <div key={index} className="flex-shrink-0">
-                      <img 
-                        src={logo} 
-                        alt="Mobile Money" 
-                        className="h-16 w-16 object-contain rounded-full"
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+          {/* SendavaPay orange highlight */}
+          <div className="inline-block bg-amber-400 px-5 py-2 rounded-lg mb-6 scroll-animate stagger-1">
+            <span className="text-4xl md:text-5xl lg:text-6xl font-extrabold text-white">
+              SendavaPay
+            </span>
           </div>
 
-          <div className="flex justify-center mt-12">
-            <a href="#why-sendavapay" className="animate-bounce">
-              <ChevronDown className="h-8 w-8 text-muted-foreground" />
-            </a>
+          {/* Subtitle */}
+          <p className="text-white/90 text-base md:text-lg font-medium max-w-xl mx-auto mb-8 scroll-animate stagger-2">
+            Alimentez votre expansion à travers un réseau de millions d'utilisateurs actifs.
+            Grâce à SendavaPay, vos paiements circulent plus vite, plus loin, et plus intelligemment.
+          </p>
+
+          {/* CTA */}
+          <div className="flex justify-center mb-10 scroll-animate stagger-3">
+            <Link href="/auth?tab=register">
+              <Button
+                size="lg"
+                className="gap-2 font-semibold px-8 py-4 rounded-xl bg-white text-blue-700 hover:bg-white/90 shadow-lg"
+                data-testid="button-hero-register"
+              >
+                Commencer gratuitement
+                <ArrowRight className="h-5 w-5" />
+              </Button>
+            </Link>
+          </div>
+
+          {/* Hero image flush at bottom */}
+          <div className="scroll-animate stagger-4">
+            <img
+              src={heroCashpay}
+              alt="SendavaPay dashboard"
+              className="w-full max-w-lg mx-auto object-contain"
+            />
+          </div>
+        </div>
+
+        {/* Mobile money logos strip */}
+        <div className="bg-white dark:bg-background py-4">
+          <p className="text-center text-xs text-muted-foreground mb-3">Moyens de paiement acceptés</p>
+          <div className="overflow-hidden max-w-3xl mx-auto">
+            <div className="logo-marquee gap-8">
+              {[mtnLogo, moovLogo, orangeLogo, tmoneyLogo, airtelLogo, vodacomLogo, mtnLogo, moovLogo, orangeLogo, tmoneyLogo, airtelLogo, vodacomLogo].map((logo, index) => (
+                <div key={index} className="flex-shrink-0">
+                  <img src={logo} alt="Mobile Money" className="h-14 w-14 object-contain rounded-full" />
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
