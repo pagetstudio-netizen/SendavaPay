@@ -139,47 +139,51 @@ function FeesSection() {
               ))}
             </div>
 
-            {/* Country Fee Cards */}
+            {/* Operator fee cards */}
             {current && (
               <div className="scroll-animate">
-                {/* Fee summary row */}
-                <div className="grid grid-cols-3 gap-4 max-w-2xl mx-auto mb-8">
-                  {[
-                    { label: "Dépôt", value: current.depositFee, color: "text-blue-600 dark:text-blue-400" },
-                    { label: "Retrait", value: current.withdrawFee, color: "text-orange-600 dark:text-orange-400" },
-                    { label: "Encaissement", value: current.encaissementFee, color: "text-green-600 dark:text-green-400" },
-                  ].map((item) => (
-                    <div key={item.label} className="bg-background border border-border rounded-2xl p-4 text-center shadow-sm">
-                      <p className="text-xs text-muted-foreground mb-1">{item.label}</p>
-                      <p className={`text-2xl font-bold ${item.color}`}>{item.value}%</p>
-                      <p className="text-xs text-muted-foreground mt-1">{current.currency}</p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Operators grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 max-w-4xl mx-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-w-5xl mx-auto">
                   {current.operators.map((op) => {
                     const logo = getOperatorLogo(op.logo);
                     return (
                       <div
                         key={op.id}
                         data-testid={`card-operator-${op.id}`}
-                        className={`bg-background border rounded-2xl p-4 flex flex-col items-center gap-3 shadow-sm transition-all hover:shadow-md ${
-                          op.inMaintenance ? "opacity-50 grayscale" : "border-border"
+                        className={`bg-background border rounded-2xl p-5 flex flex-col gap-4 shadow-sm transition-all hover:shadow-md ${
+                          op.inMaintenance ? "opacity-50 grayscale border-border" : "border-border hover:border-primary/30"
                         }`}
                       >
-                        {logo ? (
-                          <img src={logo} alt={op.name} className="h-10 w-auto object-contain" />
-                        ) : (
-                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
-                            {op.name.charAt(0)}
+                        {/* Logo + Nom */}
+                        <div className="flex items-center gap-3">
+                          {logo ? (
+                            <img src={logo} alt={op.name} className="h-9 w-9 object-contain flex-shrink-0" />
+                          ) : (
+                            <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm flex-shrink-0">
+                              {op.name.charAt(0)}
+                            </div>
+                          )}
+                          <div>
+                            <p className="font-semibold text-sm leading-tight">{op.name}</p>
+                            {op.inMaintenance && (
+                              <span className="text-xs text-orange-500 font-medium">En maintenance</span>
+                            )}
                           </div>
-                        )}
-                        <p className="text-xs font-semibold text-center leading-tight">{op.name}</p>
-                        {op.inMaintenance && (
-                          <span className="text-xs text-orange-500 font-medium">Maintenance</span>
-                        )}
+                        </div>
+
+                        {/* Pay In / Pay Out */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="rounded-xl bg-blue-50 dark:bg-blue-950/40 p-3 text-center">
+                            <p className="text-xs text-blue-600 dark:text-blue-400 font-medium mb-1">Pay In</p>
+                            <p className="text-xl font-bold text-blue-700 dark:text-blue-300">{current.depositFee}%</p>
+                          </div>
+                          <div className="rounded-xl bg-orange-50 dark:bg-orange-950/40 p-3 text-center">
+                            <p className="text-xs text-orange-600 dark:text-orange-400 font-medium mb-1">Pay Out</p>
+                            <p className="text-xl font-bold text-orange-700 dark:text-orange-300">{current.withdrawFee}%</p>
+                          </div>
+                        </div>
+
+                        {/* Currency */}
+                        <p className="text-xs text-muted-foreground text-center">{current.currency}</p>
                       </div>
                     );
                   })}
