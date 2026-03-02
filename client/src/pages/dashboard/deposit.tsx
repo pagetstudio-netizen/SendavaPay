@@ -26,6 +26,12 @@ import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
 import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
 
+const COUNTRY_PREFIXES: Record<string, string> = {
+  CI: "+225", BJ: "+229", TG: "+228", BF: "+226",
+  SN: "+221", CM: "+237", ML: "+223", GN: "+224",
+  COG: "+242", COD: "+243",
+};
+
 interface SoleasPayCountry {
   code: string;
   name: string;
@@ -117,11 +123,13 @@ export default function DepositPage() {
       }
     }
     setOtp("");
+    setPhoneNumber("");
   }, [services, selectedServiceId]);
 
   const selectedService = services.find(s => s.id.toString() === selectedServiceId);
   const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
   const isWiniPayer = selectedService?.paymentGateway === "winipayer";
+  const phonePrefix = COUNTRY_PREFIXES[selectedService?.countryCode || ""] || "";
 
   const { data: commissionRates } = useQuery<{ depositRate: number; encaissementRate: number; withdrawalRate: number }>({
     queryKey: ["/api/commission-rates"],
@@ -305,7 +313,7 @@ export default function DepositPage() {
       });
       return;
     }
-    if (!isWiniPayer && (!phoneNumber || phoneNumber.length < 8)) {
+    if (!isWiniPayer && (!phoneNumber || phoneNumber.length < 5)) {
       toast({
         title: "Numéro invalide",
         description: "Veuillez entrer un numéro de téléphone valide.",
@@ -324,7 +332,7 @@ export default function DepositPage() {
     depositMutation.mutate({
       amount: numericAmount,
       serviceId: selectedServiceId,
-      phoneNumber: isWiniPayer ? undefined : phoneNumber.replace(/\s/g, ""),
+      phoneNumber: isWiniPayer ? undefined : (phonePrefix + phoneNumber).replace(/\s/g, ""),
       otp: isOrange && !isWiniPayer ? otp.trim() : undefined,
     });
   };
@@ -523,20 +531,24 @@ export default function DepositPage() {
               ) : (
                 <div className="space-y-2">
                   <Label htmlFor="phone">Numéro de téléphone Mobile Money</Label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <div className="flex h-12">
+                    {phonePrefix && (
+                      <div className="flex items-center px-3 border border-r-0 rounded-l-md bg-muted text-sm font-mono font-semibold text-muted-foreground select-none shrink-0">
+                        {phonePrefix}
+                      </div>
+                    )}
                     <Input
                       id="phone"
                       type="tel"
-                      placeholder="Ex: 90123456"
+                      placeholder="90123456"
                       value={phoneNumber}
-                      onChange={(e) => setPhoneNumber(e.target.value)}
-                      className="pl-10 h-12"
+                      onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ""))}
+                      className={phonePrefix ? "rounded-l-none h-12" : "h-12"}
                       data-testid="input-phone-number"
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Entrez le numéro associé à votre compte {selectedService?.operator || "Mobile Money"}
+                    Entrez le numéro local associé à votre compte {selectedService?.operator || "Mobile Money"}
                   </p>
                 </div>
               )}
@@ -624,7 +636,7 @@ export default function DepositPage() {
               <Button
                 type="submit"
                 className="w-full h-12 text-lg font-bold shadow-lg shadow-primary/20"
-                disabled={numericAmount < 100 || (!isWiniPayer && !phoneNumber) || depositMutation.isPending}
+                disabled={numericAmount < 100 || (!isWiniPayer && phoneNumber.length < 5) || depositMutation.isPending}
                 data-testid="button-deposit-submit"
               >
                 {depositMutation.isPending ? (

@@ -10,6 +10,7 @@ export interface SoleasPayService {
   countryCode: string;
   currency: string;
   operator: string;
+  paymentGateway?: string;
 }
 
 export const SOLEASPAY_SERVICES: SoleasPayService[] = [
@@ -30,12 +31,12 @@ export const SOLEASPAY_SERVICES: SoleasPayService[] = [
   { id: 54, name: "OM COD", description: "Orange Money", country: "RDC", countryCode: "COD", currency: "CDF", operator: "Orange" },
   { id: 55, name: "AIRTEL COG", description: "Airtel Money", country: "Congo Brazzaville", countryCode: "COG", currency: "XAF", operator: "Airtel" },
   { id: 56, name: "MOMO COG", description: "MTN Money", country: "Congo Brazzaville", countryCode: "COG", currency: "XAF", operator: "MTN" },
-  // Sénégal
-  { id: 57, name: "OM SN", description: "Orange Money", country: "Sénégal", countryCode: "SN", currency: "XOF", operator: "Orange" },
-  { id: 58, name: "WAVE SN", description: "Wave", country: "Sénégal", countryCode: "SN", currency: "XOF", operator: "Wave" },
-  { id: 59, name: "MIXX SN", description: "Mixx", country: "Sénégal", countryCode: "SN", currency: "XOF", operator: "Mixx" },
-  // Mali
-  { id: 60, name: "OM ML", description: "Orange Money", country: "Mali", countryCode: "ML", currency: "XOF", operator: "Orange" },
+  // Sénégal — via OmniPay
+  { id: 57, name: "OM SN", description: "Orange Money", country: "Sénégal", countryCode: "SN", currency: "XOF", operator: "Orange", paymentGateway: "omnipay" },
+  { id: 58, name: "WAVE SN", description: "Wave", country: "Sénégal", countryCode: "SN", currency: "XOF", operator: "Wave", paymentGateway: "omnipay" },
+  { id: 59, name: "MIXX SN", description: "Mixx", country: "Sénégal", countryCode: "SN", currency: "XOF", operator: "Mixx", paymentGateway: "omnipay" },
+  // Mali — via OmniPay
+  { id: 60, name: "OM ML", description: "Orange Money", country: "Mali", countryCode: "ML", currency: "XOF", operator: "Orange", paymentGateway: "omnipay" },
 ];
 
 export const SOLEASPAY_COUNTRIES = [
