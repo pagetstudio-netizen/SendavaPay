@@ -78,7 +78,7 @@ export default function WithdrawPage() {
   const [amount, setAmount] = useState("");
   const [country, setCountry] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
-  const [mobileNumber, setMobileNumber] = useState(user?.phone || "");
+  const [mobileNumber, setMobileNumber] = useState("");
   const [walletName, setWalletName] = useState("");
 
   const { data: countries = [], isLoading: countriesLoading } = useQuery<WithdrawCountry[]>({
@@ -105,7 +105,7 @@ export default function WithdrawPage() {
   const numericAmount = parseFloat(amount) || 0;
   const fee = Math.round(numericAmount * (commissionRate / 100));
   const netAmount = numericAmount - fee;
-  const minWithdrawal = 500;
+  const minWithdrawal = 200;
 
   const withdrawMutation = useMutation({
     mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string; country: string; walletName: string }) => {

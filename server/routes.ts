@@ -2677,8 +2677,8 @@ export async function registerRoutes(
       const numericAmount = parseFloat(amount);
       const balance = parseFloat(user.balance);
 
-      if (isNaN(numericAmount) || numericAmount < 500) {
-        return res.status(400).json({ message: "Montant minimum: 500 XOF" });
+      if (isNaN(numericAmount) || numericAmount < 200) {
+        return res.status(400).json({ message: "Montant minimum: 200 XOF" });
       }
 
       if (numericAmount > balance) {
