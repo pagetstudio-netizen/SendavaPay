@@ -174,15 +174,16 @@ async function initializeWithTimeout<T>(
   timeoutMs: number,
   name: string
 ): Promise<T | null> {
-  return Promise.race([
-    promise,
-    new Promise<null>((resolve) => {
-      setTimeout(() => {
-        log(`${name} initialization timed out after ${timeoutMs}ms`, "init");
-        resolve(null);
-      }, timeoutMs);
-    }),
-  ]);
+  let timerId: NodeJS.Timeout;
+  const timeoutPromise = new Promise<null>((resolve) => {
+    timerId = setTimeout(() => {
+      log(`${name} initialization timed out after ${timeoutMs}ms`, "init");
+      resolve(null);
+    }, timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    clearTimeout(timerId!);
+  });
 }
 
 (async () => {
