@@ -3689,19 +3689,91 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Service de paiement invalide" });
       }
 
-      // Update transaction with customer info
+      const operators = await storage.getOperators();
+      const operator = operators.find(op => op.code === serviceId.toString());
+      const paymentGateway = operator?.paymentGateway || service.paymentGateway || "soleaspay";
+
+      const orderId = `API_${transaction.reference}_${Date.now()}`;
+      const baseUrl = "https://sendavapay.com";
+
+      // Update transaction with customer info (mark gateway in paymentMethod prefix)
       await storage.updateApiTransaction(transaction.id, {
         customerName: payerName,
         customerPhone: payerPhone,
         customerEmail: payerEmail,
-        paymentMethod: service.operator,
+        paymentMethod: paymentGateway === "omnipay" ? `omnipay_${service.operator}` : service.operator,
         status: "processing",
       });
 
-      // Generate unique order ID for this payment
-      const orderId = `API_${transaction.reference}_${Date.now()}`;
+      // ── OmniPay ─────────────────────────────────────────────────────────
+      if (paymentGateway === "omnipay") {
+        if (!payerPhone) {
+          return res.status(400).json({ message: "Numéro de téléphone requis pour OmniPay" });
+        }
 
-      // Initiate SoleasPay payment
+        console.log(`📤 OmniPay API: paiement référence=${req.params.reference}, montant=${amount} ${service.currency}`);
+
+        const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
+        const opOperator = getOmnipayOperator(operator?.name || service.operator);
+
+        if (opOperator === undefined) {
+          await storage.updateApiTransaction(transaction.id, { status: "failed" });
+          return res.status(400).json({ message: "Opérateur non supporté par OmniPay" });
+        }
+
+        const cleanPhone = formatPhoneForOmnipay(payerPhone, service.countryCode);
+        const isWave = opOperator === "wave";
+
+        const nameParts = payerName?.split(" ") || ["Client"];
+        const firstName = nameParts[0];
+        const lastName = nameParts.slice(1).join(" ") || nameParts[0];
+
+        const autoOtp = service.operator === "Orange" ? String(Math.floor(100000 + Math.random() * 900000)) : undefined;
+
+        const opResult = await opClient.requestPayment({
+          msisdn: cleanPhone,
+          amount,
+          reference: orderId,
+          firstName,
+          lastName,
+          operator: opOperator ?? undefined,
+          otp: autoOtp,
+          returnUrl: isWave ? `${baseUrl}/success?reference=${orderId}` : undefined,
+          callbackUrl: `${baseUrl}/api/webhook/omnipay`,
+        });
+
+        if (String(opResult.success) !== "1") {
+          console.error("❌ OmniPay API payment error:", opResult);
+          await storage.updateApiTransaction(transaction.id, { status: "failed" });
+          return res.status(500).json({ message: opResult.message || "Erreur lors de l'initiation du paiement OmniPay" });
+        }
+
+        const payId = opResult.transaction_id || opResult.reference || orderId;
+
+        await storage.updateApiTransaction(transaction.id, {
+          externalReference: `${orderId}|${payId}`,
+        });
+
+        const waveUrl = opResult.payment_url || opResult.wave_launch_url || opResult.redirect_url;
+
+        return res.json({
+          success: true,
+          payId,
+          orderId,
+          provider: "omnipay",
+          message: isWave && waveUrl
+            ? "Redirection vers Wave pour confirmer le paiement..."
+            : "Veuillez confirmer le paiement sur votre téléphone",
+          waveUrl: waveUrl || null,
+          isWave: isWave && !!waveUrl,
+        });
+      }
+
+      // ── SoleasPay (défaut) ───────────────────────────────────────────────
+      if (!payerPhone) {
+        return res.status(400).json({ message: "Numéro de téléphone requis pour SoleasPay" });
+      }
+
       const payResult = await soleaspay.collectPayment({
         wallet: payerPhone,
         amount,
@@ -3711,6 +3783,7 @@ export async function registerRoutes(
         payer: payerName,
         payerEmail: payerEmail || "",
         serviceId: parseInt(serviceId),
+        otp: service.operator === "Orange" ? String(Math.floor(100000 + Math.random() * 900000)) : undefined,
       });
 
       if (!payResult.success || !payResult.data) {
@@ -3718,31 +3791,27 @@ export async function registerRoutes(
         return res.status(400).json({ message: payResult.message || "Erreur de paiement" });
       }
 
-      // Extract payId from response data
       const payId = payResult.data.reference || payResult.data.external_reference || "";
-      
+
       if (!payId) {
         await storage.updateApiTransaction(transaction.id, { status: "failed" });
         return res.status(400).json({ message: "Réponse invalide du service de paiement" });
       }
 
-      // Persist orderId and payId to the transaction for verification
       await storage.updateApiTransaction(transaction.id, {
         externalReference: `${orderId}|${payId}`,
       });
 
-      // Check for Wave redirect URL
-      const waveUrl = payResult.wave_launch_url || payResult.payment_url || payResult.redirect_url || 
+      const waveUrl = payResult.wave_launch_url || payResult.payment_url || payResult.redirect_url ||
                       payResult.data?.wave_launch_url || payResult.data?.payment_url || payResult.data?.redirect_url;
-      
       const isWaveOperator = service.operator === "Wave" || service.id === 32;
 
       res.json({
         success: true,
-        payId: payId,
-        orderId: orderId,
-        message: isWaveOperator && waveUrl 
-          ? "Redirection vers Wave pour confirmer le paiement..." 
+        payId,
+        orderId,
+        message: isWaveOperator && waveUrl
+          ? "Redirection vers Wave pour confirmer le paiement..."
           : "Veuillez confirmer le paiement sur votre téléphone",
         waveUrl: waveUrl || null,
         isWave: isWaveOperator,
@@ -3763,9 +3832,24 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Transaction introuvable" });
       }
 
-      const verifyResult = await soleaspay.verifyPayment(orderId, payId);
+      const isOmniPay = transaction.paymentMethod?.startsWith("omnipay_");
 
-      console.log(`🔍 SoleasPay API verify: orderId=${orderId}, payId=${payId}, result=`, JSON.stringify(verifyResult));
+      let verifyResult: { success: boolean; status?: string; data?: { amount?: number }; message?: string };
+
+      if (isOmniPay) {
+        const { omnipay: opClient } = await import("./omnipay");
+        console.log(`🔍 OmniPay API verify: orderId=${orderId}, payId=${payId}`);
+        const opVerify = await opClient.verifyPayment(payId || orderId);
+        verifyResult = {
+          success: String(opVerify.success) === "1",
+          status: String(opVerify.success) === "1" ? "SUCCESS" : "PENDING",
+          data: { amount: opVerify.amount ? parseFloat(String(opVerify.amount)) : undefined },
+          message: opVerify.message,
+        };
+      } else {
+        verifyResult = await soleaspay.verifyPayment(orderId, payId);
+        console.log(`🔍 SoleasPay API verify: orderId=${orderId}, payId=${payId}, result=`, JSON.stringify(verifyResult));
+      }
 
       if (verifyResult.success && verifyResult.status === "SUCCESS") {
         if (transaction.status === "completed") {
@@ -5637,6 +5721,19 @@ export async function registerRoutes(
       res.json(operators);
     } catch (error) {
       console.error("Get operators error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // Returns static services (defined in code) that are NOT managed via the DB operators table
+  app.get("/api/admin/static-services", requireAdmin, async (req, res) => {
+    try {
+      const operators = await storage.getOperators();
+      const dbCodes = new Set(operators.map(op => op.code));
+      const staticOnly = SOLEASPAY_SERVICES.filter(s => !dbCodes.has(s.id.toString()));
+      res.json(staticOnly);
+    } catch (error) {
+      console.error("Get static services error:", error);
       res.status(500).json({ message: "Erreur serveur" });
     }
   });
