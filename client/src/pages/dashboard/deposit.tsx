@@ -25,6 +25,7 @@ import orangeLogo from "@assets/images_1769443862827.png";
 import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
 import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
+import waveLogo from "@assets/images_(16)_1772485816419.jpeg";
 
 const COUNTRY_PREFIXES: Record<string, string> = {
   CI: "+225", BJ: "+229", TG: "+228", BF: "+226",
@@ -58,7 +59,7 @@ const operatorLogos: Record<string, string> = {
   "TMoney": tmoneyLogo,
   "Airtel": airtelLogo,
   "Vodacom": vodacomLogo,
-  "Wave": orangeLogo,
+  "Wave": waveLogo,
 };
 
 const quickAmounts = [5000, 10000, 25000, 50000, 100000];
@@ -321,19 +322,10 @@ export default function DepositPage() {
       });
       return;
     }
-    if (isOrange && !isWiniPayer && !otp.trim()) {
-      toast({
-        title: "OTP requis",
-        description: "Veuillez entrer votre code OTP Orange Money.",
-        variant: "destructive",
-      });
-      return;
-    }
     depositMutation.mutate({
       amount: numericAmount,
       serviceId: selectedServiceId,
       phoneNumber: isWiniPayer ? undefined : (phonePrefix + phoneNumber).replace(/\s/g, ""),
-      otp: isOrange && !isWiniPayer ? otp.trim() : undefined,
     });
   };
 
@@ -549,36 +541,6 @@ export default function DepositPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Entrez le numéro local associé à votre compte {selectedService?.operator || "Mobile Money"}
-                  </p>
-                </div>
-              )}
-
-              {isOrange && !isWiniPayer && (
-                <div className="space-y-3">
-                  <div className="rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 p-4 space-y-2">
-                    <p className="text-sm font-semibold text-orange-800 dark:text-orange-300">
-                      Orange Money requiert un OTP
-                    </p>
-                    <p className="text-sm text-orange-700 dark:text-orange-400">
-                      Composez <span className="font-mono font-bold">{getOrangeUssdCode(selectedService?.countryCode || "")}</span> sur votre téléphone, naviguez vers <strong>Mon Compte → Générer OTP</strong>, puis entrez le code reçu ci-dessous.
-                    </p>
-                  </div>
-                  <Label htmlFor="otp">Code OTP Orange Money</Label>
-                  <div className="relative">
-                    <KeyRound className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <Input
-                      id="otp"
-                      type="text"
-                      placeholder="Ex: 123456"
-                      value={otp}
-                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 8))}
-                      className="pl-10 h-12 tracking-widest font-mono text-lg"
-                      maxLength={8}
-                      data-testid="input-orange-otp"
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Code à usage unique reçu après avoir composé le code USSD
                   </p>
                 </div>
               )}
