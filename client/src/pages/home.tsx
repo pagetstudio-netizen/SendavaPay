@@ -336,27 +336,28 @@ export default function HomePage() {
       <section className="py-16 lg:py-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid md:grid-cols-2 gap-12 items-center">
-            <div className="order-2 md:order-1 slide-left">
-              <h2 className="text-3xl md:text-4xl font-bold mb-6">
+            <div className="order-2 md:order-1 slide-left space-y-6">
+              <span className="inline-block text-xs font-semibold uppercase tracking-widest text-primary bg-primary/10 px-3 py-1 rounded-full">
+                Pour les entrepreneurs
+              </span>
+              <h2 className="text-4xl md:text-5xl font-black leading-tight" style={{fontFamily: "'Playfair Display', serif"}}>
                 Transformez votre passion en revenus
               </h2>
-              <p className="text-lg text-muted-foreground mb-6">
-                Artisans, créateurs, couturiers... Acceptez les paiements de vos clients en toute simplicité. Partagez votre lien et recevez l'argent directement sur Mobile Money.
+              <p className="text-base text-muted-foreground leading-relaxed">
+                Artisans, créateurs, couturiers — acceptez les paiements de vos clients en toute simplicité. Partagez votre lien et recevez l'argent directement sur Mobile Money.
               </p>
-              <div className="flex flex-wrap gap-4">
-                <Link href="/auth?tab=register">
-                  <Button size="sm" className="gap-2 bg-foreground text-background hover:bg-foreground/90">
-                    Commencer maintenant
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                </Link>
-              </div>
+              <Link href="/auth?tab=register">
+                <Button className="gap-2 bg-primary hover:bg-primary/90 text-white font-semibold px-6 py-3 rounded-xl text-base">
+                  Commencer maintenant
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Link>
             </div>
             <div className="order-1 md:order-2 flex justify-center slide-right">
               <img 
                 src={heroImage1} 
                 alt="Entrepreneur africaine" 
-                className="max-w-sm w-full rounded-2xl"
+                className="max-w-sm w-full rounded-3xl shadow-xl"
               />
             </div>
           </div>
