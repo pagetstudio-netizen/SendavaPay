@@ -51,6 +51,7 @@ import orangeLogo from "@assets/images_1769443862827.png";
 import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
 import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
+import waveLogo from "@assets/images_(16)_1772485816419.jpeg";
 import type { PaymentLink } from "@shared/schema";
 
 interface PaymentLinkWithMerchant extends PaymentLink {
@@ -82,7 +83,7 @@ const operatorLogos: Record<string, string> = {
   "TMoney": tmoneyLogo,
   "Airtel": airtelLogo,
   "Vodacom": vodacomLogo,
-  "Wave": orangeLogo,
+  "Wave": waveLogo,
 };
 
 function formatCurrency(amount: string | number, currency: string = "XOF") {
@@ -398,15 +399,6 @@ export default function PaymentPage() {
       });
       return;
     }
-    if (isOrange && !isWiniPayer && !otp.trim()) {
-      toast({
-        title: "OTP requis",
-        description: "Veuillez entrer votre code OTP Orange Money.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     payMutation.mutate({
       linkCode: params?.code || "",
       amount: getPaymentAmount(),
@@ -414,7 +406,6 @@ export default function PaymentPage() {
       phoneNumber: isWiniPayer ? undefined : (phonePrefix + phoneNumber).replace(/\s/g, ""),
       payerName: `${firstName} ${lastName}`,
       payerEmail: email || undefined,
-      otp: isOrange && !isWiniPayer ? otp.trim() : undefined,
     });
   };
 
@@ -855,35 +846,6 @@ export default function PaymentPage() {
                           onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ""))}
                           className={phonePrefix ? "rounded-l-none" : ""}
                           data-testid="input-phone-number"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {isOrange && !isWiniPayer && (
-                    <div className="space-y-3">
-                      <div className="rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 p-3 space-y-1">
-                        <p className="text-sm font-semibold text-orange-800 dark:text-orange-300">
-                          Orange Money requiert un OTP
-                        </p>
-                        <p className="text-xs text-orange-700 dark:text-orange-400">
-                          Composez <span className="font-mono font-bold">{getOrangeUssdCode(selectedService?.countryCode || "")}</span> sur votre téléphone, naviguez vers <strong>Mon Compte → Générer OTP</strong>, puis entrez le code ci-dessous.
-                        </p>
-                      </div>
-                      <Label htmlFor="otp" className="text-sm text-muted-foreground">
-                        Code OTP Orange Money
-                      </Label>
-                      <div className="relative">
-                        <KeyRound className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                        <Input
-                          id="otp"
-                          type="text"
-                          placeholder="Ex: 123456"
-                          value={otp}
-                          onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 8))}
-                          className="pl-10 tracking-widest font-mono text-base"
-                          maxLength={8}
-                          data-testid="input-orange-otp"
                         />
                       </div>
                     </div>

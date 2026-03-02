@@ -35,6 +35,7 @@ import orangeLogo from "@assets/images_1769443862827.png";
 import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
 import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
+import waveLogo from "@assets/images_(16)_1772485816419.jpeg";
 
 interface ApiTransaction {
   id: number;
@@ -71,7 +72,7 @@ const operatorLogos: Record<string, string> = {
   "TMoney": tmoneyLogo,
   "Airtel": airtelLogo,
   "Vodacom": vodacomLogo,
-  "Wave": orangeLogo,
+  "Wave": waveLogo,
 };
 
 function formatCurrency(amount: string | number, currency: string = "XOF") {
