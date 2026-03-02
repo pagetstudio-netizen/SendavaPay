@@ -121,6 +121,7 @@ interface CollectPaymentParams {
   serviceId: number;
   successUrl?: string;
   failureUrl?: string;
+  otp?: string;
 }
 
 interface CollectPaymentResponse {
@@ -309,6 +310,7 @@ export class SoleasPayClient {
           payerEmail: params.payerEmail,
           successUrl: params.successUrl,
           failureUrl: params.failureUrl,
+          ...(params.otp ? { otp: params.otp } : {}),
         }),
       });
 

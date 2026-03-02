@@ -484,7 +484,7 @@ export async function registerRoutes(
 
   app.post("/api/deposit-soleaspay", requireAuth, async (req, res) => {
     try {
-      const { amount, serviceId, phoneNumber } = req.body;
+      const { amount, serviceId, phoneNumber, otp } = req.body;
       const numericAmount = parseFloat(amount);
 
       if (isNaN(numericAmount) || numericAmount < 100) {
@@ -715,6 +715,10 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Numéro de téléphone requis pour SoleasPay" });
       }
 
+      if (service.operator === "Orange" && !otp) {
+        return res.status(400).json({ message: "OTP requis pour Orange Money. Composez le code USSD sur votre téléphone pour générer votre OTP." });
+      }
+
       console.log(`📤 SoleasPay: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
 
       const result = await soleaspay.collectPayment({
@@ -728,6 +732,7 @@ export async function registerRoutes(
         serviceId: service.id,
         successUrl: `${baseUrl}/success`,
         failureUrl: `${baseUrl}/deposit`,
+        otp: otp || undefined,
       });
 
       if (!result.success) {
@@ -885,7 +890,7 @@ export async function registerRoutes(
   // Paiement de lien via SoleasPay (pour les clients payant un vendeur)
   app.post("/api/pay-link-soleaspay", async (req, res) => {
     try {
-      const { linkCode, amount, serviceId, phoneNumber, payerName, payerEmail } = req.body;
+      const { linkCode, amount, serviceId, phoneNumber, payerName, payerEmail, otp } = req.body;
       const numericAmount = parseFloat(amount);
 
       if (!linkCode || !serviceId || !payerName) {
@@ -1123,6 +1128,10 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Numéro de téléphone requis" });
       }
 
+      if (service.operator === "Orange" && !otp) {
+        return res.status(400).json({ message: "OTP requis pour Orange Money. Composez le code USSD sur votre téléphone pour générer votre OTP." });
+      }
+
       console.log(`📤 SoleasPay: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}`);
 
       const result = await soleaspay.collectPayment({
@@ -1136,6 +1145,7 @@ export async function registerRoutes(
         serviceId: service.id,
         successUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}`,
         failureUrl: `${baseUrl}/pay/${linkCode}`,
+        otp: otp || undefined,
       });
 
       if (!result.success) {
