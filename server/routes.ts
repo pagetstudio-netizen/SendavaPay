@@ -4868,6 +4868,41 @@ export async function registerRoutes(
     }
   });
 
+  // Public fees endpoint — countries + operators + rates
+  app.get("/api/public/fees", async (req, res) => {
+    try {
+      const [countries, operators, settings] = await Promise.all([
+        storage.getCountries(),
+        storage.getOperators(),
+        storage.getCommissionSettings(),
+      ]);
+      const globalDeposit = parseFloat(settings?.depositRate || "7");
+      const globalWithdraw = parseFloat(settings?.withdrawalRate || "7");
+      const globalEncaissement = parseFloat(settings?.encaissementRate || "7");
+
+      const activeCountries = countries
+        .filter((c: any) => c.isActive)
+        .map((c: any) => ({
+          id: c.id,
+          code: c.code,
+          name: c.name,
+          currency: c.currency,
+          depositFee: c.depositFeeRate !== null ? parseFloat(c.depositFeeRate) : globalDeposit,
+          withdrawFee: c.withdrawFeeRate !== null ? parseFloat(c.withdrawFeeRate) : globalWithdraw,
+          encaissementFee: c.encaissementFeeRate !== null ? parseFloat(c.encaissementFeeRate) : globalEncaissement,
+          operators: operators
+            .filter((op: any) => op.countryId === c.id && op.isActive)
+            .map((op: any) => ({ id: op.id, name: op.name, logo: op.logo, inMaintenance: op.inMaintenance })),
+        }))
+        .filter((c: any) => c.operators.length > 0);
+
+      res.json({ countries: activeCountries, global: { depositFee: globalDeposit, withdrawFee: globalWithdraw, encaissementFee: globalEncaissement } });
+    } catch (error) {
+      console.error("Public fees error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   // Social Links - Public endpoint
   app.get("/api/social-links", async (req, res) => {
     try {
