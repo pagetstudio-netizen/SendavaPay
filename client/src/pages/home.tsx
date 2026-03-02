@@ -14,10 +14,7 @@ import {
   CheckCircle,
   ChevronDown,
   Headphones,
-  Wallet,
-  Share2,
   MessageSquare,
-  Users,
   Star,
   ThumbsUp,
   Phone,
@@ -47,6 +44,9 @@ import illuLocal from "@assets/PW20_case-local_1772182143541.png";
 import illuCard from "@assets/PW20_case-cc_1772182143744.png";
 import illuReport from "@assets/PW20_case-reporting_1772182143681.png";
 import illuSupport from "@assets/PW20_case-customer_1772182143821.png";
+import stepIconLien from "@assets/20260302_080514_1772438852269.png";
+import stepIconPartage from "@assets/20260302_080335_1772438852071.png";
+import stepIconEncaisse from "@assets/20260302_080214_1772438852298.png";
 
 export default function HomePage() {
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -121,19 +121,19 @@ export default function HomePage() {
       step: "Etape 1",
       title: "Créez votre lien de paiement",
       description: "Définissez un montant en quelques secondes.",
-      icon: Users,
+      img: stepIconLien,
     },
     {
       step: "Etape 2",
       title: "Partagez votre lien",
       description: "Envoyez-le à vos clients sur WhatsApp, Instagram ou par SMS.",
-      icon: Share2,
+      img: stepIconPartage,
     },
     {
       step: "Etape 3",
       title: "Recevez votre argent",
       description: "Vos clients paient par Mobile Money. Retirez vos fonds quand vous voulez.",
-      icon: Wallet,
+      img: stepIconEncaisse,
     },
   ];
 
@@ -478,9 +478,7 @@ export default function HomePage() {
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between mb-4">
                     <span className="text-sm text-muted-foreground font-medium">{item.step}</span>
-                    <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center">
-                      <item.icon className="h-5 w-5" />
-                    </div>
+                    <img src={item.img} alt={item.title} className="h-12 w-12 object-contain" />
                   </div>
                   <h3 className="text-xl font-bold mb-2">{item.title}</h3>
                   <p className="text-muted-foreground text-sm">{item.description}</p>
