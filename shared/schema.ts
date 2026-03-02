@@ -233,6 +233,9 @@ export const operators = pgTable("operators", {
   dailyLimit: text("daily_limit").default("1000000"),
   paymentGateway: text("payment_gateway").default("soleaspay"),
   inMaintenance: boolean("in_maintenance").default(false).notNull(),
+  maintenanceDeposit: boolean("maintenance_deposit").default(false).notNull(),
+  maintenanceWithdraw: boolean("maintenance_withdraw").default(false).notNull(),
+  maintenancePaymentLink: boolean("maintenance_payment_link").default(false).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
