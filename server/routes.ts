@@ -39,7 +39,11 @@ import {
   sendBotReply,
 } from "./telegram";
 
-function getCommissionRate(settings: any, transactionType: string): number {
+function getCommissionRate(settings: any, transactionType: string, countryOverride?: string | number | null): number {
+  if (countryOverride !== null && countryOverride !== undefined) {
+    const rate = parseFloat(countryOverride.toString());
+    if (!isNaN(rate)) return rate;
+  }
   if (transactionType === "withdrawal") {
     return parseFloat(settings?.withdrawalRate || "7");
   }
@@ -2719,7 +2723,7 @@ export async function registerRoutes(
       }
 
       const settings = await storage.getCommissionSettings();
-      const commissionRate = getCommissionRate(settings, "withdrawal");
+      const commissionRate = getCommissionRate(settings, "withdrawal", (selectedCountry as any).withdrawFeeRate);
       const fee = Math.round(numericAmount * (commissionRate / 100));
       const netAmount = numericAmount - fee;
 
@@ -5713,6 +5717,21 @@ export async function registerRoutes(
       res.json(country);
     } catch (error) {
       console.error("Update country error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.put("/api/admin/countries/:id/fees", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { depositFeeRate, withdrawFeeRate } = req.body;
+      const updates: Record<string, any> = {};
+      if (depositFeeRate !== undefined) updates.depositFeeRate = depositFeeRate === "" || depositFeeRate === null ? null : parseFloat(depositFeeRate);
+      if (withdrawFeeRate !== undefined) updates.withdrawFeeRate = withdrawFeeRate === "" || withdrawFeeRate === null ? null : parseFloat(withdrawFeeRate);
+      const country = await storage.updateCountry(id, updates);
+      res.json(country);
+    } catch (error) {
+      console.error("Update country fees error:", error);
       res.status(500).json({ message: "Erreur serveur" });
     }
   });
