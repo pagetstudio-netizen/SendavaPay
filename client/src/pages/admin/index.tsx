@@ -3333,6 +3333,7 @@ function CountriesContent() {
 
   const { data: countries, isLoading: loadingCountries } = useQuery<Country[]>({ queryKey: ["/api/admin/countries"] });
   const { data: operators, isLoading: loadingOperators } = useQuery<Operator[]>({ queryKey: ["/api/admin/operators"] });
+  const { data: staticServices = [] } = useQuery<{ id: number; name: string; description: string; country: string; countryCode: string; currency: string; operator: string; paymentGateway: string }[]>({ queryKey: ["/api/admin/static-services"] });
 
   const operatorsByCountry = useMemo(() => {
     if (!countries || !operators) return {};
@@ -3460,7 +3461,7 @@ function CountriesContent() {
               <Card key={country.id}>
                 <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-xl">{country.code === "BJ" ? "🇧🇯" : country.code === "BF" ? "🇧🇫" : country.code === "TG" ? "🇹🇬" : country.code === "CM" ? "🇨🇲" : country.code === "CI" ? "🇨🇮" : country.code === "CD" ? "🇨🇩" : country.code === "CG" ? "🇨🇬" : "🌍"}</span>
+                    <span className="text-xl">{({ BJ: "🇧🇯", BF: "🇧🇫", TG: "🇹🇬", CM: "🇨🇲", CI: "🇨🇮", CD: "🇨🇩", CG: "🇨🇬", SN: "🇸🇳", ML: "🇲🇱", GN: "🇬🇳", GA: "🇬🇦", MG: "🇲🇬" } as Record<string,string>)[country.code] || "🌍"}</span>
                     <CardTitle className="text-lg">{country.name}</CardTitle>
                   </div>
                   <div className="flex items-center gap-2">
@@ -3499,6 +3500,45 @@ function CountriesContent() {
                       ))}
                     </div>
                   )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {staticServices.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold">Services configurés en code (OmniPay)</h2>
+            <Badge variant="outline">Lecture seule</Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">Ces opérateurs sont définis directement dans le code et ne nécessitent pas d'enregistrement en base. Pour activer la maintenance, ajoutez-les manuellement via le bouton "Ajouter un opérateur" avec le même code numérique.</p>
+          {(["SN", "ML"] as string[]).map(cc => {
+            const services = staticServices.filter(s => s.countryCode === cc);
+            if (!services.length) return null;
+            const flags: Record<string, string> = { SN: "🇸🇳", ML: "🇲🇱" };
+            const names: Record<string, string> = { SN: "Sénégal", ML: "Mali" };
+            return (
+              <Card key={cc}>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{flags[cc]}</span>
+                    <CardTitle className="text-lg">{names[cc]} — OmniPay</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0 space-y-2">
+                  {services.map(s => (
+                    <div key={s.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg" data-testid={`static-service-${s.id}`}>
+                      <div className="flex items-center gap-3">
+                        <span className="font-medium">{s.description}</span>
+                        <span className="text-xs text-muted-foreground font-mono">ID {s.id} — {s.name}</span>
+                        <Badge variant="outline">OmniPay</Badge>
+                        <Badge variant="secondary">{s.currency}</Badge>
+                      </div>
+                      <Badge variant="default" className="text-xs">Actif</Badge>
+                    </div>
+                  ))}
                 </CardContent>
               </Card>
             );
