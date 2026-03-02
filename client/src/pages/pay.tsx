@@ -99,7 +99,7 @@ export default function PaymentPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
   const [currentOrderId, setCurrentOrderId] = useState("");
-  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "winipayer">("soleaspay");
+  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "winipayer" | "maishapay" | "omnipay">("soleaspay");
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
   const maxPollingAttempts = 40;
@@ -147,10 +147,17 @@ export default function PaymentPage() {
   const isWiniPayer = selectedService?.paymentGateway === "winipayer";
 
   const checkPaymentStatus = useCallback(async () => {
-    if (!currentPayId || !currentOrderId) return;
+    if (!currentPayId) return;
 
     try {
-      const response = await fetch(`/api/verify-link-soleaspay/${currentOrderId}/${currentPayId}`);
+      const verifyUrl = currentProvider === "winipayer"
+        ? `/api/verify-winipayer/${currentPayId}`
+        : currentProvider === "maishapay"
+        ? `/api/verify-maishapay/${currentPayId}`
+        : currentProvider === "omnipay"
+        ? `/api/verify-omnipay/${currentPayId}`
+        : `/api/verify-link-soleaspay/${currentOrderId}/${currentPayId}`;
+      const response = await fetch(verifyUrl);
       const data = await response.json();
 
       console.log("Payment verification result:", data);
@@ -255,7 +262,7 @@ export default function PaymentPage() {
         setCurrentPayId(data.payId);
         setCurrentProvider(provider);
         
-        if (provider === "winipayer" && data.checkoutUrl) {
+        if ((provider === "winipayer" || provider === "omnipay") && data.checkoutUrl) {
           toast({
             title: "Redirection en cours",
             description: "Vous allez être redirigé vers la page de paiement.",

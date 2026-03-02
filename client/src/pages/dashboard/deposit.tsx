@@ -68,7 +68,7 @@ export default function DepositPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
   const [currentOrderId, setCurrentOrderId] = useState("");
-  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "winipayer" | "maishapay">("soleaspay");
+  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "winipayer" | "maishapay" | "omnipay">("soleaspay");
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
   const maxPollingAttempts = 40;
@@ -125,6 +125,8 @@ export default function DepositPage() {
         ? `/api/verify-winipayer/${currentPayId}`
         : currentProvider === "maishapay"
         ? `/api/verify-maishapay/${currentPayId}`
+        : currentProvider === "omnipay"
+        ? `/api/verify-omnipay/${currentPayId}`
         : `/api/verify-soleaspay/${currentOrderId}/${currentPayId}`;
       const response = await fetch(verifyUrl, {
         credentials: "include",
@@ -233,7 +235,7 @@ export default function DepositPage() {
         setCurrentPayId(data.payId);
         setCurrentProvider(provider);
         
-        if (provider === "winipayer" && data.checkoutUrl) {
+        if ((provider === "winipayer" || provider === "omnipay") && data.checkoutUrl) {
           toast({
             title: "Redirection en cours",
             description: "Vous allez être redirigé vers la page de paiement.",

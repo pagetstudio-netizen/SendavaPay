@@ -635,6 +635,82 @@ export async function registerRoutes(
         });
       }
 
+      if (paymentGateway === "omnipay") {
+        if (!phoneNumber) {
+          return res.status(400).json({ message: "Numéro de téléphone requis pour OmniPay" });
+        }
+
+        console.log(`📤 OmniPay: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
+
+        const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
+        const opOperator = getOmnipayOperator(operator?.name || service.operator);
+
+        if (opOperator === undefined) {
+          return res.status(400).json({ message: "Opérateur non supporté par OmniPay" });
+        }
+
+        const cleanPhone = formatPhoneForOmnipay(phoneNumber, service.countryCode);
+        const isWave = opOperator === "wave";
+        const baseUrl = "https://sendavapay.com";
+
+        const nameParts = user.fullName?.split(" ") || ["Client"];
+        const firstName = nameParts[0];
+        const lastName = nameParts.slice(1).join(" ") || nameParts[0];
+
+        const opResult = await opClient.requestPayment({
+          msisdn: cleanPhone,
+          amount: numericAmount,
+          reference: orderId,
+          firstName,
+          lastName,
+          operator: opOperator ?? undefined,
+          returnUrl: isWave ? `${baseUrl}/success?reference=${orderId}` : undefined,
+        });
+
+        if (String(opResult.success) !== "1") {
+          console.error("❌ OmniPay requestPayment error:", opResult);
+          return res.status(500).json({ message: opResult.message || "Erreur lors de l'initiation du paiement OmniPay" });
+        }
+
+        await storage.createLeekpayPayment({
+          leekpayPaymentId: orderId,
+          userId: req.session.userId!,
+          amount: numericAmount.toString(),
+          currency: service.currency,
+          type: "deposit",
+          status: "pending",
+          description: `Dépôt via ${service.operator} (${service.country}) - OmniPay`,
+          customerEmail: user.email,
+          payerPhone: cleanPhone,
+          paymentMethod: `omnipay_${service.name}`,
+          returnUrl: `${baseUrl}/success`,
+          paymentUrl: opResult.payment_url || null,
+        });
+
+        console.log(`📤 OmniPay: Paiement initié ref=${orderId}, id=${opResult.id}`);
+
+        if (isWave && opResult.payment_url) {
+          return res.json({
+            success: true,
+            payId: orderId,
+            orderId,
+            status: "PENDING",
+            provider: "omnipay",
+            checkoutUrl: opResult.payment_url,
+            message: "Vous allez être redirigé vers la page de paiement Wave.",
+          });
+        }
+
+        return res.json({
+          success: true,
+          payId: orderId,
+          orderId,
+          status: "PENDING",
+          provider: "omnipay",
+          message: "Paiement initié. Veuillez confirmer sur votre téléphone.",
+        });
+      }
+
       if (!phoneNumber) {
         return res.status(400).json({ message: "Numéro de téléphone requis pour SoleasPay" });
       }
@@ -960,6 +1036,85 @@ export async function registerRoutes(
           orderId,
           status: "PENDING",
           provider: "maishapay",
+          message: "Paiement initié. Veuillez confirmer sur votre téléphone.",
+        });
+      }
+
+      if (paymentGateway === "omnipay") {
+        if (!phoneNumber) {
+          return res.status(400).json({ message: "Numéro de téléphone requis pour OmniPay" });
+        }
+
+        console.log(`📤 OmniPay: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}`);
+
+        const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
+        const opOperator = getOmnipayOperator(operator?.name || service.operator);
+
+        if (opOperator === undefined) {
+          return res.status(400).json({ message: "Opérateur non supporté par OmniPay" });
+        }
+
+        const cleanPhone = formatPhoneForOmnipay(phoneNumber, service.countryCode);
+        const isWave = opOperator === "wave";
+        const baseUrl = "https://sendavapay.com";
+
+        const nameParts = (payerName || "Client").split(" ");
+        const firstName = nameParts[0];
+        const lastName = nameParts.slice(1).join(" ") || nameParts[0];
+
+        const opResult = await opClient.requestPayment({
+          msisdn: cleanPhone,
+          amount: numericAmount,
+          reference: orderId,
+          firstName,
+          lastName,
+          operator: opOperator ?? undefined,
+          returnUrl: isWave ? `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}` : undefined,
+        });
+
+        if (String(opResult.success) !== "1") {
+          console.error("❌ OmniPay pay-link error:", opResult);
+          return res.status(500).json({ message: opResult.message || "Erreur lors de l'initiation du paiement OmniPay" });
+        }
+
+        await storage.createLeekpayPayment({
+          leekpayPaymentId: orderId,
+          userId: null,
+          paymentLinkId: link.id,
+          amount: numericAmount.toString(),
+          currency: service.currency,
+          type: "payment_link",
+          status: "pending",
+          description: `Paiement ${link.title} - OmniPay`,
+          customerEmail: payerEmail,
+          payerName,
+          payerPhone: cleanPhone,
+          payerCountry: service.countryCode,
+          paymentMethod: `omnipay_${service.name}`,
+          returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}`,
+          paymentUrl: opResult.payment_url || null,
+        });
+
+        console.log(`📤 OmniPay: Paiement lien initié ref=${orderId}, id=${opResult.id}`);
+
+        if (isWave && opResult.payment_url) {
+          return res.json({
+            success: true,
+            payId: orderId,
+            orderId,
+            status: "PENDING",
+            provider: "omnipay",
+            checkoutUrl: opResult.payment_url,
+            message: "Vous allez être redirigé vers la page de paiement Wave.",
+          });
+        }
+
+        return res.json({
+          success: true,
+          payId: orderId,
+          orderId,
+          status: "PENDING",
+          provider: "omnipay",
           message: "Paiement initié. Veuillez confirmer sur votre téléphone.",
         });
       }
@@ -1681,6 +1836,106 @@ export async function registerRoutes(
     }
   });
 
+  // Vérification manuelle d'un paiement OmniPay
+  app.get("/api/verify-omnipay/:reference", requireAuth, async (req, res) => {
+    try {
+      const { reference } = req.params;
+      console.log(`🔍 OmniPay: Vérification manuelle ref=${reference}`);
+
+      const existingPayment = await storage.getLeekpayPaymentById(reference);
+      if (existingPayment?.status === "completed") {
+        return res.json({ status: "SUCCESS", message: "Paiement déjà traité", amount: existingPayment.amount });
+      }
+
+      if (!existingPayment) {
+        return res.status(404).json({ status: "NOT_FOUND", message: "Paiement non trouvé" });
+      }
+
+      const { omnipay: opClient } = await import("./omnipay");
+      const checkResult = await opClient.getStatus(reference);
+
+      if (String(checkResult.success) === "1" && checkResult.status === 3) {
+        const claimed = await storage.claimLeekpayPayment(reference);
+        if (!claimed) {
+          return res.json({ status: "SUCCESS", message: "Paiement déjà traité", amount: existingPayment?.amount });
+        }
+
+        const amount = parseFloat(claimed.amount);
+        const settings = await storage.getCommissionSettings();
+
+        if (claimed.type === "deposit" && claimed.userId) {
+          const commissionRate = getCommissionRate(settings, "deposit");
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
+
+          await storage.createTransaction({
+            userId: claimed.userId,
+            type: "deposit",
+            amount: amount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: claimed.description || "Dépôt via OmniPay",
+            externalRef: reference,
+            paymentMethod: claimed.paymentMethod || "omnipay",
+          });
+
+          await storage.updateUserBalance(claimed.userId, netAmount.toString());
+
+          const depositUser = await storage.getUser(claimed.userId);
+          if (depositUser?.email) {
+            sendDepositEmail(depositUser.email, {
+              userName: depositUser.fullName,
+              amount: netAmount,
+              currency: claimed.currency || "XOF",
+              transactionId: reference,
+              phone: claimed.payerPhone || "",
+              operator: claimed.paymentMethod?.replace("omnipay_", "") || "OmniPay",
+            }).catch(err => console.error("Failed to send deposit email:", err));
+          }
+
+          console.log(`✅ OmniPay verify: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
+          return res.json({ status: "SUCCESS", message: "Paiement confirmé avec succès", amount: netAmount });
+        } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
+          const commissionRate = getCommissionRate(settings, "payment_received");
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
+
+          const link = await storage.getPaymentLink(claimed.paymentLinkId);
+          if (link) {
+            await storage.updatePaymentLink(link.id, { paidAt: new Date(), paidAmount: amount.toString() });
+            await storage.createTransaction({
+              userId: link.userId,
+              type: "payment_received",
+              amount: amount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: `Paiement reçu - ${link.title}`,
+              externalRef: reference,
+              paymentMethod: claimed.paymentMethod || "omnipay",
+              mobileNumber: claimed.payerPhone,
+              payerName: claimed.payerName,
+              payerEmail: claimed.customerEmail,
+              payerCountry: claimed.payerCountry,
+              paymentLinkId: link.id,
+            });
+            await storage.updateUserBalance(link.userId, netAmount.toString());
+          }
+          return res.json({ status: "SUCCESS", message: "Paiement confirmé", amount: netAmount });
+        }
+      } else if (checkResult.status === 4) {
+        await storage.updateLeekpayPayment(reference, { status: "failed" });
+        return res.json({ status: "FAILURE", message: "Le paiement a échoué" });
+      }
+
+      return res.json({ status: "PENDING", message: "Paiement en attente de confirmation" });
+    } catch (error) {
+      console.error("OmniPay verify error:", error);
+      return res.json({ status: "PENDING", message: "Vérification en cours..." });
+    }
+  });
+
   // Vérification manuelle d'un paiement MaishaPay
   app.get("/api/verify-maishapay/:reference", requireAuth, async (req, res) => {
     try {
@@ -1899,6 +2154,137 @@ export async function registerRoutes(
       }
     } catch (error) {
       console.error("MaishaPay webhook error:", error);
+    }
+  });
+
+  // Callback webhook OmniPay
+  app.post("/api/webhook/omnipay", async (req, res) => {
+    try {
+      const data = req.body as import("./omnipay").OmniPayWebhookPayload;
+      console.log("📥 === OmniPay Webhook reçu ===");
+      console.log("📥 Data:", JSON.stringify(data));
+
+      res.status(200).json({ received: true });
+
+      const { verifyOmnipaySignature } = await import("./omnipay");
+      const callbackKey = process.env.OMNIPAY_CALLBACK_KEY || "";
+
+      if (callbackKey && data.signature) {
+        const valid = verifyOmnipaySignature(data, callbackKey);
+        if (!valid) {
+          console.error("❌ OmniPay webhook: Signature invalide");
+          return;
+        }
+      }
+
+      const status = String(data.status);
+      const reference = data.reference;
+
+      if (!reference) {
+        console.error("❌ OmniPay webhook: reference manquant");
+        return;
+      }
+
+      const payment = await storage.getLeekpayPaymentById(reference);
+      if (!payment) {
+        console.log("⚠️ OmniPay webhook: Paiement non trouvé ref=" + reference);
+        return;
+      }
+
+      if (payment.status === "completed") {
+        console.log("⚠️ OmniPay webhook: Paiement déjà traité ref=" + reference);
+        return;
+      }
+
+      if (status === "3") {
+        const claimed = await storage.claimLeekpayPayment(reference);
+        if (!claimed) {
+          console.log("⚠️ OmniPay webhook: Paiement déjà réclamé ref=" + reference);
+          return;
+        }
+
+        const amount = parseFloat(claimed.amount);
+        const settings = await storage.getCommissionSettings();
+
+        if (claimed.type === "deposit" && claimed.userId) {
+          const commissionRate = getCommissionRate(settings, "deposit");
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
+
+          await storage.createTransaction({
+            userId: claimed.userId,
+            type: "deposit",
+            amount: amount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: claimed.description || "Dépôt via OmniPay",
+            externalRef: reference,
+            paymentMethod: claimed.paymentMethod || "omnipay",
+          });
+
+          await storage.updateUserBalance(claimed.userId, netAmount.toString());
+
+          const depositUser = await storage.getUser(claimed.userId);
+          if (depositUser?.email) {
+            sendDepositEmail(depositUser.email, {
+              userName: depositUser.fullName,
+              amount: netAmount,
+              currency: claimed.currency || "XOF",
+              transactionId: reference,
+              phone: claimed.payerPhone || "",
+              operator: claimed.paymentMethod?.replace("omnipay_", "") || "OmniPay",
+            }).catch(err => console.error("Failed to send deposit email:", err));
+          }
+
+          const { notifyDeposit } = await import("./telegram");
+          notifyDeposit({
+            userName: depositUser?.fullName || "Inconnu",
+            userId: claimed.userId,
+            amount,
+            fee: amount - netAmount,
+            netAmount,
+            currency: claimed.currency || "XOF",
+            phone: claimed.payerPhone || "",
+            operator: claimed.paymentMethod?.replace("omnipay_", "") || "OmniPay",
+            reference,
+          });
+
+          console.log(`✅ OmniPay webhook: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
+        } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
+          const commissionRate = getCommissionRate(settings, "payment_received");
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
+
+          const link = await storage.getPaymentLink(claimed.paymentLinkId);
+          if (link) {
+            await storage.updatePaymentLink(link.id, { paidAt: new Date(), paidAmount: amount.toString() });
+            await storage.createTransaction({
+              userId: link.userId,
+              type: "payment_received",
+              amount: amount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: `Paiement reçu - ${link.title}`,
+              externalRef: reference,
+              paymentMethod: claimed.paymentMethod || "omnipay",
+              mobileNumber: claimed.payerPhone,
+              payerName: claimed.payerName,
+              payerEmail: claimed.customerEmail,
+              payerCountry: claimed.payerCountry,
+              paymentLinkId: link.id,
+            });
+            await storage.updateUserBalance(link.userId, netAmount.toString());
+            console.log(`✅ OmniPay webhook: Paiement lien confirmé vendeur #${link.userId}: ${netAmount}`);
+          }
+        }
+      } else if (status === "4") {
+        await storage.updateLeekpayPayment(reference, { status: "failed" });
+        console.log(`❌ OmniPay webhook: Paiement échoué ref=${reference}, message=${data.message}`);
+      }
+    } catch (error) {
+      console.error("OmniPay webhook error:", error);
     }
   });
 
@@ -2602,6 +2988,137 @@ export async function registerRoutes(
           await storage.updateWithdrawalRequest(withdrawalRequest.id, {
             status: "failed",
             rejectionReason: "Erreur technique lors du transfert automatique MaishaPay",
+          });
+
+          return res.status(500).json({
+            message: "Erreur technique lors du retrait. Votre solde a été restauré.",
+          });
+        }
+      }
+
+      if (selectedOperator.paymentGateway === "omnipay") {
+        const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
+        const opOperator = getOmnipayOperator(selectedOperator.name);
+
+        if (opOperator === undefined) {
+          await storage.setUserBalance(req.session.userId!, balance.toString());
+          return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique OmniPay" });
+        }
+
+        const currency = selectedCountry.currency || "XOF";
+        const withdrawalRequest = await storage.createWithdrawalRequest({
+          userId: req.session.userId!,
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          paymentMethod: selectedOperator.name,
+          mobileNumber,
+          country,
+          walletName: walletName || null,
+        });
+
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
+
+        const cleanPhone = formatPhoneForOmnipay(mobileNumber, selectedCountry.code);
+        const nameParts = (walletName || user.fullName || "Client").split(" ");
+        const firstName = nameParts[0];
+        const lastName = nameParts.slice(1).join(" ") || nameParts[0];
+
+        console.log("💸 OmniPay transfer: operator=", opOperator, "amount=", netAmount, "phone=", cleanPhone, "currency=", currency);
+
+        try {
+          const opRef = `WD-${withdrawalRequest.id}-${Date.now()}`;
+          const opResult = await opClient.transfer({
+            msisdn: cleanPhone,
+            amount: netAmount,
+            reference: opRef,
+            firstName,
+            lastName,
+            operator: opOperator ?? undefined,
+          });
+
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+            externalReference: opRef,
+            transactionReference: opResult.id?.toString() || null,
+          });
+
+          if (String(opResult.success) === "1") {
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              status: "approved",
+              processedAt: new Date(),
+            });
+
+            await storage.createTransaction({
+              userId: req.session.userId!,
+              type: "withdrawal",
+              amount: numericAmount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: `Retrait automatique ${selectedOperator.name} - ${mobileNumber}`,
+              mobileNumber,
+              paymentMethod: selectedOperator.name,
+            });
+
+            if (user?.email) {
+              sendWithdrawalEmail(user.email, {
+                userName: user.fullName,
+                amount: netAmount,
+                currency,
+                transactionId: withdrawalRequest.id.toString(),
+                phone: mobileNumber,
+                operator: selectedOperator.name,
+              }).catch(err => console.error("Failed to send withdrawal email:", err));
+            }
+
+            notifyWithdrawalAutoProcessed({
+              userName: user.fullName,
+              userId: req.session.userId!,
+              amount: numericAmount.toString(),
+              netAmount: netAmount.toString(),
+              paymentMethod: selectedOperator.name,
+              mobileNumber,
+              payoutUuid: opRef,
+              status: "success",
+            });
+
+            return res.json({
+              message: "Retrait effectué avec succès! L'argent a été envoyé sur votre compte mobile.",
+              request: { ...withdrawalRequest, status: "approved" },
+              autoProcessed: true,
+            });
+          } else {
+            const opError = opResult.message || "Erreur OmniPay inconnue";
+            console.error("❌ OmniPay transfer failed:", opResult);
+            await storage.setUserBalance(req.session.userId!, balance.toString());
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              status: "failed",
+              rejectionReason: opError,
+            });
+
+            notifyWithdrawalAutoProcessed({
+              userName: user.fullName,
+              userId: req.session.userId!,
+              amount: numericAmount.toString(),
+              netAmount: netAmount.toString(),
+              paymentMethod: selectedOperator.name,
+              mobileNumber,
+              payoutUuid: "N/A",
+              status: "failed",
+              errorDetail: opError,
+              payoutOperator: opOperator ?? selectedOperator.name,
+            });
+
+            return res.status(500).json({
+              message: `Le retrait automatique a échoué (${opError}). Votre solde a été restauré.`,
+            });
+          }
+        } catch (opErr) {
+          console.error("❌ OmniPay transfer exception:", opErr);
+          await storage.setUserBalance(req.session.userId!, balance.toString());
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+            status: "failed",
+            rejectionReason: "Erreur technique lors du transfert automatique OmniPay",
           });
 
           return res.status(500).json({
