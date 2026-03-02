@@ -4316,9 +4316,10 @@ export async function registerRoutes(
       });
 
       res.json(kyc);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Submit KYC error:", error);
-      res.status(500).json({ message: "Erreur lors de la soumission" });
+      const message = error?.message || "Erreur lors de la soumission";
+      res.status(500).json({ message });
     }
   });
 

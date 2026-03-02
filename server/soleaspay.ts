@@ -30,6 +30,12 @@ export const SOLEASPAY_SERVICES: SoleasPayService[] = [
   { id: 54, name: "OM COD", description: "Orange Money", country: "RDC", countryCode: "COD", currency: "CDF", operator: "Orange" },
   { id: 55, name: "AIRTEL COG", description: "Airtel Money", country: "Congo Brazzaville", countryCode: "COG", currency: "XAF", operator: "Airtel" },
   { id: 56, name: "MOMO COG", description: "MTN Money", country: "Congo Brazzaville", countryCode: "COG", currency: "XAF", operator: "MTN" },
+  // Sénégal
+  { id: 57, name: "OM SN", description: "Orange Money", country: "Sénégal", countryCode: "SN", currency: "XOF", operator: "Orange" },
+  { id: 58, name: "WAVE SN", description: "Wave", country: "Sénégal", countryCode: "SN", currency: "XOF", operator: "Wave" },
+  { id: 59, name: "MIXX SN", description: "Mixx", country: "Sénégal", countryCode: "SN", currency: "XOF", operator: "Mixx" },
+  // Mali
+  { id: 60, name: "OM ML", description: "Orange Money", country: "Mali", countryCode: "ML", currency: "XOF", operator: "Orange" },
 ];
 
 export const SOLEASPAY_COUNTRIES = [
@@ -39,6 +45,8 @@ export const SOLEASPAY_COUNTRIES = [
   { code: "CI", name: "Côte d'Ivoire", flag: "🇨🇮", currency: "XOF" },
   { code: "COG", name: "Congo Brazzaville", flag: "🇨🇬", currency: "XAF" },
   { code: "COD", name: "RDC", flag: "🇨🇩", currency: "CDF" },
+  { code: "ML", name: "Mali", flag: "🇲🇱", currency: "XOF" },
+  { code: "SN", name: "Sénégal", flag: "🇸🇳", currency: "XOF" },
   { code: "TG", name: "Togo", flag: "🇹🇬", currency: "XOF" },
 ];
 
