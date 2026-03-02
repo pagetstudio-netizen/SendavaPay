@@ -52,3 +52,4 @@ SUPABASE_DATABASE_URL = "postgresql://postgres.vxucwodistvnlrieqmmq:2acrx5EbPVE3
 PUBLIC_OBJECT_SEARCH_PATHS = "public"
 PRIVATE_OBJECT_DIR = ".private"
 WINIPAYER_ENV = "prod"
+SUPABASE_URL = "https://vxucwodistvnlrieqmmq.supabase.co"
