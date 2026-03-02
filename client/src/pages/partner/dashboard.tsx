@@ -794,7 +794,7 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
       return await res.json();
     },
     onSuccess: (data) => {
-      toast({ title: "Demande soumise", description: data.message || "Votre demande de retrait a été soumise." });
+      toast({ title: data.autoProcessed ? "Retrait effectué" : "Retrait en cours", description: data.message || "Votre retrait a été traité instantanément." });
       queryClient.invalidateQueries({ queryKey: ["/api/partner/me"] });
       queryClient.invalidateQueries({ queryKey: ["/api/partner/stats"] });
       setAmount("");
@@ -838,7 +838,7 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
       <Card>
         <CardHeader>
           <CardTitle>Nouvelle demande de retrait</CardTitle>
-          <CardDescription>Minimum: {minWithdrawal.toLocaleString()} FCFA. Tous les retraits nécessitent une validation administrateur.</CardDescription>
+          <CardDescription>Minimum: {minWithdrawal.toLocaleString()} FCFA. Les retraits sont traités instantanément.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">

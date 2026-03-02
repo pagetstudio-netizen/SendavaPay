@@ -89,7 +89,7 @@ const faqCategories = [
     questions: [
       {
         question: "Comment effectuer un retrait ?",
-        answer: "Depuis votre tableau de bord, cliquez sur 'Retrait'. Choisissez votre pays, votre opérateur Mobile Money, entrez le montant et votre numéro de téléphone. Vous recevrez l'argent sur votre compte Mobile Money sous 1h à 24h."
+        answer: "Depuis votre tableau de bord, cliquez sur 'Retrait'. Choisissez votre pays, votre opérateur Mobile Money, entrez le montant et votre numéro de téléphone. Vous recevrez l'argent sur votre compte Mobile Money instantanément."
       },
       {
         question: "Quels sont les frais de retrait ?",
@@ -97,11 +97,11 @@ const faqCategories = [
       },
       {
         question: "Combien de temps prend un retrait ?",
-        answer: "Les retraits sont crédités dans les plus brefs délais de 1h à 24h."
+        answer: "Les retraits sont crédités instantanément sur votre Mobile Money."
       },
       {
         question: "Pourquoi mon retrait est-il en attente ?",
-        answer: "Les retraits sont traités dans les plus brefs délais. Assurez-vous que votre compte est vérifié (KYC) pour accélérer le processus."
+        answer: "Les retraits sont traités instantanément. Assurez-vous que votre compte est vérifié (KYC) et que votre solde est suffisant."
       }
     ]
   },

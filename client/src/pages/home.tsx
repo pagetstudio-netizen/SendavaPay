@@ -148,7 +148,7 @@ export default function HomePage() {
     },
     {
       question: "En combien de temps puis-je retirer mes fonds ?",
-      answer: "Les retraits sont crédités dans les plus brefs délais de 1h à 24h sur votre Mobile Money.",
+      answer: "Les retraits sont crédités instantanément sur votre Mobile Money.",
     },
     {
       question: "SendavaPay est-il disponible dans mon pays ?",
@@ -596,7 +596,7 @@ export default function HomePage() {
                   {[
                     "Liens de paiement illimités",
                     "Mobile Money accepté",
-                    "Retraits sous 1h à 24h",
+                    "Retraits instantanés",
                     "Zéro frais d'inscription",
                     "Support client disponible",
                   ].map((item, index) => (
