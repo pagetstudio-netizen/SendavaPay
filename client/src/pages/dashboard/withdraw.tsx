@@ -26,6 +26,12 @@ import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
 import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
 
+const COUNTRY_PREFIXES: Record<string, string> = {
+  CI: "+225", BJ: "+229", TG: "+228", BF: "+226",
+  SN: "+221", CM: "+237", ML: "+223", GN: "+224",
+  COG: "+242", COD: "+243",
+};
+
 interface WithdrawOperator {
   id: string;
   name: string;
@@ -91,10 +97,12 @@ export default function WithdrawPage() {
 
   const selectedCountry = countries.find(c => c.id === country);
   const availableMethods = selectedCountry?.methods || [];
-  
-  // Reset payment method when country changes
+  const phonePrefix = COUNTRY_PREFIXES[country.toUpperCase()] || "";
+
+  // Reset payment method and phone when country changes
   useEffect(() => {
     setPaymentMethod("");
+    setMobileNumber("");
   }, [country]);
 
   const { data: commissionRates } = useQuery<{ depositRate: number; encaissementRate: number; withdrawalRate: number }>({
@@ -182,7 +190,7 @@ export default function WithdrawPage() {
     withdrawMutation.mutate({
       amount: numericAmount,
       paymentMethod,
-      mobileNumber,
+      mobileNumber: (phonePrefix + mobileNumber).replace(/\s/g, ""),
       country,
       walletName,
     });
@@ -385,14 +393,22 @@ export default function WithdrawPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="mobileNumber">Numéro de téléphone destinataire</Label>
-                <Input
-                  id="mobileNumber"
-                  type="tel"
-                  placeholder="+228 99 99 99 99"
-                  value={mobileNumber}
-                  onChange={(e) => setMobileNumber(e.target.value)}
-                  data-testid="input-withdraw-mobile"
-                />
+                <div className="flex">
+                  {phonePrefix && (
+                    <div className="flex items-center px-3 border border-r-0 rounded-l-md bg-muted text-sm font-mono font-semibold text-muted-foreground select-none shrink-0">
+                      {phonePrefix}
+                    </div>
+                  )}
+                  <Input
+                    id="mobileNumber"
+                    type="tel"
+                    placeholder="90123456"
+                    value={mobileNumber}
+                    onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, ""))}
+                    className={phonePrefix ? "rounded-l-none" : ""}
+                    data-testid="input-withdraw-mobile"
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">

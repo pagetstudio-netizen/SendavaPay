@@ -434,7 +434,7 @@ export async function registerRoutes(
       const availableServices = services.map(service => {
         const operator = operators.find(op => op.code === service.id.toString());
         const inMaintenance = operator?.inMaintenance ?? false;
-        const paymentGateway = operator?.paymentGateway || "soleaspay";
+        const paymentGateway = operator?.paymentGateway || service.paymentGateway || "soleaspay";
         return {
           ...service,
           inMaintenance,
@@ -511,7 +511,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Ce moyen de paiement est actuellement en maintenance" });
       }
 
-      const paymentGateway = operator?.paymentGateway || "soleaspay";
+      const paymentGateway = operator?.paymentGateway || service.paymentGateway || "soleaspay";
       const orderId = `DEP-${Date.now()}-${req.session.userId}`;
       const baseUrl = "https://sendavapay.com";
 
@@ -920,7 +920,7 @@ export async function registerRoutes(
 
       const operators = await storage.getOperators();
       const operator = operators.find(op => op.code === serviceId.toString());
-      const paymentGateway = operator?.paymentGateway || "soleaspay";
+      const paymentGateway = operator?.paymentGateway || service.paymentGateway || "soleaspay";
 
       const orderId = `PAY-${linkCode}-${Date.now()}`;
       const baseUrl = "https://sendavapay.com";

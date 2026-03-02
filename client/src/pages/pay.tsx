@@ -38,6 +38,12 @@ import {
   Phone,
   KeyRound,
 } from "lucide-react";
+const COUNTRY_PREFIXES: Record<string, string> = {
+  CI: "+225", BJ: "+229", TG: "+228", BF: "+226",
+  SN: "+221", CM: "+237", ML: "+223", GN: "+224",
+  COG: "+242", COD: "+243",
+};
+
 import logoPath from "@assets/20251211_105226_1765450558306.png";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
 import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
@@ -155,12 +161,15 @@ export default function PaymentPage() {
     if (services.length > 0 && (!selectedServiceId || !services.find(s => s.id.toString() === selectedServiceId))) {
       setSelectedServiceId(services[0].id.toString());
     }
+    setPhoneNumber("");
+    setOtp("");
   }, [services, selectedServiceId]);
 
   const selectedService = services.find(s => s.id.toString() === selectedServiceId);
   const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
   const isWiniPayer = selectedService?.paymentGateway === "winipayer";
   const isOrange = selectedService?.operator === "Orange";
+  const phonePrefix = COUNTRY_PREFIXES[selectedService?.countryCode || ""] || "";
 
   const checkPaymentStatus = useCallback(async () => {
     if (!currentPayId) return;
@@ -381,7 +390,7 @@ export default function PaymentPage() {
       });
       return;
     }
-    if (!isWiniPayer && (!phoneNumber.trim() || phoneNumber.length < 8)) {
+    if (!isWiniPayer && (!phoneNumber.trim() || phoneNumber.length < 5)) {
       toast({
         title: "Informations manquantes",
         description: "Veuillez entrer un numéro de téléphone valide.",
@@ -402,7 +411,7 @@ export default function PaymentPage() {
       linkCode: params?.code || "",
       amount: getPaymentAmount(),
       serviceId: selectedServiceId,
-      phoneNumber: isWiniPayer ? undefined : phoneNumber.replace(/\s/g, ""),
+      phoneNumber: isWiniPayer ? undefined : (phonePrefix + phoneNumber).replace(/\s/g, ""),
       payerName: `${firstName} ${lastName}`,
       payerEmail: email || undefined,
       otp: isOrange && !isWiniPayer ? otp.trim() : undefined,
@@ -832,15 +841,19 @@ export default function PaymentPage() {
                       <Label htmlFor="phone" className="text-sm text-muted-foreground">
                         Numéro de téléphone {selectedService?.operator || "Mobile Money"}
                       </Label>
-                      <div className="relative">
-                        <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                      <div className="flex">
+                        {phonePrefix && (
+                          <div className="flex items-center px-3 border border-r-0 rounded-l-md bg-muted text-sm font-mono font-semibold text-muted-foreground select-none shrink-0">
+                            {phonePrefix}
+                          </div>
+                        )}
                         <Input
                           id="phone"
                           type="tel"
-                          placeholder="Ex: 90123456"
+                          placeholder="90123456"
                           value={phoneNumber}
-                          onChange={(e) => setPhoneNumber(e.target.value)}
-                          className="pl-10"
+                          onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ""))}
+                          className={phonePrefix ? "rounded-l-none" : ""}
                           data-testid="input-phone-number"
                         />
                       </div>
