@@ -236,6 +236,7 @@ export const operators = pgTable("operators", {
   maintenanceDeposit: boolean("maintenance_deposit").default(false).notNull(),
   maintenanceWithdraw: boolean("maintenance_withdraw").default(false).notNull(),
   maintenancePaymentLink: boolean("maintenance_payment_link").default(false).notNull(),
+  maintenanceApi: boolean("maintenance_api").default(false).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
