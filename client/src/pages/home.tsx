@@ -489,15 +489,15 @@ export default function HomePage() {
             ))}
           </div>
 
-          <div className="text-center mt-12 scroll-animate">
+          <div className="flex justify-center mt-12 scroll-animate">
             <Link href="/auth?tab=register">
               <Button 
-                size="lg" 
-                className="gap-2 font-semibold text-base px-8 py-6 rounded-xl bg-foreground text-background hover:bg-foreground/90" 
+                size="sm"
+                className="gap-2 font-medium px-5 py-2 rounded-lg bg-foreground text-background hover:bg-foreground/90" 
                 data-testid="button-steps-register"
               >
                 Créer un lien de paiement maintenant
-                <ArrowRight className="h-5 w-5" />
+                <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
           </div>
