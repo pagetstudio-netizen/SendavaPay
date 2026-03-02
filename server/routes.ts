@@ -434,10 +434,16 @@ export async function registerRoutes(
       const availableServices = services.map(service => {
         const operator = operators.find(op => op.code === service.id.toString());
         const inMaintenance = operator?.inMaintenance ?? false;
+        const maintenanceDeposit = operator?.maintenanceDeposit ?? false;
+        const maintenanceWithdraw = operator?.maintenanceWithdraw ?? false;
+        const maintenancePaymentLink = operator?.maintenancePaymentLink ?? false;
         const paymentGateway = operator?.paymentGateway || service.paymentGateway || "soleaspay";
         return {
           ...service,
-          inMaintenance,
+          inMaintenance: inMaintenance || maintenanceDeposit,
+          maintenanceDeposit: inMaintenance || maintenanceDeposit,
+          maintenanceWithdraw: inMaintenance || maintenanceWithdraw,
+          maintenancePaymentLink: inMaintenance || maintenancePaymentLink,
           paymentGateway,
         };
       });
@@ -464,7 +470,7 @@ export async function registerRoutes(
           .map(op => ({
             id: op.code || op.id.toString(),
             name: op.name,
-            inMaintenance: op.inMaintenance ?? false,
+            inMaintenance: (op.inMaintenance || op.maintenanceWithdraw) ?? false,
           }));
         
         return {
@@ -507,8 +513,8 @@ export async function registerRoutes(
 
       const operators = await storage.getOperators();
       const operator = operators.find(op => op.code === serviceId.toString());
-      if (operator?.inMaintenance) {
-        return res.status(400).json({ message: "Ce moyen de paiement est actuellement en maintenance" });
+      if (operator?.inMaintenance || operator?.maintenanceDeposit) {
+        return res.status(400).json({ message: "Ce moyen de paiement est actuellement en maintenance pour les dépôts" });
       }
 
       const paymentGateway = operator?.paymentGateway || service.paymentGateway || "soleaspay";
@@ -914,6 +920,9 @@ export async function registerRoutes(
 
       const operators = await storage.getOperators();
       const operator = operators.find(op => op.code === serviceId.toString());
+      if (operator?.inMaintenance || operator?.maintenancePaymentLink) {
+        return res.status(400).json({ message: "Ce moyen de paiement est actuellement en maintenance pour les liens de paiement" });
+      }
       const paymentGateway = operator?.paymentGateway || service.paymentGateway || "soleaspay";
 
       const orderId = `PAY-${linkCode}-${Date.now()}`;
@@ -2699,8 +2708,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Moyen de paiement invalide pour ce pays" });
       }
       
-      if (selectedOperator.inMaintenance) {
-        return res.status(400).json({ message: "Ce moyen de paiement est actuellement en maintenance" });
+      if (selectedOperator.inMaintenance || selectedOperator.maintenanceWithdraw) {
+        return res.status(400).json({ message: "Ce moyen de paiement est actuellement en maintenance pour les retraits" });
       }
 
       if (!mobileNumber) {
@@ -5740,7 +5749,7 @@ export async function registerRoutes(
 
   app.post("/api/admin/operators", requireAdmin, async (req, res) => {
     try {
-      const { countryId, name, code, isActive, type, dailyLimit, paymentGateway, inMaintenance } = req.body;
+      const { countryId, name, code, isActive, type, dailyLimit, paymentGateway, inMaintenance, maintenanceDeposit, maintenanceWithdraw, maintenancePaymentLink } = req.body;
       if (!countryId || !name || !code) {
         return res.status(400).json({ message: "Champs requis manquants" });
       }
@@ -5753,6 +5762,9 @@ export async function registerRoutes(
         dailyLimit: dailyLimit || "1000000",
         paymentGateway: paymentGateway || "soleaspay",
         inMaintenance: inMaintenance ?? false,
+        maintenanceDeposit: maintenanceDeposit ?? false,
+        maintenanceWithdraw: maintenanceWithdraw ?? false,
+        maintenancePaymentLink: maintenancePaymentLink ?? false,
       });
       res.json(operator);
     } catch (error) {

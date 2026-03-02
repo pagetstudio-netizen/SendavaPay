@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initializeAdminAccount } from "./init-admin";
+import { initializeOmnipayServices } from "./init-omnipay";
 import { testDatabaseConnection, isDatabaseConnected, startBackgroundReconnection, pool } from "./db";
 import { notifyStartup, notifySystemError, notifyDailyReport } from "./telegram";
 import { storage } from "./storage";
@@ -209,6 +210,12 @@ async function initializeWithTimeout<T>(
         initializeAdminAccount(),
         20000,
         "Admin account"
+      );
+
+      await initializeWithTimeout(
+        initializeOmnipayServices(),
+        20000,
+        "OmniPay services"
       );
     } else {
       log("Database connection failed or timed out, starting background reconnection...", "init");
