@@ -640,6 +640,10 @@ export async function registerRoutes(
           return res.status(400).json({ message: "Numéro de téléphone requis pour OmniPay" });
         }
 
+        if (service.operator === "Orange" && !otp) {
+          return res.status(400).json({ message: "OTP requis pour Orange Money. Composez le code USSD sur votre téléphone pour générer votre OTP." });
+        }
+
         console.log(`📤 OmniPay: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
 
         const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
@@ -664,6 +668,7 @@ export async function registerRoutes(
           firstName,
           lastName,
           operator: opOperator ?? undefined,
+          otp: otp || undefined,
           returnUrl: isWave ? `${baseUrl}/success?reference=${orderId}` : undefined,
         });
 
@@ -1050,6 +1055,10 @@ export async function registerRoutes(
           return res.status(400).json({ message: "Numéro de téléphone requis pour OmniPay" });
         }
 
+        if (service.operator === "Orange" && !otp) {
+          return res.status(400).json({ message: "OTP requis pour Orange Money. Composez le code USSD sur votre téléphone pour générer votre OTP." });
+        }
+
         console.log(`📤 OmniPay: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}`);
 
         const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
@@ -1074,6 +1083,7 @@ export async function registerRoutes(
           firstName,
           lastName,
           operator: opOperator ?? undefined,
+          otp: otp || undefined,
           returnUrl: isWave ? `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}` : undefined,
         });
 
