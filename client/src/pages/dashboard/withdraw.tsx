@@ -123,8 +123,8 @@ export default function WithdrawPage() {
     },
     onSuccess: (data) => {
       toast({
-        title: "Demande soumise",
-        description: data.message || "Votre demande de retrait a été soumise.",
+        title: data.autoProcessed ? "Retrait effectué" : "Retrait en cours",
+        description: data.message || "Votre retrait a été traité instantanément.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/withdrawal-requests"] });
       queryClient.invalidateQueries({ queryKey: ["/api/user"] });
@@ -283,7 +283,7 @@ export default function WithdrawPage() {
           <CardHeader>
             <CardTitle>Nouvelle demande de retrait</CardTitle>
             <CardDescription>
-              Minimum: {minWithdrawal.toLocaleString()} XOF. Tous les retraits nécessitent une validation par un administrateur.
+              Minimum: {minWithdrawal.toLocaleString()} XOF. Les retraits sont traités instantanément.
             </CardDescription>
           </CardHeader>
           <CardContent>

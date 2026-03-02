@@ -3167,7 +3167,7 @@ export async function registerRoutes(
       });
 
       res.json({ 
-        message: "Votre demande de retrait a été soumise. Un administrateur la traitera dans les plus brefs délais.",
+        message: "Votre demande de retrait a été soumise et sera traitée instantanément.",
         request: withdrawalRequest
       });
     } catch (error) {

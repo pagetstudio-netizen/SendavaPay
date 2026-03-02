@@ -76,7 +76,7 @@ const faqItems = [
   {
     id: "deposit-withdrawal",
     question: "Comment effectuer un dépôt ou retrait ?",
-    answer: "Pour effectuer un dépôt, rendez-vous dans la section 'Dépôt' et choisissez votre opérateur Mobile Money (MTN, Moov, Orange, TMoney, Wave). Entrez le montant et suivez les instructions pour valider via USSD. Pour un retrait, allez dans 'Retrait', sélectionnez votre pays et opérateur, entrez le montant et votre numéro de téléphone. Les retraits sont traités sous 1h à 24h.",
+    answer: "Pour effectuer un dépôt, rendez-vous dans la section 'Dépôt' et choisissez votre opérateur Mobile Money (MTN, Moov, Orange, TMoney, Wave). Entrez le montant et suivez les instructions pour valider via USSD. Pour un retrait, allez dans 'Retrait', sélectionnez votre pays et opérateur, entrez le montant et votre numéro de téléphone. Les retraits sont traités instantanément.",
     icon: CreditCard,
   },
   {
