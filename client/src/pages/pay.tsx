@@ -36,6 +36,7 @@ import {
   Sun,
   Info,
   Phone,
+  KeyRound,
 } from "lucide-react";
 import logoPath from "@assets/20251211_105226_1765450558306.png";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
@@ -83,6 +84,19 @@ function formatCurrency(amount: string | number, currency: string = "XOF") {
   return new Intl.NumberFormat("fr-FR").format(num) + " " + currency;
 }
 
+function getOrangeUssdCode(countryCode: string): string {
+  const codes: Record<string, string> = {
+    CI: "#144#",
+    CM: "#150*50#",
+    BF: "#144#",
+    COD: "#144#",
+    COG: "#150#",
+    BJ: "#144#",
+    TG: "#144#",
+  };
+  return codes[countryCode] || "#144#";
+}
+
 export default function PaymentPage() {
   const [, params] = useRoute("/pay/:code");
   const { toast } = useToast();
@@ -95,6 +109,7 @@ export default function PaymentPage() {
   const [selectedCountry, setSelectedCountry] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [otp, setOtp] = useState("");
   const [customAmount, setCustomAmount] = useState("");
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
@@ -145,6 +160,7 @@ export default function PaymentPage() {
   const selectedService = services.find(s => s.id.toString() === selectedServiceId);
   const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
   const isWiniPayer = selectedService?.paymentGateway === "winipayer";
+  const isOrange = selectedService?.operator === "Orange";
 
   const checkPaymentStatus = useCallback(async () => {
     if (!currentPayId) return;
@@ -245,6 +261,7 @@ export default function PaymentPage() {
       phoneNumber?: string;
       payerName: string;
       payerEmail?: string;
+      otp?: string;
     }) => {
       const res = await apiRequest("POST", "/api/pay-link-soleaspay", data);
       return await res.json();
@@ -372,6 +389,14 @@ export default function PaymentPage() {
       });
       return;
     }
+    if (isOrange && !isWiniPayer && !otp.trim()) {
+      toast({
+        title: "OTP requis",
+        description: "Veuillez entrer votre code OTP Orange Money.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     payMutation.mutate({
       linkCode: params?.code || "",
@@ -380,6 +405,7 @@ export default function PaymentPage() {
       phoneNumber: isWiniPayer ? undefined : phoneNumber.replace(/\s/g, ""),
       payerName: `${firstName} ${lastName}`,
       payerEmail: email || undefined,
+      otp: isOrange && !isWiniPayer ? otp.trim() : undefined,
     });
   };
 
@@ -816,6 +842,35 @@ export default function PaymentPage() {
                           onChange={(e) => setPhoneNumber(e.target.value)}
                           className="pl-10"
                           data-testid="input-phone-number"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {isOrange && !isWiniPayer && (
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 p-3 space-y-1">
+                        <p className="text-sm font-semibold text-orange-800 dark:text-orange-300">
+                          Orange Money requiert un OTP
+                        </p>
+                        <p className="text-xs text-orange-700 dark:text-orange-400">
+                          Composez <span className="font-mono font-bold">{getOrangeUssdCode(selectedService?.countryCode || "")}</span> sur votre téléphone, naviguez vers <strong>Mon Compte → Générer OTP</strong>, puis entrez le code ci-dessous.
+                        </p>
+                      </div>
+                      <Label htmlFor="otp" className="text-sm text-muted-foreground">
+                        Code OTP Orange Money
+                      </Label>
+                      <div className="relative">
+                        <KeyRound className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                        <Input
+                          id="otp"
+                          type="text"
+                          placeholder="Ex: 123456"
+                          value={otp}
+                          onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                          className="pl-10 tracking-widest font-mono text-base"
+                          maxLength={8}
+                          data-testid="input-orange-otp"
                         />
                       </div>
                     </div>

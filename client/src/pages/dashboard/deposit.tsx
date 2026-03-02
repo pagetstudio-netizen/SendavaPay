@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
-import { Info, ArrowLeft, Loader2, CheckCircle, XCircle, Clock, Phone } from "lucide-react";
+import { Info, ArrowLeft, Loader2, CheckCircle, XCircle, Clock, Phone, KeyRound } from "lucide-react";
 import { Link } from "wouter";
 import { queryClient } from "@/lib/queryClient";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -57,6 +57,19 @@ const operatorLogos: Record<string, string> = {
 
 const quickAmounts = [5000, 10000, 25000, 50000, 100000];
 
+function getOrangeUssdCode(countryCode: string): string {
+  const codes: Record<string, string> = {
+    CI: "#144#",
+    CM: "#150*50#",
+    BF: "#144#",
+    COD: "#144#",
+    COG: "#150#",
+    BJ: "#144#",
+    TG: "#144#",
+  };
+  return codes[countryCode] || "#144#";
+}
+
 export default function DepositPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -64,6 +77,7 @@ export default function DepositPage() {
   const [selectedCountry, setSelectedCountry] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [otp, setOtp] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<"idle" | "processing" | "pending" | "completed" | "failed">("idle");
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
@@ -95,7 +109,6 @@ export default function DepositPage() {
 
   useEffect(() => {
     if (services.length > 0 && (!selectedServiceId || !services.find(s => s.id.toString() === selectedServiceId))) {
-      // Select first non-maintenance service
       const availableService = services.find(s => !s.inMaintenance);
       if (availableService) {
         setSelectedServiceId(availableService.id.toString());
@@ -103,6 +116,7 @@ export default function DepositPage() {
         setSelectedServiceId("");
       }
     }
+    setOtp("");
   }, [services, selectedServiceId]);
 
   const selectedService = services.find(s => s.id.toString() === selectedServiceId);
@@ -217,8 +231,10 @@ export default function DepositPage() {
     };
   }, [paymentStatus, currentOrderId, currentPayId, checkPaymentStatus]);
 
+  const isOrange = selectedService?.operator === "Orange";
+
   const depositMutation = useMutation({
-    mutationFn: async (data: { amount: number; serviceId: string; phoneNumber?: string }) => {
+    mutationFn: async (data: { amount: number; serviceId: string; phoneNumber?: string; otp?: string }) => {
       const response = await apiRequest("POST", "/api/deposit-soleaspay", data);
       return response.json();
     },
@@ -297,10 +313,19 @@ export default function DepositPage() {
       });
       return;
     }
+    if (isOrange && !isWiniPayer && !otp.trim()) {
+      toast({
+        title: "OTP requis",
+        description: "Veuillez entrer votre code OTP Orange Money.",
+        variant: "destructive",
+      });
+      return;
+    }
     depositMutation.mutate({
       amount: numericAmount,
       serviceId: selectedServiceId,
       phoneNumber: isWiniPayer ? undefined : phoneNumber.replace(/\s/g, ""),
+      otp: isOrange && !isWiniPayer ? otp.trim() : undefined,
     });
   };
 
@@ -512,6 +537,36 @@ export default function DepositPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Entrez le numéro associé à votre compte {selectedService?.operator || "Mobile Money"}
+                  </p>
+                </div>
+              )}
+
+              {isOrange && !isWiniPayer && (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-800 p-4 space-y-2">
+                    <p className="text-sm font-semibold text-orange-800 dark:text-orange-300">
+                      Orange Money requiert un OTP
+                    </p>
+                    <p className="text-sm text-orange-700 dark:text-orange-400">
+                      Composez <span className="font-mono font-bold">{getOrangeUssdCode(selectedService?.countryCode || "")}</span> sur votre téléphone, naviguez vers <strong>Mon Compte → Générer OTP</strong>, puis entrez le code reçu ci-dessous.
+                    </p>
+                  </div>
+                  <Label htmlFor="otp">Code OTP Orange Money</Label>
+                  <div className="relative">
+                    <KeyRound className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                    <Input
+                      id="otp"
+                      type="text"
+                      placeholder="Ex: 123456"
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                      className="pl-10 h-12 tracking-widest font-mono text-lg"
+                      maxLength={8}
+                      data-testid="input-orange-otp"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Code à usage unique reçu après avoir composé le code USSD
                   </p>
                 </div>
               )}
