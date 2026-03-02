@@ -109,7 +109,7 @@ export function Footer() {
         <div className="border-t mt-12 pt-8 text-center text-sm text-muted-foreground">
           <p>&copy; {new Date().getFullYear()} SendavaPay. Tous droits réservés.</p>
           <p className="mt-2">
-            Disponible au Togo, Bénin, Sénégal, Mali, Burkina Faso et Côte d'Ivoire
+            Disponible au Togo, Bénin, Burkina Faso, Côte d'Ivoire, Cameroun, RDC et Congo Brazzaville
           </p>
         </div>
       </div>
