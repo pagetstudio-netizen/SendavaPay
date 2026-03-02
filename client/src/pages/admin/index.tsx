@@ -1574,13 +1574,28 @@ function KycContent() {
     enabled: !!selectedKyc?.documentNumber,
   });
 
+  const [docNumberSearch, setDocNumberSearch] = useState("");
+  const [docNumberQuery, setDocNumberQuery] = useState("");
+
+  const { data: docNumberResults = [], isFetching: docNumberFetching } = useQuery<KycRequestWithUser[]>({
+    queryKey: ["/api/admin/kyc/check-duplicate", docNumberQuery],
+    queryFn: async () => {
+      if (!docNumberQuery.trim()) return [];
+      const res = await fetch(`/api/admin/kyc/check-duplicate/${encodeURIComponent(docNumberQuery.trim())}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!docNumberQuery.trim(),
+  });
+
   const filteredRequests = useMemo(() => {
     return requests?.filter((req) => {
       const matchesSearch = 
         req.id.toString().includes(searchQuery) ||
         req.user?.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         req.user?.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        req.user?.phone?.includes(searchQuery);
+        req.user?.phone?.includes(searchQuery) ||
+        (req.documentNumber && req.documentNumber.toLowerCase().includes(searchQuery.toLowerCase()));
       const matchesStatus = statusFilter === "all" || req.status === statusFilter;
       return matchesSearch && matchesStatus;
     }) || [];
@@ -1616,13 +1631,69 @@ function KycContent() {
         <p className="text-muted-foreground">Vérifiez les documents d'identité ({requests?.length || 0} demandes)</p>
       </div>
 
+      <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Search className="h-4 w-4 text-blue-600" /> Vérifier un numéro de pièce d'identité
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Ex: AB123456 — entrez un numéro de document pour voir tous les comptes qui l'ont utilisé"
+              value={docNumberSearch}
+              onChange={(e) => setDocNumberSearch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") setDocNumberQuery(docNumberSearch); }}
+              className="flex-1"
+              data-testid="input-doc-number-search"
+            />
+            <Button onClick={() => setDocNumberQuery(docNumberSearch)} disabled={!docNumberSearch.trim() || docNumberFetching} data-testid="button-doc-number-search">
+              {docNumberFetching ? "..." : "Vérifier"}
+            </Button>
+            {docNumberQuery && (
+              <Button variant="outline" onClick={() => { setDocNumberSearch(""); setDocNumberQuery(""); }}>
+                Effacer
+              </Button>
+            )}
+          </div>
+          {docNumberQuery && (
+            <div className="mt-3">
+              {docNumberFetching ? (
+                <p className="text-sm text-muted-foreground">Recherche en cours...</p>
+              ) : docNumberResults.length === 0 ? (
+                <p className="text-sm text-green-600 font-medium">✅ Aucun compte n'a utilisé ce numéro — document unique</p>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-destructive">⚠️ {docNumberResults.length} compte(s) ont utilisé ce numéro :</p>
+                  {docNumberResults.map(r => (
+                    <div key={r.id} className="flex items-center justify-between p-2 rounded-lg border border-destructive/30 bg-destructive/5 text-sm" data-testid={`doc-duplicate-result-${r.id}`}>
+                      <div>
+                        <span className="font-medium">{r.user?.fullName || `User #${r.userId}`}</span>
+                        <span className="text-muted-foreground ml-2">{r.user?.email}</span>
+                        <span className="text-muted-foreground ml-2">{r.user?.phone}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge className={r.status === "approved" ? "bg-green-100 text-green-700" : r.status === "pending" ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}>
+                          {r.status === "approved" ? "Approuvé" : r.status === "pending" ? "En attente" : "Rejeté"}
+                        </Badge>
+                        <Button size="sm" variant="outline" onClick={() => setSelectedKyc(r)}>Voir</Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Rechercher par ID, nom, email, téléphone..."
+                placeholder="Rechercher par ID, nom, email, téléphone, numéro de pièce..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10"
@@ -1668,7 +1739,10 @@ function KycContent() {
                       <p className="text-sm text-muted-foreground">{req.user?.email}</p>
                       <p className="text-xs text-muted-foreground">{req.user?.phone}</p>
                     </td>
-                    <td className="p-4">{req.documentType}</td>
+                    <td className="p-4">
+                      <p className="font-medium">{req.documentType}</p>
+                      {req.documentNumber && <p className="text-xs text-muted-foreground font-mono">N° {req.documentNumber}</p>}
+                    </td>
                     <td className="p-4">
                       <Badge className={req.status === "approved" ? "bg-green-100 text-green-700" : req.status === "pending" ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}>
                         {req.status === "approved" ? "Approuvé" : req.status === "pending" ? "En attente" : "Rejeté"}
