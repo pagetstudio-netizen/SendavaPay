@@ -53,6 +53,7 @@ export default function HomePage() {
   const [currentPlatform, setCurrentPlatform] = useState(0);
   const [activeFeature, setActiveFeature] = useState(0);
   const carouselRef = useRef<HTMLDivElement>(null);
+  const [openFaq, setOpenFaq] = useState<number | null>(null);
   
   const platforms = ["WhatsApp", "Instagram", "Facebook", "Telegram"];
   const platformColors = ["text-green-500", "text-pink-500", "text-blue-600", "text-blue-400"];
@@ -635,17 +636,32 @@ export default function HomePage() {
             </h2>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             {faqs.map((faq, index) => (
-              <Card 
-                key={index} 
-                className={`hover-elevate transition-all scroll-animate stagger-${Math.min(index + 1, 4)}`}
+              <div
+                key={index}
+                className={`bg-background border border-border rounded-2xl overflow-hidden scroll-animate stagger-${Math.min(index + 1, 4)}`}
               >
-                <CardContent className="p-6">
-                  <h3 className="font-semibold text-lg mb-2">{faq.question}</h3>
-                  <p className="text-muted-foreground">{faq.answer}</p>
-                </CardContent>
-              </Card>
+                <button
+                  className="w-full flex items-center justify-between px-6 py-5 text-left gap-4"
+                  onClick={() => setOpenFaq(openFaq === index ? null : index)}
+                >
+                  <span className="font-semibold text-base">{faq.question}</span>
+                  <span className={`flex-shrink-0 w-7 h-7 rounded-full bg-primary/10 text-primary flex items-center justify-center transition-transform duration-300 ${openFaq === index ? "rotate-45" : ""}`}>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                  </span>
+                </button>
+                <div
+                  className="overflow-hidden transition-all duration-300 ease-in-out"
+                  style={{ maxHeight: openFaq === index ? "200px" : "0px" }}
+                >
+                  <p className="px-6 pb-5 text-muted-foreground text-sm leading-relaxed">
+                    {faq.answer}
+                  </p>
+                </div>
+              </div>
             ))}
           </div>
         </div>
