@@ -437,6 +437,7 @@ export async function registerRoutes(
         const maintenanceDeposit = operator?.maintenanceDeposit ?? false;
         const maintenanceWithdraw = operator?.maintenanceWithdraw ?? false;
         const maintenancePaymentLink = operator?.maintenancePaymentLink ?? false;
+        const maintenanceApi = operator?.maintenanceApi ?? false;
         const paymentGateway = operator?.paymentGateway || service.paymentGateway || "soleaspay";
         return {
           ...service,
@@ -444,6 +445,7 @@ export async function registerRoutes(
           maintenanceDeposit: inMaintenance || maintenanceDeposit,
           maintenanceWithdraw: inMaintenance || maintenanceWithdraw,
           maintenancePaymentLink: inMaintenance || maintenancePaymentLink,
+          maintenanceApi: inMaintenance || maintenanceApi,
           paymentGateway,
         };
       });
@@ -3700,6 +3702,9 @@ export async function registerRoutes(
 
       const operators = await storage.getOperators();
       const operator = operators.find(op => op.code === serviceId.toString());
+      if (operator?.inMaintenance || operator?.maintenanceApi) {
+        return res.status(400).json({ message: "Ce moyen de paiement est actuellement en maintenance pour les paiements API" });
+      }
       const paymentGateway = operator?.paymentGateway || service.paymentGateway || "soleaspay";
 
       const orderId = `API_${transaction.reference}_${Date.now()}`;
@@ -5749,7 +5754,7 @@ export async function registerRoutes(
 
   app.post("/api/admin/operators", requireAdmin, async (req, res) => {
     try {
-      const { countryId, name, code, isActive, type, dailyLimit, paymentGateway, inMaintenance, maintenanceDeposit, maintenanceWithdraw, maintenancePaymentLink } = req.body;
+      const { countryId, name, code, isActive, type, dailyLimit, paymentGateway, inMaintenance, maintenanceDeposit, maintenanceWithdraw, maintenancePaymentLink, maintenanceApi } = req.body;
       if (!countryId || !name || !code) {
         return res.status(400).json({ message: "Champs requis manquants" });
       }
@@ -5765,6 +5770,7 @@ export async function registerRoutes(
         maintenanceDeposit: maintenanceDeposit ?? false,
         maintenanceWithdraw: maintenanceWithdraw ?? false,
         maintenancePaymentLink: maintenancePaymentLink ?? false,
+        maintenanceApi: maintenanceApi ?? false,
       });
       res.json(operator);
     } catch (error) {

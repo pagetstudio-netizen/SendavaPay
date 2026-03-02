@@ -3329,7 +3329,7 @@ function CountriesContent() {
   const [editingCountry, setEditingCountry] = useState<Country | null>(null);
   const [editingOperator, setEditingOperator] = useState<Operator | null>(null);
   const [countryForm, setCountryForm] = useState({ code: "", name: "", currency: "XOF", isActive: true });
-  const [operatorForm, setOperatorForm] = useState({ countryId: 0, name: "", code: "", isActive: true, type: "mobile_money", dailyLimit: "1000000", paymentGateway: "soleaspay", inMaintenance: false, maintenanceDeposit: false, maintenanceWithdraw: false, maintenancePaymentLink: false });
+  const [operatorForm, setOperatorForm] = useState({ countryId: 0, name: "", code: "", isActive: true, type: "mobile_money", dailyLimit: "1000000", paymentGateway: "soleaspay", inMaintenance: false, maintenanceDeposit: false, maintenanceWithdraw: false, maintenancePaymentLink: false, maintenanceApi: false });
 
   const { data: countries, isLoading: loadingCountries } = useQuery<Country[]>({ queryKey: ["/api/admin/countries"] });
   const { data: operators, isLoading: loadingOperators } = useQuery<Operator[]>({ queryKey: ["/api/admin/operators"] });
@@ -3413,6 +3413,7 @@ function CountriesContent() {
       maintenanceDeposit: (op as any).maintenanceDeposit || false,
       maintenanceWithdraw: (op as any).maintenanceWithdraw || false,
       maintenancePaymentLink: (op as any).maintenancePaymentLink || false,
+      maintenanceApi: (op as any).maintenanceApi || false,
     });
     setShowEditOperatorDialog(true);
   };
@@ -3433,6 +3434,7 @@ function CountriesContent() {
         maintenanceDeposit: operatorForm.maintenanceDeposit,
         maintenanceWithdraw: operatorForm.maintenanceWithdraw,
         maintenancePaymentLink: operatorForm.maintenancePaymentLink,
+        maintenanceApi: operatorForm.maintenanceApi,
       },
     });
   };
@@ -3492,9 +3494,10 @@ function CountriesContent() {
                               {op.paymentGateway === "soleaspay" ? "SoleasPay" : op.paymentGateway === "winipayer" ? "WiniPayer" : op.paymentGateway === "maishapay" ? "MaishaPay" : op.paymentGateway === "omnipay" ? "OmniPay" : op.paymentGateway}
                             </Badge>
                             {op.inMaintenance && <Badge variant="destructive">Maintenance totale</Badge>}
-                            {!op.inMaintenance && (op as any).maintenanceDeposit && <Badge variant="destructive" className="text-xs">🔴 Dépôts bloqués</Badge>}
-                            {!op.inMaintenance && (op as any).maintenanceWithdraw && <Badge variant="destructive" className="text-xs">🔴 Retraits bloqués</Badge>}
-                            {!op.inMaintenance && (op as any).maintenancePaymentLink && <Badge variant="destructive" className="text-xs">🔴 Liens bloqués</Badge>}
+                            {!op.inMaintenance && (op as any).maintenanceDeposit && <Badge variant="destructive" className="text-xs">🔴 Dépôts</Badge>}
+                            {!op.inMaintenance && (op as any).maintenanceWithdraw && <Badge variant="destructive" className="text-xs">🔴 Retraits</Badge>}
+                            {!op.inMaintenance && (op as any).maintenancePaymentLink && <Badge variant="destructive" className="text-xs">🔴 Liens</Badge>}
+                            {!op.inMaintenance && (op as any).maintenanceApi && <Badge variant="destructive" className="text-xs">🔴 API</Badge>}
                             {!op.isActive && <Badge variant="secondary">Inactif</Badge>}
                           </div>
                           <div className="flex items-center gap-1">
@@ -3614,7 +3617,7 @@ function CountriesContent() {
               <div className="grid grid-cols-2 gap-2 p-3 border rounded-lg bg-muted/20">
                 <div className="flex items-center gap-2">
                   <Switch checked={operatorForm.inMaintenance} onCheckedChange={(v) => setOperatorForm({ ...operatorForm, inMaintenance: v })} data-testid="switch-operator-maintenance-all" />
-                  <Label className="text-sm">Toutes les pages</Label>
+                  <Label className="text-sm font-medium text-destructive">Toutes les pages</Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch checked={operatorForm.maintenanceDeposit} onCheckedChange={(v) => setOperatorForm({ ...operatorForm, maintenanceDeposit: v })} data-testid="switch-operator-maintenance-deposit" />
@@ -3627,6 +3630,10 @@ function CountriesContent() {
                 <div className="flex items-center gap-2">
                   <Switch checked={operatorForm.maintenancePaymentLink} onCheckedChange={(v) => setOperatorForm({ ...operatorForm, maintenancePaymentLink: v })} data-testid="switch-operator-maintenance-link" />
                   <Label className="text-sm">Liens de paiement</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch checked={operatorForm.maintenanceApi} onCheckedChange={(v) => setOperatorForm({ ...operatorForm, maintenanceApi: v })} data-testid="switch-operator-maintenance-api" />
+                  <Label className="text-sm">API paiement</Label>
                 </div>
               </div>
             </div>
@@ -3697,7 +3704,7 @@ function CountriesContent() {
               <div className="grid grid-cols-2 gap-2 p-3 border rounded-lg bg-muted/20">
                 <div className="flex items-center gap-2">
                   <Switch checked={operatorForm.inMaintenance} onCheckedChange={(v) => setOperatorForm({ ...operatorForm, inMaintenance: v })} data-testid="switch-edit-operator-maintenance-all" />
-                  <Label className="text-sm">Toutes les pages</Label>
+                  <Label className="text-sm font-medium text-destructive">Toutes les pages</Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch checked={operatorForm.maintenanceDeposit} onCheckedChange={(v) => setOperatorForm({ ...operatorForm, maintenanceDeposit: v })} data-testid="switch-edit-operator-maintenance-deposit" />
@@ -3710,6 +3717,10 @@ function CountriesContent() {
                 <div className="flex items-center gap-2">
                   <Switch checked={operatorForm.maintenancePaymentLink} onCheckedChange={(v) => setOperatorForm({ ...operatorForm, maintenancePaymentLink: v })} data-testid="switch-edit-operator-maintenance-link" />
                   <Label className="text-sm">Liens de paiement</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch checked={operatorForm.maintenanceApi} onCheckedChange={(v) => setOperatorForm({ ...operatorForm, maintenanceApi: v })} data-testid="switch-edit-operator-maintenance-api" />
+                  <Label className="text-sm">API paiement</Label>
                 </div>
               </div>
             </div>
