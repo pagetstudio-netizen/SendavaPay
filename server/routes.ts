@@ -5724,10 +5724,13 @@ export async function registerRoutes(
   app.put("/api/admin/countries/:id/fees", requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const { depositFeeRate, withdrawFeeRate } = req.body;
+      const { depositFeeRate, withdrawFeeRate, encaissementFeeRate, apiFeeRate } = req.body;
+      const toVal = (v: any) => (v === "" || v === null || v === undefined) ? null : parseFloat(v);
       const updates: Record<string, any> = {};
-      if (depositFeeRate !== undefined) updates.depositFeeRate = depositFeeRate === "" || depositFeeRate === null ? null : parseFloat(depositFeeRate);
-      if (withdrawFeeRate !== undefined) updates.withdrawFeeRate = withdrawFeeRate === "" || withdrawFeeRate === null ? null : parseFloat(withdrawFeeRate);
+      if (depositFeeRate !== undefined) updates.depositFeeRate = toVal(depositFeeRate);
+      if (withdrawFeeRate !== undefined) updates.withdrawFeeRate = toVal(withdrawFeeRate);
+      if (encaissementFeeRate !== undefined) updates.encaissementFeeRate = toVal(encaissementFeeRate);
+      if (apiFeeRate !== undefined) updates.apiFeeRate = toVal(apiFeeRate);
       const country = await storage.updateCountry(id, updates);
       res.json(country);
     } catch (error) {

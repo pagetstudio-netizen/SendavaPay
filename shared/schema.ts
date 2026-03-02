@@ -221,6 +221,8 @@ export const countries = pgTable("countries", {
   currency: text("currency").notNull(),
   depositFeeRate: decimal("deposit_fee_rate", { precision: 5, scale: 2 }),
   withdrawFeeRate: decimal("withdraw_fee_rate", { precision: 5, scale: 2 }),
+  encaissementFeeRate: decimal("encaissement_fee_rate", { precision: 5, scale: 2 }),
+  apiFeeRate: decimal("api_fee_rate", { precision: 5, scale: 2 }),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

@@ -2292,6 +2292,8 @@ interface CountryFee {
   currency: string;
   depositFeeRate: string | null;
   withdrawFeeRate: string | null;
+  encaissementFeeRate: string | null;
+  apiFeeRate: string | null;
 }
 
 function CommissionsContent() {
@@ -2300,7 +2302,7 @@ function CommissionsContent() {
   const [encaissementRate, setEncaissementRate] = useState("7");
   const [withdrawalRate, setWithdrawalRate] = useState("7");
   const [reason, setReason] = useState("");
-  const [editingFees, setEditingFees] = useState<Record<number, { deposit: string; withdraw: string }>>({});
+  const [editingFees, setEditingFees] = useState<Record<number, { deposit: string; withdraw: string; encaissement: string; api: string }>>({});
 
   const { data: settings } = useQuery<{ depositRate: string; encaissementRate: string; withdrawalRate: string }>({
     queryKey: ["/api/admin/settings"],
