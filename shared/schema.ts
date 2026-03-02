@@ -34,6 +34,7 @@ export const kycRequests = pgTable("kyc_requests", {
   phone: text("phone").notNull(),
   country: text("country").notNull(),
   documentType: text("document_type").notNull(),
+  documentNumber: text("document_number"),
   documentFrontPath: text("document_front_path").notNull(),
   documentBackPath: text("document_back_path").notNull(),
   selfiePath: text("selfie_path").notNull(),

@@ -50,6 +50,7 @@ export default function KycPage() {
     phone: user?.phone || "",
     country: "",
     documentType: "",
+    documentNumber: "",
   });
   const [documentFront, setDocumentFront] = useState<File | null>(null);
   const [documentBack, setDocumentBack] = useState<File | null>(null);
@@ -97,10 +98,10 @@ export default function KycPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.country || !formData.documentType) {
+    if (!formData.country || !formData.documentType || !formData.documentNumber.trim()) {
       toast({
         title: "Informations manquantes",
-        description: "Veuillez remplir tous les champs obligatoires.",
+        description: "Veuillez remplir tous les champs obligatoires, y compris le numéro de la pièce d'identité.",
         variant: "destructive",
       });
       return;
@@ -121,6 +122,7 @@ export default function KycPage() {
     data.append("phone", formData.phone);
     data.append("country", formData.country);
     data.append("documentType", formData.documentType);
+    data.append("documentNumber", formData.documentNumber.trim());
     data.append("documentFront", documentFront);
     data.append("documentBack", documentBack);
     data.append("selfie", selfie);
@@ -313,6 +315,20 @@ export default function KycPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="documentNumber">Numéro de la pièce d'identité <span className="text-destructive">*</span></Label>
+                <input
+                  id="documentNumber"
+                  type="text"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  placeholder="Ex: AB123456"
+                  value={formData.documentNumber}
+                  onChange={(e) => setFormData({ ...formData, documentNumber: e.target.value })}
+                  data-testid="input-kyc-document-number"
+                  required
+                />
               </div>
 
               <div className="space-y-4">

@@ -4233,9 +4233,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Tous les documents sont requis" });
       }
 
-      const { fullName, email, phone, country, documentType } = req.body;
+      const { fullName, email, phone, country, documentType, documentNumber } = req.body;
 
-      // Helper function to upload file to Object Storage with local fallback
+      // Helper function to upload file to Object Storage — no local fallback
       const uploadToStorage = async (file: Express.Multer.File): Promise<string> => {
         try {
           const objectStorageService = new ObjectStorageService();
@@ -4255,17 +4255,17 @@ export async function registerRoutes(
           }
           
           const errorText = await uploadResponse.text();
-          console.error("Object storage upload failed:", uploadResponse.status, errorText);
+          console.error("Object Storage upload failed [status=%d]: %s", uploadResponse.status, errorText);
+          throw new Error(`Échec de l'upload Object Storage (HTTP ${uploadResponse.status}): ${errorText}`);
         } catch (storageError: any) {
-          console.error("Object storage error:", storageError?.message || storageError);
+          console.error("Object Storage error for KYC file %s: %s", file.filename, storageError?.message || storageError);
+          // Clean up temp file before throwing
+          try { fs.unlinkSync(file.path); } catch {}
+          throw new Error(`Erreur Object Storage: ${storageError?.message || "erreur inconnue"}. Veuillez réessayer.`);
         }
-        
-        // Fallback to local storage - use consistent URL format
-        console.log("Using local storage fallback for KYC file:", file.filename);
-        return `/uploads/kyc/${file.filename}`;
       };
 
-      // Upload all files to Object Storage (with local fallback)
+      // Upload all files to Object Storage (obligatoire — pas de fallback local)
       const [documentFrontPath, documentBackPath, selfiePath] = await Promise.all([
         uploadToStorage(files.documentFront[0]),
         uploadToStorage(files.documentBack[0]),
@@ -4279,6 +4279,7 @@ export async function registerRoutes(
         phone,
         country,
         documentType,
+        documentNumber: documentNumber || null,
         documentFrontPath,
         documentBackPath,
         selfiePath,
@@ -4403,6 +4404,18 @@ export async function registerRoutes(
       res.json(requests);
     } catch (error) {
       console.error("Get admin KYC error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/admin/kyc/check-duplicate/:documentNumber", requireAdmin, async (req, res) => {
+    try {
+      const { documentNumber } = req.params;
+      if (!documentNumber) return res.status(400).json({ message: "Numéro de document requis" });
+      const matches = await storage.getKycByDocumentNumber(documentNumber);
+      res.json(matches);
+    } catch (error) {
+      console.error("KYC duplicate check error:", error);
       res.status(500).json({ message: "Erreur serveur" });
     }
   });
