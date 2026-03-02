@@ -1563,6 +1563,18 @@ function KycContent() {
 
   const { data: requests, isLoading } = useQuery<KycRequestWithUser[]>({ queryKey: ["/api/admin/kyc"] });
 
+  const { data: kycSignedUrls } = useQuery<{ frontUrl: string; backUrl: string; selfieUrl: string }>({
+    queryKey: ["/api/admin/kyc", selectedKyc?.id, "signed-urls"],
+    queryFn: async () => {
+      if (!selectedKyc?.id) return { frontUrl: "", backUrl: "", selfieUrl: "" };
+      const res = await fetch(`/api/admin/kyc/${selectedKyc.id}/signed-urls`, { credentials: "include" });
+      if (!res.ok) return { frontUrl: "", backUrl: "", selfieUrl: "" };
+      return res.json();
+    },
+    enabled: !!selectedKyc?.id,
+    staleTime: 50 * 60 * 1000,
+  });
+
   const { data: duplicateKyc = [] } = useQuery<KycRequestWithUser[]>({
     queryKey: ["/api/admin/kyc/check-duplicate", selectedKyc?.documentNumber],
     queryFn: async () => {
@@ -1821,18 +1833,18 @@ function KycContent() {
                       <Button 
                         size="sm" 
                         variant="outline"
-                        onClick={() => handleDownload(selectedKyc.documentFrontPath, `kyc_${selectedKyc.id}_front.jpg`)}
+                        onClick={() => handleDownload(kycSignedUrls?.frontUrl || selectedKyc.documentFrontPath, `kyc_${selectedKyc.id}_front.jpg`)}
                       >
                         <Download className="h-4 w-4 mr-1" /> Télécharger
                       </Button>
                     </div>
-                    <a href={selectedKyc.documentFrontPath} target="_blank" rel="noopener noreferrer">
-                      <img 
-                        src={selectedKyc.documentFrontPath} 
-                        alt="Recto" 
-                        className="rounded-md border max-h-48 object-cover w-full cursor-pointer hover:opacity-80" 
-                      />
-                    </a>
+                    {kycSignedUrls?.frontUrl ? (
+                      <a href={kycSignedUrls.frontUrl} target="_blank" rel="noopener noreferrer">
+                        <img src={kycSignedUrls.frontUrl} alt="Recto" className="rounded-md border max-h-48 object-cover w-full cursor-pointer hover:opacity-80" />
+                      </a>
+                    ) : (
+                      <div className="rounded-md border bg-muted h-48 flex items-center justify-center text-muted-foreground text-sm">Chargement...</div>
+                    )}
                   </div>
                   {selectedKyc.documentBackPath && (
                     <div>
@@ -1841,18 +1853,18 @@ function KycContent() {
                         <Button 
                           size="sm" 
                           variant="outline"
-                          onClick={() => handleDownload(selectedKyc.documentBackPath!, `kyc_${selectedKyc.id}_back.jpg`)}
+                          onClick={() => handleDownload(kycSignedUrls?.backUrl || selectedKyc.documentBackPath!, `kyc_${selectedKyc.id}_back.jpg`)}
                         >
                           <Download className="h-4 w-4 mr-1" /> Télécharger
                         </Button>
                       </div>
-                      <a href={selectedKyc.documentBackPath} target="_blank" rel="noopener noreferrer">
-                        <img 
-                          src={selectedKyc.documentBackPath} 
-                          alt="Verso" 
-                          className="rounded-md border max-h-48 object-cover w-full cursor-pointer hover:opacity-80" 
-                        />
-                      </a>
+                      {kycSignedUrls?.backUrl ? (
+                        <a href={kycSignedUrls.backUrl} target="_blank" rel="noopener noreferrer">
+                          <img src={kycSignedUrls.backUrl} alt="Verso" className="rounded-md border max-h-48 object-cover w-full cursor-pointer hover:opacity-80" />
+                        </a>
+                      ) : (
+                        <div className="rounded-md border bg-muted h-48 flex items-center justify-center text-muted-foreground text-sm">Chargement...</div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1864,18 +1876,22 @@ function KycContent() {
                       <Button 
                         size="sm" 
                         variant="outline"
-                        onClick={() => handleDownload(selectedKyc.selfiePath!, `kyc_${selectedKyc.id}_selfie.jpg`)}
+                        onClick={() => handleDownload(kycSignedUrls?.selfieUrl || selectedKyc.selfiePath!, `kyc_${selectedKyc.id}_selfie.jpg`)}
                       >
                         <Download className="h-4 w-4 mr-1" /> Télécharger
                       </Button>
                     </div>
-                    <a href={selectedKyc.selfiePath} target="_blank" rel="noopener noreferrer">
-                      <img 
-                        src={selectedKyc.selfiePath} 
-                        alt="Selfie" 
-                        className="rounded-md border max-h-48 object-cover cursor-pointer hover:opacity-80" 
-                      />
-                    </a>
+                    {kycSignedUrls?.selfieUrl ? (
+                      <a href={kycSignedUrls.selfieUrl} target="_blank" rel="noopener noreferrer">
+                        <img 
+                          src={kycSignedUrls.selfieUrl} 
+                          alt="Selfie" 
+                          className="rounded-md border max-h-48 object-cover cursor-pointer hover:opacity-80" 
+                        />
+                      </a>
+                    ) : (
+                      <div className="rounded-md border bg-muted h-48 flex items-center justify-center text-muted-foreground text-sm">Chargement...</div>
+                    )}
                   </div>
                 )}
               </div>

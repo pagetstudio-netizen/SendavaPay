@@ -15,6 +15,7 @@ import { isDatabaseConnected } from "./db";
 import merchantApi from "./merchant-api";
 import { registerPartnerRoutes } from "./partner-routes";
 import { registerObjectStorageRoutes, ObjectStorageService } from "./replit_integrations/object_storage";
+import { uploadKycFile, uploadProductImage, getKycSignedUrl, isSupabaseStorageConfigured } from "./supabase-storage";
 import { 
   sendWelcomeEmail, 
   sendPaymentReceivedEmail, 
@@ -3525,37 +3526,9 @@ export async function registerRoutes(
       if (!req.file) {
         return res.status(400).json({ message: "Aucune image fournie" });
       }
-      
-      // Upload to Object Storage for permanent storage
-      const objectStorageService = new ObjectStorageService();
-      try {
-        const { uploadURL, objectPath } = await objectStorageService.getObjectEntityUploadURLWithPath();
-        const fileBuffer = fs.readFileSync(req.file.path);
-        
-        const uploadResponse = await fetch(uploadURL, {
-          method: "PUT",
-          body: fileBuffer,
-          headers: { "Content-Type": req.file.mimetype },
-        });
-        
-        if (uploadResponse.ok) {
-          // Clean up local file
-          fs.unlinkSync(req.file.path);
-          console.log("Product image uploaded to Object Storage:", objectPath);
-          res.json({ imageUrl: objectPath });
-          return;
-        } else {
-          const errorText = await uploadResponse.text();
-          console.error("Object storage upload failed:", uploadResponse.status, errorText);
-        }
-      } catch (storageError: any) {
-        console.error("Object storage error:", storageError?.message || storageError);
-      }
-      
-      // Fallback to local storage if Object Storage fails
-      console.log("Using local storage fallback for product image");
-      const imageUrl = `/uploads/products/${req.file.filename}`;
-      res.json({ imageUrl, fallback: true });
+
+      const imageUrl = await uploadProductImage(req.file.path, req.file.mimetype);
+      res.json({ imageUrl });
     } catch (error: any) {
       console.error("Upload product image error:", error?.message || error);
       res.status(500).json({ message: error?.message || "Erreur lors de l'upload" });
@@ -4353,41 +4326,12 @@ export async function registerRoutes(
 
       const { fullName, email, phone, country, documentType, documentNumber } = req.body;
 
-      // Helper function to upload file to Object Storage — no local fallback
-      const uploadToStorage = async (file: Express.Multer.File): Promise<string> => {
-        try {
-          const objectStorageService = new ObjectStorageService();
-          const { uploadURL, objectPath } = await objectStorageService.getObjectEntityUploadURLWithPath();
-          const fileBuffer = fs.readFileSync(file.path);
-          
-          const uploadResponse = await fetch(uploadURL, {
-            method: "PUT",
-            body: fileBuffer,
-            headers: { "Content-Type": file.mimetype },
-          });
-          
-          if (uploadResponse.ok) {
-            fs.unlinkSync(file.path);
-            console.log("KYC file uploaded to Object Storage:", objectPath);
-            return objectPath;
-          }
-          
-          const errorText = await uploadResponse.text();
-          console.error("Object Storage upload failed [status=%d]: %s", uploadResponse.status, errorText);
-          throw new Error(`Échec de l'upload Object Storage (HTTP ${uploadResponse.status}): ${errorText}`);
-        } catch (storageError: any) {
-          console.error("Object Storage error for KYC file %s: %s", file.filename, storageError?.message || storageError);
-          // Clean up temp file before throwing
-          try { fs.unlinkSync(file.path); } catch {}
-          throw new Error(`Erreur Object Storage: ${storageError?.message || "erreur inconnue"}. Veuillez réessayer.`);
-        }
-      };
-
-      // Upload all files to Object Storage (obligatoire — pas de fallback local)
+      // Upload all KYC files to Supabase Storage (permanent, résiste aux redéploiements)
+      const userId = req.session.userId!;
       const [documentFrontPath, documentBackPath, selfiePath] = await Promise.all([
-        uploadToStorage(files.documentFront[0]),
-        uploadToStorage(files.documentBack[0]),
-        uploadToStorage(files.selfie[0]),
+        uploadKycFile(files.documentFront[0].path, files.documentFront[0].mimetype, userId, "front"),
+        uploadKycFile(files.documentBack[0].path, files.documentBack[0].mimetype, userId, "back"),
+        uploadKycFile(files.selfie[0].path, files.selfie[0].mimetype, userId, "selfie"),
       ]);
 
       const kyc = await storage.createKycRequest({
@@ -4523,6 +4467,24 @@ export async function registerRoutes(
       res.json(requests);
     } catch (error) {
       console.error("Get admin KYC error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/admin/kyc/:id/signed-urls", requireAdmin, async (req, res) => {
+    try {
+      const kycId = parseInt(req.params.id);
+      const allKyc = await storage.getAllKycRequests();
+      const kyc = allKyc.find((k: any) => k.id === kycId);
+      if (!kyc) return res.status(404).json({ message: "KYC introuvable" });
+      const [frontUrl, backUrl, selfieUrl] = await Promise.all([
+        getKycSignedUrl(kyc.documentFrontPath || ""),
+        getKycSignedUrl(kyc.documentBackPath || ""),
+        getKycSignedUrl(kyc.selfiePath || ""),
+      ]);
+      res.json({ frontUrl, backUrl, selfieUrl });
+    } catch (error) {
+      console.error("KYC signed URLs error:", error);
       res.status(500).json({ message: "Erreur serveur" });
     }
   });
