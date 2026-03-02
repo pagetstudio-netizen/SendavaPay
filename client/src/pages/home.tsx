@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
   Shield,
@@ -47,6 +48,164 @@ import illuSupport from "@assets/PW20_case-customer_1772182143821.png";
 import stepIconLien from "@assets/20260302_080514_1772438852269.png";
 import stepIconPartage from "@assets/20260302_080335_1772438852071.png";
 import stepIconEncaisse from "@assets/20260302_080214_1772438852298.png";
+
+const COUNTRY_FLAGS: Record<string, string> = {
+  BJ: "🇧🇯", BF: "🇧🇫", CM: "🇨🇲", COG: "🇨🇬", CI: "🇨🇮",
+  ML: "🇲🇱", COD: "🇨🇩", SN: "🇸🇳", TG: "🇹🇬",
+};
+
+const OPERATOR_LOGOS: Record<string, string> = {
+  "mtn.png": mtnLogo,
+  "moov.png": moovLogo,
+  "wave.png": waveLogo,
+  "wizall.png": wizallLogo,
+  "orange.png": orangeLogo,
+  "tmoney.png": tmoneyLogo,
+  "airtel.png": airtelLogo,
+  "vodacom.png": vodacomLogo,
+};
+
+function getOperatorLogo(logo: string | null): string | null {
+  if (!logo) return null;
+  return OPERATOR_LOGOS[logo] || null;
+}
+
+interface PublicFeesData {
+  countries: {
+    id: number;
+    code: string;
+    name: string;
+    currency: string;
+    depositFee: number;
+    withdrawFee: number;
+    encaissementFee: number;
+    operators: { id: number; name: string; logo: string | null; inMaintenance: boolean }[];
+  }[];
+  global: { depositFee: number; withdrawFee: number; encaissementFee: number };
+}
+
+function FeesSection() {
+  const [selectedCountry, setSelectedCountry] = useState(0);
+
+  const { data, isLoading } = useQuery<PublicFeesData>({
+    queryKey: ["/api/public/fees"],
+    queryFn: async () => {
+      const res = await fetch("/api/public/fees");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const countries = data?.countries || [];
+  const current = countries[selectedCountry];
+
+  return (
+    <section id="pricing" className="py-20 lg:py-28">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="text-center max-w-3xl mx-auto mb-12">
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/20 bg-background text-sm font-medium mb-6 scroll-animate">
+            Tarifs
+          </div>
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-4 scroll-animate stagger-1">
+            Frais par opérateur
+          </h2>
+          <p className="text-lg text-muted-foreground scroll-animate stagger-2">
+            Aucun abonnement. Vous payez seulement quand vous encaissez.
+          </p>
+        </div>
+
+        {isLoading ? (
+          <div className="flex justify-center py-16">
+            <div className="h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          <>
+            {/* Country Tabs */}
+            <div className="flex flex-wrap justify-center gap-2 mb-10 scroll-animate">
+              {countries.map((country, idx) => (
+                <button
+                  key={country.id}
+                  data-testid={`tab-country-${country.code}`}
+                  onClick={() => setSelectedCountry(idx)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium border transition-all ${
+                    selectedCountry === idx
+                      ? "bg-primary text-primary-foreground border-primary shadow-md"
+                      : "bg-background border-border hover:border-primary/50 hover:bg-primary/5"
+                  }`}
+                >
+                  <span className="text-lg leading-none">{COUNTRY_FLAGS[country.code] || "🌍"}</span>
+                  <span>{country.name}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Country Fee Cards */}
+            {current && (
+              <div className="scroll-animate">
+                {/* Fee summary row */}
+                <div className="grid grid-cols-3 gap-4 max-w-2xl mx-auto mb-8">
+                  {[
+                    { label: "Dépôt", value: current.depositFee, color: "text-blue-600 dark:text-blue-400" },
+                    { label: "Retrait", value: current.withdrawFee, color: "text-orange-600 dark:text-orange-400" },
+                    { label: "Encaissement", value: current.encaissementFee, color: "text-green-600 dark:text-green-400" },
+                  ].map((item) => (
+                    <div key={item.label} className="bg-background border border-border rounded-2xl p-4 text-center shadow-sm">
+                      <p className="text-xs text-muted-foreground mb-1">{item.label}</p>
+                      <p className={`text-2xl font-bold ${item.color}`}>{item.value}%</p>
+                      <p className="text-xs text-muted-foreground mt-1">{current.currency}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Operators grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 max-w-4xl mx-auto">
+                  {current.operators.map((op) => {
+                    const logo = getOperatorLogo(op.logo);
+                    return (
+                      <div
+                        key={op.id}
+                        data-testid={`card-operator-${op.id}`}
+                        className={`bg-background border rounded-2xl p-4 flex flex-col items-center gap-3 shadow-sm transition-all hover:shadow-md ${
+                          op.inMaintenance ? "opacity-50 grayscale" : "border-border"
+                        }`}
+                      >
+                        {logo ? (
+                          <img src={logo} alt={op.name} className="h-10 w-auto object-contain" />
+                        ) : (
+                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
+                            {op.name.charAt(0)}
+                          </div>
+                        )}
+                        <p className="text-xs font-semibold text-center leading-tight">{op.name}</p>
+                        {op.inMaintenance && (
+                          <span className="text-xs text-orange-500 font-medium">Maintenance</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* CTA */}
+                <div className="flex justify-center mt-10">
+                  <Link href="/auth?tab=register">
+                    <Button
+                      className="gap-2 font-semibold text-base py-6 px-8 rounded-xl bg-foreground text-background hover:bg-foreground/90"
+                      size="lg"
+                      data-testid="button-pricing-register"
+                    >
+                      Créer un compte gratuit
+                      <ArrowRight className="h-5 w-5" />
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
 
 export default function HomePage() {
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -567,60 +726,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Pricing Section */}
-      <section id="pricing" className="py-20 lg:py-28">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-primary/20 bg-background text-sm font-medium mb-6 scroll-animate">
-              Tarifs
-            </div>
-            <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold mb-6 scroll-animate stagger-1">
-              Aucun abonnement.
-            </h2>
-            <p className="text-lg text-muted-foreground scroll-animate stagger-2">
-              Vous payez seulement quand vous encaissez.
-            </p>
-          </div>
-
-          <div className="max-w-lg mx-auto scroll-animate-scale scroll-animate">
-            <Card className="border-2 border-primary overflow-hidden">
-              <div className="bg-primary text-primary-foreground text-center py-2 text-sm font-medium">
-                Populaire
-              </div>
-              <CardContent className="p-8">
-                <div className="text-center mb-8">
-                  <h3 className="text-xl font-bold mb-2">Plan Unique</h3>
-                  <p className="text-muted-foreground text-sm mb-6">Parfait pour les indépendants et créateurs</p>
-                </div>
-                <div className="space-y-4 mb-8">
-                  {[
-                    "Liens de paiement illimités",
-                    "Mobile Money accepté",
-                    "Retraits instantanés",
-                    "Zéro frais d'inscription",
-                    "Support client disponible",
-                  ].map((item, index) => (
-                    <div key={index} className="flex items-center gap-3">
-                      <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
-                      <span className="text-sm">{item}</span>
-                    </div>
-                  ))}
-                </div>
-                <Link href="/auth?tab=register">
-                  <Button 
-                    className="w-full gap-2 font-semibold text-base py-6 rounded-xl bg-foreground text-background hover:bg-foreground/90" 
-                    size="lg" 
-                    data-testid="button-pricing-register"
-                  >
-                    Créer un compte gratuit
-                    <ArrowRight className="h-5 w-5" />
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
+      {/* Fees by Country Section */}
+      <FeesSection />
 
       {/* FAQ Section */}
       <section id="faq" className="py-20 lg:py-28 bg-muted/30">
