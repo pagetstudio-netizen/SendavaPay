@@ -35,10 +35,6 @@ const documentTypes = [
   { id: "voter_card", label: "Carte d'électeur" },
 ];
 
-const countries = [
-  "Togo", "Bénin", "Sénégal", "Mali", "Burkina Faso", "Côte d'Ivoire",
-  "Ghana", "Niger", "Guinée", "Cameroun",
-];
 
 export default function KycPage() {
   const { user } = useAuth();
@@ -60,6 +56,11 @@ export default function KycPage() {
   const { data: kycRequest, isLoading } = useQuery<KycRequest>({
     queryKey: ["/api/kyc"],
   });
+
+  const { data: platformFees } = useQuery<{ countries: { name: string }[] }>({
+    queryKey: ["/api/public/fees"],
+  });
+  const platformCountries = platformFees?.countries.map(c => c.name).sort() ?? [];
 
   const submitKycMutation = useMutation({
     mutationFn: async (data: FormData) => {
@@ -288,7 +289,7 @@ export default function KycPage() {
                       <SelectValue placeholder="Sélectionnez un pays" />
                     </SelectTrigger>
                     <SelectContent>
-                      {countries.map((country) => (
+                      {platformCountries.map((country) => (
                         <SelectItem key={country} value={country}>
                           {country}
                         </SelectItem>
