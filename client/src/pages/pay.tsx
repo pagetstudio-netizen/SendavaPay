@@ -7,13 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import CountrySelect from "@/components/ui/country-select";
 import {
   Dialog,
   DialogContent,
@@ -776,18 +770,13 @@ export default function PaymentPage() {
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label className="text-sm text-muted-foreground">Pays</Label>
-                    <Select value={selectedCountry} onValueChange={setSelectedCountry}>
-                      <SelectTrigger data-testid="select-country">
-                        <SelectValue placeholder="Sélectionnez votre pays" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {countries.map((c) => (
-                          <SelectItem key={c.code} value={c.code}>
-                            {c.flag} {c.name} ({c.currency})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <CountrySelect
+                      options={countries.map(c => ({ value: c.code, label: c.name, flag: c.flag, subLabel: c.currency }))}
+                      value={selectedCountry}
+                      onChange={setSelectedCountry}
+                      placeholder="Sélectionnez votre pays"
+                      data-testid="select-country"
+                    />
                   </div>
 
                   {services.length > 0 && (
