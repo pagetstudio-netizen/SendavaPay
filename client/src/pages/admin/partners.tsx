@@ -36,7 +36,16 @@ import {
   ToggleLeft,
   ToggleRight,
   ExternalLink,
+  Wallet,
 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 interface Partner {
   id: number;
@@ -104,8 +113,10 @@ export function PartnersContent() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showViewDialog, setShowViewDialog] = useState(false);
+  const [showBalanceDialog, setShowBalanceDialog] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<Partner | null>(null);
   const [viewTab, setViewTab] = useState<"logs" | "transactions">("logs");
+  const [balanceForm, setBalanceForm] = useState({ amount: "", operation: "add", reason: "" });
 
   const [createForm, setCreateForm] = useState({
     name: "",
@@ -227,6 +238,28 @@ export function PartnersContent() {
       toast({ title: "Erreur", description: err.message || "Échec de la suppression", variant: "destructive" });
     },
   });
+
+  const adjustBalanceMutation = useMutation({
+    mutationFn: async ({ id, amount, operation, reason }: { id: number; amount: string; operation: string; reason: string }) => {
+      return await apiRequest("POST", `/api/admin/partners/${id}/adjust-balance`, { amount, operation, reason });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/partners"] });
+      toast({ title: "Succès", description: "Solde du partenaire modifié avec succès" });
+      setShowBalanceDialog(false);
+      setBalanceForm({ amount: "", operation: "add", reason: "" });
+      setSelectedPartner(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur", description: err.message || "Échec de la modification du solde", variant: "destructive" });
+    },
+  });
+
+  const openBalanceDialog = (partner: Partner) => {
+    setSelectedPartner(partner);
+    setBalanceForm({ amount: "", operation: "add", reason: "" });
+    setShowBalanceDialog(true);
+  };
 
   const openEditDialog = (partner: Partner) => {
     setSelectedPartner(partner);
@@ -426,6 +459,15 @@ export function PartnersContent() {
                             ) : (
                               <ToggleLeft className="h-4 w-4 text-muted-foreground" />
                             )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openBalanceDialog(partner)}
+                            title="Modifier le solde"
+                            data-testid={`button-balance-partner-${partner.id}`}
+                          >
+                            <Wallet className="h-4 w-4 text-blue-600" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -901,6 +943,84 @@ export function PartnersContent() {
               </div>
             </ScrollArea>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog modification solde */}
+      <Dialog open={showBalanceDialog} onOpenChange={(open) => { setShowBalanceDialog(open); if (!open) setSelectedPartner(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Modifier le solde — {selectedPartner?.name}</DialogTitle>
+          </DialogHeader>
+          {selectedPartner && (
+            <div className="space-y-4">
+              <div className="rounded-lg bg-muted/50 p-3 text-sm">
+                <p className="text-muted-foreground">Solde actuel</p>
+                <p className="text-xl font-bold">{formatCurrency(selectedPartner.balance || 0)}</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Opération</Label>
+                <Select
+                  value={balanceForm.operation}
+                  onValueChange={(val) => setBalanceForm({ ...balanceForm, operation: val })}
+                >
+                  <SelectTrigger data-testid="select-balance-operation">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="add">Créditer (ajouter)</SelectItem>
+                    <SelectItem value="subtract">Débiter (soustraire)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="balance-amount">Montant</Label>
+                <Input
+                  id="balance-amount"
+                  type="number"
+                  min="1"
+                  placeholder="Ex: 5000"
+                  value={balanceForm.amount}
+                  onChange={(e) => setBalanceForm({ ...balanceForm, amount: e.target.value })}
+                  data-testid="input-balance-amount"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="balance-reason">Motif</Label>
+                <Textarea
+                  id="balance-reason"
+                  placeholder="Raison de l'ajustement..."
+                  value={balanceForm.reason}
+                  onChange={(e) => setBalanceForm({ ...balanceForm, reason: e.target.value })}
+                  data-testid="input-balance-reason"
+                  rows={2}
+                />
+              </div>
+
+              {balanceForm.amount && parseFloat(balanceForm.amount) > 0 && (
+                <div className={`rounded-lg p-3 text-sm ${balanceForm.operation === "add" ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400" : "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"}`}>
+                  Nouveau solde estimé : <strong>{formatCurrency((parseFloat(selectedPartner.balance as string || "0") + (balanceForm.operation === "add" ? 1 : -1) * parseFloat(balanceForm.amount || "0")))}</strong>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBalanceDialog(false)}>Annuler</Button>
+            <Button
+              onClick={() => {
+                if (!selectedPartner || !balanceForm.amount || !balanceForm.reason) return;
+                adjustBalanceMutation.mutate({ id: selectedPartner.id, amount: balanceForm.amount, operation: balanceForm.operation, reason: balanceForm.reason });
+              }}
+              disabled={adjustBalanceMutation.isPending || !balanceForm.amount || !balanceForm.reason}
+              className={balanceForm.operation === "add" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}
+              data-testid="button-confirm-balance"
+            >
+              {adjustBalanceMutation.isPending ? "En cours..." : balanceForm.operation === "add" ? "Créditer" : "Débiter"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
