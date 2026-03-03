@@ -1833,69 +1833,6 @@ function ApiKeysSection() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Documentation SDK</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <h4 className="font-semibold text-sm">Initialiser un paiement</h4>
-            <pre className="bg-muted p-4 rounded-md overflow-x-auto text-sm" data-testid="code-init-payment">
-{`const response = await fetch('https://api.sendavapay.com/api/v1/payment/init', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'X-API-Key': 'VOTRE_CLE_API',
-    'X-API-Secret': 'VOTRE_SECRET_API',
-  },
-  body: JSON.stringify({
-    amount: 1000,
-    currency: 'XOF',
-    customerPhone: '+22890000000',
-    description: 'Paiement test',
-    callbackUrl: 'https://votre-site.com/callback',
-  }),
-});
-
-const data = await response.json();
-console.log(data);`}
-            </pre>
-          </div>
-
-          <div className="space-y-2">
-            <h4 className="font-semibold text-sm">Vérifier le statut d'une transaction</h4>
-            <pre className="bg-muted p-4 rounded-md overflow-x-auto text-sm" data-testid="code-check-status">
-{`const response = await fetch('https://api.sendavapay.com/api/v1/payment/status/{reference}', {
-  method: 'GET',
-  headers: {
-    'X-API-Key': 'VOTRE_CLE_API',
-    'X-API-Secret': 'VOTRE_SECRET_API',
-  },
-});
-
-const data = await response.json();
-console.log(data.status); // "completed" | "pending" | "failed"`}
-            </pre>
-          </div>
-
-          <div className="space-y-2">
-            <h4 className="font-semibold text-sm">Webhook de notification</h4>
-            <pre className="bg-muted p-4 rounded-md overflow-x-auto text-sm" data-testid="code-webhook">
-{`// Votre serveur recevra un POST sur votre webhookUrl
-// avec le corps suivant :
-{
-  "event": "payment.completed",
-  "reference": "TXN-XXXXXXXXXXXX",
-  "amount": 1000,
-  "currency": "XOF",
-  "status": "completed",
-  "customerPhone": "+22890000000",
-  "timestamp": "2026-02-19T12:00:00Z"
-}`}
-            </pre>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
