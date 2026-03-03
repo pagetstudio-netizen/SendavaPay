@@ -1229,6 +1229,15 @@ export function registerPartnerRoutes(app: Express) {
                   if (rowsAffected > 0) {
                     const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
                     await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
+                    if (transaction.callbackUrl) {
+                      try {
+                        await fetch(transaction.callbackUrl, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ reference: ref, status: "SUCCESS", amount: transaction.amount, fee: transaction.fee, netAmount: netAmount.toString(), currency: transaction.currency, provider: "winipayer", operator: invoice.operator }),
+                        });
+                      } catch (cbErr) { console.error("SDK WiniPayer: Callback error:", cbErr); }
+                    }
                   }
 
                   await storage.createPartnerLog({
@@ -1294,6 +1303,15 @@ export function registerPartnerRoutes(app: Express) {
                 const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
                 await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
                 console.log(`✅ SDK OmniPay: Paiement confirmé partner #${partner.id} ref=${ref} net=${netAmount}`);
+                if (transaction.callbackUrl) {
+                  try {
+                    await fetch(transaction.callbackUrl, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ reference: ref, status: "SUCCESS", amount: transaction.amount, fee: transaction.fee, netAmount: netAmount.toString(), currency: transaction.currency, provider: "omnipay" }),
+                    });
+                  } catch (cbErr) { console.error("SDK OmniPay: Callback error:", cbErr); }
+                }
               }
 
               await storage.createPartnerLog({
@@ -1354,6 +1372,15 @@ export function registerPartnerRoutes(app: Express) {
                 const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
                 await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
                 console.log(`✅ SDK MaishaPay: Paiement confirmé partner #${partner.id} ref=${ref} net=${netAmount}`);
+                if (transaction.callbackUrl) {
+                  try {
+                    await fetch(transaction.callbackUrl, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ reference: ref, status: "SUCCESS", amount: transaction.amount, fee: transaction.fee, netAmount: netAmount.toString(), currency: transaction.currency, provider: "maishapay" }),
+                    });
+                  } catch (cbErr) { console.error("SDK MaishaPay: Callback error:", cbErr); }
+                }
               }
 
               await storage.createPartnerLog({
