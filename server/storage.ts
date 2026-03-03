@@ -64,7 +64,7 @@ import {
   type StatsOffset,
 } from "@shared/schema";
 import { db as dbInstance } from "./db";
-import { eq, ne, or, and, desc, sql } from "drizzle-orm";
+import { eq, ne, or, and, desc, sql, inArray } from "drizzle-orm";
 
 function getDb() {
   if (!dbInstance) {
@@ -764,22 +764,20 @@ export class DatabaseStorage implements IStorage {
 
   async getPendingWithdrawalRequests(): Promise<(WithdrawalRequest & { user?: User })[]> {
     const requests = await getDb().select().from(withdrawalRequests).where(eq(withdrawalRequests.status, "pending")).orderBy(desc(withdrawalRequests.createdAt));
-    const result: (WithdrawalRequest & { user?: User })[] = [];
-    for (const request of requests) {
-      const user = await this.getUser(request.userId);
-      result.push({ ...request, user });
-    }
-    return result;
+    if (requests.length === 0) return [];
+    const userIds = [...new Set(requests.map(r => r.userId))];
+    const usersArr = await getDb().select().from(users).where(inArray(users.id, userIds));
+    const userMap = new Map(usersArr.map(u => [u.id, u]));
+    return requests.map(r => ({ ...r, user: userMap.get(r.userId) }));
   }
 
   async getAllWithdrawalRequests(): Promise<(WithdrawalRequest & { user?: User })[]> {
     const requests = await getDb().select().from(withdrawalRequests).orderBy(desc(withdrawalRequests.createdAt));
-    const result: (WithdrawalRequest & { user?: User })[] = [];
-    for (const request of requests) {
-      const user = await this.getUser(request.userId);
-      result.push({ ...request, user });
-    }
-    return result;
+    if (requests.length === 0) return [];
+    const userIds = [...new Set(requests.map(r => r.userId))];
+    const usersArr = await getDb().select().from(users).where(inArray(users.id, userIds));
+    const userMap = new Map(usersArr.map(u => [u.id, u]));
+    return requests.map(r => ({ ...r, user: userMap.get(r.userId) }));
   }
 
   async updateWithdrawalRequest(id: number, updates: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined> {
