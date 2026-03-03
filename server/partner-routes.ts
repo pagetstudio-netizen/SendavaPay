@@ -1949,11 +1949,16 @@ export function registerPartnerRoutes(app: Express) {
 
   app.get("/api/partner/commission-rates", requirePartnerAuth, async (req: Request, res: Response) => {
     try {
-      const settings = await storage.getCommissionSettings();
+      const [settings, partner] = await Promise.all([
+        storage.getCommissionSettings(),
+        storage.getPartner(req.session.partnerId!),
+      ]);
       res.json({
         depositRate: parseFloat(settings?.depositRate || "7"),
         withdrawalRate: parseFloat(settings?.withdrawalRate || "7"),
-        encaissementRate: parseFloat(settings?.encaissementRate || "7"),
+        encaissementRate: partner?.commissionRate
+          ? parseFloat(partner.commissionRate)
+          : parseFloat(settings?.encaissementRate || "7"),
       });
     } catch (error) {
       res.status(500).json({ message: "Erreur serveur" });
