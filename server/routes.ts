@@ -3239,7 +3239,8 @@ export async function registerRoutes(
         try {
           const balanceRes = await opClient.getWalletBalance(currency);
           if (balanceRes.success === 1 && typeof balanceRes.balance === "number") {
-            console.log(`💼 OmniPay wallet ${currency}: solde=${balanceRes.balance}`);
+            const pendingStr = balanceRes.pending !== undefined ? ` | en_attente_chez_omnipay=${balanceRes.pending}` : "";
+            console.log(`💼 OmniPay wallet ${currency}: disponible=${balanceRes.balance}${pendingStr} | demande=${netAmount}`);
             if (balanceRes.balance < netAmount) {
               console.log(`⚠️ Liquidité insuffisante wallet OmniPay ${currency} (${balanceRes.balance} < ${netAmount}) — retrait mis en file`);
               await storage.updateWithdrawalRequest(withdrawalRequest.id, {
