@@ -1849,7 +1849,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/verify-winipayer/:payId", requireAuth, async (req, res) => {
+  app.get("/api/verify-winipayer/:payId", async (req, res) => {
     try {
       const { payId } = req.params;
 
@@ -1921,7 +1921,7 @@ export async function registerRoutes(
   });
 
   // Vérification manuelle d'un paiement OmniPay
-  app.get("/api/verify-omnipay/:reference", requireAuth, async (req, res) => {
+  app.get("/api/verify-omnipay/:reference", async (req, res) => {
     try {
       const { reference } = req.params;
       console.log(`🔍 OmniPay: Vérification manuelle ref=${reference}`);
@@ -2021,7 +2021,7 @@ export async function registerRoutes(
   });
 
   // Vérification manuelle d'un paiement MaishaPay
-  app.get("/api/verify-maishapay/:reference", requireAuth, async (req, res) => {
+  app.get("/api/verify-maishapay/:reference", async (req, res) => {
     try {
       const { reference } = req.params;
       console.log(`🔍 MaishaPay: Vérification manuelle ref=${reference}`);
