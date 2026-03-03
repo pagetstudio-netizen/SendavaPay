@@ -318,12 +318,41 @@ export async function registerRoutes(
 
   app.get("/api/commission-rates", requireAuth, async (req, res) => {
     try {
-      const settings = await storage.getCommissionSettings();
-      res.json({
-        depositRate: parseFloat(settings?.depositRate || "7"),
-        encaissementRate: parseFloat(settings?.encaissementRate || "7"),
-        withdrawalRate: parseFloat(settings?.withdrawalRate || "7"),
-      });
+      const [settings, user, allCountries] = await Promise.all([
+        storage.getCommissionSettings(),
+        storage.getUser(req.session.userId!),
+        storage.getCountries(),
+      ]);
+
+      const globalDeposit = parseFloat(settings?.depositRate || "7");
+      const globalWithdraw = parseFloat(settings?.withdrawalRate || "7");
+      const globalEncaissement = parseFloat(settings?.encaissementRate || "7");
+
+      let depositRate = globalDeposit;
+      let withdrawalRate = globalWithdraw;
+      let encaissementRate = globalEncaissement;
+
+      if (user?.country) {
+        const countryRecord = (allCountries as any[]).find(
+          (c) => c.name?.toLowerCase() === user.country!.toLowerCase() && c.isActive
+        );
+        if (countryRecord) {
+          if (countryRecord.depositFeeRate !== null) {
+            const r = parseFloat(countryRecord.depositFeeRate);
+            if (!isNaN(r)) depositRate = r;
+          }
+          if (countryRecord.withdrawFeeRate !== null) {
+            const r = parseFloat(countryRecord.withdrawFeeRate);
+            if (!isNaN(r)) withdrawalRate = r;
+          }
+          if (countryRecord.encaissementFeeRate !== null) {
+            const r = parseFloat(countryRecord.encaissementFeeRate);
+            if (!isNaN(r)) encaissementRate = r;
+          }
+        }
+      }
+
+      res.json({ depositRate, encaissementRate, withdrawalRate });
     } catch (error) {
       console.error("Get commission rates error:", error);
       res.json({ depositRate: 7, encaissementRate: 7, withdrawalRate: 7 });
