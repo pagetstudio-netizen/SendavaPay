@@ -1496,7 +1496,11 @@ export function registerPartnerRoutes(app: Express) {
 
       let availableServices = services.map((service: any) => {
         const operator = operators.find((op: any) => op.code === service.id.toString());
-        return { ...service, inMaintenance: operator?.inMaintenance ?? false };
+        return {
+          ...service,
+          inMaintenance: operator?.inMaintenance ?? false,
+          paymentGateway: operator?.paymentGateway || "soleaspay",
+        };
       });
 
       if (allowedOperators.length > 0) {
@@ -1535,8 +1539,83 @@ export function registerPartnerRoutes(app: Express) {
         return res.status(400).json({ message: "Ce moyen de paiement est actuellement en maintenance" });
       }
 
-      const orderId = `PDEP-${Date.now()}-P${req.session.partnerId}`;
+      const paymentGateway = operator?.paymentGateway || "soleaspay";
       const baseUrl = "https://sendavapay.com";
+
+      console.log(`📡 Partner Deposit: opérateur=${service.operator} (${service.countryCode}), gateway=${paymentGateway}, partner=${partner.name}`);
+
+      if (paymentGateway === "winipayer") {
+        const orderId = `PDEP-WP-${Date.now()}-P${req.session.partnerId}`;
+        const { winipayer } = await import("./winipayer");
+        const winiResult = await winipayer.createCheckout({
+          amount: numericAmount,
+          description: `Dépôt Partenaire - ${partner.name}`,
+          cancelUrl: `${baseUrl}/partner/dashboard`,
+          returnUrl: `${baseUrl}/partner/dashboard`,
+          callbackUrl: `${baseUrl}/api/webhook/winipayer`,
+          customData: { partnerId: req.session.partnerId, orderId },
+          clientPayFee: false,
+          reference: { identifier: orderId, name: partner.name, email: partner.email },
+        });
+        if (!winiResult.success || !winiResult.results) {
+          return res.status(500).json({ message: winiResult.errors?.msg || "Erreur WiniPayer" });
+        }
+        await storage.createPartnerLog({ partnerId: req.session.partnerId!, action: "api_call", details: `Dépôt WiniPayer initié: ${numericAmount} ${service.currency}`, ipAddress: req.ip || req.socket.remoteAddress });
+        return res.json({ success: true, payId: winiResult.results.uuid, orderId, status: "PENDING", isWinipayer: true, checkoutUrl: winiResult.results.checkout_process, message: "Redirection vers le portail de paiement WiniPayer..." });
+      }
+
+      if (paymentGateway === "omnipay") {
+        const orderId = `PDEP-OP-${Date.now()}-P${req.session.partnerId}`;
+        const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
+        const opOperator = getOmnipayOperator(service.operator);
+        if (opOperator === undefined) {
+          return res.status(400).json({ message: `Opérateur '${service.operator}' non supporté par OmniPay` });
+        }
+        const cleanPhone = formatPhoneForOmnipay(phoneNumber, service.countryCode);
+        const nameParts = partner.name.split(" ");
+        const opResult = await opClient.requestPayment({
+          msisdn: cleanPhone,
+          amount: numericAmount,
+          reference: orderId,
+          firstName: nameParts[0],
+          lastName: nameParts.slice(1).join(" ") || nameParts[0],
+          operator: opOperator ?? undefined,
+          callbackUrl: `${baseUrl}/api/webhook/omnipay`,
+        });
+        if (String(opResult.success) !== "1") {
+          return res.status(500).json({ message: opResult.message || "Erreur OmniPay" });
+        }
+        await storage.createPartnerLog({ partnerId: req.session.partnerId!, action: "api_call", details: `Dépôt OmniPay initié: ${numericAmount} ${service.currency} via ${service.operator} au ${cleanPhone}`, ipAddress: req.ip || req.socket.remoteAddress });
+        return res.json({ success: true, payId: orderId, orderId, status: "PENDING", provider: "omnipay", message: "Veuillez confirmer le paiement sur votre téléphone." });
+      }
+
+      if (paymentGateway === "maishapay") {
+        const orderId = `PDEP-MP-${Date.now()}-P${req.session.partnerId}`;
+        const { maishapay: mpClient, getMaishapayProvider, formatPhoneForMaishapay } = await import("./maishapay");
+        const mpProvider = getMaishapayProvider(service.operator, service.countryCode);
+        if (!mpProvider) {
+          return res.status(400).json({ message: `Opérateur '${service.operator}' non supporté par MaishaPay` });
+        }
+        const cleanPhone = formatPhoneForMaishapay(phoneNumber, service.countryCode);
+        const mpResult = await mpClient.collectPayment({
+          transactionReference: orderId,
+          amount: numericAmount,
+          currency: service.currency,
+          customerFullName: partner.name,
+          customerEmail: partner.email,
+          provider: mpProvider,
+          walletID: cleanPhone,
+          callbackUrl: `${baseUrl}/api/webhook/maishapay`,
+        });
+        if (mpResult.status_code !== 202 || mpResult.transactionStatus?.trim().toUpperCase() === "FAILED") {
+          const { extractMaishaPayError } = await import("./maishapay");
+          return res.status(500).json({ message: extractMaishaPayError(mpResult) });
+        }
+        await storage.createPartnerLog({ partnerId: req.session.partnerId!, action: "api_call", details: `Dépôt MaishaPay initié: ${numericAmount} ${service.currency} via ${service.operator} au ${cleanPhone}`, ipAddress: req.ip || req.socket.remoteAddress });
+        return res.json({ success: true, payId: orderId, orderId, status: "PENDING", provider: "maishapay", message: "Veuillez confirmer le paiement sur votre téléphone." });
+      }
+
+      const orderId = `PDEP-${Date.now()}-P${req.session.partnerId}`;
 
       const result = await soleaspay.collectPayment({
         wallet: phoneNumber,
@@ -1563,7 +1642,7 @@ export function registerPartnerRoutes(app: Express) {
       await storage.createPartnerLog({
         partnerId: req.session.partnerId!,
         action: "api_call",
-        details: `Dépôt initié: ${numericAmount} ${service.currency} via ${service.operator}`,
+        details: `Dépôt SoleasPay initié: ${numericAmount} ${service.currency} via ${service.operator}`,
         ipAddress: req.ip || req.socket.remoteAddress,
       });
 
@@ -1583,6 +1662,20 @@ export function registerPartnerRoutes(app: Express) {
   app.get("/api/partner/verify-deposit/:orderId/:payId", requirePartnerAuth, async (req: Request, res: Response) => {
     try {
       const { orderId, payId } = req.params;
+
+      if (orderId.includes("PDEP-OP-")) {
+        res.json({ status: "pending", message: "En attente de confirmation OmniPay..." });
+        return;
+      }
+      if (orderId.includes("PDEP-MP-")) {
+        res.json({ status: "pending", message: "En attente de confirmation MaishaPay..." });
+        return;
+      }
+      if (orderId.includes("PDEP-WP-")) {
+        res.json({ status: "pending", message: "En attente de confirmation WiniPayer..." });
+        return;
+      }
+
       const { soleaspay } = await import("./soleaspay");
       const result = await soleaspay.verifyPayment(orderId, payId);
       
@@ -1860,6 +1953,63 @@ export function registerPartnerRoutes(app: Express) {
             status: "failed",
             rejectionReason: "Erreur technique MaishaPay",
           });
+          return res.status(500).json({ message: "Erreur technique lors du retrait. Votre solde a été restauré." });
+        }
+      }
+
+      if (selectedOperator.paymentGateway === "omnipay") {
+        const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
+        const opOperator = getOmnipayOperator(selectedOperator.name);
+        if (opOperator === undefined) {
+          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+          return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique OmniPay" });
+        }
+
+        const currency = selectedCountry.currency || "XOF";
+        const withdrawalRequest = await storage.createWithdrawalRequest({
+          userId: 0,
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          paymentMethod: selectedOperator.name,
+          mobileNumber,
+          country,
+          walletName: `PARTENAIRE:${partner.name}` + (walletName ? ` - ${walletName}` : ""),
+        });
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
+
+        notifyPartnerWithdrawal({ partnerName: partner.name, partnerId: req.session.partnerId!, amount: numericAmount.toString(), fee: fee.toString(), netAmount: netAmount.toString(), paymentMethod: selectedOperator.name, mobileNumber, country });
+
+        const cleanPhone = formatPhoneForOmnipay(mobileNumber, selectedCountry.code);
+        const nameParts = (walletName || partner.name || "Partenaire").split(" ");
+
+        try {
+          const opRef = `PWD-OP-${withdrawalRequest.id}-${Date.now()}`;
+          const opResult = await opClient.transfer({
+            msisdn: cleanPhone,
+            amount: netAmount,
+            reference: opRef,
+            firstName: nameParts[0],
+            lastName: nameParts.slice(1).join(" ") || nameParts[0],
+            operator: opOperator ?? undefined,
+          });
+
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, { externalReference: opRef, transactionReference: opResult.id?.toString() || null });
+
+          if (String(opResult.success) === "1") {
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "approved", processedAt: new Date() });
+            return res.json({ message: "Retrait effectué avec succès!", request: { ...withdrawalRequest, status: "approved" }, autoProcessed: true });
+          } else {
+            const opError = opResult.message || "Erreur OmniPay inconnue";
+            console.error("❌ OmniPay partner transfer failed:", opError);
+            await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "failed", rejectionReason: opError });
+            return res.status(500).json({ message: `Le retrait automatique a échoué (${opError}). Votre solde a été restauré.` });
+          }
+        } catch (opErr) {
+          console.error("Partner OmniPay transfer error:", opErr);
+          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "failed", rejectionReason: "Erreur technique OmniPay" });
           return res.status(500).json({ message: "Erreur technique lors du retrait. Votre solde a été restauré." });
         }
       }
