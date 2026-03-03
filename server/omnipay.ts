@@ -119,24 +119,36 @@ export function getOmnipayOperator(operatorName: string): string | null | undefi
 
 export function formatPhoneForOmnipay(phone: string, countryCode: string): string {
   const PREFIXES: Record<string, string> = {
-    CI: "225",
-    BJ: "229",
-    TG: "228",
-    BF: "226",
-    SN: "221",
-    CM: "237",
-    ML: "223",
-    GN: "224",
+    CI:  "225",
+    BJ:  "229",
+    TG:  "228",
+    BF:  "226",
+    SN:  "221",
+    CM:  "237",
+    ML:  "223",
+    GN:  "224",
+    COG: "242",
+    COD: "243",
   };
 
+  // 1. Strip whitespace and common separators
   let cleaned = phone.replace(/[\s\-\(\)\.]/g, "");
 
+  // 2. Strip leading + or 00 to get a pure digit string
   if (cleaned.startsWith("+")) cleaned = cleaned.slice(1);
   else if (cleaned.startsWith("00")) cleaned = cleaned.slice(2);
-  else {
-    const prefix = PREFIXES[countryCode.toUpperCase()] || "";
-    if (prefix && cleaned.startsWith("0")) cleaned = cleaned.slice(1);
-    if (prefix && !cleaned.startsWith(prefix)) cleaned = prefix + cleaned;
+
+  const prefix = PREFIXES[countryCode.toUpperCase()] || "";
+
+  if (prefix) {
+    // 3. If country prefix already present, strip it so we can normalise cleanly
+    if (cleaned.startsWith(prefix)) {
+      cleaned = cleaned.slice(prefix.length);
+    }
+    // 4. Strip local trunk prefix(es) (leading 0s) — common in francophone Africa
+    while (cleaned.startsWith("0")) cleaned = cleaned.slice(1);
+    // 5. Re-add country prefix
+    cleaned = prefix + cleaned;
   }
 
   return cleaned;
@@ -215,14 +227,23 @@ export class OmniPayClient {
 
   async transfer(params: OmniPayTransferParams): Promise<OmniPayTransferResponse> {
     try {
-      console.log("💸 OmniPay: Initiation transfert...");
-      console.log("💸 OmniPay: Ref:", params.reference, "Montant:", params.amount, "MSISDN:", params.msisdn);
+      const amountStr = String(Math.round(params.amount));
+
+      console.log("💸 OmniPay TRANSFER — Paramètres envoyés:");
+      console.log("   URL     :", OMNIPAY_API_URL);
+      console.log("   action  : transfer");
+      console.log("   msisdn  :", params.msisdn, `(${params.msisdn.length} chiffres)`);
+      console.log("   amount  :", amountStr);
+      console.log("   reference:", params.reference);
+      console.log("   first_name:", params.firstName);
+      console.log("   last_name :", params.lastName);
+      console.log("   operator  :", params.operator ?? "(non envoyé — auto-détection)");
 
       const body: Record<string, string> = {
         action: "transfer",
         apikey: this.apiKey,
         msisdn: params.msisdn,
-        amount: String(Math.round(params.amount)),
+        amount: amountStr,
         reference: params.reference,
         first_name: params.firstName,
         last_name: params.lastName,
@@ -230,7 +251,7 @@ export class OmniPayClient {
 
       if (params.operator) body.operator = params.operator;
 
-      console.log("💸 OmniPay TRANSFER REQUÊTE:", JSON.stringify({ ...body, apikey: "***" }, null, 2));
+      console.log("💸 OmniPay TRANSFER REQUÊTE (masquée):", JSON.stringify({ ...body, apikey: "***" }));
 
       const response = await fetch(OMNIPAY_API_URL, {
         method: "POST",
