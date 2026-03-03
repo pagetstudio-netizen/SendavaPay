@@ -27,13 +27,13 @@ export default function CreatePaymentLinkPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { user } = useAuth();
-  const { data: publicFees } = useQuery<{ countries: { code: string; encaissementFee: number }[]; global: { encaissementFee: number } }>({
+  const { data: publicFees } = useQuery<{ countries: { code: string; name: string; encaissementFee: number }[]; global: { encaissementFee: number } }>({
     queryKey: ["/api/public/fees"],
   });
-  const userCountryCode = user?.country
-    ? publicFees?.countries.find(c => c.code === user.country?.toUpperCase())
+  const userCountryData = user?.country
+    ? publicFees?.countries.find(c => c.name.toLowerCase() === user.country?.toLowerCase())
     : null;
-  const encaissementRate = userCountryCode?.encaissementFee ?? publicFees?.global?.encaissementFee ?? 7;
+  const encaissementRate = userCountryData?.encaissementFee ?? publicFees?.global?.encaissementFee ?? 7;
 
   const handleImageUpload = async (file: File) => {
     setIsUploading(true);
