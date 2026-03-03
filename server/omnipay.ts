@@ -307,13 +307,12 @@ export class OmniPayClient {
     }
   }
 
-  async getWalletBalance(currency?: string): Promise<{ success: number; balance?: number; currency?: string; message?: string }> {
+  async getWalletBalance(currency?: string): Promise<{ success: number; balance?: number; pending?: number; currency?: string; message?: string }> {
     try {
       const body: Record<string, string> = {
         action: "getbalance",
         apikey: this.apiKey,
       };
-      if (currency) body.currency = currency;
 
       console.log(`💼 OmniPay: Vérification solde wallet${currency ? " " + currency : ""}...`);
 
@@ -328,7 +327,29 @@ export class OmniPayClient {
 
       try {
         const parsed = JSON.parse(responseText);
-        return parsed;
+
+        // OmniPay returns balance as an array of country objects:
+        // { success:1, balance: [{countryCode, amount, pending, currency}] }
+        if (parsed.success === 1 && Array.isArray(parsed.balance)) {
+          if (currency) {
+            const entry = parsed.balance.find((b: any) => b.currency === currency);
+            if (entry) {
+              console.log(`💼 OmniPay wallet ${currency}: disponible=${entry.amount} en_attente=${entry.pending}`);
+              return { success: 1, balance: entry.amount, pending: entry.pending, currency };
+            }
+            return { success: 0, message: `Devise ${currency} non trouvée dans le wallet` };
+          }
+          // No currency specified — return first entry or total
+          const first = parsed.balance[0];
+          return { success: 1, balance: first?.amount, currency: first?.currency };
+        }
+
+        // Fallback: scalar balance field (older format)
+        if (parsed.success === 1 && typeof parsed.balance === "number") {
+          return { success: 1, balance: parsed.balance, currency };
+        }
+
+        return { success: 0, message: parsed.message || "Format de réponse inattendu" };
       } catch {
         return { success: 0, message: "Réponse invalide" };
       }
