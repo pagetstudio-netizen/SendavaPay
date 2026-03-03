@@ -132,10 +132,11 @@ export default function DepositPage() {
   const isWiniPayer = selectedService?.paymentGateway === "winipayer";
   const phonePrefix = COUNTRY_PREFIXES[selectedService?.countryCode || ""] || "";
 
-  const { data: commissionRates } = useQuery<{ depositRate: number; encaissementRate: number; withdrawalRate: number }>({
-    queryKey: ["/api/commission-rates"],
+  const { data: publicFees } = useQuery<{ countries: { code: string; depositFee: number; withdrawFee: number }[]; global: { depositFee: number; withdrawFee: number } }>({
+    queryKey: ["/api/public/fees"],
   });
-  const commissionRate = commissionRates?.depositRate ?? 7;
+  const countryFeeData = publicFees?.countries.find(c => c.code === selectedCountry);
+  const commissionRate = countryFeeData?.depositFee ?? publicFees?.global?.depositFee ?? 7;
   const numericAmount = parseFloat(amount) || 0;
   const fee = Math.round(numericAmount * (commissionRate / 100));
   const netAmount = numericAmount - fee;

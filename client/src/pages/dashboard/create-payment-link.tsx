@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Loader2, ImageIcon, X, ArrowLeft, Link2, ExternalLink, Info } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
 
 export default function CreatePaymentLinkPage() {
   const { toast } = useToast();
@@ -25,10 +26,14 @@ export default function CreatePaymentLinkPage() {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: commissionRates } = useQuery<{ depositRate: number; encaissementRate: number; withdrawalRate: number }>({
-    queryKey: ["/api/commission-rates"],
+  const { user } = useAuth();
+  const { data: publicFees } = useQuery<{ countries: { code: string; encaissementFee: number }[]; global: { encaissementFee: number } }>({
+    queryKey: ["/api/public/fees"],
   });
-  const encaissementRate = commissionRates?.encaissementRate ?? 7;
+  const userCountryCode = user?.country
+    ? publicFees?.countries.find(c => c.code === user.country?.toUpperCase())
+    : null;
+  const encaissementRate = userCountryCode?.encaissementFee ?? publicFees?.global?.encaissementFee ?? 7;
 
   const handleImageUpload = async (file: File) => {
     setIsUploading(true);
