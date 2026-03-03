@@ -37,6 +37,7 @@ import {
   notifyKycSubmitted,
   notifyAdminLogin,
   notifyLargeAmount,
+  notifyLiquidityEmpty,
   sendBotReply,
 } from "./telegram";
 
@@ -3234,6 +3235,54 @@ export async function registerRoutes(
 
         await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
 
+        // ── Vérification liquidité wallet OmniPay ──────────────────────────────
+        try {
+          const balanceRes = await opClient.getWalletBalance(currency);
+          if (balanceRes.success === 1 && typeof balanceRes.balance === "number") {
+            console.log(`💼 OmniPay wallet ${currency}: solde=${balanceRes.balance}`);
+            if (balanceRes.balance < netAmount) {
+              console.log(`⚠️ Liquidité insuffisante wallet OmniPay ${currency} (${balanceRes.balance} < ${netAmount}) — retrait mis en file`);
+              await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+                status: "pending",
+                rejectionReason: `LIQUIDITY_HOLD:${currency}`,
+              });
+
+              // Compter les retraits déjà en file pour cette devise
+              const allPending = await storage.getAllWithdrawalRequests();
+              const queueItems = allPending.filter((r: any) =>
+                r.status === "pending" && String(r.rejectionReason || "").startsWith(`LIQUIDITY_HOLD:${currency}`)
+              );
+              const totalPending = queueItems.reduce((sum: number, r: any) => sum + parseFloat(r.amount || "0"), 0);
+
+              const CURRENCY_INFO: Record<string, { flag: string; name: string }> = {
+                XOF: { flag: "🇧🇯", name: "Bénin/Afrique de l'Ouest" },
+                XAF: { flag: "🇨🇲", name: "Cameroun/Afrique Centrale" },
+                CDF: { flag: "🇨🇩", name: "RDC" },
+              };
+              const ci = CURRENCY_INFO[currency] || { flag: "🌍", name: currency };
+              notifyLiquidityEmpty({
+                currency,
+                countryFlag: ci.flag,
+                countryName: ci.name,
+                pendingCount: queueItems.length + 1,
+                pendingAmount: totalPending + netAmount,
+                walletBalance: balanceRes.balance,
+              });
+
+              return res.json({
+                message: "Retrait en cours de traitement – sera validé dès réapprovisionnement du wallet.",
+                request: { ...withdrawalRequest, status: "pending" },
+                liquidityHold: true,
+              });
+            }
+          } else {
+            console.log(`💼 OmniPay wallet balance check non disponible (${balanceRes.message}) — proceeding anyway`);
+          }
+        } catch (balErr) {
+          console.error("⚠️ OmniPay balance check error (non bloquant):", balErr);
+        }
+        // ──────────────────────────────────────────────────────────────────────
+
         const cleanPhone = formatPhoneForOmnipay(mobileNumber, selectedCountry.code);
         const nameParts = (walletName || user.fullName || "Client").split(" ");
         const firstName = nameParts[0];
@@ -4849,6 +4898,97 @@ export async function registerRoutes(
       res.status(500).json({ message: "Erreur serveur" });
     }
   });
+
+  // ══════════ LIQUIDITY QUEUE ══════════
+  app.get("/api/admin/liquidity-queue", requireAdmin, async (req, res) => {
+    try {
+      const all = await storage.getAllWithdrawalRequests();
+      const queue = all.filter(r =>
+        r.status === "pending" && String((r as any).rejectionReason || "").startsWith("LIQUIDITY_HOLD:")
+      );
+      const byCurrency: Record<string, { currency: string; count: number; totalAmount: number; items: any[] }> = {};
+      for (const r of queue) {
+        const currency = String((r as any).rejectionReason || "").replace("LIQUIDITY_HOLD:", "");
+        if (!byCurrency[currency]) byCurrency[currency] = { currency, count: 0, totalAmount: 0, items: [] };
+        byCurrency[currency].count++;
+        byCurrency[currency].totalAmount += parseFloat(r.amount as string || "0");
+        byCurrency[currency].items.push(r);
+      }
+      res.json({ queue, byCurrency, totalCount: queue.length });
+    } catch (error) {
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/liquidity-queue/process", requireAdmin, async (req, res) => {
+    try {
+      const { currency } = req.body;
+      if (!currency) return res.status(400).json({ message: "Devise requise" });
+
+      const all = await storage.getAllWithdrawalRequests();
+      const queue = all.filter(r =>
+        r.status === "pending" && String((r as any).rejectionReason || "") === `LIQUIDITY_HOLD:${currency}`
+      );
+
+      if (queue.length === 0) return res.json({ message: "Aucun retrait en attente pour cette devise", processed: 0 });
+
+      const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
+      let processed = 0, failed = 0;
+
+      for (const wr of queue) {
+        try {
+          const wrUser = await storage.getUser(wr.userId);
+          const opOperator = getOmnipayOperator(wr.paymentMethod || "");
+          if (opOperator === undefined) { failed++; continue; }
+
+          const netAmount = parseFloat(wr.netAmount as string || "0");
+          const cleanPhone = formatPhoneForOmnipay(wr.mobileNumber || "", (wr as any).country || "BJ");
+          const nameParts = ((wr as any).walletName || wrUser?.fullName || "Client").split(" ");
+          const opRef = `WD-${wr.id}-${Date.now()}`;
+
+          await storage.updateWithdrawalRequest(wr.id, { status: "processing", rejectionReason: null });
+
+          const opResult = await opClient.transfer({
+            msisdn: cleanPhone,
+            amount: netAmount,
+            reference: opRef,
+            firstName: nameParts[0],
+            lastName: nameParts.slice(1).join(" ") || nameParts[0],
+            operator: opOperator ?? undefined,
+          });
+
+          await storage.updateWithdrawalRequest(wr.id, {
+            externalReference: opRef,
+            transactionReference: opResult.id?.toString() || null,
+          });
+
+          if (String(opResult.success) === "1") {
+            console.log(`✅ Liquidity queue: Retrait #${wr.id} envoyé ref=${opRef}`);
+            processed++;
+          } else {
+            const errMsg = opResult.message || "Erreur OmniPay";
+            if (opResult.code === 9) {
+              await storage.updateWithdrawalRequest(wr.id, { status: "pending", rejectionReason: `LIQUIDITY_HOLD:${currency}` });
+            } else {
+              const wAmount = parseFloat(wr.amount as string || "0");
+              await storage.updateUserBalance(wr.userId, wAmount.toString());
+              await storage.updateWithdrawalRequest(wr.id, { status: "failed", rejectionReason: errMsg });
+            }
+            failed++;
+          }
+        } catch (err) {
+          console.error(`❌ Liquidity queue: erreur retrait #${wr.id}:`, err);
+          failed++;
+        }
+      }
+
+      res.json({ message: `Traitement terminé: ${processed} envoyé(s), ${failed} échoué(s)`, processed, failed });
+    } catch (error) {
+      console.error("Process liquidity queue error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+  // ══════════════════════════════════════
 
   app.get("/api/admin/api-keys", requireAdmin, async (req, res) => {
     try {

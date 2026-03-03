@@ -286,6 +286,37 @@ export class OmniPayClient {
     }
   }
 
+  async getWalletBalance(currency?: string): Promise<{ success: number; balance?: number; currency?: string; message?: string }> {
+    try {
+      const body: Record<string, string> = {
+        action: "getbalance",
+        apikey: this.apiKey,
+      };
+      if (currency) body.currency = currency;
+
+      console.log(`💼 OmniPay: Vérification solde wallet${currency ? " " + currency : ""}...`);
+
+      const response = await fetch(OMNIPAY_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const responseText = await response.text();
+      console.log("💼 OmniPay getWalletBalance response:", responseText);
+
+      try {
+        const parsed = JSON.parse(responseText);
+        return parsed;
+      } catch {
+        return { success: 0, message: "Réponse invalide" };
+      }
+    } catch (error) {
+      console.error("❌ OmniPay getWalletBalance error:", error);
+      return { success: 0, message: "Erreur connexion" };
+    }
+  }
+
   getCallbackKey(): string {
     return this.callbackKey;
   }
