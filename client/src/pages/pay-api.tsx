@@ -37,6 +37,12 @@ import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
 import waveLogo from "@assets/images_(16)_1772485816419.jpeg";
 
+const COUNTRY_PREFIXES: Record<string, string> = {
+  CI: "+225", BJ: "+229", TG: "+228", BF: "+226",
+  SN: "+221", CM: "+237", ML: "+223", GN: "+224",
+  COG: "+242", COD: "+243",
+};
+
 interface ApiTransaction {
   id: number;
   reference: string;
@@ -133,6 +139,7 @@ export default function PayApiPage() {
 
   const selectedService = services.find(s => s.id.toString() === selectedServiceId);
   const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || transaction?.currency || "XOF";
+  const phonePrefix = COUNTRY_PREFIXES[selectedService?.countryCode || selectedCountry] || "";
 
   const toggleDarkMode = () => {
     const newIsDark = !isDarkMode;
@@ -633,15 +640,19 @@ export default function PayApiPage() {
                     <Label htmlFor="phone" className="text-sm text-muted-foreground">
                       Numéro de téléphone {selectedService?.operator || "Mobile Money"}
                     </Label>
-                    <div className="relative">
-                      <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                    <div className="flex h-11">
+                      {phonePrefix && (
+                        <div className="flex items-center px-3 border border-r-0 rounded-l-md bg-muted text-sm font-mono font-semibold text-muted-foreground select-none shrink-0">
+                          {phonePrefix}
+                        </div>
+                      )}
                       <Input
                         id="phone"
                         type="tel"
                         value={phoneNumber}
-                        onChange={(e) => setPhoneNumber(e.target.value)}
-                        placeholder="Ex: 90123456"
-                        className="pl-10"
+                        onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ""))}
+                        placeholder="90123456"
+                        className={phonePrefix ? "rounded-l-none h-11" : "h-11"}
                         data-testid="input-phone"
                       />
                     </div>
