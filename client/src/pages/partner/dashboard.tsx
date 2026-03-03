@@ -98,9 +98,10 @@ import {
   Terminal,
   Settings,
   ToggleLeft,
+  Percent,
 } from "lucide-react";
 
-type Section = "dashboard" | "deposit" | "withdraw" | "payment-links" | "profile" | "transactions" | "logs" | "api-keys" | "sdk-docs" | "config" | "support";
+type Section = "dashboard" | "deposit" | "withdraw" | "payment-links" | "profile" | "transactions" | "logs" | "api-keys" | "sdk-docs" | "config" | "support" | "fees";
 
 const operatorLogos: Record<string, string> = {
   "MTN": mtnLogo,
@@ -134,6 +135,7 @@ const sidebarItems = [
   { key: "api-keys" as Section, icon: KeyRound, label: "Clés API" },
   { key: "sdk-docs" as Section, icon: BookOpen, label: "Documentation SDK" },
   { key: "config" as Section, icon: Settings, label: "Configuration" },
+  { key: "fees" as Section, icon: Percent, label: "Tarifs" },
   { key: "support" as Section, icon: HelpCircle, label: "Support" },
 ];
 
@@ -296,6 +298,7 @@ export default function PartnerDashboard() {
             {activeSection === "api-keys" && <ApiKeysSection />}
             {activeSection === "sdk-docs" && <SdkDocsSection />}
             {activeSection === "config" && <ConfigSection partner={partner} />}
+            {activeSection === "fees" && <PartnerFeesSection />}
             {activeSection === "support" && <SupportSection />}
           </div>
         </main>
@@ -2646,6 +2649,159 @@ transactions = client.get_transactions()`;
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ─── Tarifs par pays ──────────────────────────────────────────────────────────
+
+const FEE_LOGO_MAP: Record<string, string> = {
+  "mtn.png": mtnLogo,
+  "moov.png": moovLogo,
+  "orange.png": orangeLogo,
+  "tmoney.png": tmoneyLogo,
+  "t-money.png": tmoneyLogo,
+  "airtel.png": airtelLogo,
+  "vodacom.png": vodacomLogo,
+  "wave.png": orangeLogo,
+};
+
+const COUNTRY_FLAG: Record<string, string> = {
+  BJ: "🇧🇯", BF: "🇧🇫", CM: "🇨🇲", COG: "🇨🇬", CI: "🇨🇮",
+  ML: "🇲🇱", COD: "🇨🇩", SN: "🇸🇳", TG: "🇹🇬",
+};
+
+interface PublicFeesCountry {
+  id: number;
+  code: string;
+  name: string;
+  currency: string;
+  depositFee: number;
+  withdrawFee: number;
+  encaissementFee: number;
+  operators: { id: number; name: string; logo: string | null; inMaintenance: boolean }[];
+}
+
+interface PublicFeesData {
+  countries: PublicFeesCountry[];
+  global: { depositFee: number; withdrawFee: number; encaissementFee: number };
+}
+
+function PartnerFeesSection() {
+  const [selectedCountry, setSelectedCountry] = useState(0);
+
+  const { data, isLoading } = useQuery<PublicFeesData>({
+    queryKey: ["/api/public/fees"],
+    queryFn: async () => {
+      const res = await fetch("/api/public/fees");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const countries = data?.countries ?? [];
+  const current = countries[selectedCountry];
+
+  return (
+    <div className="space-y-6 p-6" data-testid="section-fees">
+      <div>
+        <h2 className="text-2xl font-bold flex items-center gap-2">
+          <Percent className="h-6 w-6" />
+          Tarifs par opérateur
+        </h2>
+        <p className="text-muted-foreground text-sm mt-1">
+          Frais configurés par l'administrateur pour chaque pays et opérateur.
+        </p>
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      ) : countries.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground">Aucune donnée disponible.</div>
+      ) : (
+        <>
+          {/* Onglets par pays */}
+          <div className="flex flex-wrap gap-2">
+            {countries.map((country, idx) => (
+              <button
+                key={country.id}
+                data-testid={`tab-fees-country-${country.code}`}
+                onClick={() => setSelectedCountry(idx)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium border transition-all ${
+                  selectedCountry === idx
+                    ? "bg-primary text-primary-foreground border-primary shadow"
+                    : "bg-background border-border hover:border-primary/40 hover:bg-primary/5"
+                }`}
+              >
+                <span className="text-base leading-none">{COUNTRY_FLAG[country.code] ?? "🌍"}</span>
+                <span>{country.name}</span>
+                <span className="text-xs opacity-60">{country.currency}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Cartes opérateurs */}
+          {current && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {current.operators.map((op) => {
+                const logo = op.logo ? FEE_LOGO_MAP[op.logo] ?? null : null;
+                return (
+                  <Card
+                    key={op.id}
+                    data-testid={`card-fees-operator-${op.id}`}
+                    className={`transition-all ${op.inMaintenance ? "opacity-50 grayscale" : "hover:shadow-md"}`}
+                  >
+                    <CardContent className="p-5 flex flex-col gap-4">
+                      {/* En-tête opérateur */}
+                      <div className="flex items-center gap-3">
+                        {logo ? (
+                          <img src={logo} alt={op.name} className="h-10 w-10 object-contain flex-shrink-0" />
+                        ) : (
+                          <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-base flex-shrink-0">
+                            {op.name.charAt(0)}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm truncate">{op.name}</p>
+                          {op.inMaintenance ? (
+                            <span className="text-xs text-orange-500">En maintenance</span>
+                          ) : (
+                            <span className="text-xs text-green-600 dark:text-green-400">Disponible</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Pay In / Pay Out */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="rounded-xl bg-blue-50 dark:bg-blue-950/40 p-3 text-center">
+                          <p className="text-xs text-blue-600 dark:text-blue-400 font-medium mb-1">Pay In</p>
+                          <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">{current.depositFee}%</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">Dépôt</p>
+                        </div>
+                        <div className="rounded-xl bg-orange-50 dark:bg-orange-950/40 p-3 text-center">
+                          <p className="text-xs text-orange-600 dark:text-orange-400 font-medium mb-1">Pay Out</p>
+                          <p className="text-2xl font-bold text-orange-700 dark:text-orange-300">{current.withdrawFee}%</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">Retrait</p>
+                        </div>
+                      </div>
+
+                      {/* Encaissement */}
+                      <div className="rounded-xl bg-green-50 dark:bg-green-950/40 p-3 text-center">
+                        <p className="text-xs text-green-600 dark:text-green-400 font-medium mb-1">Encaissement (lien)</p>
+                        <p className="text-xl font-bold text-green-700 dark:text-green-300">{current.encaissementFee}%</p>
+                      </div>
+
+                      <p className="text-xs text-center text-muted-foreground">{current.currency}</p>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
