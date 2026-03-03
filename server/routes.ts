@@ -2294,6 +2294,91 @@ export async function registerRoutes(
 
       const payment = await storage.getLeekpayPaymentById(reference);
       if (!payment) {
+        // Check if this is a withdrawal (TRANSFER) callback
+        if (data.type === "TRANSFER") {
+          const withdrawalReq = await storage.getWithdrawalRequestByExternalRef(reference);
+          if (withdrawalReq) {
+            const wUser = await storage.getUser(withdrawalReq.userId);
+            const wAmount = parseFloat(withdrawalReq.amount as string);
+            const wFee = parseFloat(withdrawalReq.fee as string || "0");
+            const wNet = parseFloat(withdrawalReq.netAmount as string || (wAmount - wFee).toString());
+
+            if ((status === "1" || status === "3") && withdrawalReq.status === "processing") {
+              // Transfer confirmed successful
+              console.log(`✅ OmniPay TRANSFER webhook: Retrait #${withdrawalReq.id} confirmé ref=${reference}`);
+              await storage.updateWithdrawalRequest(withdrawalReq.id, {
+                status: "approved",
+                processedAt: new Date(),
+              });
+
+              await storage.createTransaction({
+                userId: withdrawalReq.userId,
+                type: "withdrawal",
+                amount: wAmount.toString(),
+                fee: wFee.toString(),
+                netAmount: wNet.toString(),
+                status: "completed",
+                description: `Retrait automatique ${withdrawalReq.paymentMethod} - ${withdrawalReq.mobileNumber}`,
+                mobileNumber: withdrawalReq.mobileNumber,
+                paymentMethod: withdrawalReq.paymentMethod,
+              });
+
+              if (wUser?.email) {
+                sendWithdrawalEmail(wUser.email, {
+                  userName: wUser.fullName,
+                  amount: wNet,
+                  currency: data.currency || "XOF",
+                  transactionId: withdrawalReq.id.toString(),
+                  phone: withdrawalReq.mobileNumber || "",
+                  operator: withdrawalReq.paymentMethod || "OmniPay",
+                }).catch(err => console.error("Failed to send withdrawal email:", err));
+              }
+
+              notifyWithdrawalAutoProcessed({
+                userName: wUser?.fullName || "Client",
+                userId: withdrawalReq.userId,
+                amount: wAmount.toString(),
+                netAmount: wNet.toString(),
+                paymentMethod: withdrawalReq.paymentMethod || "OmniPay",
+                mobileNumber: withdrawalReq.mobileNumber || "",
+                payoutUuid: reference,
+                status: "success",
+              });
+
+            } else if (status === "4") {
+              // Transfer failed — reverse the transaction
+              console.log(`❌ OmniPay TRANSFER webhook: Retrait #${withdrawalReq.id} ÉCHOUÉ ref=${reference} msg=${data.message}`);
+
+              if (withdrawalReq.status === "processing" || withdrawalReq.status === "approved") {
+                // Restore user balance
+                await storage.updateUserBalance(withdrawalReq.userId, wAmount.toString());
+                console.log(`💰 OmniPay webhook: Solde restauré userId=${withdrawalReq.userId} amount=${wAmount}`);
+
+                await storage.updateWithdrawalRequest(withdrawalReq.id, {
+                  status: "failed",
+                  rejectionReason: data.message || "Échec du transfert mobile money (OmniPay)",
+                });
+
+                notifyWithdrawalAutoProcessed({
+                  userName: wUser?.fullName || "Client",
+                  userId: withdrawalReq.userId,
+                  amount: wAmount.toString(),
+                  netAmount: wNet.toString(),
+                  paymentMethod: withdrawalReq.paymentMethod || "OmniPay",
+                  mobileNumber: withdrawalReq.mobileNumber || "",
+                  payoutUuid: reference,
+                  status: "failed",
+                  errorDetail: data.message || "Transaction failed (OmniPay callback)",
+                });
+              }
+            } else {
+              console.log(`⚠️ OmniPay TRANSFER webhook: statut ignoré status=${status} withdrawal.status=${withdrawalReq.status} ref=${reference}`);
+            }
+            return;
+          }
+        }
+
+        // Check partner transactions (deposit)
         const partnerTx = await storage.getPartnerTransactionByReference(reference);
         if (partnerTx && partnerTx.status !== "completed" && status === "3") {
           const { db } = await import("./db");
@@ -3173,53 +3258,42 @@ export async function registerRoutes(
           });
 
           if (String(opResult.success) === "1") {
-            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-              status: "approved",
-              processedAt: new Date(),
-            });
-
-            await storage.createTransaction({
-              userId: req.session.userId!,
-              type: "withdrawal",
-              amount: numericAmount.toString(),
-              fee: fee.toString(),
-              netAmount: netAmount.toString(),
-              status: "completed",
-              description: `Retrait automatique ${selectedOperator.name} - ${mobileNumber}`,
-              mobileNumber,
-              paymentMethod: selectedOperator.name,
-            });
-
-            if (user?.email) {
-              sendWithdrawalEmail(user.email, {
-                userName: user.fullName,
-                amount: netAmount,
-                currency,
-                transactionId: withdrawalRequest.id.toString(),
-                phone: mobileNumber,
-                operator: selectedOperator.name,
-              }).catch(err => console.error("Failed to send withdrawal email:", err));
-            }
-
-            notifyWithdrawalAutoProcessed({
-              userName: user.fullName,
-              userId: req.session.userId!,
-              amount: numericAmount.toString(),
-              netAmount: netAmount.toString(),
-              paymentMethod: selectedOperator.name,
-              mobileNumber,
-              payoutUuid: opRef,
-              status: "success",
-            });
+            console.log(`✅ OmniPay transfer accepted: ref=${opRef} id=${opResult.id} — awaiting webhook confirmation`);
 
             return res.json({
-              message: "Retrait effectué avec succès! L'argent a été envoyé sur votre compte mobile.",
-              request: { ...withdrawalRequest, status: "approved" },
+              message: "Retrait en cours de traitement. Vous recevrez l'argent dans quelques instants.",
+              request: { ...withdrawalRequest, status: "processing" },
               autoProcessed: true,
             });
           } else {
             const opError = opResult.message || "Erreur OmniPay inconnue";
             console.error("❌ OmniPay transfer failed:", opResult);
+
+            if (opResult.code === 9) {
+              console.log(`⚠️ OmniPay code=9 (Internal communication error) pour ${currency} — Retrait basculé en traitement manuel`);
+              await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+                status: "pending",
+                rejectionReason: null,
+              });
+
+              notifyWithdrawalRequest({
+                userName: user.fullName,
+                userId: req.session.userId!,
+                amount: numericAmount.toString(),
+                fee: fee.toString(),
+                netAmount: netAmount.toString(),
+                paymentMethod: selectedOperator.name,
+                mobileNumber,
+                country,
+                walletName: walletName || null,
+              });
+
+              return res.json({
+                message: "Votre demande de retrait a été enregistrée et sera traitée par notre équipe sous peu.",
+                request: { ...withdrawalRequest, status: "pending" },
+              });
+            }
+
             await storage.setUserBalance(req.session.userId!, balance.toString());
             await storage.updateWithdrawalRequest(withdrawalRequest.id, {
               status: "failed",
