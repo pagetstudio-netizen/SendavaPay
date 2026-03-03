@@ -8,13 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import CountrySelect from "@/components/ui/country-select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Loader2, Info, ArrowLeft, Shield, Clock, CheckCircle, XCircle, Wallet } from "lucide-react";
@@ -333,16 +327,13 @@ export default function WithdrawPage() {
 
               <div className="space-y-2">
                 <Label>Pays de réception</Label>
-                <Select value={country} onValueChange={(value) => { setCountry(value); setPaymentMethod(""); }}>
-                  <SelectTrigger data-testid="select-country">
-                    <SelectValue placeholder="Sélectionnez un pays" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {countries.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <CountrySelect
+                  options={countries.map(c => ({ value: c.id, label: c.name }))}
+                  value={country}
+                  onChange={(val) => { setCountry(val); setPaymentMethod(""); }}
+                  placeholder="Sélectionnez un pays"
+                  data-testid="select-country"
+                />
               </div>
 
               {availableMethods.length > 0 && (

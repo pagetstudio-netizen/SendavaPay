@@ -106,19 +106,7 @@ declare module "express-session" {
 }
 
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (req, file, cb) => {
-      const uploadDir = "uploads/kyc";
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-      }
-      cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1E9);
-      cb(null, uniqueSuffix + path.extname(file.originalname));
-    }
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|gif/;
@@ -4387,15 +4375,18 @@ export async function registerRoutes(
       if (!files.documentFront || !files.documentBack || !files.selfie) {
         return res.status(400).json({ message: "Tous les documents sont requis" });
       }
+      if (!files.documentFront[0].buffer || !files.documentBack[0].buffer || !files.selfie[0].buffer) {
+        return res.status(500).json({ message: "Erreur de traitement des fichiers. Réessayez." });
+      }
 
       const { fullName, email, phone, country, documentType, documentNumber } = req.body;
 
-      // Upload all KYC files to Supabase Storage (permanent, résiste aux redéploiements)
+      // Upload all KYC files directly to Supabase Storage (en mémoire, aucun fichier local)
       const userId = req.session.userId!;
       const [documentFrontPath, documentBackPath, selfiePath] = await Promise.all([
-        uploadKycFile(files.documentFront[0].path, files.documentFront[0].mimetype, userId, "front"),
-        uploadKycFile(files.documentBack[0].path, files.documentBack[0].mimetype, userId, "back"),
-        uploadKycFile(files.selfie[0].path, files.selfie[0].mimetype, userId, "selfie"),
+        uploadKycFile(files.documentFront[0].buffer, files.documentFront[0].mimetype, userId, "front"),
+        uploadKycFile(files.documentBack[0].buffer, files.documentBack[0].mimetype, userId, "back"),
+        uploadKycFile(files.selfie[0].buffer, files.selfie[0].mimetype, userId, "selfie"),
       ]);
 
       const kyc = await storage.createKycRequest({
