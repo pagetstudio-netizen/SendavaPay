@@ -345,6 +345,34 @@ export function notifyLargeAmount(data: {
   );
 }
 
+export function notifyLiquidityEmpty(data: {
+  currency: string;
+  countryFlag: string;
+  countryName: string;
+  pendingCount: number;
+  pendingAmount: number;
+  walletBalance: number | null;
+}) {
+  const walletLine = data.walletBalance !== null
+    ? `<b>💼 Solde wallet OmniPay ${data.currency}:</b> ${data.walletBalance.toLocaleString("fr-FR")} ${data.currency}\n`
+    : "";
+  const msg =
+    `<b>💧 ALERTE LIQUIDITÉ OMNIPAY</b>\n\n` +
+    `Le wallet OmniPay ${data.countryFlag} <b>${data.countryName}</b> (${data.currency}) est insuffisant.\n\n` +
+    walletLine +
+    `<b>📋 File d'attente:</b> ${data.pendingCount} retrait(s) en attente\n` +
+    `<b>💸 Montant total:</b> ${data.pendingAmount.toLocaleString("fr-FR")} ${data.currency}\n\n` +
+    `<b>Actions disponibles:</b>\n` +
+    `• Réapprovisionner le wallet OmniPay\n` +
+    `• Puis taper <code>/liquidite ${data.currency}</code> pour traiter la file\n` +
+    `• Ou valider manuellement depuis le panneau admin → Retraits en attente\n\n` +
+    `<b>Date:</b> ${formatDate()}`;
+
+  sendTelegramMessage(msg).catch(err =>
+    console.error("[Telegram] Liquidity notification error:", err)
+  );
+}
+
 export function notifySystemError(errorType: string, message: string) {
   const msg =
     `<b>🔴 ERREUR SYSTEME CRITIQUE</b>\n\n` +
