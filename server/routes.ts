@@ -6146,6 +6146,53 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/partners/:id/adjust-balance", requireAdmin, async (req, res) => {
+    try {
+      const partnerId = parseInt(req.params.id);
+      const { amount, operation, reason } = req.body;
+
+      if (!amount || !operation || !reason) {
+        return res.status(400).json({ message: "Montant, opération et raison requis" });
+      }
+
+      const numericAmount = parseFloat(amount);
+      if (isNaN(numericAmount) || numericAmount <= 0) {
+        return res.status(400).json({ message: "Montant invalide" });
+      }
+
+      const partner = await storage.getPartner(partnerId);
+      if (!partner) {
+        return res.status(404).json({ message: "Partenaire non trouvé" });
+      }
+
+      const currentBalance = parseFloat(partner.balance as string || "0");
+
+      if (operation === "subtract" && numericAmount > currentBalance) {
+        return res.status(400).json({ message: "Solde insuffisant pour effectuer ce débit" });
+      }
+
+      const delta = operation === "add" ? numericAmount : -numericAmount;
+      const { db } = await import("./db");
+      const { sql: drizzleSql } = await import("drizzle-orm");
+      await db.execute(drizzleSql`UPDATE partners SET balance = balance + ${delta.toString()} WHERE id = ${partnerId}`);
+
+      await storage.createPartnerLog({
+        partnerId,
+        action: operation === "add" ? "balance_credit" : "balance_debit",
+        details: `Ajustement admin: ${operation === "add" ? "Crédit" : "Débit"} de ${numericAmount.toLocaleString("fr-FR")} — ${reason}`,
+        ipAddress: req.ip,
+      });
+
+      const newBalance = currentBalance + delta;
+      console.log(`✅ Admin: Solde partenaire #${partnerId} ${operation === "add" ? "crédité" : "débité"} de ${numericAmount} → ${newBalance}`);
+
+      res.json({ message: "Solde modifié avec succès", newBalance });
+    } catch (error) {
+      console.error("Adjust partner balance error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.delete("/api/admin/users/:id", requireAdmin, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
