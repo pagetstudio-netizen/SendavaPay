@@ -21,15 +21,23 @@ function getSupabaseAdmin() {
 }
 
 export async function uploadKycFile(
-  filePath: string,
+  fileBuffer: Buffer,
   mimetype: string,
   userId: number,
   fileType: "front" | "back" | "selfie"
 ): Promise<string> {
-  const supabase = getSupabaseAdmin();
-  const ext = path.extname(filePath) || ".jpg";
+  const ext = mimetype.includes("png") ? ".png" : mimetype.includes("gif") ? ".gif" : ".jpg";
   const objectPath = `user_${userId}/${Date.now()}_${fileType}${ext}`;
-  const fileBuffer = fs.readFileSync(filePath);
+
+  console.log(`[kyc-upload] Tentative upload ${fileType} vers Supabase Storage: ${objectPath} (${fileBuffer.length} octets)`);
+
+  let supabase: ReturnType<typeof createClient>;
+  try {
+    supabase = getSupabaseAdmin();
+  } catch (configErr: any) {
+    console.error(`[kyc-upload] Configuration Supabase manquante: ${configErr.message}`);
+    throw new Error(`Stockage non configuré. Contactez l'administrateur. (${configErr.message})`);
+  }
 
   const { error } = await supabase.storage
     .from(KYC_BUCKET)
@@ -38,13 +46,12 @@ export async function uploadKycFile(
       upsert: true,
     });
 
-  try { fs.unlinkSync(filePath); } catch {}
-
   if (error) {
-    throw new Error(`Échec upload KYC (${fileType}): ${error.message}`);
+    console.error(`[kyc-upload] Échec upload ${fileType}: ${error.message}`, { objectPath, mimetype, userId });
+    throw new Error(`Échec de l'enregistrement du document (${fileType}). Réessayez ou contactez le support.`);
   }
 
-  console.log(`[supabase-storage] KYC ${fileType} uploaded: ${objectPath}`);
+  console.log(`[kyc-upload] OK — ${fileType} enregistré: ${objectPath}`);
   return objectPath;
 }
 

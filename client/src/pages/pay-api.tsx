@@ -7,13 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import CountrySelect from "@/components/ui/country-select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -589,18 +583,13 @@ export default function PayApiPage() {
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label className="text-sm text-muted-foreground">Pays</Label>
-                    <Select value={selectedCountry} onValueChange={(v) => { setSelectedCountry(v); setSelectedServiceId(""); }}>
-                      <SelectTrigger data-testid="select-country">
-                        <SelectValue placeholder="Sélectionnez votre pays" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {countries.map((country) => (
-                          <SelectItem key={country.code} value={country.code}>
-                            {country.flag} {country.name} ({country.currency})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <CountrySelect
+                      options={countries.map(c => ({ value: c.code, label: c.name, flag: c.flag, subLabel: c.currency }))}
+                      value={selectedCountry}
+                      onChange={(v) => { setSelectedCountry(v); setSelectedServiceId(""); }}
+                      placeholder="Sélectionnez votre pays"
+                      data-testid="select-country"
+                    />
                   </div>
 
                   {services.length > 0 && (

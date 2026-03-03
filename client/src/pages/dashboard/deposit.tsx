@@ -12,13 +12,7 @@ import { Link } from "wouter";
 import { queryClient } from "@/lib/queryClient";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import CountrySelect from "@/components/ui/country-select";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
 import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
 import orangeLogo from "@assets/images_1769443862827.png";
@@ -455,18 +449,13 @@ export default function DepositPage() {
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-4">
                 <Label htmlFor="country">Choisir le pays</Label>
-                <Select value={selectedCountry} onValueChange={setSelectedCountry}>
-                  <SelectTrigger id="country" className="h-12" data-testid="select-country">
-                    <SelectValue placeholder="Sélectionnez un pays" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {countries.map((c) => (
-                      <SelectItem key={c.code} value={c.code}>
-                        {c.flag} {c.name} ({c.currency})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <CountrySelect
+                  options={countries.map(c => ({ value: c.code, label: c.name, flag: c.flag, subLabel: c.currency }))}
+                  value={selectedCountry}
+                  onChange={setSelectedCountry}
+                  placeholder="Sélectionnez un pays"
+                  data-testid="select-country"
+                />
               </div>
 
               {services.length > 0 && (

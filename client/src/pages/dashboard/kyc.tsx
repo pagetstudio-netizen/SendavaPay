@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import CountrySelect from "@/components/ui/country-select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
@@ -57,10 +58,14 @@ export default function KycPage() {
     queryKey: ["/api/kyc"],
   });
 
-  const { data: platformFees } = useQuery<{ countries: { name: string }[] }>({
+  const { data: platformFees } = useQuery<{ countries: { name: string; code: string }[] }>({
     queryKey: ["/api/public/fees"],
   });
-  const platformCountries = platformFees?.countries.map(c => c.name).sort() ?? [];
+  const platformCountries = platformFees?.countries.slice().sort((a, b) => a.name.localeCompare(b.name)) ?? [];
+  const FLAG_MAP: Record<string, string> = {
+    CI: "🇨🇮", BJ: "🇧🇯", TG: "🇹🇬", BF: "🇧🇫", SN: "🇸🇳",
+    CM: "🇨🇲", ML: "🇲🇱", GN: "🇬🇳", COG: "🇨🇬", COD: "🇨🇩",
+  };
 
   const submitKycMutation = useMutation({
     mutationFn: async (data: FormData) => {
@@ -281,21 +286,13 @@ export default function KycPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="country">Pays de résidence</Label>
-                  <Select
+                  <CountrySelect
+                    options={platformCountries.map(c => ({ value: c.name, label: c.name, flag: FLAG_MAP[c.code] }))}
                     value={formData.country}
-                    onValueChange={(value) => setFormData({ ...formData, country: value })}
-                  >
-                    <SelectTrigger data-testid="select-kyc-country">
-                      <SelectValue placeholder="Sélectionnez un pays" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {platformCountries.map((country) => (
-                        <SelectItem key={country} value={country}>
-                          {country}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    onChange={(value) => setFormData({ ...formData, country: value })}
+                    placeholder="Sélectionnez un pays"
+                    data-testid="select-kyc-country"
+                  />
                 </div>
               </div>
 

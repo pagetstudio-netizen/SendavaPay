@@ -38,13 +38,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import CountrySelect from "@/components/ui/country-select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -663,16 +657,13 @@ function PartnerDepositSection() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-4">
               <Label>Choisir le pays</Label>
-              <Select value={selectedCountry} onValueChange={setSelectedCountry}>
-                <SelectTrigger data-testid="select-partner-deposit-country">
-                  <SelectValue placeholder="Sélectionnez un pays" />
-                </SelectTrigger>
-                <SelectContent>
-                  {countries.map((c) => (
-                    <SelectItem key={c.code} value={c.code}>{c.flag} {c.name} ({c.currency})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <CountrySelect
+                options={countries.map(c => ({ value: c.code, label: c.name, flag: c.flag, subLabel: c.currency }))}
+                value={selectedCountry}
+                onChange={setSelectedCountry}
+                placeholder="Sélectionnez un pays"
+                data-testid="select-partner-deposit-country"
+              />
             </div>
 
             {services.length > 0 && (
@@ -907,16 +898,13 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
 
             <div className="space-y-2">
               <Label>Pays de réception</Label>
-              <Select value={country} onValueChange={(val) => { setCountry(val); setPaymentMethod(""); }}>
-                <SelectTrigger data-testid="select-partner-withdraw-country">
-                  <SelectValue placeholder="Sélectionnez un pays" />
-                </SelectTrigger>
-                <SelectContent>
-                  {countries.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <CountrySelect
+                options={countries.map(c => ({ value: c.id, label: c.name }))}
+                value={country}
+                onChange={(val) => { setCountry(val); setPaymentMethod(""); }}
+                placeholder="Sélectionnez un pays"
+                data-testid="select-partner-withdraw-country"
+              />
             </div>
 
             {availableMethods.length > 0 && (
