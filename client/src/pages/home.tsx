@@ -121,7 +121,7 @@ function FeesSection() {
         ) : (
           <>
             {/* Country Tabs */}
-            <div className="flex flex-wrap justify-center gap-2 mb-10 scroll-animate">
+            <div className="flex flex-wrap justify-center gap-2 mb-10">
               {countries.map((country, idx) => (
                 <button
                   key={country.id}
@@ -141,7 +141,7 @@ function FeesSection() {
 
             {/* Operator fee cards */}
             {current && (
-              <div className="scroll-animate">
+              <div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-w-5xl mx-auto">
                   {current.operators.map((op) => {
                     const logo = getOperatorLogo(op.logo);
