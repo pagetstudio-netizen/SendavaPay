@@ -1277,6 +1277,125 @@ export function registerPartnerRoutes(app: Express) {
           } catch (verifyError) {
             console.error("SDK verify WiniPayer check error:", verifyError);
           }
+        } else if (txProvider === "omnipay") {
+          try {
+            const { omnipay: opClient } = await import("./omnipay");
+            console.log(`SDK Verify OmniPay for ${ref}`);
+            const checkResult = await opClient.getStatus(ref);
+            console.log(`SDK Verify OmniPay result for ${ref}:`, JSON.stringify(checkResult));
+
+            if (String(checkResult.success) === "1" && checkResult.status === 3) {
+              const { db } = await import("./db");
+              const { sql } = await import("drizzle-orm");
+              const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+
+              const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
+              if (rowsAffected > 0) {
+                const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
+                await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
+                console.log(`✅ SDK OmniPay: Paiement confirmé partner #${partner.id} ref=${ref} net=${netAmount}`);
+              }
+
+              await storage.createPartnerLog({
+                partnerId: partner.id,
+                action: "api_call",
+                details: `SDK Paiement OmniPay confirmé: ${ref} - ${transaction.amount} ${transaction.currency}`,
+                ipAddress: req.ip || req.socket.remoteAddress,
+              });
+
+              return res.json({
+                success: true,
+                status: "SUCCESS",
+                txid: transaction.reference,
+                reference: transaction.reference,
+                provider: "omnipay",
+                amount: transaction.amount,
+                fee: transaction.fee,
+                currency: transaction.currency,
+                message: "Paiement confirmé avec succès via OmniPay",
+                createdAt: transaction.createdAt,
+                completedAt: new Date().toISOString(),
+              });
+            } else if (checkResult.status === 4) {
+              const { db } = await import("./db");
+              const { sql } = await import("drizzle-orm");
+              await db.execute(sql`UPDATE partner_transactions SET status = 'failed' WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+              return res.json({
+                success: false,
+                status: "FAILED",
+                txid: transaction.reference,
+                reference: transaction.reference,
+                provider: "omnipay",
+                amount: transaction.amount,
+                fee: transaction.fee,
+                currency: transaction.currency,
+                message: "Paiement échoué",
+                createdAt: transaction.createdAt,
+              });
+            }
+          } catch (verifyError) {
+            console.error("SDK verify OmniPay check error:", verifyError);
+          }
+        } else if (txProvider === "maishapay") {
+          try {
+            const { maishapay: mpClient } = await import("./maishapay");
+            console.log(`SDK Verify MaishaPay for ${ref}`);
+            const checkResult = await mpClient.checkTransaction(ref);
+            console.log(`SDK Verify MaishaPay result for ${ref}:`, JSON.stringify(checkResult));
+
+            const txStatus = checkResult.transactionStatus?.trim().toUpperCase();
+            if (checkResult.status_code === 200 && txStatus === "SUCCESS") {
+              const { db } = await import("./db");
+              const { sql } = await import("drizzle-orm");
+              const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+
+              const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
+              if (rowsAffected > 0) {
+                const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
+                await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
+                console.log(`✅ SDK MaishaPay: Paiement confirmé partner #${partner.id} ref=${ref} net=${netAmount}`);
+              }
+
+              await storage.createPartnerLog({
+                partnerId: partner.id,
+                action: "api_call",
+                details: `SDK Paiement MaishaPay confirmé: ${ref} - ${transaction.amount} ${transaction.currency}`,
+                ipAddress: req.ip || req.socket.remoteAddress,
+              });
+
+              return res.json({
+                success: true,
+                status: "SUCCESS",
+                txid: transaction.reference,
+                reference: transaction.reference,
+                provider: "maishapay",
+                amount: transaction.amount,
+                fee: transaction.fee,
+                currency: transaction.currency,
+                message: "Paiement confirmé avec succès via MaishaPay",
+                createdAt: transaction.createdAt,
+                completedAt: new Date().toISOString(),
+              });
+            } else if (txStatus === "FAILED") {
+              const { db } = await import("./db");
+              const { sql } = await import("drizzle-orm");
+              await db.execute(sql`UPDATE partner_transactions SET status = 'failed' WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+              return res.json({
+                success: false,
+                status: "FAILED",
+                txid: transaction.reference,
+                reference: transaction.reference,
+                provider: "maishapay",
+                amount: transaction.amount,
+                fee: transaction.fee,
+                currency: transaction.currency,
+                message: "Paiement échoué",
+                createdAt: transaction.createdAt,
+              });
+            }
+          } catch (verifyError) {
+            console.error("SDK verify MaishaPay check error:", verifyError);
+          }
         } else {
           try {
             const { soleaspay } = await import("./soleaspay");

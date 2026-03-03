@@ -2140,7 +2140,20 @@ export async function registerRoutes(
 
       const payment = await storage.getLeekpayPaymentById(originatingTransactionId);
       if (!payment) {
-        console.log("⚠️ MaishaPay webhook: Paiement non trouvé ref=" + originatingTransactionId);
+        const partnerTx = await storage.getPartnerTransactionByReference(originatingTransactionId);
+        if (partnerTx && partnerTx.status !== "completed" && transactionStatus === "SUCCESS") {
+          const { db } = await import("./db");
+          const { sql } = await import("drizzle-orm");
+          const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${originatingTransactionId} AND status IN ('processing', 'pending')`);
+          const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
+          if (rowsAffected > 0) {
+            const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
+            await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partnerTx.partnerId}`);
+            console.log(`✅ MaishaPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${originatingTransactionId} net=${netAmount}`);
+          }
+        } else {
+          console.log("⚠️ MaishaPay webhook: Paiement non trouvé ref=" + originatingTransactionId);
+        }
         return;
       }
 
@@ -2271,7 +2284,20 @@ export async function registerRoutes(
 
       const payment = await storage.getLeekpayPaymentById(reference);
       if (!payment) {
-        console.log("⚠️ OmniPay webhook: Paiement non trouvé ref=" + reference);
+        const partnerTx = await storage.getPartnerTransactionByReference(reference);
+        if (partnerTx && partnerTx.status !== "completed" && status === "3") {
+          const { db } = await import("./db");
+          const { sql } = await import("drizzle-orm");
+          const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${reference} AND status IN ('processing', 'pending')`);
+          const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
+          if (rowsAffected > 0) {
+            const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
+            await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partnerTx.partnerId}`);
+            console.log(`✅ OmniPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${reference} net=${netAmount}`);
+          }
+        } else {
+          console.log("⚠️ OmniPay webhook: Paiement non trouvé ref=" + reference);
+        }
         return;
       }
 
