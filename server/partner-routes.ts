@@ -829,7 +829,145 @@ export function registerPartnerRoutes(app: Express) {
 
       const txCurrency = currency || getCurrencyByCountry(countryUpper);
 
-      const transaction = await storage.createPartnerTransaction({
+      const allOperators = await storage.getOperators();
+      const dbOperator = allOperators.find(op => op.code === service.id.toString());
+      const paymentGateway = dbOperator?.paymentGateway || "soleaspay";
+
+      console.log(`📡 SDK Payment: opérateur=${service.operator} (${countryUpper}), gateway configuré=${paymentGateway}, ref=${reference}`);
+
+      if (paymentGateway === "omnipay") {
+        const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
+        const opOperator = getOmnipayOperator(service.operator);
+        if (opOperator === undefined) {
+          return res.status(400).json({ success: false, status: "ERROR", message: `Opérateur '${service.operator}' non supporté par OmniPay` });
+        }
+        const cleanPhone = formatPhoneForOmnipay(phone, countryUpper);
+        const nameParts = (customerName || "Client").split(" ");
+        const firstName = nameParts[0];
+        const lastName = nameParts.slice(1).join(" ") || nameParts[0];
+        const baseUrl = process.env.BASE_URL || "https://sendavapay.com";
+
+        await storage.createPartnerTransaction({
+          partnerId: partner.id,
+          reference,
+          amount: numericAmount.toString(),
+          fee,
+          currency: txCurrency,
+          customerName: customerName || null,
+          customerEmail: customerEmail || null,
+          customerPhone: cleanPhone,
+          description: description || null,
+          callbackUrl: callbackUrl || partner.callbackUrl || null,
+          redirectUrl: redirectUrl || null,
+          metadata: JSON.stringify({ ...(metadata || {}), provider: "omnipay", operator: service.operator, country: countryUpper, serviceId: service.id }),
+        });
+
+        const opResult = await opClient.requestPayment({
+          msisdn: cleanPhone,
+          amount: numericAmount,
+          reference,
+          firstName,
+          lastName,
+          operator: opOperator ?? undefined,
+          callbackUrl: `${baseUrl}/api/webhook/omnipay`,
+        });
+
+        console.log(`SDK Payment OmniPay result for ${reference}:`, JSON.stringify(opResult));
+
+        const { db } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+
+        if (String(opResult.success) !== "1") {
+          await db.execute(sql`UPDATE partner_transactions SET status = 'failed', metadata = ${JSON.stringify({ provider: "omnipay", operator: service.operator, country: countryUpper, error: opResult.message })} WHERE reference = ${reference}`);
+          await storage.createPartnerLog({ partnerId: partner.id, action: "api_call", details: `SDK Paiement OmniPay échoué: ${reference} - ${opResult.message}`, ipAddress: req.ip || req.socket.remoteAddress });
+          return res.status(400).json({ success: false, status: "FAILED", reference, provider: "omnipay", message: opResult.message || "Échec OmniPay" });
+        }
+
+        await db.execute(sql`UPDATE partner_transactions SET status = 'processing', metadata = ${JSON.stringify({ provider: "omnipay", operator: service.operator, country: countryUpper, serviceId: service.id, omnipayId: opResult.id })} WHERE reference = ${reference}`);
+        await storage.createPartnerLog({ partnerId: partner.id, action: "api_call", details: `SDK Paiement OmniPay USSD envoyé: ${reference} - ${numericAmount} ${txCurrency} via ${service.operator} au ${cleanPhone}`, ipAddress: req.ip || req.socket.remoteAddress });
+
+        return res.json({
+          success: true,
+          status: "PROCESSING",
+          txid: reference,
+          reference,
+          provider: "omnipay",
+          amount: numericAmount.toString(),
+          fee,
+          currency: txCurrency,
+          operator: service.operator,
+          country: service.countryCode,
+          message: "Notification USSD envoyée au client. Vérifiez le statut avec /api/sdk/verify",
+        });
+      }
+
+      if (paymentGateway === "maishapay") {
+        const { maishapay: mpClient, getMaishapayProvider, formatPhoneForMaishapay } = await import("./maishapay");
+        const mpProvider = getMaishapayProvider(service.operator, countryUpper);
+        if (!mpProvider) {
+          return res.status(400).json({ success: false, status: "ERROR", message: `Opérateur '${service.operator}' non supporté par MaishaPay` });
+        }
+        const cleanPhone = formatPhoneForMaishapay(phone, countryUpper);
+        const baseUrl = process.env.BASE_URL || "https://sendavapay.com";
+
+        await storage.createPartnerTransaction({
+          partnerId: partner.id,
+          reference,
+          amount: numericAmount.toString(),
+          fee,
+          currency: txCurrency,
+          customerName: customerName || null,
+          customerEmail: customerEmail || null,
+          customerPhone: cleanPhone,
+          description: description || null,
+          callbackUrl: callbackUrl || partner.callbackUrl || null,
+          redirectUrl: redirectUrl || null,
+          metadata: JSON.stringify({ ...(metadata || {}), provider: "maishapay", operator: service.operator, country: countryUpper, serviceId: service.id }),
+        });
+
+        const mpResult = await mpClient.collectPayment({
+          transactionReference: reference,
+          amount: numericAmount,
+          currency: txCurrency,
+          customerFullName: customerName || "Client",
+          customerEmail: customerEmail || `${cleanPhone}@sendavapay.com`,
+          provider: mpProvider,
+          walletID: cleanPhone,
+          callbackUrl: `${baseUrl}/api/webhook/maishapay`,
+        });
+
+        console.log(`SDK Payment MaishaPay result for ${reference}:`, JSON.stringify(mpResult));
+
+        const { db } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+
+        if (mpResult.status_code !== 202 || mpResult.transactionStatus?.trim().toUpperCase() === "FAILED") {
+          const { extractMaishaPayError } = await import("./maishapay");
+          const errMsg = extractMaishaPayError(mpResult);
+          await db.execute(sql`UPDATE partner_transactions SET status = 'failed', metadata = ${JSON.stringify({ provider: "maishapay", operator: service.operator, country: countryUpper, error: errMsg })} WHERE reference = ${reference}`);
+          await storage.createPartnerLog({ partnerId: partner.id, action: "api_call", details: `SDK Paiement MaishaPay échoué: ${reference} - ${errMsg}`, ipAddress: req.ip || req.socket.remoteAddress });
+          return res.status(400).json({ success: false, status: "FAILED", reference, provider: "maishapay", message: errMsg });
+        }
+
+        await db.execute(sql`UPDATE partner_transactions SET status = 'processing', metadata = ${JSON.stringify({ provider: "maishapay", operator: service.operator, country: countryUpper, serviceId: service.id, maishapayId: mpResult.transactionId })} WHERE reference = ${reference}`);
+        await storage.createPartnerLog({ partnerId: partner.id, action: "api_call", details: `SDK Paiement MaishaPay USSD envoyé: ${reference} - ${numericAmount} ${txCurrency} via ${service.operator} au ${cleanPhone}`, ipAddress: req.ip || req.socket.remoteAddress });
+
+        return res.json({
+          success: true,
+          status: "PROCESSING",
+          txid: reference,
+          reference,
+          provider: "maishapay",
+          amount: numericAmount.toString(),
+          fee,
+          currency: txCurrency,
+          operator: service.operator,
+          country: service.countryCode,
+          message: "Notification USSD envoyée au client. Vérifiez le statut avec /api/sdk/verify",
+        });
+      }
+
+      await storage.createPartnerTransaction({
         partnerId: partner.id,
         reference,
         amount: numericAmount.toString(),
