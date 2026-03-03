@@ -411,7 +411,14 @@ interface SoleasPayService {
   currency: string;
   operator: string;
   inMaintenance?: boolean;
+  paymentGateway?: string;
 }
+
+const COUNTRY_PREFIXES: Record<string, string> = {
+  CI: "+225", BJ: "+229", TG: "+228", BF: "+226",
+  SN: "+221", CM: "+237", ML: "+223", GN: "+224",
+  COG: "+242", COD: "+243",
+};
 
 const quickAmounts = [5000, 10000, 25000, 50000, 100000];
 
@@ -463,6 +470,8 @@ function PartnerDepositSection() {
 
   const selectedService = services.find(s => s.id.toString() === selectedServiceId);
   const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
+  const phonePrefix = COUNTRY_PREFIXES[selectedService?.countryCode || ""] || "";
+  const isWiniPayerService = selectedService?.paymentGateway === "winipayer";
   const commissionRate = commissionRates?.depositRate ?? 7;
   const numericAmount = parseFloat(amount) || 0;
   const fee = Math.round(numericAmount * (commissionRate / 100));
@@ -536,7 +545,10 @@ function PartnerDepositSection() {
         localStorage.setItem("partner_deposit_payment", JSON.stringify({ orderId: data.orderId, payId: data.payId }));
         setCurrentOrderId(data.orderId);
         setCurrentPayId(data.payId);
-        if (data.isWave && data.waveUrl) {
+        if (data.isWinipayer && data.checkoutUrl) {
+          toast({ title: "Redirection vers WiniPayer", description: "Vous allez être redirigé vers le portail de paiement." });
+          window.open(data.checkoutUrl, "_blank");
+        } else if (data.isWave && data.waveUrl) {
           toast({ title: "Redirection vers Wave", description: "Confirmez le paiement dans Wave." });
           window.open(data.waveUrl, "_blank");
         } else {
@@ -560,11 +572,12 @@ function PartnerDepositSection() {
       toast({ title: "Montant invalide", description: `Montant minimum: 100 ${currency}`, variant: "destructive" });
       return;
     }
-    if (!phoneNumber || phoneNumber.length < 8) {
+    if (!isWiniPayerService && (!phoneNumber || phoneNumber.length < 8)) {
       toast({ title: "Numéro invalide", description: "Entrez un numéro valide.", variant: "destructive" });
       return;
     }
-    depositMutation.mutate({ amount: numericAmount, serviceId: selectedServiceId, phoneNumber: phoneNumber.replace(/\s/g, "") });
+    const fullPhone = isWiniPayerService ? "" : (phonePrefix + phoneNumber).replace(/\s/g, "");
+    depositMutation.mutate({ amount: numericAmount, serviceId: selectedServiceId, phoneNumber: fullPhone });
   };
 
   const resetPayment = () => {
@@ -693,20 +706,29 @@ function PartnerDepositSection() {
               </div>
             )}
 
+            {!isWiniPayerService && (
             <div className="space-y-2">
               <Label>Numéro de téléphone Mobile Money</Label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                <Input
-                  type="tel"
-                  placeholder="Ex: 90123456"
-                  value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
-                  className="pl-10"
-                  data-testid="input-partner-deposit-phone"
-                />
+              <div className="flex">
+                {phonePrefix && (
+                  <span className="flex items-center px-3 rounded-l-md border border-r-0 bg-muted text-muted-foreground text-sm font-mono select-none">
+                    {phonePrefix}
+                  </span>
+                )}
+                <div className="relative flex-1">
+                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <Input
+                    type="tel"
+                    placeholder="Ex: 90123456"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ""))}
+                    className={`pl-10 ${phonePrefix ? "rounded-l-none" : ""}`}
+                    data-testid="input-partner-deposit-phone"
+                  />
+                </div>
               </div>
             </div>
+            )}
 
             <div className="space-y-4">
               <Label>Montant ({currency})</Label>
