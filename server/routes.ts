@@ -54,6 +54,41 @@ function getCommissionRate(settings: any, transactionType: string, countryOverri
   return parseFloat(settings?.depositRate || "7");
 }
 
+async function getEffectiveFeeRate(
+  userId: number,
+  transactionType: "deposit" | "withdrawal" | "payment_received",
+  settings: any
+): Promise<number> {
+  try {
+    const [user, allCountries] = await Promise.all([
+      storage.getUser(userId),
+      storage.getCountries(),
+    ]);
+    if (user?.country) {
+      const countryRecord = (allCountries as any[]).find(
+        (c) => c.name?.toLowerCase() === user.country!.toLowerCase() && c.isActive
+      );
+      if (countryRecord) {
+        if (transactionType === "deposit" && countryRecord.depositFeeRate !== null) {
+          const r = parseFloat(countryRecord.depositFeeRate);
+          if (!isNaN(r)) return r;
+        }
+        if (transactionType === "withdrawal" && countryRecord.withdrawFeeRate !== null) {
+          const r = parseFloat(countryRecord.withdrawFeeRate);
+          if (!isNaN(r)) return r;
+        }
+        if (transactionType === "payment_received" && countryRecord.encaissementFeeRate !== null) {
+          const r = parseFloat(countryRecord.encaissementFeeRate);
+          if (!isNaN(r)) return r;
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[getEffectiveFeeRate] Erreur lookup pays:", e);
+  }
+  return getCommissionRate(settings, transactionType);
+}
+
 function requireDatabase(req: Request, res: Response, next: NextFunction) {
   if (!isDatabaseConnected()) {
     return res.status(503).json({ 
@@ -825,7 +860,7 @@ export async function registerRoutes(
           }
 
           const settings = await storage.getCommissionSettings();
-          const commissionRate = getCommissionRate(settings, "deposit");
+          const commissionRate = await getEffectiveFeeRate(existingPayment.userId, "deposit", settings);
           const fee = Math.round(amount * (commissionRate / 100));
           const netAmount = amount - fee;
 
@@ -1459,7 +1494,7 @@ export async function registerRoutes(
         const settings = await storage.getCommissionSettings();
 
         if (claimed.type === "deposit" && claimed.userId) {
-          const commissionRate = getCommissionRate(settings, "deposit");
+          const commissionRate = await getEffectiveFeeRate(claimed.userId, "deposit", settings);
           const fee = Math.round(numAmount * (commissionRate / 100));
           const netAmount = numAmount - fee;
 
@@ -1621,7 +1656,7 @@ export async function registerRoutes(
         const settings = await storage.getCommissionSettings();
 
         if (claimed.type === "deposit" && claimed.userId) {
-          const commissionRate = getCommissionRate(settings, "deposit");
+          const commissionRate = await getEffectiveFeeRate(claimed.userId, "deposit", settings);
           const fee = Math.round(numAmount * (commissionRate / 100));
           const netAmount = numAmount - fee;
 
@@ -1831,7 +1866,7 @@ export async function registerRoutes(
             if (claimed && claimed.type === "deposit" && claimed.userId) {
               const numAmount = parseFloat(invoice.amount.toString()) || parseFloat(claimed.amount);
               const settings = await storage.getCommissionSettings();
-              const commissionRate = getCommissionRate(settings, "deposit");
+              const commissionRate = await getEffectiveFeeRate(claimed.userId, "deposit", settings);
               const fee = Math.round(numAmount * (commissionRate / 100));
               const netAmount = numAmount - fee;
 
@@ -1896,7 +1931,7 @@ export async function registerRoutes(
         const settings = await storage.getCommissionSettings();
 
         if (claimed.type === "deposit" && claimed.userId) {
-          const commissionRate = getCommissionRate(settings, "deposit");
+          const commissionRate = await getEffectiveFeeRate(claimed.userId, "deposit", settings);
           const fee = Math.round(amount * (commissionRate / 100));
           const netAmount = amount - fee;
 
@@ -1996,7 +2031,7 @@ export async function registerRoutes(
         const settings = await storage.getCommissionSettings();
 
         if (claimed.type === "deposit" && claimed.userId) {
-          const commissionRate = getCommissionRate(settings, "deposit");
+          const commissionRate = await getEffectiveFeeRate(claimed.userId, "deposit", settings);
           const fee = Math.round(amount * (commissionRate / 100));
           const netAmount = amount - fee;
 
@@ -2108,7 +2143,7 @@ export async function registerRoutes(
         const settings = await storage.getCommissionSettings();
 
         if (claimed.type === "deposit" && claimed.userId) {
-          const commissionRate = getCommissionRate(settings, "deposit");
+          const commissionRate = await getEffectiveFeeRate(claimed.userId, "deposit", settings);
           const fee = Math.round(amount * (commissionRate / 100));
           const netAmount = amount - fee;
 
@@ -2239,7 +2274,7 @@ export async function registerRoutes(
         const settings = await storage.getCommissionSettings();
 
         if (claimed.type === "deposit" && claimed.userId) {
-          const commissionRate = getCommissionRate(settings, "deposit");
+          const commissionRate = await getEffectiveFeeRate(claimed.userId, "deposit", settings);
           const fee = Math.round(amount * (commissionRate / 100));
           const netAmount = amount - fee;
 
@@ -2377,7 +2412,7 @@ export async function registerRoutes(
       }
 
       const settings = await storage.getCommissionSettings();
-      const commissionRate = getCommissionRate(settings, "deposit");
+      const commissionRate = await getEffectiveFeeRate(claimed.userId || leekpayPayment.userId, "deposit", settings);
       const amount = parseFloat(claimed.amount);
       const fee = Math.round(amount * (commissionRate / 100));
       const netAmount = amount - fee;
@@ -2560,7 +2595,7 @@ export async function registerRoutes(
       console.log("✅ Paiement confirmé, traitement en cours...");
       
       const settings = await storage.getCommissionSettings();
-      const commissionRate = getCommissionRate(settings, "deposit");
+      const commissionRate = await getEffectiveFeeRate(leekpayPayment?.userId || 0, "deposit", settings);
       const amount = leekpayAmount || (leekpayPayment ? parseFloat(leekpayPayment.amount) : 0);
       const fee = Math.round(amount * (commissionRate / 100));
       const netAmount = amount - fee;
@@ -5177,7 +5212,7 @@ export async function registerRoutes(
       });
 
       if (leekpayPayment.type === "deposit" && leekpayPayment.userId) {
-        const commissionRate = getCommissionRate(settings, "deposit");
+        const commissionRate = await getEffectiveFeeRate(leekpayPayment.userId, "deposit", settings);
         const fee = Math.round(amount * (commissionRate / 100));
         const netAmount = amount - fee;
 
@@ -5389,7 +5424,7 @@ export async function registerRoutes(
           const amount = paymentAmount || parseFloat(leekpayPayment.amount);
 
           if (leekpayPayment.type === "deposit" && leekpayPayment.userId) {
-            const commissionRate = getCommissionRate(settings, "deposit");
+            const commissionRate = await getEffectiveFeeRate(leekpayPayment.userId, "deposit", settings);
             const fee = Math.round(amount * (commissionRate / 100));
             const netAmount = amount - fee;
 
@@ -5537,7 +5572,7 @@ export async function registerRoutes(
         
         if (isSuccess && userId && paymentAmount) {
           const settings = await storage.getCommissionSettings();
-          const commissionRate = getCommissionRate(settings, "deposit");
+          const commissionRate = await getEffectiveFeeRate(userId, "deposit", settings);
           const fee = Math.round(paymentAmount * (commissionRate / 100));
           const netAmount = paymentAmount - fee;
 
