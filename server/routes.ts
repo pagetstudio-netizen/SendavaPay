@@ -2150,6 +2150,16 @@ export async function registerRoutes(
             const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
             await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partnerTx.partnerId}`);
             console.log(`✅ MaishaPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${originatingTransactionId} net=${netAmount}`);
+            if (partnerTx.callbackUrl) {
+              try {
+                await fetch(partnerTx.callbackUrl, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ reference: originatingTransactionId, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: netAmount.toString(), currency: partnerTx.currency, provider: "maishapay" }),
+                });
+                console.log(`📤 MaishaPay webhook: Callback envoyé à ${partnerTx.callbackUrl}`);
+              } catch (cbErr) { console.error("MaishaPay webhook: Callback error:", cbErr); }
+            }
           }
         } else {
           console.log("⚠️ MaishaPay webhook: Paiement non trouvé ref=" + originatingTransactionId);
@@ -2294,6 +2304,16 @@ export async function registerRoutes(
             const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
             await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partnerTx.partnerId}`);
             console.log(`✅ OmniPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${reference} net=${netAmount}`);
+            if (partnerTx.callbackUrl) {
+              try {
+                await fetch(partnerTx.callbackUrl, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ reference, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: netAmount.toString(), currency: partnerTx.currency, provider: "omnipay" }),
+                });
+                console.log(`📤 OmniPay webhook: Callback envoyé à ${partnerTx.callbackUrl}`);
+              } catch (cbErr) { console.error("OmniPay webhook: Callback error:", cbErr); }
+            }
           }
         } else {
           console.log("⚠️ OmniPay webhook: Paiement non trouvé ref=" + reference);
