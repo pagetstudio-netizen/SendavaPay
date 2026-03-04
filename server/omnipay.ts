@@ -131,6 +131,22 @@ export function formatPhoneForOmnipay(phone: string, countryCode: string): strin
     COD: "243",
   };
 
+  // Longueur attendue de la partie locale (sans indicatif pays)
+  // CI : 10 chiffres car les numéros locaux commencent par 0 (07XXXXXXXX, 06XXXXXXXX…)
+  // Les autres pays ont des numéros locaux sans 0 initial
+  const EXPECTED_LOCAL_LENGTH: Record<string, number> = {
+    CI:  10,
+    BJ:  8,
+    TG:  8,
+    BF:  8,
+    SN:  9,
+    CM:  9,
+    ML:  8,
+    GN:  9,
+    COG: 9,
+    COD: 9,
+  };
+
   // 1. Strip whitespace and common separators
   let cleaned = phone.replace(/[\s\-\(\)\.]/g, "");
 
@@ -138,19 +154,27 @@ export function formatPhoneForOmnipay(phone: string, countryCode: string): strin
   if (cleaned.startsWith("+")) cleaned = cleaned.slice(1);
   else if (cleaned.startsWith("00")) cleaned = cleaned.slice(2);
 
-  const prefix = PREFIXES[countryCode.toUpperCase()] || "";
+  const cc = countryCode.toUpperCase();
+  const prefix = PREFIXES[cc] || "";
 
   if (prefix) {
     // 3. If country prefix already present, strip it so we can normalise cleanly
     if (cleaned.startsWith(prefix)) {
       cleaned = cleaned.slice(prefix.length);
     }
-    // 4. Strip local trunk prefix(es) (leading 0s) — common in francophone Africa
-    while (cleaned.startsWith("0")) cleaned = cleaned.slice(1);
+    // 4. Strip leading trunk 0 UNIQUEMENT si le numéro local est trop long
+    //    (ex: 090123456 pour BJ → strip le 0 → 90123456)
+    //    IMPORTANT: pour la CI les numéros locaux commencent légitimement par 0
+    //    (07XXXXXXXX) donc on ne supprime le 0 que s'il y a un chiffre en trop
+    const expectedLocal = EXPECTED_LOCAL_LENGTH[cc];
+    if (expectedLocal && cleaned.length > expectedLocal && cleaned.startsWith("0")) {
+      cleaned = cleaned.slice(1);
+    }
     // 5. Re-add country prefix
     cleaned = prefix + cleaned;
   }
 
+  console.log(`[formatPhoneForOmnipay] ${phone} (${cc}) → ${cleaned}`);
   return cleaned;
 }
 

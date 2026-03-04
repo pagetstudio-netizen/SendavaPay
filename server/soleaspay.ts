@@ -65,21 +65,39 @@ export function formatPhoneForSoleasPay(phone: string, countryCode: string): str
     COD: "243",
   };
 
+  const EXPECTED_LOCAL_LENGTH: Record<string, number> = {
+    CI:  10,
+    BJ:  8,
+    TG:  8,
+    BF:  8,
+    SN:  9,
+    CM:  9,
+    ML:  8,
+    GN:  9,
+    COG: 9,
+    COD: 9,
+  };
+
   let cleaned = phone.replace(/[\s\-\(\)\.]/g, "");
 
   if (cleaned.startsWith("+")) cleaned = cleaned.slice(1);
   else if (cleaned.startsWith("00")) cleaned = cleaned.slice(2);
 
-  const prefix = PREFIXES[countryCode.toUpperCase()] || "";
+  const cc = countryCode.toUpperCase();
+  const prefix = PREFIXES[cc] || "";
 
   if (prefix) {
     if (cleaned.startsWith(prefix)) {
       cleaned = cleaned.slice(prefix.length);
     }
-    while (cleaned.startsWith("0")) cleaned = cleaned.slice(1);
+    const expectedLocal = EXPECTED_LOCAL_LENGTH[cc];
+    if (expectedLocal && cleaned.length > expectedLocal && cleaned.startsWith("0")) {
+      cleaned = cleaned.slice(1);
+    }
     cleaned = "+" + prefix + cleaned;
   }
 
+  console.log(`[formatPhoneForSoleasPay] ${phone} (${cc}) → ${cleaned}`);
   return cleaned;
 }
 
