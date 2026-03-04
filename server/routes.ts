@@ -10,7 +10,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { leekpay } from "./leekpay";
-import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById } from "./soleaspay";
+import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById, formatPhoneForSoleasPay } from "./soleaspay";
 import { isDatabaseConnected } from "./db";
 import merchantApi from "./merchant-api";
 import { registerPartnerRoutes } from "./partner-routes";
@@ -785,10 +785,11 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Numéro de téléphone requis pour SoleasPay" });
       }
 
-      console.log(`📤 SoleasPay: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
+      const cleanPhoneDep = formatPhoneForSoleasPay(phoneNumber, service.countryCode);
+      console.log(`📤 SoleasPay: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}, numéro normalisé ${phoneNumber} → ${cleanPhoneDep}`);
 
       const result = await soleaspay.collectPayment({
-        wallet: phoneNumber,
+        wallet: cleanPhoneDep,
         amount: numericAmount,
         currency: service.currency,
         orderId,
@@ -1207,10 +1208,11 @@ export async function registerRoutes(
         return res.status(400).json({ message: "OTP requis pour Orange Money. Composez le code USSD sur votre téléphone pour générer votre OTP." });
       }
 
-      console.log(`📤 SoleasPay: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}`);
+      const cleanPhoneLink = formatPhoneForSoleasPay(phoneNumber, service.countryCode);
+      console.log(`📤 SoleasPay: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}, numéro normalisé ${phoneNumber} → ${cleanPhoneLink}`);
 
       const result = await soleaspay.collectPayment({
-        wallet: phoneNumber,
+        wallet: cleanPhoneLink,
         amount: numericAmount,
         currency: service.currency,
         orderId,
@@ -4171,8 +4173,11 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Numéro de téléphone requis pour SoleasPay" });
       }
 
+      const cleanPayerPhone = formatPhoneForSoleasPay(payerPhone, service.countryCode);
+      console.log(`📤 SoleasPay API: numéro normalisé ${payerPhone} → ${cleanPayerPhone} (pays ${service.countryCode})`);
+
       const payResult = await soleaspay.collectPayment({
-        wallet: payerPhone,
+        wallet: cleanPayerPhone,
         amount,
         currency,
         orderId,
