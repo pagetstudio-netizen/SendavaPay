@@ -3789,6 +3789,59 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: vérifier le statut OmniPay de tous les transferts pour une devise
+  app.post("/api/admin/omnipay/check-status-stuck", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { currency = "XAF" } = req.body;
+      const CURRENCY_COUNTRIES: Record<string, string[]> = {
+        XAF: ["cm", "cog"],
+        XOF: ["ci", "bj", "bf", "tg", "sn", "ml"],
+      };
+      const countries = CURRENCY_COUNTRIES[currency] || [];
+
+      const { db } = await import("./db");
+      const { and, inArray, isNotNull } = await import("drizzle-orm");
+      const { withdrawalRequests } = await import("../shared/schema");
+
+      const stuck = await db.select().from(withdrawalRequests).where(
+        and(inArray(withdrawalRequests.country, countries), isNotNull(withdrawalRequests.externalReference))
+      );
+
+      const { omnipay: opClient } = await import("./omnipay");
+      const STATUS_LABELS: Record<string, string> = {
+        "1": "✅ Initié", "2": "⏳ En cours", "3": "✅ Réussi", "4": "❌ Échoué", "5": "🔄 Remboursé",
+      };
+
+      const results = [];
+      for (const wr of stuck) {
+        if (!wr.externalReference) continue;
+        const statusRes = await opClient.getStatus(wr.externalReference);
+        const statusLabel = STATUS_LABELS[String(statusRes.status)] || `Status ${statusRes.status}`;
+        console.log(`🔍 Status OmniPay #${wr.id} ref=${wr.externalReference}: ${statusLabel} — ${statusRes.message}`);
+        results.push({
+          id: wr.id,
+          reference: wr.externalReference,
+          ourStatus: wr.status,
+          amount: wr.amount,
+          omnipayStatus: statusRes.status,
+          omnipayStatusLabel: statusLabel,
+          omnipayMessage: statusRes.message,
+        });
+      }
+
+      const failedCount = results.filter(r => String(r.omnipayStatus) === "4").length;
+      const pendingCount = results.filter(r => ["1","2"].includes(String(r.omnipayStatus))).length;
+
+      res.json({
+        message: `${results.length} transfert(s) vérifiés: ${failedCount} échoués, ${pendingCount} en cours chez OmniPay`,
+        results,
+      });
+    } catch (error) {
+      console.error("Check status OmniPay error:", error);
+      res.status(500).json({ message: "Erreur lors de la vérification" });
+    }
+  });
+
   // Admin: annuler EN MASSE tous les transferts OmniPay bloqués pour une devise
   app.post("/api/admin/omnipay/bulk-cancel-stuck", requireAuth, requireAdmin, async (req, res) => {
     try {

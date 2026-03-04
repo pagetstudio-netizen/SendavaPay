@@ -1380,22 +1380,20 @@ function WithdrawalsContent() {
     },
   });
 
-  const bulkCancelXafMutation = useMutation({
+  const [omnipayStatusResults, setOmnipayStatusResults] = useState<any[]>([]);
+  const [showOmnipayStatusDialog, setShowOmnipayStatusDialog] = useState(false);
+
+  const checkStatusXafMutation = useMutation({
     mutationFn: async (currency: string) => {
-      const res = await apiRequest("POST", `/api/admin/omnipay/bulk-cancel-stuck`, { currency });
+      const res = await apiRequest("POST", `/api/admin/omnipay/check-status-stuck`, { currency });
       return res.json();
     },
     onSuccess: (data) => {
-      const ok = (data.results || []).filter((r: any) => r.omnipaySuccess).length;
-      const total = (data.results || []).length;
-      toast({
-        title: `Annulation OmniPay : ${ok}/${total} réussies`,
-        description: data.message,
-        variant: ok > 0 ? "default" : "destructive",
-      });
+      setOmnipayStatusResults(data.results || []);
+      setShowOmnipayStatusDialog(true);
     },
     onError: (error: Error) => {
-      toast({ title: "Erreur annulation OmniPay", description: error.message, variant: "destructive" });
+      toast({ title: "Erreur vérification OmniPay", description: error.message, variant: "destructive" });
     },
   });
 
@@ -1417,16 +1415,12 @@ function WithdrawalsContent() {
         <Button
           size="sm"
           variant="outline"
-          className="border-orange-400 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20"
-          disabled={bulkCancelXafMutation.isPending}
-          onClick={() => {
-            if (confirm("Envoyer l'annulation à OmniPay pour TOUS les transferts XAF bloqués (Cameroun / Congo Brazzaville) ?\nCela libèrera les fonds bloqués dans le wallet OmniPay XAF.")) {
-              bulkCancelXafMutation.mutate("XAF");
-            }
-          }}
-          data-testid="button-bulk-cancel-xaf"
+          className="border-blue-400 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+          disabled={checkStatusXafMutation.isPending}
+          onClick={() => checkStatusXafMutation.mutate("XAF")}
+          data-testid="button-check-status-xaf"
         >
-          {bulkCancelXafMutation.isPending ? "Annulation..." : "🚫 Annuler transferts XAF bloqués (OmniPay)"}
+          {checkStatusXafMutation.isPending ? "Vérification..." : "🔍 Statut transferts XAF (OmniPay)"}
         </Button>
       </div>
 
@@ -1616,6 +1610,44 @@ function WithdrawalsContent() {
                 >
                   {rejectMutation.isPending ? "..." : "Confirmer le rejet"}
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {showOmnipayStatusDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+            <CardHeader>
+              <CardTitle>Statut des transferts XAF chez OmniPay</CardTitle>
+              <CardDescription>
+                Résultat de la vérification en temps réel pour chaque transfert Cameroun/Congo envoyé à OmniPay
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {omnipayStatusResults.map((r) => (
+                <div key={r.id} className="flex items-start justify-between p-3 rounded-lg border bg-muted/30 gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-sm font-semibold">#{r.id}</span>
+                      <Badge variant="outline" className="text-xs">{r.ourStatus}</Badge>
+                      <span className="text-sm font-medium">{parseFloat(r.amount).toLocaleString()} XAF</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground font-mono mt-1 truncate">{r.reference}</p>
+                    <p className="text-sm mt-1">{r.omnipayStatusLabel} — <span className="text-muted-foreground">{r.omnipayMessage}</span></p>
+                  </div>
+                </div>
+              ))}
+              {omnipayStatusResults.length === 0 && (
+                <p className="text-muted-foreground text-center py-4">Aucun transfert trouvé</p>
+              )}
+              <div className="pt-2 text-sm text-muted-foreground bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+                <strong>Info :</strong> Si tous les transferts sont <strong>❌ Échoués (status=4)</strong> chez OmniPay, les fonds ne sont pas partis. 
+                Les retraits en statut <em>"en attente"</em> dans notre base peuvent être annulés via le bouton <em>"Annuler OmniPay"</em> pour rembourser l'utilisateur.
+              </div>
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setShowOmnipayStatusDialog(false)}>Fermer</Button>
               </div>
             </CardContent>
           </Card>
