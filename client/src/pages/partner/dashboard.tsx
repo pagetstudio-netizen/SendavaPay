@@ -11,6 +11,7 @@ import orangeLogo from "@assets/images_1769443862827.png";
 import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
 import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
+import waveLogo from "@assets/images_(16)_1772485816419.jpeg";
 import {
   Sidebar,
   SidebarContent,
@@ -104,7 +105,7 @@ const operatorLogos: Record<string, string> = {
   "TMoney": tmoneyLogo,
   "Airtel": airtelLogo,
   "Vodacom": vodacomLogo,
-  "Wave": orangeLogo,
+  "Wave": waveLogo,
 };
 
 const methodLogos: Record<string, string> = {
@@ -115,7 +116,7 @@ const methodLogos: Record<string, string> = {
   "t-money": tmoneyLogo,
   airtel: airtelLogo,
   vodacom: vodacomLogo,
-  wave: orangeLogo,
+  wave: waveLogo,
 };
 
 const sidebarItems = [
@@ -510,7 +511,10 @@ function PartnerDepositSection() {
     const saved = localStorage.getItem("partner_deposit_payment");
     if (saved) {
       try {
-        const { orderId, payId } = JSON.parse(saved);
+        const { orderId, payId, timestamp } = JSON.parse(saved);
+        const MAX_AGE_MS = 30 * 60 * 1000;
+        const isExpired = !timestamp || Date.now() - timestamp > MAX_AGE_MS;
+        if (isExpired) { localStorage.removeItem("partner_deposit_payment"); return; }
         if (orderId && payId) {
           setCurrentOrderId(orderId);
           setCurrentPayId(payId);
@@ -536,21 +540,23 @@ function PartnerDepositSection() {
     },
     onSuccess: (data) => {
       if (data.success && data.payId && data.orderId) {
-        localStorage.setItem("partner_deposit_payment", JSON.stringify({ orderId: data.orderId, payId: data.payId }));
+        localStorage.setItem("partner_deposit_payment", JSON.stringify({ orderId: data.orderId, payId: data.payId, timestamp: Date.now() }));
         setCurrentOrderId(data.orderId);
         setCurrentPayId(data.payId);
-        if (data.isWinipayer && data.checkoutUrl) {
-          toast({ title: "Redirection vers WiniPayer", description: "Vous allez être redirigé vers le portail de paiement." });
+        if ((data.isWinipayer || data.checkoutUrl) && data.checkoutUrl) {
+          toast({ title: "Redirection en cours", description: "Vous allez être redirigé vers la page de paiement." });
           window.open(data.checkoutUrl, "_blank");
+          setVerificationMessage("Complétez le paiement sur la page de paiement, puis revenez ici.");
         } else if (data.isWave && data.waveUrl) {
-          toast({ title: "Redirection vers Wave", description: "Confirmez le paiement dans Wave." });
+          toast({ title: "Redirection vers Wave", description: "Confirmez le paiement dans l'application Wave, puis revenez ici." });
           window.open(data.waveUrl, "_blank");
+          setVerificationMessage("Confirmez le paiement dans l'application Wave, puis revenez ici.");
         } else {
-          toast({ title: "Paiement initié", description: "Veuillez confirmer sur votre téléphone." });
+          toast({ title: "Paiement initié", description: "Veuillez confirmer le paiement sur votre téléphone." });
+          setVerificationMessage(data.message || "Veuillez confirmer le paiement sur votre téléphone.");
         }
         setPaymentStatus("processing");
         pollingAttemptsRef.current = 0;
-        setVerificationMessage(data.message || "Veuillez confirmer le paiement sur votre téléphone.");
       } else {
         toast({ title: "Erreur", description: data.message || "Erreur lors du paiement", variant: "destructive" });
       }
@@ -697,28 +703,34 @@ function PartnerDepositSection() {
               </div>
             )}
 
-            {!isWiniPayerService && (
-            <div className="space-y-2">
-              <Label>Numéro de téléphone Mobile Money</Label>
-              <div className="flex">
-                {phonePrefix && (
-                  <span className="flex items-center px-3 rounded-l-md border border-r-0 bg-muted text-muted-foreground text-sm font-mono select-none">
-                    {phonePrefix}
-                  </span>
-                )}
-                <div className="relative flex-1">
-                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+            {isWiniPayerService ? (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 p-4">
+                <p className="text-sm text-blue-700 dark:text-blue-300">
+                  Vous serez redirigé vers la page de paiement pour compléter votre dépôt. Aucun numéro de téléphone n'est requis.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Numéro de téléphone Mobile Money</Label>
+                <div className="flex h-12">
+                  {phonePrefix && (
+                    <div className="flex items-center px-3 border border-r-0 rounded-l-md bg-muted text-sm font-mono font-semibold text-muted-foreground select-none shrink-0">
+                      {phonePrefix}
+                    </div>
+                  )}
                   <Input
                     type="tel"
-                    placeholder="Ex: 90123456"
+                    placeholder="90123456"
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ""))}
-                    className={`pl-10 ${phonePrefix ? "rounded-l-none" : ""}`}
+                    className={phonePrefix ? "rounded-l-none h-12" : "h-12"}
                     data-testid="input-partner-deposit-phone"
                   />
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Entrez le numéro local associé à votre compte {selectedService?.operator || "Mobile Money"}
+                </p>
               </div>
-            </div>
             )}
 
             <div className="space-y-4">
@@ -760,7 +772,12 @@ function PartnerDepositSection() {
               </Card>
             )}
 
-            <Button type="submit" className="w-full h-12 text-lg font-bold" disabled={numericAmount < 100 || !phoneNumber || depositMutation.isPending} data-testid="button-partner-deposit-submit">
+            <Button
+              type="submit"
+              className="w-full h-12 text-lg font-bold"
+              disabled={numericAmount < 100 || (!isWiniPayerService && (!phoneNumber || phoneNumber.length < 5)) || depositMutation.isPending}
+              data-testid="button-partner-deposit-submit"
+            >
               {depositMutation.isPending ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Traitement...</>) : `Déposer ${numericAmount > 0 ? numericAmount.toLocaleString() + " " + currency : ""}`}
             </Button>
           </form>
@@ -777,6 +794,15 @@ interface WithdrawCountry {
   methods: { id: string; name: string; inMaintenance?: boolean }[];
 }
 
+const withdrawStatusConfig: Record<string, { label: string; icon: typeof Clock; color: string }> = {
+  pending: { label: "En attente", icon: Clock, color: "text-orange-600 bg-orange-100 dark:bg-orange-900/30" },
+  processing: { label: "En cours", icon: Loader2, color: "text-blue-600 bg-blue-100 dark:bg-blue-900/30" },
+  approved: { label: "Approuvé", icon: CheckCircle, color: "text-green-600 bg-green-100 dark:bg-green-900/30" },
+  rejected: { label: "Rejeté", icon: XCircle, color: "text-red-600 bg-red-100 dark:bg-red-900/30" },
+  failed: { label: "Échoué", icon: XCircle, color: "text-red-600 bg-red-100 dark:bg-red-900/30" },
+  completed: { label: "Complété", icon: CheckCircle, color: "text-green-600 bg-green-100 dark:bg-green-900/30" },
+};
+
 function PartnerWithdrawSection({ partner }: { partner: any }) {
   const { toast } = useToast();
   const [amount, setAmount] = useState("");
@@ -785,16 +811,22 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
   const [mobileNumber, setMobileNumber] = useState("");
   const [walletName, setWalletName] = useState("");
 
-  const { data: countries = [], isLoading: countriesLoading } = useQuery<WithdrawCountry[]>({
+  const { data: countries = [] } = useQuery<WithdrawCountry[]>({
     queryKey: ["/api/partner/withdraw/operators"],
+  });
+
+  const { data: withdrawalRequests = [], isLoading: requestsLoading } = useQuery<any[]>({
+    queryKey: ["/api/partner/withdrawal-requests"],
   });
 
   const { data: commissionRates } = useQuery<{ depositRate: number; withdrawalRate: number; encaissementRate: number }>({
     queryKey: ["/api/partner/commission-rates"],
   });
 
-  const selectedCountry = countries.find(c => c.id === country);
-  const availableMethods = selectedCountry?.methods || [];
+  const selectedCountryData = countries.find(c => c.id === country);
+  const availableMethods = selectedCountryData?.methods || [];
+  const currency = selectedCountryData?.currency || "FCFA";
+  const phonePrefix = COUNTRY_PREFIXES[country.toUpperCase()] || "";
   const commissionRate = commissionRates?.withdrawalRate ?? 7;
   const balance = parseFloat(partner?.balance || "0");
   const numericAmount = parseFloat(amount) || 0;
@@ -802,7 +834,10 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
   const netAmount = numericAmount - fee;
   const minWithdrawal = 500;
 
-  useEffect(() => { setPaymentMethod(""); }, [country]);
+  useEffect(() => {
+    setPaymentMethod("");
+    setMobileNumber("");
+  }, [country]);
 
   const withdrawMutation = useMutation({
     mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string; country: string; walletName: string }) => {
@@ -813,8 +848,10 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
       toast({ title: data.autoProcessed ? "Retrait effectué" : "Retrait en cours", description: data.message || "Votre retrait a été traité instantanément." });
       queryClient.invalidateQueries({ queryKey: ["/api/partner/me"] });
       queryClient.invalidateQueries({ queryKey: ["/api/partner/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/withdrawal-requests"] });
       setAmount("");
       setWalletName("");
+      setMobileNumber("");
     },
     onError: (error: Error) => {
       toast({ title: "Retrait échoué", description: error.message, variant: "destructive" });
@@ -826,7 +863,7 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (numericAmount < minWithdrawal) {
-      toast({ title: "Montant insuffisant", description: `Minimum: ${minWithdrawal} FCFA`, variant: "destructive" });
+      toast({ title: "Montant insuffisant", description: `Minimum: ${minWithdrawal.toLocaleString()} ${currency}`, variant: "destructive" });
       return;
     }
     if (numericAmount > balance) {
@@ -836,8 +873,12 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
     if (!country) { toast({ title: "Pays requis", description: "Sélectionnez un pays.", variant: "destructive" }); return; }
     if (!paymentMethod) { toast({ title: "Moyen de paiement requis", description: "Sélectionnez un opérateur.", variant: "destructive" }); return; }
     if (!mobileNumber) { toast({ title: "Numéro requis", description: "Entrez un numéro de téléphone.", variant: "destructive" }); return; }
-    withdrawMutation.mutate({ amount: numericAmount, paymentMethod, mobileNumber, country, walletName });
+    const fullPhone = (phonePrefix + mobileNumber).replace(/\s/g, "");
+    withdrawMutation.mutate({ amount: numericAmount, paymentMethod, mobileNumber: fullPhone, country, walletName });
   };
+
+  const formatDate = (date: string) =>
+    new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(date));
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -862,8 +903,8 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-4">
               <div className="flex items-center justify-between flex-wrap gap-1">
-                <Label>Montant (FCFA)</Label>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setAmount(Math.floor(balance).toString())}>
+                <Label>Montant ({currency})</Label>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setAmount(Math.floor(balance).toString())} data-testid="button-partner-withdraw-max">
                   Max: {balance.toLocaleString()} FCFA
                 </Button>
               </div>
@@ -884,15 +925,15 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
                 <CardContent className="p-4 space-y-2">
                   <div className="flex justify-between text-sm">
                     <span>Montant demandé</span>
-                    <span>{numericAmount.toLocaleString()} FCFA</span>
+                    <span>{numericAmount.toLocaleString()} {currency}</span>
                   </div>
                   <div className="flex justify-between text-sm text-muted-foreground">
                     <span className="flex items-center gap-1"><Info className="h-3 w-3" />Frais ({commissionRate}%)</span>
-                    <span>-{fee.toLocaleString()} FCFA</span>
+                    <span>-{fee.toLocaleString()} {currency}</span>
                   </div>
                   <div className="flex justify-between font-semibold pt-2 border-t">
                     <span>Vous recevez</span>
-                    <span className="text-green-600">{netAmount.toLocaleString()} FCFA</span>
+                    <span className="text-green-600">{netAmount.toLocaleString()} {currency}</span>
                   </div>
                 </CardContent>
               </Card>
@@ -903,7 +944,7 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
               <CountrySelect
                 options={countries.map(c => ({ value: c.id, label: c.name }))}
                 value={country}
-                onChange={(val) => { setCountry(val); setPaymentMethod(""); }}
+                onChange={(val) => { setCountry(val); setPaymentMethod(""); setMobileNumber(""); }}
                 placeholder="Sélectionnez un pays"
                 data-testid="select-partner-withdraw-country"
               />
@@ -944,20 +985,95 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
 
             <div className="space-y-2">
               <Label>Numéro de téléphone destinataire</Label>
-              <Input type="tel" placeholder="+228 99 99 99 99" value={mobileNumber} onChange={(e) => setMobileNumber(e.target.value)} data-testid="input-partner-withdraw-mobile" />
+              <div className="flex">
+                {phonePrefix && (
+                  <div className="flex items-center px-3 border border-r-0 rounded-l-md bg-muted text-sm font-mono font-semibold text-muted-foreground select-none shrink-0">
+                    {phonePrefix}
+                  </div>
+                )}
+                <Input
+                  type="tel"
+                  placeholder="90123456"
+                  value={mobileNumber}
+                  onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, ""))}
+                  className={phonePrefix ? "rounded-l-none" : ""}
+                  data-testid="input-partner-withdraw-mobile"
+                />
+              </div>
             </div>
 
             <div className="space-y-2">
               <Label className="flex items-center gap-2"><Wallet className="h-4 w-4" />Nom du portefeuille (optionnel)</Label>
-              <Input type="text" placeholder="Ex: Mon portefeuille" value={walletName} onChange={(e) => setWalletName(e.target.value)} data-testid="input-partner-wallet-name" />
+              <Input type="text" placeholder="Ex: Mon portefeuille principal" value={walletName} onChange={(e) => setWalletName(e.target.value)} data-testid="input-partner-wallet-name" />
+              <p className="text-xs text-muted-foreground">Un nom pour identifier ce portefeuille dans vos demandes</p>
             </div>
 
-            <Button type="submit" className="w-full" size="lg" disabled={withdrawMutation.isPending || numericAmount < minWithdrawal || numericAmount > balance || !country || !paymentMethod || !mobileNumber} data-testid="button-partner-withdraw-submit">
-              {withdrawMutation.isPending ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Envoi...</>) : `Demander le retrait${numericAmount > 0 ? ` de ${numericAmount.toLocaleString()} FCFA` : ""}`}
+            <Button
+              type="submit"
+              className="w-full"
+              size="lg"
+              disabled={withdrawMutation.isPending || numericAmount < minWithdrawal || numericAmount > balance || !country || !paymentMethod || !mobileNumber}
+              data-testid="button-partner-withdraw-submit"
+            >
+              {withdrawMutation.isPending ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Envoi...</>) : `Demander le retrait${numericAmount > 0 ? ` de ${numericAmount.toLocaleString()} ${currency}` : ""}`}
             </Button>
           </form>
         </CardContent>
       </Card>
+
+      {withdrawalRequests.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Historique des demandes</CardTitle>
+            <CardDescription>Vos demandes de retrait récentes</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {requestsLoading ? (
+                <p className="text-muted-foreground text-center py-4">Chargement...</p>
+              ) : (
+                withdrawalRequests.map((request: any) => {
+                  const statusKey = request.status || "pending";
+                  const status = withdrawStatusConfig[statusKey] || withdrawStatusConfig.pending;
+                  const StatusIcon = status.icon;
+                  const countryName = countries.find(c => c.id === request.country)?.name || request.country || "";
+                  const displayAmount = parseFloat(request.amount || "0");
+                  const displayNet = parseFloat(request.net_amount || request.netAmount || "0");
+                  return (
+                    <div key={request.id} className="flex items-start justify-between p-4 rounded-lg bg-muted/30" data-testid={`row-withdraw-${request.id}`}>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold">{displayAmount.toLocaleString("fr-FR")} FCFA</span>
+                          <Badge className={status.color}>
+                            <StatusIcon className="h-3 w-3 mr-1" />
+                            {status.label}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {request.payment_method || request.paymentMethod} — {request.mobile_number || request.mobileNumber}
+                        </p>
+                        {countryName && (
+                          <p className="text-xs text-muted-foreground">{countryName} • {formatDate(request.created_at || request.createdAt)}</p>
+                        )}
+                        {request.rejection_reason && !String(request.rejection_reason).startsWith("LIQUIDITY_HOLD") && (
+                          <p className="text-sm text-red-600 mt-1">Raison: {request.rejection_reason}</p>
+                        )}
+                        {String(request.rejection_reason || "").startsWith("LIQUIDITY_HOLD") && (
+                          <p className="text-sm text-orange-600 mt-1">En file d'attente — traitement en cours</p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-muted-foreground">Vous recevez</p>
+                        <p className="font-semibold text-green-600">{displayNet.toLocaleString("fr-FR")} FCFA</p>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
