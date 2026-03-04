@@ -2238,8 +2238,16 @@ export function registerPartnerRoutes(app: Express) {
 
   app.get("/api/partner/withdrawal-requests", requirePartnerAuth, async (req: Request, res: Response) => {
     try {
-      res.json([]);
+      const partner = await storage.getPartner(req.session.partnerId!);
+      if (!partner) return res.status(404).json({ message: "Partenaire non trouvé" });
+      const { db } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+      const result = await db.execute(
+        sql`SELECT * FROM withdrawal_requests WHERE user_id = 0 AND wallet_name LIKE ${"PARTENAIRE:" + partner.name + "%"} ORDER BY created_at DESC LIMIT 50`
+      );
+      res.json(result.rows || []);
     } catch (error) {
+      console.error("Partner withdrawal requests error:", error);
       res.status(500).json({ message: "Erreur serveur" });
     }
   });

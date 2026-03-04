@@ -6621,7 +6621,7 @@ export async function registerRoutes(
 
       await storage.createPartnerLog({
         partnerId,
-        action: operation === "add" ? "balance_credit" : "balance_debit",
+        action: "system",
         details: `Ajustement admin: ${operation === "add" ? "Crédit" : "Débit"} de ${numericAmount.toLocaleString("fr-FR")} — ${reason}`,
         ipAddress: req.ip,
       });
