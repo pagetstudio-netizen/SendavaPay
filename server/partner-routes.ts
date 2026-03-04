@@ -1678,7 +1678,7 @@ export function registerPartnerRoutes(app: Express) {
       const partner = await storage.getPartner(req.session.partnerId!);
       if (!partner) return res.status(404).json({ message: "Partenaire non trouvé" });
 
-      const { getServiceById, soleaspay, formatPhoneForSoleasPay } = await import("./soleaspay");
+      const { getServiceById, soleaspay } = await import("./soleaspay");
       const service = getServiceById(parseInt(serviceId));
       if (!service) return res.status(400).json({ message: "Service non trouvé" });
 
@@ -1765,11 +1765,9 @@ export function registerPartnerRoutes(app: Express) {
       }
 
       const orderId = `PDEP-${Date.now()}-P${req.session.partnerId}`;
-      const cleanPhoneDep = formatPhoneForSoleasPay(phoneNumber, service.countryCode);
-      console.log(`📡 Partner Deposit SoleasPay: numéro normalisé ${phoneNumber} → ${cleanPhoneDep} (pays ${service.countryCode})`);
 
       const result = await soleaspay.collectPayment({
-        wallet: cleanPhoneDep,
+        wallet: phoneNumber,
         amount: numericAmount,
         currency: service.currency,
         orderId,
