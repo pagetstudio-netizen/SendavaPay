@@ -135,8 +135,8 @@ export function formatPhoneForOmnipay(phone: string, countryCode: string): strin
   // CI : 10 chiffres car les numéros locaux commencent par 0 (07XXXXXXXX, 06XXXXXXXX…)
   // Les autres pays ont des numéros locaux sans 0 initial
   const EXPECTED_LOCAL_LENGTH: Record<string, number> = {
-    CI:  10,
-    BJ:  8,
+    CI:  10, // 07XXXXXXXX / 06XXXXXXXX — 10 chiffres avec 0 initial légitime
+    BJ:  10, // Depuis 2024 : 01XXXXXXXX — 10 chiffres avec 0 initial légitime (anciens 8 chiffres → 0197XXXXXX)
     TG:  8,
     BF:  8,
     SN:  9,
