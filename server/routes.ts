@@ -3378,7 +3378,7 @@ export async function registerRoutes(
                 countryName: ci9.name,
                 pendingCount: queueItems9.length,
                 pendingAmount: totalPending9,
-                walletBalance: 0,
+                walletBalance: null,
               });
 
               return res.json({
