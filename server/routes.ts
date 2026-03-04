@@ -3789,6 +3789,78 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: annuler EN MASSE tous les transferts OmniPay bloqués pour une devise
+  app.post("/api/admin/omnipay/bulk-cancel-stuck", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { currency = "XAF" } = req.body;
+
+      // Pays utilisant cette devise (pays OmniPay uniquement)
+      const CURRENCY_COUNTRIES: Record<string, string[]> = {
+        XAF: ["cm", "cog"],
+        XOF: ["ci", "bj", "bf", "tg", "sn", "ml"],
+      };
+      const countries = CURRENCY_COUNTRIES[currency] || [];
+
+      if (countries.length === 0) {
+        return res.status(400).json({ message: "Devise non supportée pour l'annulation en masse" });
+      }
+
+      // Récupérer tous les retraits avec référence externe pour ces pays
+      const { db } = await import("./db");
+      const { and, inArray, isNotNull } = await import("drizzle-orm");
+      const { withdrawalRequests } = await import("../shared/schema");
+
+      const stuck = await db.select().from(withdrawalRequests).where(
+        and(
+          inArray(withdrawalRequests.country, countries),
+          isNotNull(withdrawalRequests.externalReference)
+        )
+      );
+
+      if (stuck.length === 0) {
+        return res.json({ message: "Aucun transfert OmniPay trouvé pour ces pays", results: [] });
+      }
+
+      const { omnipay: opClient } = await import("./omnipay");
+
+      const results: { id: number; reference: string; status: string; omnipaySuccess: boolean; omnipayMessage?: string }[] = [];
+
+      for (const wr of stuck) {
+        if (!wr.externalReference) continue;
+        try {
+          const cancelRes = await opClient.cancelTransfer(wr.externalReference);
+          console.log(`🚫 Bulk cancel #${wr.id} ref=${wr.externalReference}: success=${cancelRes.success} msg=${cancelRes.message}`);
+          results.push({
+            id: wr.id,
+            reference: wr.externalReference,
+            status: wr.status,
+            omnipaySuccess: cancelRes.success === 1,
+            omnipayMessage: cancelRes.message,
+          });
+        } catch (err: any) {
+          results.push({
+            id: wr.id,
+            reference: wr.externalReference,
+            status: wr.status,
+            omnipaySuccess: false,
+            omnipayMessage: err.message,
+          });
+        }
+      }
+
+      const successCount = results.filter(r => r.omnipaySuccess).length;
+      console.log(`🚫 Bulk cancel OmniPay ${currency}: ${successCount}/${results.length} annulations réussies`);
+
+      res.json({
+        message: `${successCount} sur ${results.length} transfert(s) annulé(s) chez OmniPay`,
+        results,
+      });
+    } catch (error) {
+      console.error("Bulk cancel OmniPay error:", error);
+      res.status(500).json({ message: "Erreur lors de l'annulation en masse" });
+    }
+  });
+
   // Transfer feature disabled
   // app.post("/api/transfer", requireAuth, async (req, res) => { ... });
 

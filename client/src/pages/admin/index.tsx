@@ -1380,6 +1380,25 @@ function WithdrawalsContent() {
     },
   });
 
+  const bulkCancelXafMutation = useMutation({
+    mutationFn: async (currency: string) => {
+      const res = await apiRequest("POST", `/api/admin/omnipay/bulk-cancel-stuck`, { currency });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      const ok = (data.results || []).filter((r: any) => r.omnipaySuccess).length;
+      const total = (data.results || []).length;
+      toast({
+        title: `Annulation OmniPay : ${ok}/${total} réussies`,
+        description: data.message,
+        variant: ok > 0 ? "default" : "destructive",
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erreur annulation OmniPay", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleReject = () => {
     if (!rejectingId || !rejectionReason.trim()) {
       toast({ title: "Erreur", description: "Veuillez fournir une raison de rejet", variant: "destructive" });
@@ -1393,6 +1412,22 @@ function WithdrawalsContent() {
       <div>
         <h1 className="text-2xl font-bold">Demandes de retrait</h1>
         <p className="text-muted-foreground">Validez ou rejetez les demandes de retrait des utilisateurs</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="border-orange-400 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+          disabled={bulkCancelXafMutation.isPending}
+          onClick={() => {
+            if (confirm("Envoyer l'annulation à OmniPay pour TOUS les transferts XAF bloqués (Cameroun / Congo Brazzaville) ?\nCela libèrera les fonds bloqués dans le wallet OmniPay XAF.")) {
+              bulkCancelXafMutation.mutate("XAF");
+            }
+          }}
+          data-testid="button-bulk-cancel-xaf"
+        >
+          {bulkCancelXafMutation.isPending ? "Annulation..." : "🚫 Annuler transferts XAF bloqués (OmniPay)"}
+        </Button>
       </div>
 
       <Card>
