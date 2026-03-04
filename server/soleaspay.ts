@@ -66,8 +66,8 @@ export function formatPhoneForSoleasPay(phone: string, countryCode: string): str
   };
 
   const EXPECTED_LOCAL_LENGTH: Record<string, number> = {
-    CI:  10,
-    BJ:  8,
+    CI:  10, // 07XXXXXXXX / 06XXXXXXXX — 10 chiffres avec 0 initial légitime
+    BJ:  10, // Depuis 2024 : 01XXXXXXXX — 10 chiffres avec 0 initial légitime (anciens 8 chiffres → 0197XXXXXX)
     TG:  8,
     BF:  8,
     SN:  9,
