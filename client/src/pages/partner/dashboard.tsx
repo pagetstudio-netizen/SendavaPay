@@ -817,7 +817,9 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
       setWalletName("");
     },
     onError: (error: Error) => {
-      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+      toast({ title: "Retrait échoué", description: error.message, variant: "destructive" });
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/me"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/partner/stats"] });
     },
   });
 
