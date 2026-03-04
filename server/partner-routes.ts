@@ -794,7 +794,7 @@ export function registerPartnerRoutes(app: Express) {
         return res.status(400).json({ success: false, status: "ERROR", message: "Code pays requis (country: TG, BJ, BF, CM, CI, COD, COG)" });
       }
 
-      const { SOLEASPAY_SERVICES, soleaspay, getCurrencyByCountry } = await import("./soleaspay");
+      const { SOLEASPAY_SERVICES, soleaspay, getCurrencyByCountry, formatPhoneForSoleasPay } = await import("./soleaspay");
       const countryUpper = country.toUpperCase();
       const operatorLower = operator.toLowerCase();
 
@@ -967,6 +967,9 @@ export function registerPartnerRoutes(app: Express) {
         });
       }
 
+      const cleanPhone = formatPhoneForSoleasPay(phone, countryUpper);
+      console.log(`📡 SDK SoleasPay: numéro normalisé ${phone} → ${cleanPhone} (pays ${countryUpper})`);
+
       await storage.createPartnerTransaction({
         partnerId: partner.id,
         reference,
@@ -975,7 +978,7 @@ export function registerPartnerRoutes(app: Express) {
         currency: txCurrency,
         customerName: customerName || null,
         customerEmail: customerEmail || null,
-        customerPhone: phone,
+        customerPhone: cleanPhone,
         description: description || null,
         callbackUrl: callbackUrl || partner.callbackUrl || null,
         redirectUrl: redirectUrl || null,
@@ -983,7 +986,7 @@ export function registerPartnerRoutes(app: Express) {
       });
 
       const soleasResult = await soleaspay.collectPayment({
-        wallet: phone,
+        wallet: cleanPhone,
         amount: numericAmount,
         currency: txCurrency,
         orderId: reference,
@@ -1675,7 +1678,7 @@ export function registerPartnerRoutes(app: Express) {
       const partner = await storage.getPartner(req.session.partnerId!);
       if (!partner) return res.status(404).json({ message: "Partenaire non trouvé" });
 
-      const { getServiceById, soleaspay } = await import("./soleaspay");
+      const { getServiceById, soleaspay, formatPhoneForSoleasPay } = await import("./soleaspay");
       const service = getServiceById(parseInt(serviceId));
       if (!service) return res.status(400).json({ message: "Service non trouvé" });
 
@@ -1762,9 +1765,11 @@ export function registerPartnerRoutes(app: Express) {
       }
 
       const orderId = `PDEP-${Date.now()}-P${req.session.partnerId}`;
+      const cleanPhoneDep = formatPhoneForSoleasPay(phoneNumber, service.countryCode);
+      console.log(`📡 Partner Deposit SoleasPay: numéro normalisé ${phoneNumber} → ${cleanPhoneDep} (pays ${service.countryCode})`);
 
       const result = await soleaspay.collectPayment({
-        wallet: phoneNumber,
+        wallet: cleanPhoneDep,
         amount: numericAmount,
         currency: service.currency,
         orderId,

@@ -51,6 +51,38 @@ export const SOLEASPAY_COUNTRIES = [
   { code: "TG", name: "Togo", flag: "🇹🇬", currency: "XOF" },
 ];
 
+export function formatPhoneForSoleasPay(phone: string, countryCode: string): string {
+  const PREFIXES: Record<string, string> = {
+    CI:  "225",
+    BJ:  "229",
+    TG:  "228",
+    BF:  "226",
+    SN:  "221",
+    CM:  "237",
+    ML:  "223",
+    GN:  "224",
+    COG: "242",
+    COD: "243",
+  };
+
+  let cleaned = phone.replace(/[\s\-\(\)\.]/g, "");
+
+  if (cleaned.startsWith("+")) cleaned = cleaned.slice(1);
+  else if (cleaned.startsWith("00")) cleaned = cleaned.slice(2);
+
+  const prefix = PREFIXES[countryCode.toUpperCase()] || "";
+
+  if (prefix) {
+    if (cleaned.startsWith(prefix)) {
+      cleaned = cleaned.slice(prefix.length);
+    }
+    while (cleaned.startsWith("0")) cleaned = cleaned.slice(1);
+    cleaned = "+" + prefix + cleaned;
+  }
+
+  return cleaned;
+}
+
 export function getServicesByCountry(countryCode: string): SoleasPayService[] {
   return SOLEASPAY_SERVICES.filter(s => s.countryCode === countryCode);
 }
