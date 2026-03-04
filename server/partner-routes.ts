@@ -2204,7 +2204,16 @@ export function registerPartnerRoutes(app: Express) {
       });
     } catch (error) {
       console.error("Partner withdraw error:", error);
-      res.status(500).json({ message: "Erreur lors du retrait" });
+      try {
+        const numericAmountSafe = parseFloat(req.body?.amount || "0");
+        if (!isNaN(numericAmountSafe) && numericAmountSafe > 0 && req.session.partnerId) {
+          await storage.updatePartnerBalance(req.session.partnerId, numericAmountSafe.toString());
+          console.log(`💰 Partner withdraw outer catch: solde restauré partnerId=${req.session.partnerId} amount=${numericAmountSafe}`);
+        }
+      } catch (restoreErr) {
+        console.error("Partner withdraw: ÉCHEC restauration solde:", restoreErr);
+      }
+      res.status(500).json({ message: "Erreur lors du retrait. Votre solde a été restauré." });
     }
   });
 
