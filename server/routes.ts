@@ -3353,27 +3353,38 @@ export async function registerRoutes(
             console.error("❌ OmniPay transfer failed:", opResult);
 
             if (opResult.code === 9) {
-              console.log(`⚠️ OmniPay code=9 (Internal communication error) pour ${currency} — Retrait basculé en traitement manuel`);
+              console.log(`⚠️ OmniPay code=9 (fonds insuffisants) pour ${currency} — Retrait basculé en file LIQUIDITY_HOLD`);
               await storage.updateWithdrawalRequest(withdrawalRequest.id, {
                 status: "pending",
-                rejectionReason: null,
+                rejectionReason: `LIQUIDITY_HOLD:${currency}`,
               });
 
-              notifyWithdrawalRequest({
-                userName: user.fullName,
-                userId: req.session.userId!,
-                amount: numericAmount.toString(),
-                fee: fee.toString(),
-                netAmount: netAmount.toString(),
-                paymentMethod: selectedOperator.name,
-                mobileNumber,
-                country,
-                walletName: walletName || null,
+              // Compter la file en attente pour cette devise
+              const allPending9 = await storage.getAllWithdrawalRequests();
+              const queueItems9 = allPending9.filter((r: any) =>
+                r.status === "pending" && String(r.rejectionReason || "").startsWith(`LIQUIDITY_HOLD:${currency}`)
+              );
+              const totalPending9 = queueItems9.reduce((sum: number, r: any) => sum + parseFloat(r.amount || "0"), 0);
+
+              const CURRENCY_INFO9: Record<string, { flag: string; name: string }> = {
+                XOF: { flag: "🇧🇯", name: "Bénin/Afrique de l'Ouest" },
+                XAF: { flag: "🇨🇲", name: "Cameroun/Afrique Centrale" },
+                CDF: { flag: "🇨🇩", name: "RDC" },
+              };
+              const ci9 = CURRENCY_INFO9[currency] || { flag: "🌍", name: currency };
+              notifyLiquidityEmpty({
+                currency,
+                countryFlag: ci9.flag,
+                countryName: ci9.name,
+                pendingCount: queueItems9.length,
+                pendingAmount: totalPending9,
+                walletBalance: 0,
               });
 
               return res.json({
-                message: "Votre demande de retrait a été enregistrée et sera traitée par notre équipe sous peu.",
+                message: "Retrait en cours de traitement – sera validé dès réapprovisionnement du wallet.",
                 request: { ...withdrawalRequest, status: "pending" },
+                liquidityHold: true,
               });
             }
 
