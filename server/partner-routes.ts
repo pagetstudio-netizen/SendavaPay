@@ -1296,7 +1296,7 @@ export function registerPartnerRoutes(app: Express) {
             const checkResult = await opClient.getStatus(ref);
             console.log(`SDK Verify OmniPay result for ${ref}:`, JSON.stringify(checkResult));
 
-            if (String(checkResult.success) === "1" && checkResult.status === 3) {
+            if (String(checkResult.success) === "1" && (checkResult.status === 3 || checkResult.status === 1)) {
               const { db } = await import("./db");
               const { sql } = await import("drizzle-orm");
               const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
@@ -1443,12 +1443,25 @@ export function registerPartnerRoutes(app: Express) {
               if (rowsAffected > 0) {
                 const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
                 await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
+                console.log(`✅ SDK SoleasPay: Paiement confirmé partner #${partner.id} ref=${ref} net=${netAmount}`);
+                if (transaction.callbackUrl) {
+                  try {
+                    const cbResponse = await fetch(transaction.callbackUrl, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ reference: ref, status: "SUCCESS", amount: transaction.amount, fee: transaction.fee, netAmount: netAmount.toString(), currency: transaction.currency, provider: "soleaspay" }),
+                    });
+                    console.log(`📤 SDK SoleasPay: Callback envoyé à ${transaction.callbackUrl} → HTTP ${cbResponse.status}`);
+                  } catch (cbErr) { console.error(`❌ SDK SoleasPay: Callback ÉCHOUÉ vers ${transaction.callbackUrl}:`, cbErr); }
+                } else {
+                  console.warn(`⚠️ SDK SoleasPay: Aucun callbackUrl configuré pour ref=${ref} — le partenaire ne sera PAS notifié automatiquement`);
+                }
               }
 
               await storage.createPartnerLog({
                 partnerId: partner.id,
                 action: "api_call",
-                details: `SDK Paiement confirmé: ${ref} - ${transaction.amount} ${transaction.currency}`,
+                details: `SDK Paiement SoleasPay confirmé: ${ref} - ${transaction.amount} ${transaction.currency}`,
                 ipAddress: req.ip || req.socket.remoteAddress,
               });
 
