@@ -1229,6 +1229,7 @@ interface WithdrawalRequest {
   rejectionReason: string | null;
   reviewedBy: number | null;
   reviewedAt: string | null;
+  externalReference: string | null;
   createdAt: string;
   user?: {
     id: number;
@@ -1355,6 +1356,24 @@ function WithdrawalsContent() {
       toast({ title: "Succès", description: "Demande de retrait rejetée" });
       setRejectingId(null);
       setRejectionReason("");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const cancelOmnipayMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/admin/withdrawal-requests/${id}/cancel-omnipay`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawal-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+      const detail = data.omnipaySuccess
+        ? "OmniPay a confirmé l'annulation."
+        : `Solde remboursé (OmniPay: ${data.omnipayMessage || "non confirmé"}).`;
+      toast({ title: "Retrait annulé et remboursé", description: detail });
     },
     onError: (error: Error) => {
       toast({ title: "Erreur", description: error.message, variant: "destructive" });
@@ -1505,6 +1524,23 @@ function WithdrawalsContent() {
                           >
                             <XCircle className="h-4 w-4 mr-1" /> Rejeter
                           </Button>
+                          {request.externalReference && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-orange-400 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+                              onClick={() => {
+                                if (confirm(`Annuler via OmniPay et rembourser ${formatCurrency(request.amount)} à l'utilisateur ?`)) {
+                                  cancelOmnipayMutation.mutate(request.id);
+                                }
+                              }}
+                              disabled={cancelOmnipayMutation.isPending}
+                              data-testid={`button-cancel-omnipay-${request.id}`}
+                            >
+                              <XCircle className="h-4 w-4 mr-1" />
+                              {cancelOmnipayMutation.isPending ? "..." : "Annuler OmniPay"}
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>

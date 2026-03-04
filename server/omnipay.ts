@@ -275,6 +275,35 @@ export class OmniPayClient {
     }
   }
 
+  async cancelTransfer(reference: string): Promise<{ success: number; message?: string; code?: number }> {
+    try {
+      console.log(`🚫 OmniPay cancelTransfer: tentative annulation ref=${reference}`);
+      const body: Record<string, string> = {
+        action: "cancel",
+        apikey: this.apiKey,
+        reference,
+      };
+
+      const response = await fetch(OMNIPAY_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const responseText = await response.text();
+      console.log(`🚫 OmniPay cancelTransfer HTTP ${response.status}: ${responseText}`);
+
+      try {
+        return JSON.parse(responseText);
+      } catch {
+        return { success: 0, message: "Réponse invalide" };
+      }
+    } catch (error) {
+      console.error("❌ OmniPay cancelTransfer error:", error);
+      return { success: 0, message: "Erreur de connexion" };
+    }
+  }
+
   async getStatus(reference: string): Promise<OmniPayStatusResponse> {
     try {
       console.log("🔍 OmniPay: Vérification statut ref:", reference);

@@ -3730,6 +3730,65 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: annuler un retrait bloqué dans OmniPay + rembourser l'utilisateur
+  app.post("/api/admin/withdrawal-requests/:id/cancel-omnipay", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const requestId = parseInt(req.params.id);
+      const withdrawalRequest = await storage.getWithdrawalRequest(requestId);
+
+      if (!withdrawalRequest) {
+        return res.status(404).json({ message: "Demande introuvable" });
+      }
+
+      if (withdrawalRequest.status !== "pending") {
+        return res.status(400).json({ message: "Seuls les retraits en attente peuvent être annulés via OmniPay" });
+      }
+
+      // Tenter l'annulation côté OmniPay si une référence externe existe
+      let omnipayResult: { success: number; message?: string } = { success: 0, message: "Aucune référence externe" };
+      if (withdrawalRequest.externalReference) {
+        const { omnipay: opCancelClient } = await import("./omnipay");
+        omnipayResult = await opCancelClient.cancelTransfer(withdrawalRequest.externalReference);
+        console.log(`🚫 OmniPay cancel ref=${withdrawalRequest.externalReference} → success=${omnipayResult.success} msg=${omnipayResult.message}`);
+      }
+
+      // Dans tous les cas : rembourser l'utilisateur et rejeter le retrait
+      const user = await storage.getUser(withdrawalRequest.userId);
+      if (user) {
+        const refundAmount = parseFloat(withdrawalRequest.amount as string);
+        const currentBalance = parseFloat(user.balance as string);
+        const newBalance = currentBalance + refundAmount;
+        await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
+        console.log(`💰 Remboursement annulation OmniPay: userId=${withdrawalRequest.userId} +${refundAmount} → ${newBalance}`);
+      }
+
+      await storage.updateWithdrawalRequest(requestId, {
+        status: "rejected",
+        rejectionReason: `Annulé via OmniPay (${omnipayResult.success === 1 ? "annulation réussie" : "annulé côté SendavaPay"})`,
+        reviewedBy: req.session.userId,
+        reviewedAt: new Date(),
+      });
+
+      notifyWithdrawalRejected({
+        userName: user?.fullName || "Inconnu",
+        userId: withdrawalRequest.userId,
+        amount: withdrawalRequest.amount as string,
+        paymentMethod: withdrawalRequest.paymentMethod || "Mobile Money",
+        mobileNumber: withdrawalRequest.mobileNumber,
+        reason: "Retrait annulé — transfert OmniPay bloqué",
+      });
+
+      res.json({
+        message: "Retrait annulé et solde remboursé",
+        omnipaySuccess: omnipayResult.success === 1,
+        omnipayMessage: omnipayResult.message,
+      });
+    } catch (error) {
+      console.error("Cancel OmniPay withdrawal error:", error);
+      res.status(500).json({ message: "Erreur lors de l'annulation" });
+    }
+  });
+
   // Transfer feature disabled
   // app.post("/api/transfer", requireAuth, async (req, res) => { ... });
 
