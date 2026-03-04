@@ -2381,28 +2381,42 @@ export async function registerRoutes(
 
         // Check partner transactions (deposit)
         const partnerTx = await storage.getPartnerTransactionByReference(reference);
-        if (partnerTx && partnerTx.status !== "completed" && status === "3") {
-          const { db } = await import("./db");
-          const { sql } = await import("drizzle-orm");
-          const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${reference} AND status IN ('processing', 'pending')`);
-          const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
-          if (rowsAffected > 0) {
-            const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
-            await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partnerTx.partnerId}`);
-            console.log(`✅ OmniPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${reference} net=${netAmount}`);
-            if (partnerTx.callbackUrl) {
-              try {
-                await fetch(partnerTx.callbackUrl, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ reference, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: netAmount.toString(), currency: partnerTx.currency, provider: "omnipay" }),
-                });
-                console.log(`📤 OmniPay webhook: Callback envoyé à ${partnerTx.callbackUrl}`);
-              } catch (cbErr) { console.error("OmniPay webhook: Callback error:", cbErr); }
-            }
+        if (!partnerTx) {
+          console.log(`⚠️ OmniPay webhook: Transaction partenaire non trouvée ref=${reference} status=${status} type=${data.type}`);
+          return;
+        }
+        // OmniPay uses status 1 (immediate) AND status 3 (confirmed) for successful collections
+        const isOmnipaySuccess = status === "1" || status === "3";
+        if (partnerTx.status === "completed") {
+          console.log(`⚠️ OmniPay webhook: Transaction partenaire déjà complétée ref=${reference}`);
+          return;
+        }
+        if (!isOmnipaySuccess) {
+          console.log(`⚠️ OmniPay webhook: Statut non-succès pour transaction partenaire ref=${reference} status=${status} type=${data.type}`);
+          return;
+        }
+        const { db } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+        const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${reference} AND status IN ('processing', 'pending')`);
+        const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
+        if (rowsAffected > 0) {
+          const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
+          await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partnerTx.partnerId}`);
+          console.log(`✅ OmniPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${reference} status=${status} net=${netAmount}`);
+          if (partnerTx.callbackUrl) {
+            try {
+              const cbResponse = await fetch(partnerTx.callbackUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ reference, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: netAmount.toString(), currency: partnerTx.currency, provider: "omnipay" }),
+              });
+              console.log(`📤 OmniPay webhook: Callback envoyé à ${partnerTx.callbackUrl} → HTTP ${cbResponse.status}`);
+            } catch (cbErr) { console.error(`❌ OmniPay webhook: Callback ÉCHOUÉ vers ${partnerTx.callbackUrl}:`, cbErr); }
+          } else {
+            console.warn(`⚠️ OmniPay webhook: Aucun callbackUrl configuré pour transaction partenaire ref=${reference} partnerId=${partnerTx.partnerId} — le partenaire ne sera PAS notifié automatiquement`);
           }
         } else {
-          console.log("⚠️ OmniPay webhook: Paiement non trouvé ref=" + reference);
+          console.log(`⚠️ OmniPay webhook: UPDATE n'a affecté aucune ligne (transaction déjà traitée?) ref=${reference}`);
         }
         return;
       }
