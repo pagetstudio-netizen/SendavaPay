@@ -15,6 +15,9 @@ declare module "express-session" {
   }
 }
 
+// Throttle retraits partenaire : max 3 tentatives par 10 minutes (en mémoire — fenêtre courte)
+const partnerWithdrawAttempts = new Map<number, number[]>();
+
 const partnerLogoUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
@@ -1900,6 +1903,22 @@ export function registerPartnerRoutes(app: Express) {
     try {
       const partner = await storage.getPartner(req.session.partnerId!);
       if (!partner) return res.status(404).json({ message: "Partenaire non trouvé" });
+
+      // ── Throttle : max 3 tentatives par 10 minutes ────────────────────────
+      const TEN_MIN_MS = 10 * 60 * 1000;
+      const now = Date.now();
+      const pid = req.session.partnerId!;
+      const prevAttempts = (partnerWithdrawAttempts.get(pid) || []).filter(t => now - t < TEN_MIN_MS);
+      if (prevAttempts.length >= 3) {
+        const thirdOldest = prevAttempts.sort()[prevAttempts.length - 3];
+        const minutesLeft = Math.max(1, Math.ceil((thirdOldest + TEN_MIN_MS - now) / 60000));
+        return res.status(429).json({
+          message: `Vous avez effectué ${prevAttempts.length} tentatives de retrait en moins de 10 minutes. Veuillez patienter encore ${minutesLeft} minute(s) avant de réessayer.`,
+          retryAfterMinutes: minutesLeft,
+        });
+      }
+      partnerWithdrawAttempts.set(pid, [...prevAttempts, now]);
+      // ─────────────────────────────────────────────────────────────────────
 
       const { amount, paymentMethod, mobileNumber, country, walletName } = req.body;
       const numericAmount = parseFloat(amount);

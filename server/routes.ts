@@ -2881,6 +2881,25 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Compte non vérifié. Veuillez compléter la vérification KYC." });
       }
 
+      // ── Throttle : max 3 tentatives par 10 minutes ────────────────────────
+      const TEN_MIN_MS = 10 * 60 * 1000;
+      const allUserWithdrawals = await storage.getWithdrawalRequests(req.session.userId!);
+      const recentAttempts = allUserWithdrawals.filter(w =>
+        Date.now() - new Date(w.createdAt).getTime() < TEN_MIN_MS
+      );
+      if (recentAttempts.length >= 3) {
+        const sorted = [...recentAttempts].sort((a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        const thirdOldest = new Date(sorted[sorted.length - 3].createdAt).getTime();
+        const minutesLeft = Math.max(1, Math.ceil((thirdOldest + TEN_MIN_MS - Date.now()) / 60000));
+        return res.status(429).json({
+          message: `Vous avez effectué ${recentAttempts.length} tentatives de retrait en moins de 10 minutes. Veuillez patienter encore ${minutesLeft} minute(s) avant de réessayer.`,
+          retryAfterMinutes: minutesLeft,
+        });
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       const { amount, paymentMethod, mobileNumber, country, walletName } = req.body;
       const numericAmount = parseFloat(amount);
       const balance = parseFloat(user.balance);
