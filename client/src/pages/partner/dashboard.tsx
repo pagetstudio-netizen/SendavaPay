@@ -418,374 +418,40 @@ const COUNTRY_PREFIXES: Record<string, string> = {
 const quickAmounts = [5000, 10000, 25000, 50000, 100000];
 
 function PartnerDepositSection() {
-  const { toast } = useToast();
-  const [amount, setAmount] = useState("");
-  const [selectedCountry, setSelectedCountry] = useState("");
-  const [selectedServiceId, setSelectedServiceId] = useState("");
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [paymentStatus, setPaymentStatus] = useState<"idle" | "processing" | "pending" | "completed" | "failed">("idle");
-  const [verificationMessage, setVerificationMessage] = useState("");
-  const [currentPayId, setCurrentPayId] = useState("");
-  const [currentOrderId, setCurrentOrderId] = useState("");
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
-  const pollingAttemptsRef = useRef(0);
-  const maxPollingAttempts = 40;
-
-  const { data: countries = [] } = useQuery<SoleasPayCountry[]>({
-    queryKey: ["/api/partner/deposit/countries"],
-  });
-
-  const { data: services = [] } = useQuery<SoleasPayService[]>({
-    queryKey: ["/api/partner/deposit/services", selectedCountry],
-    queryFn: async () => {
-      const res = await fetch(`/api/partner/deposit/services/${selectedCountry}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch services");
-      return res.json();
-    },
-    enabled: !!selectedCountry,
-  });
-
-  const { data: commissionRates } = useQuery<{ depositRate: number; withdrawalRate: number; encaissementRate: number }>({
-    queryKey: ["/api/partner/commission-rates"],
-  });
-
-  useEffect(() => {
-    if (countries.length > 0 && !selectedCountry) {
-      setSelectedCountry(countries[0].code);
-    }
-  }, [countries, selectedCountry]);
-
-  useEffect(() => {
-    if (services.length > 0 && (!selectedServiceId || !services.find(s => s.id.toString() === selectedServiceId))) {
-      const availableService = services.find(s => !s.inMaintenance);
-      if (availableService) setSelectedServiceId(availableService.id.toString());
-      else setSelectedServiceId("");
-    }
-  }, [services, selectedServiceId]);
-
-  const selectedService = services.find(s => s.id.toString() === selectedServiceId);
-  const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
-  const phonePrefix = COUNTRY_PREFIXES[selectedService?.countryCode || ""] || "";
-  const isWiniPayerService = selectedService?.paymentGateway === "winipayer";
-  const commissionRate = commissionRates?.depositRate ?? 7;
-  const numericAmount = parseFloat(amount) || 0;
-  const fee = Math.round(numericAmount * (commissionRate / 100));
-  const netAmount = numericAmount - fee;
-
-  const checkPaymentStatus = useCallback(async () => {
-    if (!currentOrderId || !currentPayId) return;
-    try {
-      const response = await fetch(`/api/partner/verify-deposit/${currentOrderId}/${currentPayId}`, { credentials: "include" });
-      const data = await response.json();
-      if (data.status === "completed") {
-        setPaymentStatus("completed");
-        setVerificationMessage(data.message || "Paiement confirmé!");
-        localStorage.removeItem("partner_deposit_payment");
-        if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
-        queryClient.invalidateQueries({ queryKey: ["/api/partner/me"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/partner/stats"] });
-      } else if (data.status === "failed") {
-        setPaymentStatus("failed");
-        setVerificationMessage(data.message || "Paiement échoué.");
-        localStorage.removeItem("partner_deposit_payment");
-        if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
-      } else {
-        pollingAttemptsRef.current += 1;
-        setVerificationMessage(`Vérification en cours... (${pollingAttemptsRef.current}/${maxPollingAttempts})`);
-        if (pollingAttemptsRef.current >= maxPollingAttempts) {
-          setPaymentStatus("pending");
-          setVerificationMessage("Le paiement est en attente. Veuillez confirmer sur votre téléphone.");
-          if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
-        }
-      }
-    } catch {
-      pollingAttemptsRef.current += 1;
-      if (pollingAttemptsRef.current >= maxPollingAttempts) {
-        setVerificationMessage("Impossible de vérifier le paiement.");
-        if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
-      }
-    }
-  }, [currentOrderId, currentPayId]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("partner_deposit_payment");
-    if (saved) {
-      try {
-        const { orderId, payId, timestamp } = JSON.parse(saved);
-        const MAX_AGE_MS = 30 * 60 * 1000;
-        const isExpired = !timestamp || Date.now() - timestamp > MAX_AGE_MS;
-        if (isExpired) { localStorage.removeItem("partner_deposit_payment"); return; }
-        if (orderId && payId) {
-          setCurrentOrderId(orderId);
-          setCurrentPayId(payId);
-          setPaymentStatus("processing");
-          pollingAttemptsRef.current = 0;
-        }
-      } catch { localStorage.removeItem("partner_deposit_payment"); }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (paymentStatus === "processing" && currentOrderId && currentPayId) {
-      checkPaymentStatus();
-      pollingRef.current = setInterval(checkPaymentStatus, 3000);
-    }
-    return () => { if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; } };
-  }, [paymentStatus, currentOrderId, currentPayId, checkPaymentStatus]);
-
-  const depositMutation = useMutation({
-    mutationFn: async (data: { amount: number; serviceId: string; phoneNumber: string }) => {
-      const response = await apiRequest("POST", "/api/partner/deposit", data);
-      return response.json();
-    },
-    onSuccess: (data) => {
-      if (data.success && data.payId && data.orderId) {
-        localStorage.setItem("partner_deposit_payment", JSON.stringify({ orderId: data.orderId, payId: data.payId, timestamp: Date.now() }));
-        setCurrentOrderId(data.orderId);
-        setCurrentPayId(data.payId);
-        if ((data.isWinipayer || data.checkoutUrl) && data.checkoutUrl) {
-          toast({ title: "Redirection en cours", description: "Vous allez être redirigé vers la page de paiement." });
-          window.open(data.checkoutUrl, "_blank");
-          setVerificationMessage("Complétez le paiement sur la page de paiement, puis revenez ici.");
-        } else if (data.isWave && data.waveUrl) {
-          toast({ title: "Redirection vers Wave", description: "Confirmez le paiement dans l'application Wave, puis revenez ici." });
-          window.open(data.waveUrl, "_blank");
-          setVerificationMessage("Confirmez le paiement dans l'application Wave, puis revenez ici.");
-        } else {
-          toast({ title: "Paiement initié", description: "Veuillez confirmer le paiement sur votre téléphone." });
-          setVerificationMessage(data.message || "Veuillez confirmer le paiement sur votre téléphone.");
-        }
-        setPaymentStatus("processing");
-        pollingAttemptsRef.current = 0;
-      } else {
-        toast({ title: "Erreur", description: data.message || "Erreur lors du paiement", variant: "destructive" });
-      }
-    },
-    onError: (error: Error) => {
-      toast({ title: "Erreur", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (numericAmount < 100) {
-      toast({ title: "Montant invalide", description: `Montant minimum: 100 ${currency}`, variant: "destructive" });
-      return;
-    }
-    if (!isWiniPayerService && (!phoneNumber || phoneNumber.length < 8)) {
-      toast({ title: "Numéro invalide", description: "Entrez un numéro valide.", variant: "destructive" });
-      return;
-    }
-    const fullPhone = isWiniPayerService ? "" : (phonePrefix + phoneNumber).replace(/\s/g, "");
-    depositMutation.mutate({ amount: numericAmount, serviceId: selectedServiceId, phoneNumber: fullPhone });
-  };
-
-  const resetPayment = () => {
-    setPaymentStatus("idle");
-    setVerificationMessage("");
-    setCurrentOrderId("");
-    setCurrentPayId("");
-    localStorage.removeItem("partner_deposit_payment");
-    pollingAttemptsRef.current = 0;
-    if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
-  };
-
-  if (paymentStatus !== "idle") {
-    return (
-      <div className="max-w-2xl mx-auto space-y-6">
-        <h2 className="text-2xl font-bold">Dépôt</h2>
-        <Card>
-          <CardContent className="p-8 text-center space-y-6">
-            {paymentStatus === "completed" ? (
-              <>
-                <div className="mx-auto w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                  <CheckCircle className="h-8 w-8 text-green-600" />
-                </div>
-                <div className="space-y-2">
-                  <h3 className="text-xl font-semibold text-green-600">Paiement réussi!</h3>
-                  <p className="text-muted-foreground">{verificationMessage}</p>
-                </div>
-                <Button onClick={resetPayment} data-testid="button-partner-deposit-done">Nouveau dépôt</Button>
-              </>
-            ) : paymentStatus === "failed" ? (
-              <>
-                <div className="mx-auto w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                  <XCircle className="h-8 w-8 text-red-600" />
-                </div>
-                <div className="space-y-2">
-                  <h3 className="text-xl font-semibold text-red-600">Paiement échoué</h3>
-                  <p className="text-muted-foreground">{verificationMessage}</p>
-                </div>
-                <Button variant="outline" onClick={resetPayment} data-testid="button-partner-deposit-retry">Réessayer</Button>
-              </>
-            ) : (
-              <>
-                <div className="mx-auto w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                  <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
-                </div>
-                <div className="space-y-2">
-                  <h3 className="text-xl font-semibold">
-                    {paymentStatus === "pending" ? "Paiement en attente" : "Vérification du paiement..."}
-                  </h3>
-                  <p className="text-muted-foreground">
-                    {verificationMessage || "Veuillez confirmer le paiement sur votre téléphone."}
-                  </p>
-                </div>
-                {paymentStatus === "pending" ? (
-                  <Button variant="outline" onClick={resetPayment} data-testid="button-partner-deposit-new">Nouveau dépôt</Button>
-                ) : (
-                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                    <Clock className="h-4 w-4" />
-                    <span>Vérification automatique toutes les 3 secondes</span>
-                  </div>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
         <h2 className="text-2xl font-bold">Dépôt</h2>
-        <p className="text-muted-foreground">Rechargez votre compte partenaire</p>
+        <p className="text-muted-foreground">Rechargement du compte partenaire</p>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Dépôt Mobile Money</CardTitle>
-          <CardDescription>Sélectionnez le pays, l'opérateur et entrez le montant</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-4">
-              <Label>Choisir le pays</Label>
-              <CountrySelect
-                options={countries.map(c => ({ value: c.code, label: c.name, flag: c.flag, subLabel: c.currency }))}
-                value={selectedCountry}
-                onChange={setSelectedCountry}
-                placeholder="Sélectionnez un pays"
-                data-testid="select-partner-deposit-country"
-              />
-            </div>
-
-            {services.length > 0 && (
-              <div className="space-y-4">
-                <Label>Opérateur Mobile Money</Label>
-                <RadioGroup
-                  value={selectedServiceId}
-                  onValueChange={(val) => {
-                    const srv = services.find(s => s.id.toString() === val);
-                    if (!srv?.inMaintenance) setSelectedServiceId(val);
-                  }}
-                  className="grid grid-cols-2 gap-4"
-                >
-                  {services.map((service) => (
-                    <div key={service.id} className="relative">
-                      <RadioGroupItem value={service.id.toString()} id={`pdep-${service.id}`} className="peer sr-only" disabled={service.inMaintenance} />
-                      <Label
-                        htmlFor={`pdep-${service.id}`}
-                        className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all ${
-                          service.inMaintenance ? "opacity-50 cursor-not-allowed bg-muted" : "cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5"
-                        }`}
-                        data-testid={`radio-partner-service-${service.id}`}
-                      >
-                        <img src={operatorLogos[service.operator] || mtnLogo} alt={service.operator} className="h-12 w-12 object-contain rounded-full bg-white shadow-sm p-1" />
-                        <span className="text-xs font-bold text-center">{service.description}</span>
-                        {service.inMaintenance && <span className="text-xs text-orange-600 font-medium">En maintenance</span>}
-                      </Label>
-                    </div>
-                  ))}
-                </RadioGroup>
-              </div>
-            )}
-
-            {isWiniPayerService ? (
-              <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 p-4">
-                <p className="text-sm text-blue-700 dark:text-blue-300">
-                  Vous serez redirigé vers la page de paiement pour compléter votre dépôt. Aucun numéro de téléphone n'est requis.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <Label>Numéro de téléphone Mobile Money</Label>
-                <div className="flex h-12">
-                  {phonePrefix && (
-                    <div className="flex items-center px-3 border border-r-0 rounded-l-md bg-muted text-sm font-mono font-semibold text-muted-foreground select-none shrink-0">
-                      {phonePrefix}
-                    </div>
-                  )}
-                  <Input
-                    type="tel"
-                    placeholder="90123456"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ""))}
-                    className={phonePrefix ? "rounded-l-none h-12" : "h-12"}
-                    data-testid="input-partner-deposit-phone"
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Entrez le numéro local associé à votre compte {selectedService?.operator || "Mobile Money"}
-                </p>
-              </div>
-            )}
-
-            <div className="space-y-4">
-              <Label>Montant ({currency})</Label>
-              <Input
-                type="number"
-                placeholder="Entrez le montant"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="text-2xl h-14 font-semibold"
-                min="100"
-                data-testid="input-partner-deposit-amount"
-              />
-              <div className="flex flex-wrap gap-2">
-                {quickAmounts.map((qa) => (
-                  <Button key={qa} type="button" variant={numericAmount === qa ? "default" : "outline"} size="sm" onClick={() => setAmount(qa.toString())} data-testid={`button-partner-quick-${qa}`}>
-                    {qa.toLocaleString()} {currency}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
-            {numericAmount > 0 && (
-              <Card className="bg-muted/50 border-none">
-                <CardContent className="p-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Montant</span>
-                    <span>{numericAmount.toLocaleString()} {currency}</span>
-                  </div>
-                  <div className="flex justify-between text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1"><Info className="h-3 w-3" />Frais ({commissionRate}%)</span>
-                    <span>-{fee.toLocaleString()} {currency}</span>
-                  </div>
-                  <div className="flex justify-between font-semibold pt-2 border-t">
-                    <span>Vous recevez</span>
-                    <span className="text-green-600">{netAmount.toLocaleString()} {currency}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            <Button
-              type="submit"
-              className="w-full h-12 text-lg font-bold"
-              disabled={numericAmount < 100 || (!isWiniPayerService && (!phoneNumber || phoneNumber.length < 5)) || depositMutation.isPending}
-              data-testid="button-partner-deposit-submit"
-            >
-              {depositMutation.isPending ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" />Traitement...</>) : `Déposer ${numericAmount > 0 ? numericAmount.toLocaleString() + " " + currency : ""}`}
-            </Button>
-          </form>
+      <Card className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30">
+        <CardContent className="p-8 text-center space-y-5">
+          <div className="mx-auto w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+            <Info className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div className="space-y-3">
+            <h3 className="text-xl font-semibold text-blue-800 dark:text-blue-200">Rechargez via votre compte personnel</h3>
+            <p className="text-blue-700 dark:text-blue-300 max-w-md mx-auto leading-relaxed">
+              Bonjour ! Pour recharger votre compte partenaire, veuillez effectuer un dépôt sur votre compte personnel SendavaPay, puis utiliser la fonctionnalité de transfert dans la section <strong>Retrait</strong> pour transférer les fonds vers ce compte partenaire.
+            </p>
+          </div>
+          <div className="rounded-lg bg-blue-100 dark:bg-blue-900/40 p-4 text-sm text-blue-700 dark:text-blue-300 text-left space-y-2">
+            <p className="font-semibold">Étapes :</p>
+            <ol className="list-decimal list-inside space-y-1">
+              <li>Connectez-vous sur votre compte personnel SendavaPay</li>
+              <li>Effectuez un dépôt Mobile Money sur votre compte personnel</li>
+              <li>Revenez ici et utilisez "Retrait → Transférer vers compte personnel" (dans l'autre sens)</li>
+            </ol>
+          </div>
+          <p className="text-xs text-blue-500 dark:text-blue-400">
+            Cette procédure garantit la traçabilité et la sécurité de vos fonds.
+          </p>
         </CardContent>
       </Card>
     </div>
   );
 }
+
 
 interface WithdrawCountry {
   id: string;
@@ -806,85 +472,81 @@ const withdrawStatusConfig: Record<string, { label: string; icon: typeof Clock; 
 function PartnerWithdrawSection({ partner }: { partner: any }) {
   const { toast } = useToast();
   const [amount, setAmount] = useState("");
-  const [country, setCountry] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("");
-  const [mobileNumber, setMobileNumber] = useState("");
-  const [walletName, setWalletName] = useState("");
+  const [accountIdentifier, setAccountIdentifier] = useState("");
+  const [transferSuccess, setTransferSuccess] = useState<{ message: string; amount: number } | null>(null);
 
-  const { data: countries = [] } = useQuery<WithdrawCountry[]>({
-    queryKey: ["/api/partner/withdraw/operators"],
-  });
-
-  const { data: withdrawalRequests = [], isLoading: requestsLoading } = useQuery<any[]>({
-    queryKey: ["/api/partner/withdrawal-requests"],
-  });
-
-  const { data: commissionRates } = useQuery<{ depositRate: number; withdrawalRate: number; encaissementRate: number }>({
-    queryKey: ["/api/partner/commission-rates"],
-  });
-
-  const selectedCountryData = countries.find(c => c.id === country);
-  const availableMethods = selectedCountryData?.methods || [];
-  const currency = selectedCountryData?.currency || "FCFA";
-  const phonePrefix = COUNTRY_PREFIXES[country.toUpperCase()] || "";
-  const commissionRate = commissionRates?.withdrawalRate ?? 7;
   const balance = parseFloat(partner?.balance || "0");
   const numericAmount = parseFloat(amount) || 0;
-  const fee = Math.round(numericAmount * (commissionRate / 100));
-  const netAmount = numericAmount - fee;
-  const minWithdrawal = 500;
+  const minTransfer = 500;
 
-  useEffect(() => {
-    setPaymentMethod("");
-    setMobileNumber("");
-  }, [country]);
-
-  const withdrawMutation = useMutation({
-    mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string; country: string; walletName: string }) => {
-      const res = await apiRequest("POST", "/api/partner/withdraw", data);
+  const transferMutation = useMutation({
+    mutationFn: async (data: { amount: number; accountIdentifier: string }) => {
+      const res = await apiRequest("POST", "/api/partner/transfer-to-personal", data);
       return await res.json();
     },
     onSuccess: (data) => {
-      toast({ title: data.autoProcessed ? "Retrait effectué" : "Retrait en cours", description: data.message || "Votre retrait a été traité instantanément." });
+      setTransferSuccess({ message: data.message, amount: numericAmount });
       queryClient.invalidateQueries({ queryKey: ["/api/partner/me"] });
       queryClient.invalidateQueries({ queryKey: ["/api/partner/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/partner/withdrawal-requests"] });
       setAmount("");
-      setWalletName("");
-      setMobileNumber("");
+      setAccountIdentifier("");
     },
     onError: (error: Error) => {
-      toast({ title: "Retrait échoué", description: error.message, variant: "destructive" });
-      queryClient.invalidateQueries({ queryKey: ["/api/partner/me"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/partner/stats"] });
+      toast({ title: "Transfert échoué", description: error.message, variant: "destructive" });
     },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (numericAmount < minWithdrawal) {
-      toast({ title: "Montant insuffisant", description: `Minimum: ${minWithdrawal.toLocaleString()} ${currency}`, variant: "destructive" });
+    if (numericAmount < minTransfer) {
+      toast({ title: "Montant insuffisant", description: `Minimum: ${minTransfer.toLocaleString()} FCFA`, variant: "destructive" });
       return;
     }
     if (numericAmount > balance) {
       toast({ title: "Solde insuffisant", description: "Vous n'avez pas assez de fonds.", variant: "destructive" });
       return;
     }
-    if (!country) { toast({ title: "Pays requis", description: "Sélectionnez un pays.", variant: "destructive" }); return; }
-    if (!paymentMethod) { toast({ title: "Moyen de paiement requis", description: "Sélectionnez un opérateur.", variant: "destructive" }); return; }
-    if (!mobileNumber) { toast({ title: "Numéro requis", description: "Entrez un numéro de téléphone.", variant: "destructive" }); return; }
-    const fullPhone = (phonePrefix + mobileNumber).replace(/\s/g, "");
-    withdrawMutation.mutate({ amount: numericAmount, paymentMethod, mobileNumber: fullPhone, country, walletName });
+    if (!accountIdentifier.trim()) {
+      toast({ title: "Identifiant requis", description: "Entrez l'email ou le téléphone de votre compte personnel.", variant: "destructive" });
+      return;
+    }
+    transferMutation.mutate({ amount: numericAmount, accountIdentifier });
   };
 
-  const formatDate = (date: string) =>
-    new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(date));
+  if (transferSuccess) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-6">
+        <div>
+          <h2 className="text-2xl font-bold">Retrait</h2>
+          <p className="text-muted-foreground">Transférer vers compte personnel</p>
+        </div>
+        <Card>
+          <CardContent className="p-8 text-center space-y-5">
+            <div className="mx-auto w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+              <CheckCircle className="h-8 w-8 text-green-600" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-xl font-semibold text-green-600">Transfert effectué !</h3>
+              <p className="text-muted-foreground">{transferSuccess.message}</p>
+            </div>
+            <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
+              <p className="font-medium">Prochaine étape :</p>
+              <p>Connectez-vous sur votre compte personnel SendavaPay et effectuez un retrait Mobile Money.</p>
+            </div>
+            <Button onClick={() => setTransferSuccess(null)} data-testid="button-partner-transfer-new">
+              Nouveau transfert
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
         <h2 className="text-2xl font-bold">Retrait</h2>
-        <p className="text-muted-foreground">Retirez vers votre Mobile Money</p>
+        <p className="text-muted-foreground">Transférez votre solde vers votre compte personnel</p>
       </div>
 
       <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground">
@@ -894,18 +556,27 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
         </CardContent>
       </Card>
 
+      <Card className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20">
+        <CardContent className="p-4 flex items-start gap-3">
+          <Info className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-700 dark:text-amber-300">
+            Pour retirer de l'argent, transférez d'abord votre solde partenaire vers votre compte personnel SendavaPay, puis effectuez un retrait Mobile Money depuis votre compte personnel.
+          </p>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
-          <CardTitle>Nouvelle demande de retrait</CardTitle>
-          <CardDescription>Minimum: {minWithdrawal.toLocaleString()} FCFA. Les retraits sont traités instantanément.</CardDescription>
+          <CardTitle>Transférer vers compte personnel</CardTitle>
+          <CardDescription>Minimum: {minTransfer.toLocaleString()} FCFA. Le transfert est instantané.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-2">
               <div className="flex items-center justify-between flex-wrap gap-1">
-                <Label>Montant ({currency})</Label>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setAmount(Math.floor(balance).toString())} data-testid="button-partner-withdraw-max">
-                  Max: {balance.toLocaleString()} FCFA
+                <Label>Montant à transférer (FCFA)</Label>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setAmount(Math.floor(balance).toString())} data-testid="button-partner-transfer-max">
+                  Tout: {balance.toLocaleString()} FCFA
                 </Button>
               </div>
               <Input
@@ -914,166 +585,52 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 className="text-2xl h-14 font-semibold"
-                min={minWithdrawal}
+                min={minTransfer}
                 max={balance}
-                data-testid="input-partner-withdraw-amount"
+                data-testid="input-partner-transfer-amount"
               />
             </div>
 
             {numericAmount > 0 && (
               <Card className="bg-muted/50 border-none">
-                <CardContent className="p-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span>Montant demandé</span>
-                    <span>{numericAmount.toLocaleString()} {currency}</span>
+                <CardContent className="p-4">
+                  <div className="flex justify-between font-semibold">
+                    <span>Montant transféré</span>
+                    <span className="text-green-600">{numericAmount.toLocaleString()} FCFA</span>
                   </div>
-                  <div className="flex justify-between text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1"><Info className="h-3 w-3" />Frais ({commissionRate}%)</span>
-                    <span>-{fee.toLocaleString()} {currency}</span>
-                  </div>
-                  <div className="flex justify-between font-semibold pt-2 border-t">
-                    <span>Vous recevez</span>
-                    <span className="text-green-600">{netAmount.toLocaleString()} {currency}</span>
-                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Aucun frais — transfert interne SendavaPay</p>
                 </CardContent>
               </Card>
             )}
 
             <div className="space-y-2">
-              <Label>Pays de réception</Label>
-              <CountrySelect
-                options={countries.map(c => ({ value: c.id, label: c.name }))}
-                value={country}
-                onChange={(val) => { setCountry(val); setPaymentMethod(""); setMobileNumber(""); }}
-                placeholder="Sélectionnez un pays"
-                data-testid="select-partner-withdraw-country"
+              <Label>Compte personnel de destination</Label>
+              <Input
+                type="text"
+                placeholder="Email ou téléphone de votre compte personnel"
+                value={accountIdentifier}
+                onChange={(e) => setAccountIdentifier(e.target.value)}
+                data-testid="input-partner-transfer-account"
               />
-            </div>
-
-            {availableMethods.length > 0 && (
-              <div className="space-y-4">
-                <Label>Moyen de paiement</Label>
-                <RadioGroup
-                  value={paymentMethod}
-                  onValueChange={(val) => {
-                    const method = availableMethods.find(m => m.id === val);
-                    if (!method?.inMaintenance) setPaymentMethod(val);
-                  }}
-                  className="grid grid-cols-2 md:grid-cols-3 gap-4"
-                >
-                  {availableMethods.map((method) => {
-                    const logoKey = method.name.toLowerCase().replace(/\s+/g, "").replace("-", "");
-                    return (
-                      <div key={method.id} className="relative">
-                        <RadioGroupItem value={method.id} id={`pw-${method.id}`} className="peer sr-only" disabled={method.inMaintenance} />
-                        <Label
-                          htmlFor={`pw-${method.id}`}
-                          className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-all ${
-                            method.inMaintenance ? "opacity-50 cursor-not-allowed bg-muted" : "cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5"
-                          }`}
-                        >
-                          <img src={methodLogos[logoKey] || methodLogos[method.name.toLowerCase()] || moovLogo} alt={method.name} className="h-12 w-12 object-contain rounded-full" />
-                          <span className="text-xs font-medium text-center">{method.name}</span>
-                          {method.inMaintenance && <span className="text-xs text-orange-600 font-medium">En maintenance</span>}
-                        </Label>
-                      </div>
-                    );
-                  })}
-                </RadioGroup>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label>Numéro de téléphone destinataire</Label>
-              <div className="flex">
-                {phonePrefix && (
-                  <div className="flex items-center px-3 border border-r-0 rounded-l-md bg-muted text-sm font-mono font-semibold text-muted-foreground select-none shrink-0">
-                    {phonePrefix}
-                  </div>
-                )}
-                <Input
-                  type="tel"
-                  placeholder="90123456"
-                  value={mobileNumber}
-                  onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, ""))}
-                  className={phonePrefix ? "rounded-l-none" : ""}
-                  data-testid="input-partner-withdraw-mobile"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2"><Wallet className="h-4 w-4" />Nom du portefeuille (optionnel)</Label>
-              <Input type="text" placeholder="Ex: Mon portefeuille principal" value={walletName} onChange={(e) => setWalletName(e.target.value)} data-testid="input-partner-wallet-name" />
-              <p className="text-xs text-muted-foreground">Un nom pour identifier ce portefeuille dans vos demandes</p>
+              <p className="text-xs text-muted-foreground">
+                Entrez l'email ou le numéro de téléphone associé à votre compte personnel SendavaPay.
+              </p>
             </div>
 
             <Button
               type="submit"
               className="w-full"
               size="lg"
-              disabled={withdrawMutation.isPending || numericAmount < minWithdrawal || numericAmount > balance || !country || !paymentMethod || !mobileNumber}
-              data-testid="button-partner-withdraw-submit"
+              disabled={transferMutation.isPending || numericAmount < minTransfer || numericAmount > balance || !accountIdentifier.trim()}
+              data-testid="button-partner-transfer-submit"
             >
-              {withdrawMutation.isPending ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Envoi...</>) : `Demander le retrait${numericAmount > 0 ? ` de ${numericAmount.toLocaleString()} ${currency}` : ""}`}
+              {transferMutation.isPending
+                ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Transfert en cours...</>)
+                : `Transférer ${numericAmount > 0 ? numericAmount.toLocaleString() + " FCFA" : ""} vers mon compte personnel`}
             </Button>
           </form>
         </CardContent>
       </Card>
-
-      {withdrawalRequests.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Historique des demandes</CardTitle>
-            <CardDescription>Vos demandes de retrait récentes</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {requestsLoading ? (
-                <p className="text-muted-foreground text-center py-4">Chargement...</p>
-              ) : (
-                withdrawalRequests.map((request: any) => {
-                  const statusKey = request.status || "pending";
-                  const status = withdrawStatusConfig[statusKey] || withdrawStatusConfig.pending;
-                  const StatusIcon = status.icon;
-                  const countryName = countries.find(c => c.id === request.country)?.name || request.country || "";
-                  const displayAmount = parseFloat(request.amount || "0");
-                  const displayNet = parseFloat(request.net_amount || request.netAmount || "0");
-                  return (
-                    <div key={request.id} className="flex items-start justify-between p-4 rounded-lg bg-muted/30" data-testid={`row-withdraw-${request.id}`}>
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold">{displayAmount.toLocaleString("fr-FR")} FCFA</span>
-                          <Badge className={status.color}>
-                            <StatusIcon className="h-3 w-3 mr-1" />
-                            {status.label}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {request.payment_method || request.paymentMethod} — {request.mobile_number || request.mobileNumber}
-                        </p>
-                        {countryName && (
-                          <p className="text-xs text-muted-foreground">{countryName} • {formatDate(request.created_at || request.createdAt)}</p>
-                        )}
-                        {request.rejection_reason && !String(request.rejection_reason).startsWith("LIQUIDITY_HOLD") && (
-                          <p className="text-sm text-red-600 mt-1">Raison: {request.rejection_reason}</p>
-                        )}
-                        {String(request.rejection_reason || "").startsWith("LIQUIDITY_HOLD") && (
-                          <p className="text-sm text-orange-600 mt-1">En file d'attente — traitement en cours</p>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm text-muted-foreground">Vous recevez</p>
-                        <p className="font-semibold text-green-600">{displayNet.toLocaleString("fr-FR")} FCFA</p>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }
