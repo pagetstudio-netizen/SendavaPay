@@ -82,22 +82,30 @@ export interface OmniPayWebhookPayload {
   signature?: string;
 }
 
-export const OMNIPAY_OPERATORS: Record<string, string | null> = {
-  "MTN": null,
-  "MTN Mobile Money": null,
-  "MTN CI": null,
-  "Moov": null,
-  "Moov Money": null,
-  "Moov CI": null,
-  "Orange": null,
-  "Orange Money": null,
-  "Orange CI": null,
+export const OMNIPAY_OPERATORS: Record<string, string> = {
+  "MTN": "mtn",
+  "MTN Mobile Money": "mtn",
+  "MTN CI": "mtn",
+  "Moov": "moov",
+  "Moov Money": "moov",
+  "Moov CI": "moov",
+  "Orange": "orange",
+  "Orange Money": "orange",
+  "Orange CI": "orange",
   "Wave": "wave",
   "Wave CI": "wave",
   "WAVE": "wave",
   "Mixx": "mixx",
   "MIXX": "mixx",
   "Mixx CI": "mixx",
+  "T-Money": "tmoney",
+  "TMoney": "tmoney",
+  "T Money": "tmoney",
+  "Airtel": "airtel",
+  "Airtel Money": "airtel",
+  "Vodacom": "vodacom",
+  "Orange Money Sénégal": "orange",
+  "Orange Money Senegal": "orange",
 };
 
 export function getOmnipayOperator(operatorName: string): string | null | undefined {
@@ -112,7 +120,12 @@ export function getOmnipayOperator(operatorName: string): string | null | undefi
   const lower = normalized.toLowerCase();
   if (lower.includes("wave")) return "wave";
   if (lower.includes("mixx")) return "mixx";
-  if (lower.includes("mtn") || lower.includes("moov") || lower.includes("orange")) return null;
+  if (lower.includes("tmoney") || lower.includes("t-money")) return "tmoney";
+  if (lower.includes("airtel")) return "airtel";
+  if (lower.includes("vodacom")) return "vodacom";
+  if (lower.includes("mtn")) return "mtn";
+  if (lower.includes("moov")) return "moov";
+  if (lower.includes("orange")) return "orange";
 
   return undefined;
 }

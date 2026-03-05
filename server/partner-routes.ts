@@ -2506,7 +2506,7 @@ export function registerPartnerRoutes(app: Express) {
         withdrawalRate: parseFloat(settings?.withdrawalRate || "7"),
         encaissementRate: partner?.commissionRate
           ? parseFloat(partner.commissionRate)
-          : parseFloat(settings?.encaissementRate || "7"),
+          : parseFloat(settings?.encaissementRate || "5"),
       });
     } catch (error) {
       res.status(500).json({ message: "Erreur serveur" });

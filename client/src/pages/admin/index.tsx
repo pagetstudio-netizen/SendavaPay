@@ -2418,7 +2418,7 @@ interface CountryFee {
 function CommissionsContent() {
   const { toast } = useToast();
   const [depositRate, setDepositRate] = useState("7");
-  const [encaissementRate, setEncaissementRate] = useState("7");
+  const [encaissementRate, setEncaissementRate] = useState("5");
   const [withdrawalRate, setWithdrawalRate] = useState("7");
   const [reason, setReason] = useState("");
   const [editingFees, setEditingFees] = useState<Record<number, { deposit: string; withdraw: string; encaissement: string; api: string }>>({});
@@ -2438,7 +2438,7 @@ function CommissionsContent() {
   useEffect(() => {
     if (settings) {
       setDepositRate(settings.depositRate || "7");
-      setEncaissementRate(settings.encaissementRate || "7");
+      setEncaissementRate(settings.encaissementRate || "5");
       setWithdrawalRate(settings.withdrawalRate || "7");
     }
   }, [settings]);
