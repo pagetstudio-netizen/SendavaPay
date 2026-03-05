@@ -2236,6 +2236,68 @@ export function registerPartnerRoutes(app: Express) {
     }
   });
 
+  // ========== TRANSFER TO PERSONAL ACCOUNT ==========
+
+  app.post("/api/partner/transfer-to-personal", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      const partner = await storage.getPartner(req.session.partnerId!);
+      if (!partner) return res.status(404).json({ message: "Partenaire non trouvé" });
+
+      const { amount, accountIdentifier } = req.body;
+      const numericAmount = parseFloat(amount);
+      const balance = parseFloat(partner.balance);
+
+      if (isNaN(numericAmount) || numericAmount < 500) {
+        return res.status(400).json({ message: "Montant minimum: 500 FCFA" });
+      }
+      if (numericAmount > balance) {
+        return res.status(400).json({ message: "Solde partenaire insuffisant" });
+      }
+      if (!accountIdentifier || !accountIdentifier.trim()) {
+        return res.status(400).json({ message: "Identifiant du compte personnel requis (email ou téléphone)" });
+      }
+
+      const identifier = accountIdentifier.trim();
+      const user = await storage.getUserByEmailOrPhone(identifier);
+      if (!user) {
+        return res.status(404).json({
+          message: "Aucun compte personnel SendavaPay trouvé avec cet email ou téléphone. Vérifiez vos informations.",
+        });
+      }
+
+      await storage.updatePartnerBalance(req.session.partnerId!, (-numericAmount).toString());
+      await storage.updateUserBalance(user.id, numericAmount.toString());
+
+      await storage.createTransaction({
+        userId: user.id,
+        type: "transfer_in",
+        amount: numericAmount.toString(),
+        fee: "0",
+        netAmount: numericAmount.toString(),
+        status: "completed",
+        description: `Transfert depuis compte partenaire ${partner.name}`,
+      });
+
+      await storage.createPartnerLog({
+        partnerId: req.session.partnerId!,
+        action: "system",
+        details: `Transfert de ${numericAmount.toLocaleString("fr-FR")} FCFA vers compte personnel (${user.email || user.phone})`,
+        ipAddress: req.ip || req.socket.remoteAddress,
+      });
+
+      console.log(`✅ Partner transfer-to-personal: partnerId=${req.session.partnerId} → userId=${user.id} amount=${numericAmount}`);
+
+      res.json({
+        message: `${numericAmount.toLocaleString("fr-FR")} FCFA ont été transférés vers votre compte personnel. Vous pouvez maintenant effectuer un retrait depuis votre compte personnel.`,
+        transferredAmount: numericAmount,
+        userEmail: user.email,
+      });
+    } catch (error) {
+      console.error("Partner transfer-to-personal error:", error);
+      res.status(500).json({ message: "Erreur lors du transfert. Réessayez." });
+    }
+  });
+
   app.get("/api/partner/withdrawal-requests", requirePartnerAuth, async (req: Request, res: Response) => {
     try {
       const partner = await storage.getPartner(req.session.partnerId!);
