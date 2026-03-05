@@ -652,7 +652,7 @@ function PartnerPaymentLinksSection() {
   const { data: commissionRates } = useQuery<{ depositRate: number; withdrawalRate: number; encaissementRate: number }>({
     queryKey: ["/api/partner/commission-rates"],
   });
-  const encaissementRate = commissionRates?.encaissementRate ?? 7;
+  const encaissementRate = commissionRates?.encaissementRate ?? 5;
 
   const createLinkMutation = useMutation({
     mutationFn: async (data: any) => {

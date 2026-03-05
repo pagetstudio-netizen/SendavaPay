@@ -50,7 +50,7 @@ function getCommissionRate(settings: any, transactionType: string, countryOverri
     return parseFloat(settings?.withdrawalRate || "7");
   }
   if (transactionType === "payment_received") {
-    return parseFloat(settings?.encaissementRate || "7");
+    return parseFloat(settings?.encaissementRate || "5");
   }
   return parseFloat(settings?.depositRate || "7");
 }
@@ -315,7 +315,7 @@ export async function registerRoutes(
 
       const globalDeposit = parseFloat(settings?.depositRate || "7");
       const globalWithdraw = parseFloat(settings?.withdrawalRate || "7");
-      const globalEncaissement = parseFloat(settings?.encaissementRate || "7");
+      const globalEncaissement = parseFloat(settings?.encaissementRate || "5");
 
       let depositRate = globalDeposit;
       let withdrawalRate = globalWithdraw;
@@ -344,7 +344,7 @@ export async function registerRoutes(
       res.json({ depositRate, encaissementRate, withdrawalRate });
     } catch (error) {
       console.error("Get commission rates error:", error);
-      res.json({ depositRate: 7, encaissementRate: 7, withdrawalRate: 7 });
+      res.json({ depositRate: 7, encaissementRate: 5, withdrawalRate: 7 });
     }
   });
 
@@ -5035,7 +5035,7 @@ export async function registerRoutes(
   app.get("/api/admin/commissions", requireAdmin, async (req, res) => {
     try {
       const settings = await storage.getCommissionSettings();
-      res.json(settings || { depositRate: "7", encaissementRate: "7", withdrawalRate: "7" });
+      res.json(settings || { depositRate: "7", encaissementRate: "5", withdrawalRate: "7" });
     } catch (error) {
       console.error("Get commissions error:", error);
       res.status(500).json({ message: "Erreur serveur" });
@@ -5320,7 +5320,7 @@ export async function registerRoutes(
   app.get("/api/admin/settings", requireAdmin, async (req, res) => {
     try {
       const settings = await storage.getCommissionSettings();
-      res.json(settings || { depositRate: "7", encaissementRate: "7", withdrawalRate: "7" });
+      res.json(settings || { depositRate: "7", encaissementRate: "5", withdrawalRate: "7" });
     } catch (error) {
       console.error("Get admin settings error:", error);
       res.status(500).json({ message: "Erreur serveur" });
@@ -5422,7 +5422,7 @@ export async function registerRoutes(
       ]);
       const globalDeposit = parseFloat(settings?.depositRate || "7");
       const globalWithdraw = parseFloat(settings?.withdrawalRate || "7");
-      const globalEncaissement = parseFloat(settings?.encaissementRate || "7");
+      const globalEncaissement = parseFloat(settings?.encaissementRate || "5");
 
       const activeCountries = countries
         .filter((c: any) => c.isActive)
