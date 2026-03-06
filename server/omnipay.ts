@@ -373,14 +373,23 @@ export class OmniPayClient {
     }
   }
 
-  async getWalletBalance(currency?: string): Promise<{ success: number; balance?: number; pending?: number; currency?: string; message?: string }> {
+  async getWalletBalance(currency?: string, countryCode?: string): Promise<{ success: number; balance?: number; pending?: number; currency?: string; message?: string }> {
+    // Mapping ISO 3166-1 alpha-2 → alpha-3 (codes retournés par OmniPay)
+    const ALPHA2_TO_ALPHA3: Record<string, string> = {
+      CI: "CIV", BJ: "BEN", TG: "TGO", BF: "BFA",
+      SN: "SEN", CM: "CMR", ML: "MLI", GN: "GIN",
+      COG: "COG", COD: "COD",
+    };
+    const targetAlpha3 = countryCode ? ALPHA2_TO_ALPHA3[countryCode.toUpperCase()] : undefined;
+
     try {
       const body: Record<string, string> = {
         action: "getbalance",
         apikey: this.apiKey,
       };
 
-      console.log(`💼 OmniPay: Vérification solde wallet${currency ? " " + currency : ""}...`);
+      const logLabel = countryCode ? `${currency ?? ""} (${countryCode})` : (currency ?? "");
+      console.log(`💼 OmniPay: Vérification solde wallet${logLabel ? " " + logLabel : ""}...`);
 
       const response = await fetch(OMNIPAY_API_URL, {
         method: "POST",
@@ -398,14 +407,24 @@ export class OmniPayClient {
         // { success:1, balance: [{countryCode, amount, pending, currency}] }
         if (parsed.success === 1 && Array.isArray(parsed.balance)) {
           if (currency) {
-            const entry = parsed.balance.find((b: any) => b.currency === currency);
+            // Préférence : trouver l'entrée correspondant au pays exact (alpha-3)
+            // Sinon : prendre le premier wallet avec la devise demandée
+            let entry: any;
+            if (targetAlpha3) {
+              entry = parsed.balance.find((b: any) =>
+                b.currency === currency && b.countryCode?.toUpperCase() === targetAlpha3
+              );
+            }
+            if (!entry) {
+              entry = parsed.balance.find((b: any) => b.currency === currency);
+            }
             if (entry) {
-              console.log(`💼 OmniPay wallet ${currency}: disponible=${entry.amount} en_attente=${entry.pending}`);
+              console.log(`💼 OmniPay wallet ${currency}${targetAlpha3 ? " (" + targetAlpha3 + ")" : ""}: disponible=${entry.amount} en_attente=${entry.pending}`);
               return { success: 1, balance: entry.amount, pending: entry.pending, currency };
             }
             return { success: 0, message: `Devise ${currency} non trouvée dans le wallet` };
           }
-          // No currency specified — return first entry or total
+          // No currency specified — return first entry
           const first = parsed.balance[0];
           return { success: 1, balance: first?.amount, currency: first?.currency };
         }
