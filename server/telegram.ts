@@ -170,19 +170,21 @@ export function notifyWithdrawalAutoProcessed(data: {
   status: string;
   errorDetail?: string;
   payoutOperator?: string;
+  gateway?: string;
 }) {
   const statusLabel = data.status === "success" ? "REUSSI" : data.status === "failed" ? "ECHOUE" : "EN COURS";
   const emoji = data.status === "success" ? "✅" : data.status === "failed" ? "❌" : "⏳";
+  const gatewayLabel = data.gateway || "Passerelle";
   const msg =
     `<b>${emoji} RETRAIT AUTOMATIQUE ${statusLabel}</b>\n\n` +
     `<b>Utilisateur:</b> ${data.userName} (#${data.userId})\n` +
     `<b>Montant:</b> ${formatAmount(data.amount)} XOF\n` +
     `<b>Net envoye:</b> ${formatAmount(data.netAmount)} XOF\n` +
     `<b>Operateur:</b> ${data.paymentMethod}\n` +
-    (data.payoutOperator ? `<b>Slug WiniPayer:</b> <code>${data.payoutOperator}</code>\n` : "") +
+    (data.payoutOperator ? `<b>Slug ${gatewayLabel}:</b> <code>${data.payoutOperator}</code>\n` : "") +
     `<b>Numero:</b> ${data.mobileNumber}\n` +
     `<b>Ref Payout:</b> ${data.payoutUuid}\n` +
-    (data.errorDetail ? `<b>Erreur WiniPayer:</b> <code>${data.errorDetail}</code>\n` : "") +
+    (data.errorDetail ? `<b>Erreur ${gatewayLabel}:</b> <code>${data.errorDetail}</code>\n` : "") +
     `<b>Date:</b> ${formatDate()}`;
 
   sendTelegramMessage(msg).catch((err) =>

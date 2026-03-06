@@ -1805,6 +1805,7 @@ export async function registerRoutes(
           mobileNumber: withdrawalRequest.mobileNumber,
           payoutUuid: uuid,
           status: "success",
+          gateway: "WiniPayer",
         });
 
         console.log(`✅ WiniPayer payout webhook: Retrait confirmé ${isPartnerWithdrawal ? "partenaire" : "utilisateur"} #${withdrawalRequest.userId}`);
@@ -1838,6 +1839,7 @@ export async function registerRoutes(
           mobileNumber: withdrawalRequest.mobileNumber,
           payoutUuid: uuid,
           status: "failed",
+          gateway: "WiniPayer",
         });
 
         console.log(`❌ WiniPayer payout webhook: Retrait échoué ${isPartnerWithdrawal ? "partenaire" : "utilisateur"}, solde restauré`);
@@ -2344,6 +2346,7 @@ export async function registerRoutes(
                 mobileNumber: withdrawalReq.mobileNumber || "",
                 payoutUuid: reference,
                 status: "success",
+                gateway: "OmniPay",
               });
 
             } else if (status === "4") {
@@ -2370,6 +2373,7 @@ export async function registerRoutes(
                   payoutUuid: reference,
                   status: "failed",
                   errorDetail: data.message || "Transaction failed (OmniPay callback)",
+                  gateway: "OmniPay",
                 });
               }
             } else {
@@ -3038,6 +3042,7 @@ export async function registerRoutes(
                 mobileNumber,
                 payoutUuid: payoutResult.uuid,
                 status: "success",
+                gateway: "WiniPayer",
               });
 
               return res.json({
@@ -3055,6 +3060,7 @@ export async function registerRoutes(
                 mobileNumber,
                 payoutUuid: payoutResult.uuid,
                 status: "processing",
+                gateway: "WiniPayer",
               });
 
               return res.json({
@@ -3086,6 +3092,7 @@ export async function registerRoutes(
               status: "failed",
               errorDetail: winiError,
               payoutOperator,
+              gateway: "WiniPayer",
             });
 
             const errorMsg = winiError.toLowerCase();
@@ -3198,6 +3205,7 @@ export async function registerRoutes(
               mobileNumber,
               payoutUuid: b2cRef,
               status: "success",
+              gateway: "MaishaPay",
             });
 
             return res.json({
@@ -3225,6 +3233,7 @@ export async function registerRoutes(
               status: "failed",
               errorDetail: mpError,
               payoutOperator: mpProvider,
+              gateway: "MaishaPay",
             });
 
             return res.status(500).json({
@@ -3270,7 +3279,7 @@ export async function registerRoutes(
 
         // ── Vérification liquidité wallet OmniPay ──────────────────────────────
         try {
-          const balanceRes = await opClient.getWalletBalance(currency);
+          const balanceRes = await opClient.getWalletBalance(currency, selectedCountry.code);
           if (balanceRes.success === 1 && typeof balanceRes.balance === "number") {
             const pendingStr = balanceRes.pending !== undefined ? ` | en_attente_chez_omnipay=${balanceRes.pending}` : "";
             console.log(`💼 OmniPay wallet ${currency}: disponible=${balanceRes.balance}${pendingStr} | demande=${netAmount}`);
@@ -3405,6 +3414,7 @@ export async function registerRoutes(
               status: "failed",
               errorDetail: opError,
               payoutOperator: opOperator ?? selectedOperator.name,
+              gateway: "OmniPay",
             });
 
             return res.status(500).json({
