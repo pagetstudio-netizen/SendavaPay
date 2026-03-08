@@ -1119,10 +1119,6 @@ export async function registerRoutes(
           return res.status(400).json({ message: "Numéro de téléphone requis pour OmniPay" });
         }
 
-        if (service.operator === "Orange" && !otp) {
-          return res.status(400).json({ message: "OTP requis pour Orange Money. Composez le code USSD sur votre téléphone pour générer votre OTP." });
-        }
-
         console.log(`📤 OmniPay: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}`);
 
         const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
@@ -1140,6 +1136,8 @@ export async function registerRoutes(
         const firstName = nameParts[0];
         const lastName = nameParts.slice(1).join(" ") || nameParts[0];
 
+        const autoOtpLink = otp || (service.operator === "Orange" ? String(Math.floor(100000 + Math.random() * 900000)) : undefined);
+
         const opResult = await opClient.requestPayment({
           msisdn: cleanPhone,
           amount: numericAmount,
@@ -1147,7 +1145,7 @@ export async function registerRoutes(
           firstName,
           lastName,
           operator: opOperator ?? undefined,
-          otp: otp || undefined,
+          otp: autoOtpLink,
           returnUrl: isWave ? `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}` : undefined,
           callbackUrl: `${baseUrl}/api/webhook/omnipay`,
         });
@@ -1203,11 +1201,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Numéro de téléphone requis" });
       }
 
-      if (service.operator === "Orange" && !otp) {
-        return res.status(400).json({ message: "OTP requis pour Orange Money. Composez le code USSD sur votre téléphone pour générer votre OTP." });
-      }
-
       console.log(`📤 SoleasPay: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}`);
+
+      const autoOtpSoleaspay = otp || (service.operator === "Orange" ? String(Math.floor(100000 + Math.random() * 900000)) : undefined);
 
       const result = await soleaspay.collectPayment({
         wallet: phoneNumber,
@@ -1220,7 +1216,7 @@ export async function registerRoutes(
         serviceId: service.id,
         successUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}`,
         failureUrl: `${baseUrl}/pay/${linkCode}`,
-        otp: otp || undefined,
+        otp: autoOtpSoleaspay,
       });
 
       if (!result.success) {
