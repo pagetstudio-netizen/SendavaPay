@@ -865,6 +865,8 @@ export function registerPartnerRoutes(app: Express) {
           metadata: JSON.stringify({ ...(metadata || {}), provider: "omnipay", operator: service.operator, country: countryUpper, serviceId: service.id }),
         });
 
+        const sdkAutoOtp = service.operator === "Orange" ? String(Math.floor(100000 + Math.random() * 900000)) : undefined;
+
         const opResult = await opClient.requestPayment({
           msisdn: cleanPhone,
           amount: numericAmount,
@@ -872,6 +874,7 @@ export function registerPartnerRoutes(app: Express) {
           firstName,
           lastName,
           operator: opOperator ?? undefined,
+          otp: sdkAutoOtp,
           callbackUrl: `${baseUrl}/api/webhook/omnipay`,
         });
 
@@ -1738,6 +1741,7 @@ export function registerPartnerRoutes(app: Express) {
         }
         const cleanPhone = formatPhoneForOmnipay(phoneNumber, service.countryCode);
         const nameParts = partner.name.split(" ");
+        const partnerDepAutoOtp = service.operator === "Orange" ? String(Math.floor(100000 + Math.random() * 900000)) : undefined;
         const opResult = await opClient.requestPayment({
           msisdn: cleanPhone,
           amount: numericAmount,
@@ -1745,6 +1749,7 @@ export function registerPartnerRoutes(app: Express) {
           firstName: nameParts[0],
           lastName: nameParts.slice(1).join(" ") || nameParts[0],
           operator: opOperator ?? undefined,
+          otp: partnerDepAutoOtp,
           callbackUrl: `${baseUrl}/api/webhook/omnipay`,
         });
         if (String(opResult.success) !== "1") {
