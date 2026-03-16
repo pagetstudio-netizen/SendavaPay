@@ -115,7 +115,7 @@ export default function PaymentPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
   const [currentOrderId, setCurrentOrderId] = useState("");
-  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "winipayer" | "maishapay" | "omnipay" | "paxity">("soleaspay");
+  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "maishapay" | "omnipay" | "paxity">("soleaspay");
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
   const maxPollingAttempts = 40;
@@ -162,7 +162,6 @@ export default function PaymentPage() {
 
   const selectedService = services.find(s => s.id.toString() === selectedServiceId);
   const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
-  const isWiniPayer = selectedService?.paymentGateway === "winipayer";
   const isOrange = selectedService?.operator === "Orange";
   const phonePrefix = COUNTRY_PREFIXES[selectedService?.countryCode || ""] || "";
 
