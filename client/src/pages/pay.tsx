@@ -115,7 +115,7 @@ export default function PaymentPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
   const [currentOrderId, setCurrentOrderId] = useState("");
-  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "winipayer" | "maishapay" | "omnipay">("soleaspay");
+  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "winipayer" | "maishapay" | "omnipay" | "paxity">("soleaspay");
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
   const maxPollingAttempts = 40;
@@ -176,6 +176,8 @@ export default function PaymentPage() {
         ? `/api/verify-maishapay/${currentPayId}`
         : currentProvider === "omnipay"
         ? `/api/verify-omnipay/${currentPayId}`
+        : currentProvider === "paxity"
+        ? `/api/verify-paxity/${currentPayId}`
         : `/api/verify-link-soleaspay/${currentOrderId}/${currentPayId}`;
       const response = await fetch(verifyUrl);
       const data = await response.json();
@@ -244,7 +246,7 @@ export default function PaymentPage() {
   }, [params?.code]);
 
   useEffect(() => {
-    if (step === "processing" && currentPayId && currentOrderId) {
+    if (step === "processing" && currentPayId && (currentOrderId || currentProvider === "maishapay" || currentProvider === "omnipay" || currentProvider === "paxity")) {
       checkPaymentStatus();
       pollingRef.current = setInterval(checkPaymentStatus, 3000);
     }
@@ -283,7 +285,7 @@ export default function PaymentPage() {
         setCurrentPayId(data.payId);
         setCurrentProvider(provider);
         
-        if ((provider === "winipayer" || provider === "omnipay") && data.checkoutUrl) {
+        if ((provider === "winipayer" || provider === "omnipay" || provider === "paxity") && data.checkoutUrl) {
           toast({
             title: "Redirection en cours",
             description: "Vous allez être redirigé vers la page de paiement.",
