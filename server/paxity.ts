@@ -10,25 +10,18 @@ function getApiToken(): string {
   return process.env.PAXITY_API_TOKEN || "";
 }
 
-let _cachedJwt: string | null = null;
-let _jwtExpiry = 0;
-
 function generatePaxityJwt(): string {
+  const apiKey = getApiKey();   // iss — identifiant client Paxity
+  const apiSecret = getApiToken(); // secret de signature
   const now = Math.floor(Date.now() / 1000);
-  if (_cachedJwt && _jwtExpiry > now + 60) return _cachedJwt;
-
-  const apiKey = getApiKey();
-  const apiToken = getApiToken();
 
   const token = jwt.sign(
-    { apiKey: apiToken },
-    apiKey,
-    { algorithm: "HS256", expiresIn: "1h" }
+    { iss: apiKey, iat: now, exp: now + 300 },
+    apiSecret,
+    { algorithm: "HS256" }
   );
 
-  _cachedJwt = token;
-  _jwtExpiry = now + 3600;
-  console.log(`[paxity] JWT généré (aperçu: ${token.slice(0, 30)}...)`);
+  console.log(`[paxity] JWT généré (aperçu: ${token.slice(0, 40)}...)`);
   return token;
 }
 
