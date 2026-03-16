@@ -308,7 +308,7 @@ export default function DepositPage() {
       });
       return;
     }
-    if (!isWiniPayer && (!phoneNumber || phoneNumber.length < 5)) {
+    if (!phoneNumber || phoneNumber.length < 5) {
       toast({
         title: "Numéro invalide",
         description: "Veuillez entrer un numéro de téléphone valide.",
@@ -319,7 +319,7 @@ export default function DepositPage() {
     depositMutation.mutate({
       amount: numericAmount,
       serviceId: selectedServiceId,
-      phoneNumber: isWiniPayer ? undefined : (phonePrefix + phoneNumber).replace(/\s/g, ""),
+      phoneNumber: (phonePrefix + phoneNumber).replace(/\s/g, ""),
     });
   };
 
@@ -503,14 +503,7 @@ export default function DepositPage() {
                 </div>
               )}
 
-              {isWiniPayer ? (
-                <div className="rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 p-4">
-                  <p className="text-sm text-blue-700 dark:text-blue-300">
-                    Vous serez redirigé vers la page de paiement pour compléter votre dépôt. Aucun numéro de téléphone n'est requis.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-2">
+              <div className="space-y-2">
                   <Label htmlFor="phone">Numéro de téléphone Mobile Money</Label>
                   <div className="flex h-12">
                     {phonePrefix && (
@@ -532,7 +525,6 @@ export default function DepositPage() {
                     Entrez le numéro local associé à votre compte {selectedService?.operator || "Mobile Money"}
                   </p>
                 </div>
-              )}
 
               <div className="space-y-4">
                 <Label htmlFor="amount">Montant ({currency})</Label>
@@ -587,7 +579,7 @@ export default function DepositPage() {
               <Button
                 type="submit"
                 className="w-full h-12 text-lg font-bold shadow-lg shadow-primary/20"
-                disabled={numericAmount < 100 || (!isWiniPayer && phoneNumber.length < 5) || depositMutation.isPending}
+                disabled={numericAmount < 100 || phoneNumber.length < 5 || depositMutation.isPending}
                 data-testid="button-deposit-submit"
               >
                 {depositMutation.isPending ? (

@@ -386,7 +386,7 @@ export default function PaymentPage() {
       });
       return;
     }
-    if (!isWiniPayer && (!phoneNumber.trim() || phoneNumber.length < 5)) {
+    if (!phoneNumber.trim() || phoneNumber.length < 5) {
       toast({
         title: "Informations manquantes",
         description: "Veuillez entrer un numéro de téléphone valide.",
@@ -398,7 +398,7 @@ export default function PaymentPage() {
       linkCode: params?.code || "",
       amount: getPaymentAmount(),
       serviceId: selectedServiceId,
-      phoneNumber: isWiniPayer ? undefined : (phonePrefix + phoneNumber).replace(/\s/g, ""),
+      phoneNumber: (phonePrefix + phoneNumber).replace(/\s/g, ""),
       payerName: `${firstName} ${lastName}`,
       payerEmail: email || undefined,
     });
@@ -813,12 +813,7 @@ export default function PaymentPage() {
                     </div>
                   )}
 
-                  {isWiniPayer ? (
-                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-sm text-blue-700 dark:text-blue-300">
-                      Vous serez redirigé vers la page de paiement pour compléter la transaction.
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
+                  <div className="space-y-2">
                       <Label htmlFor="phone" className="text-sm text-muted-foreground">
                         Numéro de téléphone {selectedService?.operator || "Mobile Money"}
                       </Label>
@@ -839,7 +834,6 @@ export default function PaymentPage() {
                         />
                       </div>
                     </div>
-                  )}
 
                   <Button
                     onClick={handleSubmitPayment}
