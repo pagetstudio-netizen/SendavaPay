@@ -11,8 +11,8 @@ function getApiToken(): string {
 function paxityHeaders(): Record<string, string> {
   return {
     "Content-Type": "application/json",
+    "Authorization": `Bearer ${getApiToken()}`,
     "x-api-key": getApiKey(),
-    "x-api-token": getApiToken(),
   };
 }
 
@@ -175,23 +175,27 @@ export interface PaxityTransactionResponse {
 export const paxity = {
   async createPayin(params: PaxityPayinParams): Promise<PaxityPayinResponse> {
     try {
+      const body = {
+        amount: params.amount,
+        country: params.country.toUpperCase(),
+        currency: params.currency,
+        phoneNumber: params.phoneNumber,
+        prefixPhone: params.prefixPhone,
+        paymentMethod: params.paymentMethod,
+        codeOtp: params.codeOtp || "",
+        description: params.description,
+        idClient: params.idClient,
+        ipn: params.ipn,
+      };
+      console.log("[paxity] createPayin →", JSON.stringify(body));
       const res = await fetch(`${PAXITY_BASE_URL}/transaction/pay-in-mobile`, {
         method: "POST",
         headers: paxityHeaders(),
-        body: JSON.stringify({
-          amount: params.amount,
-          country: params.country.toUpperCase(),
-          currency: params.currency,
-          phoneNumber: params.phoneNumber,
-          prefixPhone: params.prefixPhone,
-          paymentMethod: params.paymentMethod,
-          codeOtp: params.codeOtp || "",
-          description: params.description,
-          idClient: params.idClient,
-          ipn: params.ipn,
-        }),
+        body: JSON.stringify(body),
       });
-      return res.json();
+      const data = await res.json();
+      console.log("[paxity] createPayin ←", JSON.stringify(data));
+      return data;
     } catch (err) {
       console.error("Paxity createPayin error:", err);
       return { code: 500, message: "Erreur de connexion à Paxity", errors: err };
