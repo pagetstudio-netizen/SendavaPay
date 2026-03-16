@@ -1,13 +1,11 @@
 const PAXITY_BASE_URL = "https://transaction.paxity.io/api/v1";
 
-function getPaxityJwt(): string {
-  return process.env.PAXITY_JWT_TOKEN || "";
-}
-
 function paxityHeaders(): Record<string, string> {
   return {
     "Content-Type": "application/json",
-    "Authorization": `Bearer ${getPaxityJwt()}`,
+    "Authorization": `Bearer ${process.env.PAXITY_JWT_TOKEN || ""}`,
+    "x-api-key": process.env.PAXITY_API_KEY || "",
+    "x-api-token": process.env.PAXITY_API_TOKEN || "",
   };
 }
 
