@@ -3770,8 +3770,8 @@ function CountriesContent() {
                         <div key={op.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
                           <div className="flex items-center gap-3">
                             <span className="font-medium">{op.name}</span>
-                            <Badge variant={op.paymentGateway === "soleaspay" ? "default" : op.paymentGateway === "maishapay" ? "outline" : op.paymentGateway === "omnipay" ? "outline" : "secondary"}>
-                              {op.paymentGateway === "soleaspay" ? "SoleasPay" : op.paymentGateway === "winipayer" ? "WiniPayer" : op.paymentGateway === "maishapay" ? "MaishaPay" : op.paymentGateway === "omnipay" ? "OmniPay" : op.paymentGateway}
+                            <Badge variant={op.paymentGateway === "soleaspay" ? "default" : op.paymentGateway === "maishapay" ? "outline" : op.paymentGateway === "omnipay" ? "outline" : op.paymentGateway === "paxity" ? "outline" : "secondary"}>
+                              {op.paymentGateway === "soleaspay" ? "SoleasPay" : op.paymentGateway === "winipayer" ? "WiniPayer" : op.paymentGateway === "maishapay" ? "MaishaPay" : op.paymentGateway === "omnipay" ? "OmniPay" : op.paymentGateway === "paxity" ? "Paxity" : op.paymentGateway}
                             </Badge>
                             {op.inMaintenance && <Badge variant="destructive">Maintenance totale</Badge>}
                             {!op.inMaintenance && (op as any).maintenanceDeposit && <Badge variant="destructive" className="text-xs">🔴 Dépôts</Badge>}
@@ -3882,9 +3882,10 @@ function CountriesContent() {
                   <SelectItem value="winipayer">WiniPayer</SelectItem>
                   <SelectItem value="maishapay">MaishaPay</SelectItem>
                   <SelectItem value="omnipay">OmniPay</SelectItem>
+                  <SelectItem value="paxity">Paxity</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">SoleasPay: USSD direct | WiniPayer: Redirection | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave)</p>
+              <p className="text-xs text-muted-foreground">SoleasPay: USSD direct | WiniPayer: Redirection | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave) | Paxity: Afrique de l'Ouest &amp; Centrale (Wave, MTN, Orange, Moov…)</p>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -3969,9 +3970,10 @@ function CountriesContent() {
                   <SelectItem value="winipayer">WiniPayer</SelectItem>
                   <SelectItem value="maishapay">MaishaPay</SelectItem>
                   <SelectItem value="omnipay">OmniPay</SelectItem>
+                  <SelectItem value="paxity">Paxity</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">SoleasPay: USSD direct | WiniPayer: Redirection | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave)</p>
+              <p className="text-xs text-muted-foreground">SoleasPay: USSD direct | WiniPayer: Redirection | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave) | Paxity: Afrique de l'Ouest &amp; Centrale (Wave, MTN, Orange, Moov…)</p>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">

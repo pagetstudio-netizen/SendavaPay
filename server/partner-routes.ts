@@ -676,116 +676,12 @@ export function registerPartnerRoutes(app: Express) {
         if (svc) {
           const operators = await storage.getOperators();
           const dbOp = operators.find(op => op.code === svc.id.toString());
-          if (dbOp?.paymentGateway === "winipayer") {
-            paymentProvider = "winipayer";
-          } else {
-            paymentProvider = "soleaspay";
-          }
+          paymentProvider = "soleaspay";
         } else {
           paymentProvider = "soleaspay";
         }
       }
       if (!paymentProvider) paymentProvider = "soleaspay";
-
-      if (paymentProvider === "winipayer") {
-        const { winipayer } = await import("./winipayer");
-
-        const baseUrl = process.env.BASE_URL || "https://sendavapay.com";
-        const finalCallbackUrl = callbackUrl || partner.callbackUrl || `${baseUrl}/api/webhook/winipayer`;
-        const finalReturnUrl = redirectUrl || `${baseUrl}/pay/partner/${reference}/success`;
-        const cancelUrl = `${baseUrl}/pay/partner/${reference}/cancel`;
-
-        const transaction = await storage.createPartnerTransaction({
-          partnerId: partner.id,
-          reference,
-          amount: numericAmount.toString(),
-          fee,
-          currency: currency || "XOF",
-          customerName: customerName || null,
-          customerEmail: customerEmail || null,
-          customerPhone: phone || null,
-          description: description || null,
-          callbackUrl: finalCallbackUrl,
-          redirectUrl: finalReturnUrl,
-          metadata: JSON.stringify({ ...(metadata || {}), provider: "winipayer", country: country || null, operator: operator || null }),
-        });
-
-        console.log(`📤 WiniPayer SDK: Paiement REDIRECT ${reference} montant=${numericAmount}`);
-
-        const winiResult = await winipayer.createCheckout({
-          amount: numericAmount,
-          description: description || `Paiement ${partner.name} - ${reference}`,
-          cancelUrl,
-          returnUrl: finalReturnUrl,
-          callbackUrl: `${baseUrl}/api/webhook/winipayer`,
-          customData: { reference, partnerId: partner.id, ...(metadata || {}) },
-          clientPayFee: false,
-          reference: {
-            identifier: reference,
-            name: customerName || undefined,
-            phone: phone || undefined,
-            email: customerEmail || undefined,
-          },
-        });
-
-        console.log(`SDK Payment WiniPayer result for ${reference}:`, JSON.stringify(winiResult));
-
-        if (winiResult.success && winiResult.results) {
-          const { db } = await import("./db");
-          const { sql } = await import("drizzle-orm");
-          await db.execute(sql`UPDATE partner_transactions SET status = 'processing', metadata = ${JSON.stringify({
-            ...(metadata || {}),
-            provider: "winipayer",
-            winiUuid: winiResult.results.uuid,
-            winiCrypto: winiResult.results.crypto,
-            checkoutUrl: winiResult.results.checkout_process,
-            expiredAt: winiResult.results.expired_at,
-            country: country || null,
-            operator: operator || null,
-          })} WHERE reference = ${reference}`);
-
-          await storage.createPartnerLog({
-            partnerId: partner.id,
-            action: "api_call",
-            details: `SDK Paiement WiniPayer créé: ${reference} - ${numericAmount} ${currency || "XOF"} - Checkout: ${winiResult.results.checkout_process}`,
-            ipAddress: req.ip || req.socket.remoteAddress,
-          });
-
-          return res.json({
-            success: true,
-            status: "PROCESSING",
-            txid: reference,
-            reference,
-            provider: "winipayer",
-            checkoutUrl: winiResult.results.checkout_process,
-            uuid: winiResult.results.uuid,
-            amount: numericAmount.toString(),
-            fee,
-            currency: winiResult.results.currency || currency || "XOF",
-            expiredAt: winiResult.results.expired_at,
-            message: "Redirigez le client vers checkoutUrl pour finaliser le paiement.",
-          });
-        } else {
-          const { db } = await import("./db");
-          const { sql } = await import("drizzle-orm");
-          await db.execute(sql`UPDATE partner_transactions SET status = 'failed', metadata = ${JSON.stringify({ provider: "winipayer", error: winiResult.errors?.msg || "Erreur WiniPayer" })} WHERE reference = ${reference}`);
-
-          await storage.createPartnerLog({
-            partnerId: partner.id,
-            action: "api_call",
-            details: `SDK Paiement WiniPayer échoué: ${reference} - ${winiResult.errors?.msg || "Erreur WiniPayer"}`,
-            ipAddress: req.ip || req.socket.remoteAddress,
-          });
-
-          return res.status(400).json({
-            success: false,
-            status: "FAILED",
-            reference,
-            provider: "winipayer",
-            message: winiResult.errors?.msg || "Échec de la création du checkout WiniPayer.",
-          });
-        }
-      }
 
       if (!phone) {
         return res.status(400).json({ success: false, status: "ERROR", message: "Numéro de téléphone requis (phoneNumber)" });
@@ -970,6 +866,99 @@ export function registerPartnerRoutes(app: Express) {
           operator: service.operator,
           country: service.countryCode,
           message: "Notification USSD envoyée au client. Vérifiez le statut avec /api/sdk/verify",
+        });
+      }
+
+      if (paymentGateway === "paxity") {
+        const { paxity: paxityClient, getPaxityMethodCode, getPaxityPhonePrefix, getPaxityCurrency, formatPhoneForPaxity, isPaxityQRMethod, isPaxityOTPMethod } = await import("./paxity");
+        const methodCode = getPaxityMethodCode(service.operator, countryUpper);
+        if (!methodCode) {
+          return res.status(400).json({ success: false, status: "ERROR", message: `Opérateur '${service.operator}' non supporté par Paxity` });
+        }
+
+        const isQR = isPaxityQRMethod(methodCode);
+        const isOTP = isPaxityOTPMethod(methodCode);
+        const prefix = getPaxityPhonePrefix(countryUpper);
+        const currency = txCurrency || getPaxityCurrency(countryUpper);
+        const cleanPhone = isQR ? "" : formatPhoneForPaxity(phone, countryUpper);
+        const paxityOtp = isOTP ? String(Math.floor(100000 + Math.random() * 900000)) : "";
+        const baseUrl = process.env.BASE_URL || "https://sendavapay.com";
+
+        await storage.createPartnerTransaction({
+          partnerId: partner.id,
+          reference,
+          amount: numericAmount.toString(),
+          fee,
+          currency,
+          customerName: customerName || null,
+          customerEmail: customerEmail || null,
+          customerPhone: cleanPhone || null,
+          description: description || null,
+          callbackUrl: callbackUrl || partner.callbackUrl || null,
+          redirectUrl: redirectUrl || null,
+          metadata: JSON.stringify({ ...(metadata || {}), provider: "paxity", operator: service.operator, country: countryUpper, serviceId: service.id, methodCode }),
+        });
+
+        const paxResult = await paxityClient.createPayin({
+          amount: numericAmount,
+          country: countryUpper,
+          currency,
+          phoneNumber: cleanPhone,
+          prefixPhone: prefix,
+          paymentMethod: methodCode,
+          codeOtp: paxityOtp,
+          description: description || `SDK Paiement Paxity ${reference}`,
+          idClient: reference,
+          ipn: `${baseUrl}/api/webhook/paxity`,
+        });
+
+        console.log(`SDK Payment Paxity result for ${reference}:`, JSON.stringify(paxResult));
+
+        const { db } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+
+        if (paxResult.code !== 201 || !paxResult.data) {
+          const errMsg = paxResult.errors?.message || paxResult.message || "Erreur Paxity";
+          await db.execute(sql`UPDATE partner_transactions SET status = 'failed', metadata = ${JSON.stringify({ provider: "paxity", operator: service.operator, country: countryUpper, error: errMsg })} WHERE reference = ${reference}`);
+          await storage.createPartnerLog({ partnerId: partner.id, action: "api_call", details: `SDK Paiement Paxity échoué: ${reference} - ${errMsg}`, ipAddress: req.ip || req.socket.remoteAddress });
+          return res.status(400).json({ success: false, status: "FAILED", reference, provider: "paxity", message: errMsg });
+        }
+
+        const paxTransactionId = paxResult.data.transactionId;
+        await db.execute(sql`UPDATE partner_transactions SET status = 'processing', metadata = ${JSON.stringify({ provider: "paxity", operator: service.operator, country: countryUpper, serviceId: service.id, paxTransactionId, methodCode })} WHERE reference = ${reference}`);
+        await storage.createPartnerLog({ partnerId: partner.id, action: "api_call", details: `SDK Paiement Paxity initié: ${reference} - ${numericAmount} ${currency} via ${service.operator} (${methodCode})`, ipAddress: req.ip || req.socket.remoteAddress });
+
+        if (isQR && paxResult.data.link) {
+          return res.json({
+            success: true,
+            status: "PROCESSING",
+            txid: reference,
+            reference,
+            provider: "paxity",
+            amount: numericAmount.toString(),
+            fee,
+            currency,
+            operator: service.operator,
+            country: service.countryCode,
+            checkoutUrl: paxResult.data.link,
+            paxTransactionId,
+            message: "Redirigez le client vers l'URL de paiement. Vérifiez le statut avec /api/sdk/verify",
+          });
+        }
+
+        return res.json({
+          success: true,
+          status: "PROCESSING",
+          txid: reference,
+          reference,
+          provider: "paxity",
+          amount: numericAmount.toString(),
+          fee,
+          currency,
+          operator: service.operator,
+          country: service.countryCode,
+          paxTransactionId,
+          message: "Notification envoyée au client. Vérifiez le statut avec /api/sdk/verify",
         });
       }
 
@@ -1177,125 +1166,7 @@ export function registerPartnerRoutes(app: Express) {
           txProvider = txMeta.provider || "soleaspay";
         } catch {}
 
-        if (txProvider === "winipayer") {
-          try {
-            const { winipayer } = await import("./winipayer");
-            const winiUuid = txMeta.winiUuid;
-            if (winiUuid) {
-              const verifyResult = await winipayer.verifyPayment(winiUuid);
-              console.log(`SDK Verify WiniPayer for ${ref} (uuid: ${winiUuid}):`, JSON.stringify(verifyResult));
-
-              if (verifyResult.success && verifyResult.results?.invoice) {
-                const invoice = verifyResult.results.invoice;
-                const state = invoice.state?.toLowerCase();
-
-                if (state === "success" || state === "completed") {
-                  const hashValid = winipayer.validateHash({
-                    uuid: invoice.uuid,
-                    crypto: invoice.crypto,
-                    amount: invoice.amount,
-                    created_at: invoice.created_at,
-                    hash: invoice.hash,
-                  });
-
-                  if (!hashValid) {
-                    console.error(`❌ WiniPayer verify: Hash invalide pour ${ref} - données potentiellement falsifiées`);
-                    await storage.createPartnerLog({
-                      partnerId: partner.id,
-                      action: "error",
-                      details: `SDK Verify WiniPayer: Hash invalide pour ${ref} - transaction non confirmée`,
-                      ipAddress: req.ip || req.socket.remoteAddress,
-                    });
-                    return res.json({
-                      success: false,
-                      status: "PROCESSING",
-                      txid: transaction.reference,
-                      reference: transaction.reference,
-                      provider: "winipayer",
-                      amount: transaction.amount,
-                      fee: transaction.fee,
-                      currency: transaction.currency,
-                      message: "Vérification de sécurité échouée - hash invalide",
-                      createdAt: transaction.createdAt,
-                    });
-                  }
-
-                  const { db } = await import("./db");
-                  const { sql } = await import("drizzle-orm");
-                  const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW(), metadata = ${JSON.stringify({
-                    ...txMeta,
-                    winiState: state,
-                    winiOperator: invoice.operator,
-                    winiOperatorRef: invoice.operator_ref,
-                    winiAmountAvailable: invoice.amount_available,
-                    winiCommission: invoice.commission_amount,
-                    winiHashValid: hashValid,
-                    winiCustomerName: invoice.customer_pay?.name,
-                    winiCustomerPhone: invoice.customer_pay?.phone,
-                  })} WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
-
-                  const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
-                  if (rowsAffected > 0) {
-                    const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
-                    await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
-                    if (transaction.callbackUrl) {
-                      try {
-                        await fetch(transaction.callbackUrl, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ reference: ref, status: "SUCCESS", amount: transaction.amount, fee: transaction.fee, netAmount: netAmount.toString(), currency: transaction.currency, provider: "winipayer", operator: invoice.operator }),
-                        });
-                      } catch (cbErr) { console.error("SDK WiniPayer: Callback error:", cbErr); }
-                    }
-                  }
-
-                  await storage.createPartnerLog({
-                    partnerId: partner.id,
-                    action: "api_call",
-                    details: `SDK Paiement WiniPayer confirmé: ${ref} - ${transaction.amount} ${transaction.currency} via ${invoice.operator || "N/A"}`,
-                    ipAddress: req.ip || req.socket.remoteAddress,
-                  });
-
-                  return res.json({
-                    success: true,
-                    status: "SUCCESS",
-                    txid: transaction.reference,
-                    reference: transaction.reference,
-                    provider: "winipayer",
-                    amount: transaction.amount,
-                    fee: transaction.fee,
-                    currency: transaction.currency,
-                    operator: invoice.operator,
-                    customerName: invoice.customer_pay?.name,
-                    customerPhone: invoice.customer_pay?.phone,
-                    message: "Paiement confirmé avec succès via WiniPayer",
-                    createdAt: transaction.createdAt,
-                    completedAt: new Date().toISOString(),
-                  });
-                } else if (state === "failed" || state === "cancelled" || state === "expired") {
-                  const { db } = await import("./db");
-                  const { sql } = await import("drizzle-orm");
-                  await db.execute(sql`UPDATE partner_transactions SET status = 'failed', metadata = ${JSON.stringify({ ...txMeta, winiState: state })} WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
-
-                  return res.json({
-                    success: false,
-                    status: state === "expired" ? "EXPIRED" : "FAILED",
-                    txid: transaction.reference,
-                    reference: transaction.reference,
-                    provider: "winipayer",
-                    amount: transaction.amount,
-                    fee: transaction.fee,
-                    currency: transaction.currency,
-                    message: state === "expired" ? "Le lien de paiement a expiré" : "Paiement échoué ou annulé",
-                    createdAt: transaction.createdAt,
-                  });
-                }
-              }
-            }
-          } catch (verifyError) {
-            console.error("SDK verify WiniPayer check error:", verifyError);
-          }
-        } else if (txProvider === "omnipay") {
+        if (txProvider === "omnipay") {
           try {
             const { omnipay: opClient } = await import("./omnipay");
             console.log(`SDK Verify OmniPay for ${ref}`);
@@ -1432,6 +1303,73 @@ export function registerPartnerRoutes(app: Express) {
           } catch (verifyError) {
             console.error("SDK verify MaishaPay check error:", verifyError);
           }
+        } else if (txProvider === "paxity") {
+          try {
+            const { paxity: paxityClient } = await import("./paxity");
+            const paxTransactionId = txMeta.paxTransactionId || ref;
+            console.log(`SDK Verify Paxity for ${ref}, paxTransactionId=${paxTransactionId}`);
+            const checkResult = await paxityClient.getTransaction(paxTransactionId);
+            console.log(`SDK Verify Paxity result for ${ref}:`, JSON.stringify(checkResult));
+
+            const txStatus = (checkResult.data?.status || "").toUpperCase();
+            if (checkResult.code === 200 && txStatus === "SUCCESS") {
+              const { db } = await import("./db");
+              const { sql } = await import("drizzle-orm");
+              const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+              const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
+              if (rowsAffected > 0) {
+                const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
+                await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
+                console.log(`✅ SDK Paxity: Paiement confirmé partner #${partner.id} ref=${ref} net=${netAmount}`);
+                if (transaction.callbackUrl) {
+                  try {
+                    await fetch(transaction.callbackUrl, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ reference: ref, status: "SUCCESS", amount: transaction.amount, fee: transaction.fee, netAmount: netAmount.toString(), currency: transaction.currency, provider: "paxity" }),
+                    });
+                  } catch (cbErr) { console.error("SDK Paxity: Callback error:", cbErr); }
+                }
+              }
+              await storage.createPartnerLog({
+                partnerId: partner.id,
+                action: "api_call",
+                details: `SDK Paiement Paxity confirmé: ${ref} - ${transaction.amount} ${transaction.currency}`,
+                ipAddress: req.ip || req.socket.remoteAddress,
+              });
+              return res.json({
+                success: true,
+                status: "SUCCESS",
+                txid: transaction.reference,
+                reference: transaction.reference,
+                provider: "paxity",
+                amount: transaction.amount,
+                fee: transaction.fee,
+                currency: transaction.currency,
+                message: "Paiement confirmé avec succès via Paxity",
+                createdAt: transaction.createdAt,
+                completedAt: new Date().toISOString(),
+              });
+            } else if (txStatus === "REJECTED" || txStatus === "FAILED") {
+              const { db } = await import("./db");
+              const { sql } = await import("drizzle-orm");
+              await db.execute(sql`UPDATE partner_transactions SET status = 'failed' WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+              return res.json({
+                success: false,
+                status: "FAILED",
+                txid: transaction.reference,
+                reference: transaction.reference,
+                provider: "paxity",
+                amount: transaction.amount,
+                fee: transaction.fee,
+                currency: transaction.currency,
+                message: "Paiement rejeté ou échoué",
+                createdAt: transaction.createdAt,
+              });
+            }
+          } catch (verifyError) {
+            console.error("SDK verify Paxity check error:", verifyError);
+          }
         } else {
           try {
             const { soleaspay } = await import("./soleaspay");
@@ -1516,7 +1454,7 @@ export function registerPartnerRoutes(app: Express) {
         currency: transaction.currency,
         message: transaction.status === "completed" ? "Paiement validé" :
                  transaction.status === "pending" ? "En attente de confirmation du client" :
-                 transaction.status === "processing" ? (txProvider === "winipayer" ? "En attente du paiement sur le portail WiniPayer" : "Le client n'a pas encore confirmé sur son téléphone") :
+                 transaction.status === "processing" ? "Le client n'a pas encore confirmé sur son téléphone" :
                  transaction.status === "failed" ? "Paiement échoué" : "Paiement annulé",
         createdAt: transaction.createdAt,
         completedAt: transaction.completedAt,
@@ -1712,26 +1650,6 @@ export function registerPartnerRoutes(app: Express) {
 
       console.log(`📡 Partner Deposit: opérateur=${service.operator} (${service.countryCode}), gateway=${paymentGateway}, partner=${partner.name}`);
 
-      if (paymentGateway === "winipayer") {
-        const orderId = `PDEP-WP-${Date.now()}-P${req.session.partnerId}`;
-        const { winipayer } = await import("./winipayer");
-        const winiResult = await winipayer.createCheckout({
-          amount: numericAmount,
-          description: `Dépôt Partenaire - ${partner.name}`,
-          cancelUrl: `${baseUrl}/partner/dashboard`,
-          returnUrl: `${baseUrl}/partner/dashboard`,
-          callbackUrl: `${baseUrl}/api/webhook/winipayer`,
-          customData: { partnerId: req.session.partnerId, orderId },
-          clientPayFee: false,
-          reference: { identifier: orderId, name: partner.name, email: partner.email },
-        });
-        if (!winiResult.success || !winiResult.results) {
-          return res.status(500).json({ message: winiResult.errors?.msg || "Erreur WiniPayer" });
-        }
-        await storage.createPartnerLog({ partnerId: req.session.partnerId!, action: "api_call", details: `Dépôt WiniPayer initié: ${numericAmount} ${service.currency}`, ipAddress: req.ip || req.socket.remoteAddress });
-        return res.json({ success: true, payId: winiResult.results.uuid, orderId, status: "PENDING", isWinipayer: true, checkoutUrl: winiResult.results.checkout_process, message: "Redirection vers le portail de paiement WiniPayer..." });
-      }
-
       if (paymentGateway === "omnipay") {
         const orderId = `PDEP-OP-${Date.now()}-P${req.session.partnerId}`;
         const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
@@ -1783,6 +1701,46 @@ export function registerPartnerRoutes(app: Express) {
         }
         await storage.createPartnerLog({ partnerId: req.session.partnerId!, action: "api_call", details: `Dépôt MaishaPay initié: ${numericAmount} ${service.currency} via ${service.operator} au ${cleanPhone}`, ipAddress: req.ip || req.socket.remoteAddress });
         return res.json({ success: true, payId: orderId, orderId, status: "PENDING", provider: "maishapay", message: "Veuillez confirmer le paiement sur votre téléphone." });
+      }
+
+      if (paymentGateway === "paxity") {
+        const { paxity: paxityClient, getPaxityMethodCode, getPaxityPhonePrefix, getPaxityCurrency, formatPhoneForPaxity, isPaxityQRMethod, isPaxityOTPMethod } = await import("./paxity");
+        const methodCode = getPaxityMethodCode(service.operator, countryCode);
+        if (!methodCode) {
+          return res.status(400).json({ message: `Opérateur '${service.operator}' non supporté par Paxity` });
+        }
+        const isQR = isPaxityQRMethod(methodCode);
+        const isOTP = isPaxityOTPMethod(methodCode);
+        const prefix = getPaxityPhonePrefix(countryCode);
+        const currency = service.currency || getPaxityCurrency(countryCode);
+        const cleanPhone = isQR ? "" : formatPhoneForPaxity(phoneNumber, countryCode);
+        const paxityOtp = isOTP ? String(Math.floor(100000 + Math.random() * 900000)) : "";
+        const orderId = `PDEP-PAX-${Date.now()}-P${req.session.partnerId}`;
+
+        const paxResult = await paxityClient.createPayin({
+          amount: numericAmount,
+          country: countryCode,
+          currency,
+          phoneNumber: cleanPhone,
+          prefixPhone: prefix,
+          paymentMethod: methodCode,
+          codeOtp: paxityOtp,
+          description: `Dépôt Partenaire Paxity - ${partner.name}`,
+          idClient: orderId,
+          ipn: `${baseUrl}/api/webhook/paxity`,
+        });
+
+        if (paxResult.code !== 201 || !paxResult.data) {
+          const errMsg = paxResult.errors?.message || paxResult.message || "Erreur Paxity";
+          return res.status(500).json({ message: errMsg });
+        }
+
+        await storage.createPartnerLog({ partnerId: req.session.partnerId!, action: "api_call", details: `Dépôt Paxity initié: ${numericAmount} ${currency} via ${service.operator} (${methodCode})`, ipAddress: req.ip || req.socket.remoteAddress });
+
+        if (isQR && paxResult.data.link) {
+          return res.json({ success: true, payId: paxResult.data.transactionId, orderId, status: "PENDING", provider: "paxity", checkoutUrl: paxResult.data.link, message: "Redirigez vers l'URL de paiement." });
+        }
+        return res.json({ success: true, payId: paxResult.data.transactionId, orderId, status: "PENDING", provider: "paxity", message: "Veuillez confirmer le paiement sur votre téléphone." });
       }
 
       const orderId = `PDEP-${Date.now()}-P${req.session.partnerId}`;
@@ -1964,99 +1922,6 @@ export function registerPartnerRoutes(app: Express) {
         details: `Retrait demandé: ${numericAmount} FCFA via ${selectedOperator.name} (${mobileNumber}). Frais: ${fee}, Net: ${netAmount}`,
         ipAddress: req.ip || req.socket.remoteAddress,
       });
-
-      const isWiniPayerOperator = selectedOperator.paymentGateway === "winipayer";
-
-      if (isWiniPayerOperator) {
-        const { createPayout, getWiniPayerPayoutOperator } = await import("./winipayer");
-        const payoutOperator = getWiniPayerPayoutOperator(selectedOperator.name, country);
-
-        if (!payoutOperator) {
-          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
-          return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique" });
-        }
-
-        const withdrawalRequest = await storage.createWithdrawalRequest({
-          userId: 0,
-          amount: numericAmount.toString(),
-          fee: fee.toString(),
-          netAmount: netAmount.toString(),
-          paymentMethod: selectedOperator.name,
-          mobileNumber,
-          country,
-          walletName: `PARTENAIRE:${partner.name}` + (walletName ? ` - ${walletName}` : ""),
-        });
-
-        await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
-
-        notifyPartnerWithdrawal({
-          partnerName: partner.name,
-          partnerId: req.session.partnerId!,
-          amount: numericAmount.toString(),
-          fee: fee.toString(),
-          netAmount: netAmount.toString(),
-          paymentMethod: selectedOperator.name,
-          mobileNumber,
-          country,
-        });
-
-        try {
-          const payoutResult = await createPayout({
-            operator: payoutOperator,
-            recipients: [{
-              name: walletName || partner.name || "Partenaire",
-              account: mobileNumber.replace(/\s/g, ""),
-              amount: netAmount,
-            }],
-            description: `Retrait Partenaire SendavaPay #${withdrawalRequest.id}`,
-            customData: { withdrawalId: withdrawalRequest.id, partnerId: req.session.partnerId },
-            callbackUrl: "https://sendavapay.com/api/webhook/winipayer-payout",
-          });
-
-          if (payoutResult.uuid) {
-            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-              externalReference: payoutResult.uuid,
-              transactionReference: payoutResult.crypto || null,
-            });
-
-            const payoutState = payoutResult.state?.toLowerCase();
-            if (payoutState === "success") {
-              await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-                status: "approved",
-                processedAt: new Date(),
-              });
-              return res.json({
-                message: "Retrait effectué avec succès!",
-                request: { ...withdrawalRequest, status: "approved" },
-                autoProcessed: true,
-              });
-            } else {
-              return res.json({
-                message: "Votre retrait est en cours de traitement automatique.",
-                request: { ...withdrawalRequest, status: "processing" },
-                autoProcessed: true,
-              });
-            }
-          } else {
-            const winiError = payoutResult.errors?.msg || payoutResult.errors?.key || JSON.stringify(payoutResult.errors) || "Erreur inconnue";
-            console.error("❌ WiniPayer partner payout failed:", winiError, "| operator:", payoutOperator);
-            await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
-            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-              status: "failed",
-              rejectionReason: winiError,
-            });
-            return res.status(500).json({ message: `Le retrait automatique a échoué (${winiError}). Votre solde a été restauré.` });
-          }
-        } catch (payoutError) {
-          console.error("Partner WiniPayer payout error:", payoutError);
-          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
-          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-            status: "failed",
-            rejectionReason: "Erreur technique",
-          });
-          return res.status(500).json({ message: "Erreur technique lors du retrait. Votre solde a été restauré." });
-        }
-      }
 
       if (selectedOperator.paymentGateway === "maishapay") {
         const { maishapay: mpClient, getMaishapayProvider, formatPhoneForMaishapay } = await import("./maishapay");

@@ -413,12 +413,8 @@ export async function notifyDailyReport(stats: {
 export async function notifyIpChanged(newIp: string) {
   const msg =
     `<b>⚠️ ALERTE IP SERVEUR CHANGEE</b>\n\n` +
-    `L'adresse IP du serveur a change. Les retraits automatiques WiniPayer sont bloques.\n\n` +
+    `L'adresse IP du serveur a change.\n\n` +
     `<b>Nouvelle IP:</b> <code>${newIp}</code>\n\n` +
-    `<b>Action requise:</b>\n` +
-    `1. Connectez-vous sur manager.winipayer.com\n` +
-    `2. Allez dans "IPs whitelist (Payout)"\n` +
-    `3. Ajoutez l'IP: <code>${newIp}</code>\n\n` +
     `<b>Date:</b> ${formatDate()}`;
 
   return sendTelegramMessage(msg);

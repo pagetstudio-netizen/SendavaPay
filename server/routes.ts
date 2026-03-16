@@ -581,67 +581,6 @@ export async function registerRoutes(
       const orderId = `DEP-${Date.now()}-${req.session.userId}`;
       const baseUrl = "https://sendavapay.com";
 
-      if (paymentGateway === "winipayer") {
-        console.log(`📤 WiniPayer: Initiation dépôt REDIRECT utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
-
-        const { winipayer } = await import("./winipayer");
-
-        const winiResult = await winipayer.createCheckout({
-          amount: numericAmount,
-          description: `Dépôt SendavaPay - ${user.fullName} via ${service.operator} (${service.country})`,
-          cancelUrl: `${baseUrl}/deposit`,
-          returnUrl: `${baseUrl}/success?reference=${orderId}`,
-          callbackUrl: `${baseUrl}/api/webhook/winipayer-deposit`,
-          customData: {
-            orderId,
-            userId: req.session.userId,
-            serviceId: serviceId,
-            type: "deposit",
-          },
-          reference: {
-            identifier: orderId,
-            name: user.fullName,
-            phone: phoneNumber || undefined,
-            email: user.email,
-          },
-        });
-
-        if (!winiResult.success || !winiResult.results) {
-          console.error("❌ WiniPayer create error:", winiResult.errors);
-          return res.status(500).json({ message: "Erreur lors de la création du paiement WiniPayer" });
-        }
-
-        const winiUuid = winiResult.results.uuid;
-        const checkoutUrl = winiResult.results.checkout_process;
-
-        await storage.createLeekpayPayment({
-          leekpayPaymentId: winiUuid,
-          userId: req.session.userId!,
-          amount: numericAmount.toString(),
-          currency: service.currency,
-          type: "deposit",
-          status: "pending",
-          description: `Dépôt via ${service.operator} (${service.country}) - WiniPayer`,
-          customerEmail: user.email,
-          payerPhone: phoneNumber || null,
-          paymentMethod: `winipayer_${service.name}`,
-          returnUrl: `${baseUrl}/success?reference=${orderId}`,
-          paymentUrl: checkoutUrl,
-        });
-
-        console.log(`📤 WiniPayer: Checkout créé uuid=${winiUuid}, checkout=${checkoutUrl}`);
-
-        return res.json({
-          success: true,
-          payId: winiUuid,
-          orderId,
-          status: "PENDING",
-          provider: "winipayer",
-          checkoutUrl,
-          message: "Vous allez être redirigé vers la page de paiement WiniPayer.",
-        });
-      }
-
       if (paymentGateway === "maishapay") {
         if (!phoneNumber) {
           return res.status(400).json({ message: "Numéro de téléphone requis pour MaishaPay" });
@@ -777,6 +716,88 @@ export async function registerRoutes(
           orderId,
           status: "PENDING",
           provider: "omnipay",
+          message: "Paiement initié. Veuillez confirmer sur votre téléphone.",
+        });
+      }
+
+      if (paymentGateway === "paxity") {
+        console.log(`📤 Paxity: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
+
+        const { paxity: paxityClient, getPaxityMethodCode, getPaxityPhonePrefix, getPaxityCurrency, formatPhoneForPaxity, isPaxityQRMethod, isPaxityOTPMethod } = await import("./paxity");
+        const methodCode = getPaxityMethodCode(operator?.name || service.operator, service.countryCode);
+
+        if (!methodCode) {
+          return res.status(400).json({ message: `Opérateur '${service.operator}' non supporté par Paxity` });
+        }
+
+        const isQR = isPaxityQRMethod(methodCode);
+        const isOTP = isPaxityOTPMethod(methodCode);
+
+        if (!isQR && !phoneNumber) {
+          return res.status(400).json({ message: "Numéro de téléphone requis" });
+        }
+
+        const prefix = getPaxityPhonePrefix(service.countryCode);
+        const currency = service.currency || getPaxityCurrency(service.countryCode);
+        const cleanPhone = isQR ? "" : formatPhoneForPaxity(phoneNumber || "", service.countryCode);
+        const paxityOtp = isOTP ? (otp || String(Math.floor(100000 + Math.random() * 900000))) : "";
+
+        const paxResult = await paxityClient.createPayin({
+          amount: numericAmount,
+          country: service.countryCode,
+          currency,
+          phoneNumber: cleanPhone,
+          prefixPhone: prefix,
+          paymentMethod: methodCode,
+          codeOtp: paxityOtp,
+          description: `Dépôt SendavaPay - ${user.fullName} via ${service.operator} (${service.country})`,
+          idClient: orderId,
+          ipn: `${baseUrl}/api/webhook/paxity`,
+        });
+
+        if (paxResult.code !== 201 || !paxResult.data) {
+          console.error("❌ Paxity payin error:", paxResult);
+          const errMsg = paxResult.errors?.message || paxResult.message || "Erreur lors de l'initiation du paiement Paxity";
+          return res.status(500).json({ message: errMsg });
+        }
+
+        const paxTransactionId = paxResult.data.transactionId;
+
+        await storage.createLeekpayPayment({
+          leekpayPaymentId: paxTransactionId,
+          userId: req.session.userId!,
+          amount: numericAmount.toString(),
+          currency,
+          type: "deposit",
+          status: "pending",
+          description: `Dépôt via ${service.operator} (${service.country}) - Paxity`,
+          customerEmail: user.email,
+          payerPhone: cleanPhone || null,
+          paymentMethod: `paxity_${service.name}`,
+          returnUrl: `${baseUrl}/success`,
+          paymentUrl: paxResult.data.link || null,
+        });
+
+        console.log(`📤 Paxity: Paiement initié transactionId=${paxTransactionId} link=${paxResult.data.link}`);
+
+        if (isQR && paxResult.data.link) {
+          return res.json({
+            success: true,
+            payId: paxTransactionId,
+            orderId,
+            status: "PENDING",
+            provider: "paxity",
+            checkoutUrl: paxResult.data.link,
+            message: "Vous allez être redirigé vers la page de paiement.",
+          });
+        }
+
+        return res.json({
+          success: true,
+          payId: paxTransactionId,
+          orderId,
+          status: "PENDING",
+          provider: "paxity",
           message: "Paiement initié. Veuillez confirmer sur votre téléphone.",
         });
       }
@@ -988,70 +1009,6 @@ export async function registerRoutes(
       const orderId = `PAY-${linkCode}-${Date.now()}`;
       const baseUrl = "https://sendavapay.com";
 
-      if (paymentGateway === "winipayer") {
-        console.log(`📤 WiniPayer: Paiement lien REDIRECT ${linkCode} montant=${numericAmount} ${service.currency}`);
-
-        const { winipayer } = await import("./winipayer");
-
-        const winiResult = await winipayer.createCheckout({
-          amount: numericAmount,
-          description: `Paiement à ${vendeur.fullName} - ${link.title}`,
-          cancelUrl: `${baseUrl}/pay/${linkCode}`,
-          returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}`,
-          callbackUrl: `${baseUrl}/api/webhook/winipayer-deposit`,
-          customData: {
-            orderId,
-            linkCode,
-            linkId: link.id,
-            type: "payment_link",
-          },
-          reference: {
-            identifier: orderId,
-            name: payerName,
-            phone: phoneNumber || undefined,
-            email: payerEmail || undefined,
-          },
-        });
-
-        if (!winiResult.success || !winiResult.results) {
-          console.error("❌ WiniPayer pay-link error:", winiResult.errors);
-          return res.status(500).json({ message: "Erreur lors de la création du paiement WiniPayer" });
-        }
-
-        const winiUuid = winiResult.results.uuid;
-        const checkoutUrl = winiResult.results.checkout_process;
-
-        await storage.createLeekpayPayment({
-          leekpayPaymentId: winiUuid,
-          userId: null,
-          paymentLinkId: link.id,
-          amount: numericAmount.toString(),
-          currency: service.currency,
-          type: "payment_link",
-          status: "pending",
-          description: `Paiement ${link.title}`,
-          customerEmail: payerEmail,
-          payerName,
-          payerPhone: phoneNumber || null,
-          payerCountry: service.countryCode,
-          paymentMethod: `winipayer_${service.name}`,
-          returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}`,
-          paymentUrl: checkoutUrl,
-        });
-
-        console.log(`📤 WiniPayer: Checkout lien créé uuid=${winiUuid}, checkout=${checkoutUrl}`);
-
-        return res.json({
-          success: true,
-          payId: winiUuid,
-          orderId,
-          status: "PENDING",
-          provider: "winipayer",
-          checkoutUrl,
-          message: "Vous allez être redirigé vers la page de paiement WiniPayer.",
-        });
-      }
-
       if (paymentGateway === "maishapay") {
         if (!phoneNumber) {
           return res.status(400).json({ message: "Numéro de téléphone requis pour MaishaPay" });
@@ -1197,6 +1154,91 @@ export async function registerRoutes(
         });
       }
 
+      if (paymentGateway === "paxity") {
+        console.log(`📤 Paxity: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}`);
+
+        const { paxity: paxityClient, getPaxityMethodCode, getPaxityPhonePrefix, getPaxityCurrency, formatPhoneForPaxity, isPaxityQRMethod, isPaxityOTPMethod } = await import("./paxity");
+        const methodCode = getPaxityMethodCode(operator?.name || service.operator, service.countryCode);
+
+        if (!methodCode) {
+          return res.status(400).json({ message: `Opérateur '${service.operator}' non supporté par Paxity` });
+        }
+
+        const isQR = isPaxityQRMethod(methodCode);
+        const isOTP = isPaxityOTPMethod(methodCode);
+
+        if (!isQR && !phoneNumber) {
+          return res.status(400).json({ message: "Numéro de téléphone requis" });
+        }
+
+        const prefix = getPaxityPhonePrefix(service.countryCode);
+        const currency = service.currency || getPaxityCurrency(service.countryCode);
+        const cleanPhone = isQR ? "" : formatPhoneForPaxity(phoneNumber || "", service.countryCode);
+        const paxityOtp = isOTP ? String(Math.floor(100000 + Math.random() * 900000)) : "";
+
+        const paxResult = await paxityClient.createPayin({
+          amount: numericAmount,
+          country: service.countryCode,
+          currency,
+          phoneNumber: cleanPhone,
+          prefixPhone: prefix,
+          paymentMethod: methodCode,
+          codeOtp: paxityOtp,
+          description: `Paiement à ${vendeur.fullName} - ${link.title}`,
+          idClient: orderId,
+          ipn: `${baseUrl}/api/webhook/paxity`,
+        });
+
+        if (paxResult.code !== 201 || !paxResult.data) {
+          console.error("❌ Paxity pay-link error:", paxResult);
+          const errMsg = paxResult.errors?.message || paxResult.message || "Erreur lors du paiement Paxity";
+          return res.status(500).json({ message: errMsg });
+        }
+
+        const paxTransactionId = paxResult.data.transactionId;
+
+        await storage.createLeekpayPayment({
+          leekpayPaymentId: paxTransactionId,
+          userId: null,
+          paymentLinkId: link.id,
+          amount: numericAmount.toString(),
+          currency,
+          type: "payment_link",
+          status: "pending",
+          description: `Paiement ${link.title} - Paxity`,
+          customerEmail: payerEmail,
+          payerName,
+          payerPhone: cleanPhone || null,
+          payerCountry: service.countryCode,
+          paymentMethod: `paxity_${service.name}`,
+          returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}`,
+          paymentUrl: paxResult.data.link || null,
+        });
+
+        console.log(`📤 Paxity: Paiement lien initié transactionId=${paxTransactionId}`);
+
+        if (isQR && paxResult.data.link) {
+          return res.json({
+            success: true,
+            payId: paxTransactionId,
+            orderId,
+            status: "PENDING",
+            provider: "paxity",
+            checkoutUrl: paxResult.data.link,
+            message: "Vous allez être redirigé vers la page de paiement.",
+          });
+        }
+
+        return res.json({
+          success: true,
+          payId: paxTransactionId,
+          orderId,
+          status: "PENDING",
+          provider: "paxity",
+          message: "Paiement initié. Veuillez confirmer sur votre téléphone.",
+        });
+      }
+
       if (!phoneNumber) {
         return res.status(400).json({ message: "Numéro de téléphone requis" });
       }
@@ -1268,7 +1310,7 @@ export async function registerRoutes(
     }
   });
 
-  // Vérifier paiement de lien (SoleasPay ou WiniPayer - auto-detect)
+  // Vérifier paiement de lien (SoleasPay, MaishaPay, OmniPay ou Paxity - auto-detect)
   app.get("/api/verify-link-soleaspay/:orderId/:payId", async (req, res) => {
     try {
       const { orderId, payId } = req.params;
@@ -1280,81 +1322,6 @@ export async function registerRoutes(
           message: "Paiement déjà traité",
           amount: existingPayment.amount
         });
-      }
-
-      const isWiniPayerPayment = existingPayment?.paymentMethod?.startsWith("winipayer");
-
-      if (isWiniPayerPayment) {
-        console.log(`🔍 WiniPayer: Vérification paiement lien uuid=${payId}`);
-        const { winipayer } = await import("./winipayer");
-        const verifyResult = await winipayer.verifyPayment(payId);
-
-        if (verifyResult.success && verifyResult.results?.invoice) {
-          const invoice = verifyResult.results.invoice;
-          const state = invoice.state?.toLowerCase();
-
-          if (state === "success" || state === "completed") {
-            const hashValid = winipayer.validateHash({
-              uuid: invoice.uuid,
-              crypto: invoice.crypto,
-              amount: invoice.amount,
-              created_at: invoice.created_at,
-              hash: invoice.hash,
-            });
-
-            if (!hashValid) {
-              return res.json({ status: "PENDING", message: "Vérification de sécurité en cours..." });
-            }
-
-            if (existingPayment && existingPayment.paymentLinkId) {
-              const claimed = await storage.claimLeekpayPayment(payId);
-              if (claimed) {
-                const link = await storage.getPaymentLink(existingPayment.paymentLinkId);
-                if (link) {
-                  const numAmount = parseFloat(invoice.amount.toString()) || parseFloat(claimed.amount);
-                  const settings = await storage.getCommissionSettings();
-                  const commissionRate = getCommissionRate(settings, "payment_received");
-                  const fee = Math.round(numAmount * (commissionRate / 100));
-                  const netAmount = numAmount - fee;
-
-                  await storage.updatePaymentLink(link.id, {
-                    paidAt: new Date(),
-                    paidAmount: numAmount.toString(),
-                  });
-
-                  await storage.createTransaction({
-                    userId: link.userId,
-                    type: "payment_received",
-                    amount: numAmount.toString(),
-                    fee: fee.toString(),
-                    netAmount: netAmount.toString(),
-                    status: "completed",
-                    description: `Paiement reçu - ${link.title}`,
-                    externalRef: payId,
-                    paymentMethod: claimed.paymentMethod || "winipayer",
-                    mobileNumber: invoice.customer_pay?.phone || claimed.payerPhone,
-                    payerName: invoice.customer_pay?.name || claimed.payerName,
-                    payerEmail: invoice.customer_pay?.email || claimed.customerEmail,
-                    payerCountry: claimed.payerCountry,
-                    paymentLinkId: link.id,
-                  });
-
-                  await storage.updateUserBalance(link.userId, netAmount.toString());
-                  console.log(`✅ WiniPayer lien: Paiement confirmé vendeur #${link.userId}: ${netAmount}`);
-                }
-              }
-            }
-
-            return res.json({ status: "SUCCESS", message: "Paiement confirmé avec succès", amount: invoice.amount });
-          } else if (state === "failed" || state === "cancelled" || state === "expired") {
-            if (existingPayment && existingPayment.status !== "completed") {
-              await storage.updateLeekpayPayment(payId, { status: "failed" });
-            }
-            return res.json({ status: "FAILURE", message: "Le paiement a échoué ou a été annulé." });
-          }
-        }
-
-        return res.json({ status: "PENDING", message: "Paiement en attente de confirmation..." });
       }
 
       console.log(`🔍 SoleasPay: Vérification paiement lien orderId=${orderId}, payId=${payId}`);
@@ -1619,305 +1586,6 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/webhook/winipayer-deposit", async (req, res) => {
-    try {
-      const data = req.body;
-      console.log("📥 === WiniPayer Deposit Webhook reçu ===");
-      console.log("📥 Data:", JSON.stringify(data));
-
-      const invoice = data?.results?.invoice || data?.invoice || data;
-      if (!invoice || !invoice.uuid) {
-        console.error("❌ WiniPayer deposit webhook: Données invalides");
-        return res.status(200).json({ message: "OK" });
-      }
-
-      const state = (invoice.state || "").toLowerCase();
-      const uuid = invoice.uuid;
-
-      const payment = await storage.getLeekpayPaymentById(uuid);
-      if (!payment) {
-        console.log("⚠️ WiniPayer deposit webhook: Paiement non trouvé uuid=" + uuid);
-        return res.status(200).json({ message: "OK" });
-      }
-
-      if (payment.status === "completed") {
-        console.log("⚠️ WiniPayer deposit webhook: Paiement déjà traité");
-        return res.status(200).json({ message: "OK" });
-      }
-
-      if (state === "success" || state === "completed") {
-        const { winipayer } = await import("./winipayer");
-        const hashValid = winipayer.validateHash({
-          uuid: invoice.uuid,
-          crypto: invoice.crypto,
-          amount: invoice.amount || invoice.amount_init,
-          created_at: invoice.created_at,
-          hash: invoice.hash,
-        });
-
-        if (!hashValid) {
-          console.error(`❌ WiniPayer deposit webhook: Hash invalide pour ${uuid} - rejeté`);
-          return res.status(200).json({ message: "OK" });
-        }
-
-        const claimed = await storage.claimLeekpayPayment(uuid);
-        if (!claimed) {
-          console.log("⚠️ WiniPayer deposit webhook: Paiement déjà réclamé par un autre processus");
-          return res.status(200).json({ message: "OK" });
-        }
-
-        const numAmount = parseFloat(invoice.amount) || parseFloat(claimed.amount);
-        const settings = await storage.getCommissionSettings();
-
-        if (claimed.type === "deposit" && claimed.userId) {
-          const commissionRate = await getEffectiveFeeRate(claimed.userId, "deposit", settings);
-          const fee = Math.round(numAmount * (commissionRate / 100));
-          const netAmount = numAmount - fee;
-
-          await storage.createTransaction({
-            userId: claimed.userId,
-            type: "deposit",
-            amount: numAmount.toString(),
-            fee: fee.toString(),
-            netAmount: netAmount.toString(),
-            status: "completed",
-            description: claimed.description || "Dépôt via WiniPayer",
-            externalRef: uuid,
-            paymentMethod: claimed.paymentMethod || "winipayer",
-          });
-
-          await storage.updateUserBalance(claimed.userId, netAmount.toString());
-          console.log(`✅ WiniPayer deposit webhook: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
-        } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
-          const commissionRate = getCommissionRate(settings, "payment_received");
-          const fee = Math.round(numAmount * (commissionRate / 100));
-          const netAmount = numAmount - fee;
-
-          const link = await storage.getPaymentLink(claimed.paymentLinkId);
-          if (link) {
-            await storage.updatePaymentLink(link.id, {
-              paidAt: new Date(),
-              paidAmount: numAmount.toString(),
-            });
-
-            await storage.createTransaction({
-              userId: link.userId,
-              type: "payment_received",
-              amount: numAmount.toString(),
-              fee: fee.toString(),
-              netAmount: netAmount.toString(),
-              status: "completed",
-              description: `Paiement reçu - ${link.title}`,
-              externalRef: uuid,
-              paymentMethod: claimed.paymentMethod || "winipayer",
-              mobileNumber: invoice.customer_pay?.phone,
-              payerName: invoice.customer_pay?.name || claimed.payerName,
-              payerEmail: invoice.customer_pay?.email || claimed.customerEmail,
-              payerCountry: claimed.payerCountry,
-              paymentLinkId: link.id,
-            });
-
-            await storage.updateUserBalance(link.userId, netAmount.toString());
-            console.log(`✅ WiniPayer deposit webhook: Paiement lien confirmé vendeur #${link.userId}: ${netAmount}`);
-          }
-        }
-      } else if (state === "failed" || state === "cancelled" || state === "expired") {
-        await storage.updateLeekpayPayment(uuid, { status: "failed" });
-        console.log(`❌ WiniPayer deposit webhook: Paiement échoué uuid=${uuid}`);
-      }
-
-      res.status(200).json({ message: "OK" });
-    } catch (error) {
-      console.error("WiniPayer deposit webhook error:", error);
-      res.status(200).json({ message: "OK" });
-    }
-  });
-
-  app.post("/api/webhook/winipayer-payout", async (req, res) => {
-    try {
-      const data = req.body;
-      console.log("📥 === WiniPayer Payout Webhook reçu ===");
-      console.log("📥 Data:", JSON.stringify(data));
-
-      const uuid = data?.uuid;
-      if (!uuid) {
-        console.error("❌ WiniPayer payout webhook: UUID manquant");
-        return res.status(200).json({ message: "OK" });
-      }
-
-      const withdrawalRequest = await storage.getWithdrawalRequestByExternalRef(uuid);
-      if (!withdrawalRequest) {
-        console.log("⚠️ WiniPayer payout webhook: Demande de retrait non trouvée uuid=" + uuid);
-        return res.status(200).json({ message: "OK" });
-      }
-
-      if (withdrawalRequest.status === "approved" || withdrawalRequest.status === "rejected" || withdrawalRequest.status === "failed") {
-        console.log("⚠️ WiniPayer payout webhook: Retrait déjà traité (status=" + withdrawalRequest.status + ")");
-        return res.status(200).json({ message: "OK" });
-      }
-
-      const state = (data.state || "").toLowerCase();
-      const isPartnerWithdrawal = withdrawalRequest.userId === 0 && withdrawalRequest.walletName?.startsWith("PARTENAIRE:");
-      const user = isPartnerWithdrawal ? null : await storage.getUser(withdrawalRequest.userId);
-      const displayName = isPartnerWithdrawal ? (withdrawalRequest.walletName?.replace("PARTENAIRE:", "").split(" - ")[0] || "Partenaire") : (user?.fullName || "Inconnu");
-
-      if (state === "success") {
-        await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-          status: "approved",
-          processedAt: new Date(),
-        });
-
-        if (!isPartnerWithdrawal) {
-          await storage.createTransaction({
-            userId: withdrawalRequest.userId,
-            type: "withdrawal",
-            amount: withdrawalRequest.amount,
-            fee: withdrawalRequest.fee,
-            netAmount: withdrawalRequest.netAmount,
-            status: "completed",
-            description: `Retrait automatique ${withdrawalRequest.paymentMethod} - ${withdrawalRequest.mobileNumber}`,
-            mobileNumber: withdrawalRequest.mobileNumber,
-            paymentMethod: withdrawalRequest.paymentMethod,
-          });
-
-          if (user?.email) {
-            sendWithdrawalEmail(user.email, {
-              userName: user.fullName,
-              amount: parseFloat(withdrawalRequest.netAmount),
-              currency: "XOF",
-              transactionId: withdrawalRequest.id.toString(),
-              phone: withdrawalRequest.mobileNumber,
-              operator: withdrawalRequest.paymentMethod || "Mobile Money",
-            }).catch(err => console.error("Failed to send withdrawal email:", err));
-          }
-        }
-
-        notifyWithdrawalAutoProcessed({
-          userName: displayName,
-          userId: withdrawalRequest.userId,
-          amount: withdrawalRequest.amount,
-          netAmount: withdrawalRequest.netAmount,
-          paymentMethod: withdrawalRequest.paymentMethod,
-          mobileNumber: withdrawalRequest.mobileNumber,
-          payoutUuid: uuid,
-          status: "success",
-          gateway: "WiniPayer",
-        });
-
-        console.log(`✅ WiniPayer payout webhook: Retrait confirmé ${isPartnerWithdrawal ? "partenaire" : "utilisateur"} #${withdrawalRequest.userId}`);
-      } else if (state === "failed" || state === "cancelled") {
-        if (isPartnerWithdrawal) {
-          const partnerName = withdrawalRequest.walletName?.replace("PARTENAIRE:", "").split(" - ")[0] || "";
-          const partners = await storage.getAllPartners();
-          const partner = partners.find((p: any) => p.name === partnerName.trim());
-          if (partner) {
-            await storage.updatePartnerBalance(partner.id, parseFloat(withdrawalRequest.amount).toString());
-            console.log(`💰 WiniPayer payout webhook: Solde partenaire ${partner.name} restauré +${withdrawalRequest.amount}`);
-          }
-        } else {
-          await storage.setUserBalance(
-            withdrawalRequest.userId,
-            (parseFloat(user?.balance || "0") + parseFloat(withdrawalRequest.amount)).toString()
-          );
-        }
-
-        await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-          status: "failed",
-          rejectionReason: "Le transfert a échoué auprès du fournisseur de paiement",
-        });
-
-        notifyWithdrawalAutoProcessed({
-          userName: displayName,
-          userId: withdrawalRequest.userId,
-          amount: withdrawalRequest.amount,
-          netAmount: withdrawalRequest.netAmount,
-          paymentMethod: withdrawalRequest.paymentMethod,
-          mobileNumber: withdrawalRequest.mobileNumber,
-          payoutUuid: uuid,
-          status: "failed",
-          gateway: "WiniPayer",
-        });
-
-        console.log(`❌ WiniPayer payout webhook: Retrait échoué ${isPartnerWithdrawal ? "partenaire" : "utilisateur"}, solde restauré`);
-      }
-
-      res.status(200).json({ message: "OK" });
-    } catch (error) {
-      console.error("WiniPayer payout webhook error:", error);
-      res.status(200).json({ message: "OK" });
-    }
-  });
-
-  app.get("/api/verify-winipayer/:payId", async (req, res) => {
-    try {
-      const { payId } = req.params;
-
-      const existingPayment = await storage.getLeekpayPaymentById(payId);
-      if (existingPayment?.status === "completed") {
-        return res.json({ status: "SUCCESS", message: "Paiement confirmé", amount: existingPayment.amount });
-      }
-
-      const { winipayer } = await import("./winipayer");
-      const verifyResult = await winipayer.verifyPayment(payId);
-
-      if (verifyResult.success && verifyResult.results?.invoice) {
-        const invoice = verifyResult.results.invoice;
-        const state = invoice.state?.toLowerCase();
-
-        if (state === "success" || state === "completed") {
-          const hashValid = winipayer.validateHash({
-            uuid: invoice.uuid,
-            crypto: invoice.crypto,
-            amount: invoice.amount,
-            created_at: invoice.created_at,
-            hash: invoice.hash,
-          });
-
-          if (!hashValid) {
-            return res.json({ status: "PENDING", message: "Vérification de sécurité en cours..." });
-          }
-
-          if (existingPayment) {
-            const claimed = await storage.claimLeekpayPayment(payId);
-            if (claimed && claimed.type === "deposit" && claimed.userId) {
-              const numAmount = parseFloat(invoice.amount.toString()) || parseFloat(claimed.amount);
-              const settings = await storage.getCommissionSettings();
-              const commissionRate = await getEffectiveFeeRate(claimed.userId, "deposit", settings);
-              const fee = Math.round(numAmount * (commissionRate / 100));
-              const netAmount = numAmount - fee;
-
-              await storage.createTransaction({
-                userId: claimed.userId,
-                type: "deposit",
-                amount: numAmount.toString(),
-                fee: fee.toString(),
-                netAmount: netAmount.toString(),
-                status: "completed",
-                description: claimed.description || "Dépôt via WiniPayer",
-                externalRef: payId,
-                paymentMethod: claimed.paymentMethod || "winipayer",
-              });
-
-              await storage.updateUserBalance(claimed.userId, netAmount.toString());
-              console.log(`✅ WiniPayer: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
-            }
-          }
-
-          return res.json({ status: "SUCCESS", message: "Paiement confirmé avec succès", amount: invoice.amount });
-        } else if (state === "failed" || state === "cancelled" || state === "expired") {
-          if (existingPayment) {
-            await storage.updateLeekpayPayment(payId, { status: "failed" });
-          }
-          return res.json({ status: "FAILURE", message: "Paiement échoué ou annulé" });
-        }
-      }
-
-      return res.json({ status: "PENDING", message: "Paiement en attente de confirmation" });
-    } catch (error) {
-      console.error("WiniPayer verify error:", error);
-      return res.json({ status: "PENDING", message: "Vérification en cours..." });
-    }
-  });
 
   // Vérification manuelle d'un paiement OmniPay
   app.get("/api/verify-omnipay/:reference", async (req, res) => {
@@ -2116,6 +1784,111 @@ export async function registerRoutes(
       return res.json({ status: "PENDING", message: "Paiement en attente de confirmation" });
     } catch (error) {
       console.error("MaishaPay verify error:", error);
+      return res.json({ status: "PENDING", message: "Vérification en cours..." });
+    }
+  });
+
+  // Vérification manuelle d'un paiement Paxity
+  app.get("/api/verify-paxity/:transactionId", async (req, res) => {
+    try {
+      const { transactionId } = req.params;
+      console.log(`🔍 Paxity: Vérification manuelle transactionId=${transactionId}`);
+
+      const existingPayment = await storage.getLeekpayPaymentById(transactionId);
+      if (existingPayment?.status === "completed") {
+        return res.json({ status: "SUCCESS", message: "Paiement déjà traité", amount: existingPayment.amount });
+      }
+
+      if (!existingPayment) {
+        return res.status(404).json({ status: "NOT_FOUND", message: "Paiement non trouvé" });
+      }
+
+      const { paxity: paxityClient } = await import("./paxity");
+      const checkResult = await paxityClient.getTransaction(transactionId);
+
+      if (checkResult.code === 200 && checkResult.data) {
+        const txStatus = (checkResult.data.status || "").toUpperCase();
+
+        if (txStatus === "SUCCESS") {
+          const claimed = await storage.claimLeekpayPayment(transactionId);
+          if (!claimed) {
+            return res.json({ status: "SUCCESS", message: "Paiement déjà traité", amount: existingPayment.amount });
+          }
+
+          const amount = parseFloat(claimed.amount);
+          const settings = await storage.getCommissionSettings();
+
+          if (claimed.type === "deposit" && claimed.userId) {
+            const commissionRate = await getEffectiveFeeRate(claimed.userId, "deposit", settings);
+            const fee = Math.round(amount * (commissionRate / 100));
+            const netAmount = amount - fee;
+
+            await storage.createTransaction({
+              userId: claimed.userId,
+              type: "deposit",
+              amount: amount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: claimed.description || "Dépôt via Paxity",
+              externalRef: transactionId,
+              paymentMethod: claimed.paymentMethod || "paxity",
+            });
+
+            await storage.updateUserBalance(claimed.userId, netAmount.toString());
+
+            const depositUser = await storage.getUser(claimed.userId);
+            if (depositUser?.email) {
+              sendDepositEmail(depositUser.email, {
+                userName: depositUser.fullName,
+                amount: netAmount,
+                currency: claimed.currency || "XOF",
+                transactionId,
+                phone: claimed.payerPhone || "",
+                operator: claimed.paymentMethod?.replace("paxity_", "") || "Paxity",
+              }).catch(err => console.error("Failed to send deposit email:", err));
+            }
+
+            console.log(`✅ Paxity verify: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
+            return res.json({ status: "SUCCESS", message: "Paiement confirmé avec succès", amount: netAmount });
+          } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
+            const commissionRate = getCommissionRate(settings, "payment_received");
+            const fee = Math.round(amount * (commissionRate / 100));
+            const netAmount = amount - fee;
+
+            const link = await storage.getPaymentLink(claimed.paymentLinkId);
+            if (link) {
+              await storage.updatePaymentLink(link.id, { paidAt: new Date(), paidAmount: amount.toString() });
+              await storage.createTransaction({
+                userId: link.userId,
+                type: "payment_received",
+                amount: amount.toString(),
+                fee: fee.toString(),
+                netAmount: netAmount.toString(),
+                status: "completed",
+                description: `Paiement reçu - ${link.title}`,
+                externalRef: transactionId,
+                paymentMethod: claimed.paymentMethod || "paxity",
+                mobileNumber: claimed.payerPhone,
+                payerName: claimed.payerName,
+                payerEmail: claimed.customerEmail,
+                payerCountry: claimed.payerCountry,
+                paymentLinkId: link.id,
+              });
+              await storage.updateUserBalance(link.userId, netAmount.toString());
+              console.log(`✅ Paxity verify: Paiement lien confirmé vendeur #${link.userId}: ${netAmount}`);
+            }
+            return res.json({ status: "SUCCESS", message: "Paiement confirmé", amount: netAmount });
+          }
+        } else if (txStatus === "REJECTED" || txStatus === "FAILED") {
+          await storage.updateLeekpayPayment(transactionId, { status: "failed" });
+          return res.json({ status: "FAILURE", message: "Le paiement a échoué ou a été annulé" });
+        }
+      }
+
+      return res.json({ status: "PENDING", message: "Paiement en attente de confirmation" });
+    } catch (error) {
+      console.error("Paxity verify error:", error);
       return res.json({ status: "PENDING", message: "Vérification en cours..." });
     }
   });
@@ -2518,6 +2291,156 @@ export async function registerRoutes(
     }
   });
 
+  // Callback webhook Paxity
+  app.post("/api/webhook/paxity", async (req, res) => {
+    try {
+      const data = req.body;
+      console.log("📥 === Paxity Webhook reçu ===");
+      console.log("📥 Data:", JSON.stringify(data));
+
+      res.status(200).json({ received: true });
+
+      const transactionReference = data?.transactionReference;
+      const idClient = data?.idClient;
+      const status = (data?.status || "").toUpperCase();
+
+      if (!transactionReference) {
+        console.error("❌ Paxity webhook: transactionReference manquant");
+        return;
+      }
+
+      if (status !== "SUCCESS") {
+        if (status === "REJECTED") {
+          await storage.updateLeekpayPayment(transactionReference, { status: "failed" });
+          if (idClient) await storage.updateLeekpayPayment(idClient, { status: "failed" });
+          console.log(`❌ Paxity webhook: Paiement rejeté transactionId=${transactionReference}`);
+        }
+        return;
+      }
+
+      const payment = await storage.getLeekpayPaymentById(transactionReference)
+        || (idClient ? await storage.getLeekpayPaymentById(idClient) : null);
+
+      if (!payment) {
+        const partnerTx = await storage.getPartnerTransactionByReference(idClient || transactionReference);
+        if (partnerTx && partnerTx.status !== "completed") {
+          const { db } = await import("./db");
+          const { sql } = await import("drizzle-orm");
+          const ref = idClient || transactionReference;
+          const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+          const rowsAffected = (updateResult as any)?.rowCount || 0;
+          if (rowsAffected > 0) {
+            const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
+            await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partnerTx.partnerId}`);
+            console.log(`✅ Paxity webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${ref} net=${netAmount}`);
+            if (partnerTx.callbackUrl) {
+              try {
+                await fetch(partnerTx.callbackUrl, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ reference: ref, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: netAmount.toString(), currency: partnerTx.currency, provider: "paxity" }),
+                });
+              } catch (cbErr) { console.error("Paxity webhook: Callback error:", cbErr); }
+            }
+          }
+        } else {
+          console.log("⚠️ Paxity webhook: Paiement non trouvé transactionId=" + transactionReference);
+        }
+        return;
+      }
+
+      if (payment.status === "completed") {
+        console.log("⚠️ Paxity webhook: Paiement déjà traité transactionId=" + transactionReference);
+        return;
+      }
+
+      const claimed = await storage.claimLeekpayPayment(payment.leekpayPaymentId);
+      if (!claimed) {
+        console.log("⚠️ Paxity webhook: Paiement déjà réclamé transactionId=" + transactionReference);
+        return;
+      }
+
+      const amount = parseFloat(data?.amount || claimed.amount);
+      const settings = await storage.getCommissionSettings();
+
+      if (claimed.type === "deposit" && claimed.userId) {
+        const commissionRate = await getEffectiveFeeRate(claimed.userId, "deposit", settings);
+        const fee = Math.round(amount * (commissionRate / 100));
+        const netAmount = amount - fee;
+
+        await storage.createTransaction({
+          userId: claimed.userId,
+          type: "deposit",
+          amount: amount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          status: "completed",
+          description: claimed.description || "Dépôt via Paxity",
+          externalRef: transactionReference,
+          paymentMethod: claimed.paymentMethod || "paxity",
+        });
+
+        await storage.updateUserBalance(claimed.userId, netAmount.toString());
+
+        const depositUser = await storage.getUser(claimed.userId);
+        if (depositUser?.email) {
+          sendDepositEmail(depositUser.email, {
+            userName: depositUser.fullName,
+            amount: netAmount,
+            currency: claimed.currency || "XOF",
+            transactionId: transactionReference,
+            phone: claimed.payerPhone || "",
+            operator: claimed.paymentMethod?.replace("paxity_", "") || "Paxity",
+          }).catch(err => console.error("Failed to send deposit email:", err));
+        }
+
+        const { notifyDeposit } = await import("./telegram");
+        notifyDeposit({
+          userName: depositUser?.fullName || "Inconnu",
+          userId: claimed.userId,
+          amount,
+          fee: amount - netAmount,
+          netAmount,
+          currency: claimed.currency || "XOF",
+          phone: claimed.payerPhone || "",
+          operator: claimed.paymentMethod?.replace("paxity_", "") || "Paxity",
+          gateway: "Paxity",
+        });
+
+        console.log(`✅ Paxity webhook: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
+      } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
+        const commissionRate = getCommissionRate(settings, "payment_received");
+        const fee = Math.round(amount * (commissionRate / 100));
+        const netAmount = amount - fee;
+
+        const link = await storage.getPaymentLink(claimed.paymentLinkId);
+        if (link) {
+          await storage.updatePaymentLink(link.id, { paidAt: new Date(), paidAmount: amount.toString() });
+          await storage.createTransaction({
+            userId: link.userId,
+            type: "payment_received",
+            amount: amount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: `Paiement reçu - ${link.title}`,
+            externalRef: transactionReference,
+            paymentMethod: claimed.paymentMethod || "paxity",
+            mobileNumber: claimed.payerPhone,
+            payerName: claimed.payerName,
+            payerEmail: claimed.customerEmail,
+            payerCountry: claimed.payerCountry,
+            paymentLinkId: link.id,
+          });
+          await storage.updateUserBalance(link.userId, netAmount.toString());
+          console.log(`✅ Paxity webhook: Paiement lien confirmé vendeur #${link.userId}: ${netAmount}`);
+        }
+      }
+    } catch (error) {
+      console.error("Paxity webhook error:", error);
+    }
+  });
+
   // ========== FIN SOLEASPAY ROUTES ==========
 
   // Vérifier et créditer un paiement LeekPay (appelé au retour de LeekPay)
@@ -2689,55 +2612,20 @@ export async function registerRoutes(
       }
 
       // 3. Vérifier le statut auprès de l'API appropriée
-      const isWiniPayerRef = leekpayPayment?.paymentMethod?.startsWith("winipayer");
-      
       let leekpayStatus: string | undefined;
       let leekpayAmount: number | undefined;
 
-      if (isWiniPayerRef && leekpayPayment) {
-        console.log("📡 Appel API WiniPayer pour vérifier:", leekpayPayment.leekpayPaymentId);
-        const { winipayer } = await import("./winipayer");
-        const winiVerify = await winipayer.verifyPayment(leekpayPayment.leekpayPaymentId);
-        
-        if (winiVerify.success && winiVerify.results?.invoice) {
-          const invoice = winiVerify.results.invoice;
-          const state = invoice.state?.toLowerCase();
-          
-          if (state === "success" || state === "completed") {
-            const hashValid = winipayer.validateHash({
-              uuid: invoice.uuid,
-              crypto: invoice.crypto,
-              amount: invoice.amount,
-              created_at: invoice.created_at,
-              hash: invoice.hash,
-            });
-            if (hashValid) {
-              leekpayStatus = "completed";
-              leekpayAmount = invoice.amount;
-            } else {
-              return res.json({ status: "pending", message: "Vérification de sécurité en cours..." });
-            }
-          } else if (state === "failed" || state === "cancelled" || state === "expired") {
-            leekpayStatus = "failed";
-          } else {
-            leekpayStatus = "pending";
-          }
-        } else {
-          return res.json({ status: "pending", message: "Vérification en cours. Veuillez patienter..." });
-        }
-      } else {
-        console.log("📡 Appel API LeekPay pour vérifier:", reference);
-        const statusResult = await leekpay.getPaymentStatus(reference);
-        console.log("📡 Réponse LeekPay:", JSON.stringify(statusResult));
-        
-        if (!statusResult.success) {
-          console.log("⚠️ API LeekPay indisponible ou référence inconnue");
-          return res.json({ status: "pending", message: "Vérification en cours. Veuillez patienter..." });
-        }
-        
-        leekpayStatus = statusResult.data?.status;
-        leekpayAmount = statusResult.data?.amount;
+      console.log("📡 Appel API LeekPay pour vérifier:", reference);
+      const statusResult = await leekpay.getPaymentStatus(reference);
+      console.log("📡 Réponse LeekPay:", JSON.stringify(statusResult));
+      
+      if (!statusResult.success) {
+        console.log("⚠️ API LeekPay indisponible ou référence inconnue");
+        return res.json({ status: "pending", message: "Vérification en cours. Veuillez patienter..." });
       }
+      
+      leekpayStatus = statusResult.data?.status;
+      leekpayAmount = statusResult.data?.amount;
       
       console.log("📊 Statut:", leekpayStatus, "Montant:", leekpayAmount);
       
@@ -2951,171 +2839,6 @@ export async function registerRoutes(
       
       console.log("💸 Withdrawal request - Country:", selectedCountry.code, "Operator:", paymentMethod);
       console.log("💸 Balance debited immediately:", numericAmount, "New balance:", newBalance);
-
-      const isWiniPayerOperator = selectedOperator.paymentGateway === "winipayer";
-
-      if (isWiniPayerOperator) {
-        const { createPayout, getWiniPayerPayoutOperator } = await import("./winipayer");
-        const payoutOperator = getWiniPayerPayoutOperator(selectedOperator.name, country);
-
-        if (!payoutOperator) {
-          const newBalance2 = balance;
-          await storage.setUserBalance(req.session.userId!, newBalance2.toString());
-          return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique" });
-        }
-
-        const withdrawalRequest = await storage.createWithdrawalRequest({
-          userId: req.session.userId!,
-          amount: numericAmount.toString(),
-          fee: fee.toString(),
-          netAmount: netAmount.toString(),
-          paymentMethod: selectedOperator.name,
-          mobileNumber,
-          country,
-          walletName: walletName || null,
-        });
-
-        await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
-
-        console.log("💸 WiniPayer auto-withdrawal: operator=", payoutOperator, "amount=", netAmount, "phone=", mobileNumber);
-
-        try {
-          const payoutResult = await createPayout({
-            operator: payoutOperator,
-            recipients: [{
-              name: walletName || user.fullName || "Client",
-              account: mobileNumber.replace(/\s/g, ""),
-              amount: netAmount,
-            }],
-            description: `Retrait SendavaPay #${withdrawalRequest.id}`,
-            customData: { withdrawalId: withdrawalRequest.id, userId: req.session.userId },
-            callbackUrl: "https://sendavapay.com/api/webhook/winipayer-payout",
-          });
-
-          if (payoutResult.uuid) {
-            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-              externalReference: payoutResult.uuid,
-              transactionReference: payoutResult.crypto || null,
-            });
-
-            const payoutState = payoutResult.state?.toLowerCase();
-
-            if (payoutState === "success") {
-              await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-                status: "approved",
-                processedAt: new Date(),
-              });
-
-              await storage.createTransaction({
-                userId: req.session.userId!,
-                type: "withdrawal",
-                amount: numericAmount.toString(),
-                fee: fee.toString(),
-                netAmount: netAmount.toString(),
-                status: "completed",
-                description: `Retrait automatique ${selectedOperator.name} - ${mobileNumber}`,
-                mobileNumber,
-                paymentMethod: selectedOperator.name,
-              });
-
-              if (user?.email) {
-                sendWithdrawalEmail(user.email, {
-                  userName: user.fullName,
-                  amount: netAmount,
-                  currency: "XOF",
-                  transactionId: withdrawalRequest.id.toString(),
-                  phone: mobileNumber,
-                  operator: selectedOperator.name,
-                }).catch(err => console.error("Failed to send withdrawal email:", err));
-              }
-
-              notifyWithdrawalAutoProcessed({
-                userName: user.fullName,
-                userId: req.session.userId!,
-                amount: numericAmount.toString(),
-                netAmount: netAmount.toString(),
-                paymentMethod: selectedOperator.name,
-                mobileNumber,
-                payoutUuid: payoutResult.uuid,
-                status: "success",
-                gateway: "WiniPayer",
-              });
-
-              return res.json({
-                message: "Retrait effectué avec succès! L'argent a été envoyé sur votre compte mobile.",
-                request: { ...withdrawalRequest, status: "approved" },
-                autoProcessed: true,
-              });
-            } else {
-              notifyWithdrawalAutoProcessed({
-                userName: user.fullName,
-                userId: req.session.userId!,
-                amount: numericAmount.toString(),
-                netAmount: netAmount.toString(),
-                paymentMethod: selectedOperator.name,
-                mobileNumber,
-                payoutUuid: payoutResult.uuid,
-                status: "processing",
-                gateway: "WiniPayer",
-              });
-
-              return res.json({
-                message: "Votre retrait est en cours de traitement. Vous recevrez l'argent dans quelques instants.",
-                request: { ...withdrawalRequest, status: "processing" },
-                autoProcessed: true,
-                payoutUuid: payoutResult.uuid,
-              });
-            }
-          } else {
-            const winiError = payoutResult.errors?.msg || payoutResult.errors?.key || JSON.stringify(payoutResult.errors) || "Erreur inconnue";
-            console.error("❌ WiniPayer payout failed:", payoutResult.errors);
-            console.error("❌ WiniPayer payout error detail:", winiError);
-            console.error("❌ WiniPayer payout operator used:", payoutOperator);
-            await storage.setUserBalance(req.session.userId!, balance.toString());
-            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-              status: "failed",
-              rejectionReason: winiError,
-            });
-
-            notifyWithdrawalAutoProcessed({
-              userName: user.fullName,
-              userId: req.session.userId!,
-              amount: numericAmount.toString(),
-              netAmount: netAmount.toString(),
-              paymentMethod: selectedOperator.name,
-              mobileNumber,
-              payoutUuid: "N/A",
-              status: "failed",
-              errorDetail: winiError,
-              payoutOperator,
-              gateway: "WiniPayer",
-            });
-
-            const errorMsg = winiError.toLowerCase();
-            if (errorMsg.includes("operator") || errorMsg.includes("invalid") || errorMsg.includes("unauthorized") || errorMsg.includes("auth") || errorMsg.includes("ip")) {
-              fetch("https://api.ipify.org")
-                .then(r => r.text())
-                .then(ip => notifyIpChanged(ip.trim()))
-                .catch(err => console.error("❌ IP check error:", err));
-            }
-
-            return res.status(500).json({
-              message: `Le retrait automatique a échoué (${winiError}). Votre solde a été restauré.`,
-            });
-          }
-        } catch (payoutError) {
-          console.error("❌ WiniPayer payout exception:", payoutError);
-          await storage.setUserBalance(req.session.userId!, balance.toString());
-          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-            status: "failed",
-            rejectionReason: "Erreur technique lors du transfert automatique",
-          });
-
-          return res.status(500).json({
-            message: "Erreur technique lors du retrait. Votre solde a été restauré.",
-          });
-        }
-      }
 
       if (selectedOperator.paymentGateway === "maishapay") {
         const { maishapay: mpClient, getMaishapayProvider, formatPhoneForMaishapay } = await import("./maishapay");
@@ -3503,74 +3226,7 @@ export async function registerRoutes(
       if (withdrawalRequest.status === "processing" && withdrawalRequest.externalReference) {
         console.log("🔍 Vérification du statut de retrait:", withdrawalRequest.externalReference);
 
-        const isWiniPayerPayout = withdrawalRequest.transactionReference?.startsWith("payout_") || false;
-        
-        if (isWiniPayerPayout) {
-          const { verifyPayout } = await import("./winipayer");
-          const payoutResult = await verifyPayout(withdrawalRequest.externalReference);
-
-          if (payoutResult.state) {
-            const payoutState = payoutResult.state.toLowerCase();
-
-            if (payoutState === "success") {
-              await storage.updateWithdrawalRequest(requestId, {
-                status: "approved",
-                processedAt: new Date(),
-              });
-
-              await storage.createTransaction({
-                userId: withdrawalRequest.userId,
-                type: "withdrawal",
-                amount: withdrawalRequest.amount,
-                fee: withdrawalRequest.fee,
-                netAmount: withdrawalRequest.netAmount,
-                status: "completed",
-                description: `Retrait automatique ${withdrawalRequest.paymentMethod} - ${withdrawalRequest.mobileNumber}`,
-                externalRef: withdrawalRequest.externalReference,
-              });
-
-              const user = await storage.getUser(withdrawalRequest.userId);
-              if (user?.email) {
-                sendWithdrawalEmail(user.email, {
-                  userName: user.fullName,
-                  amount: parseFloat(withdrawalRequest.netAmount),
-                  currency: "XOF",
-                  transactionId: withdrawalRequest.id.toString(),
-                  phone: withdrawalRequest.mobileNumber,
-                  operator: withdrawalRequest.paymentMethod || "Mobile Money",
-                }).catch(err => console.error("Failed to send withdrawal email:", err));
-              }
-
-              return res.json({
-                status: "approved",
-                message: "Retrait effectué avec succès!",
-                request: { ...withdrawalRequest, status: "approved" },
-              });
-            } else if (payoutState === "failed" || payoutState === "cancelled") {
-              await storage.setUserBalance(
-                withdrawalRequest.userId,
-                (parseFloat((await storage.getUser(withdrawalRequest.userId))?.balance || "0") + parseFloat(withdrawalRequest.amount)).toString()
-              );
-
-              await storage.updateWithdrawalRequest(requestId, {
-                status: "failed",
-                rejectionReason: "Le transfert automatique a échoué",
-              });
-
-              return res.json({
-                status: "failed",
-                message: "Le retrait a échoué. Votre solde a été restauré.",
-                request: { ...withdrawalRequest, status: "failed" },
-              });
-            }
-
-            return res.json({
-              status: "processing",
-              message: "Retrait en cours de traitement...",
-              request: withdrawalRequest,
-            });
-          }
-        } else {
+        {
           const transactionDetails = await soleaspay.getTransactionDetails(withdrawalRequest.externalReference);
           
           if (transactionDetails) {
@@ -6746,7 +6402,7 @@ export async function registerRoutes(
         try {
           const ipRes = await fetch("https://api.ipify.org");
           const ip = await ipRes.text();
-          await sendBotReply(chatId, `<b>🌐 IP Serveur actuelle:</b> <code>${ip.trim()}</code>\n\nAjouter sur manager.winipayer.com → IPs whitelist (Payout)`);
+          await sendBotReply(chatId, `<b>🌐 IP Serveur actuelle:</b> <code>${ip.trim()}</code>`);
         } catch {
           await sendBotReply(chatId, "❌ Impossible de récupérer l'IP du serveur.");
         }
