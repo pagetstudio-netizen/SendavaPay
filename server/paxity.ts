@@ -11,8 +11,10 @@ function getApiToken(): string {
 }
 
 function generatePaxityJwt(): string {
-  const apiKey = getApiKey();   // iss — identifiant client Paxity
-  const apiSecret = getApiToken(); // secret de signature
+  // PAXITY_API_TOKEN = identifiant public (API key) → champ "iss"
+  // PAXITY_API_KEY   = clé secrète privée (private_...) → signature
+  const apiKey = getApiToken();    // iss : 9MgZlI8V...
+  const apiSecret = getApiKey();   // signing secret : private_Id...
   const now = Math.floor(Date.now() / 1000);
 
   const token = jwt.sign(
@@ -21,7 +23,7 @@ function generatePaxityJwt(): string {
     { algorithm: "HS256" }
   );
 
-  console.log(`[paxity] JWT généré (aperçu: ${token.slice(0, 40)}...)`);
+  console.log(`[paxity] JWT généré — iss=${apiKey.slice(0, 8)}... (aperçu token: ${token.slice(0, 40)}...)`);
   return token;
 }
 
