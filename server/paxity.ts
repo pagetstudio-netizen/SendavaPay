@@ -1,3 +1,5 @@
+import jwt from "jsonwebtoken";
+
 const PAXITY_BASE_URL = "https://transaction.paxity.io/api/v1";
 
 function getApiKey(): string {
@@ -8,11 +10,32 @@ function getApiToken(): string {
   return process.env.PAXITY_API_TOKEN || "";
 }
 
+let _cachedJwt: string | null = null;
+let _jwtExpiry = 0;
+
+function generatePaxityJwt(): string {
+  const now = Math.floor(Date.now() / 1000);
+  if (_cachedJwt && _jwtExpiry > now + 60) return _cachedJwt;
+
+  const apiKey = getApiKey();
+  const apiToken = getApiToken();
+
+  const token = jwt.sign(
+    { apiKey: apiToken },
+    apiKey,
+    { algorithm: "HS256", expiresIn: "1h" }
+  );
+
+  _cachedJwt = token;
+  _jwtExpiry = now + 3600;
+  console.log(`[paxity] JWT généré (aperçu: ${token.slice(0, 30)}...)`);
+  return token;
+}
+
 function paxityHeaders(): Record<string, string> {
   return {
     "Content-Type": "application/json",
-    "Authorization": `Bearer ${getApiToken()}`,
-    "x-api-key": getApiKey(),
+    "Authorization": `Bearer ${generatePaxityJwt()}`,
   };
 }
 
