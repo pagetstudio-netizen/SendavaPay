@@ -3879,13 +3879,12 @@ function CountriesContent() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="soleaspay">SoleasPay</SelectItem>
-                  <SelectItem value="winipayer">WiniPayer</SelectItem>
                   <SelectItem value="maishapay">MaishaPay</SelectItem>
                   <SelectItem value="omnipay">OmniPay</SelectItem>
                   <SelectItem value="paxity">Paxity</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">SoleasPay: USSD direct | WiniPayer: Redirection | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave) | Paxity: Afrique de l'Ouest &amp; Centrale (Wave, MTN, Orange, Moov…)</p>
+              <p className="text-xs text-muted-foreground">SoleasPay: USSD direct | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave) | Paxity: Afrique de l'Ouest &amp; Centrale (Wave, MTN, Orange, Moov…)</p>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -3967,13 +3966,12 @@ function CountriesContent() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="soleaspay">SoleasPay</SelectItem>
-                  <SelectItem value="winipayer">WiniPayer</SelectItem>
                   <SelectItem value="maishapay">MaishaPay</SelectItem>
                   <SelectItem value="omnipay">OmniPay</SelectItem>
                   <SelectItem value="paxity">Paxity</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">SoleasPay: USSD direct | WiniPayer: Redirection | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave) | Paxity: Afrique de l'Ouest &amp; Centrale (Wave, MTN, Orange, Moov…)</p>
+              <p className="text-xs text-muted-foreground">SoleasPay: USSD direct | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave) | Paxity: Afrique de l'Ouest &amp; Centrale (Wave, MTN, Orange, Moov…)</p>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">

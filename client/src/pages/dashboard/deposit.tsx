@@ -83,7 +83,7 @@ export default function DepositPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
   const [currentOrderId, setCurrentOrderId] = useState("");
-  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "winipayer" | "maishapay" | "omnipay" | "paxity">("soleaspay");
+  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "maishapay" | "omnipay" | "paxity">("soleaspay");
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
   const maxPollingAttempts = 40;
@@ -123,7 +123,6 @@ export default function DepositPage() {
 
   const selectedService = services.find(s => s.id.toString() === selectedServiceId);
   const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
-  const isWiniPayer = selectedService?.paymentGateway === "winipayer";
   const phonePrefix = COUNTRY_PREFIXES[selectedService?.countryCode || ""] || "";
 
   const { data: publicFees } = useQuery<{ countries: { code: string; depositFee: number; withdrawFee: number }[]; global: { depositFee: number; withdrawFee: number } }>({
@@ -139,9 +138,7 @@ export default function DepositPage() {
     if (!currentPayId) return;
 
     try {
-      const verifyUrl = currentProvider === "winipayer"
-        ? `/api/verify-winipayer/${currentPayId}`
-        : currentProvider === "maishapay"
+      const verifyUrl = currentProvider === "maishapay"
         ? `/api/verify-maishapay/${currentPayId}`
         : currentProvider === "omnipay"
         ? `/api/verify-omnipay/${currentPayId}`

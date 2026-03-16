@@ -165,6 +165,28 @@ export interface PaxityTransactionResponse {
   errors?: any;
 }
 
+async function paxityFetch(url: string, options: RequestInit): Promise<any> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    const text = await res.text();
+    console.log(`[paxity] ${options.method || "GET"} ${url} ← HTTP ${res.status} | ${text.slice(0, 300)}`);
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { code: res.status, message: `Réponse non-JSON de Paxity (HTTP ${res.status}): ${text.slice(0, 200)}` };
+    }
+  } catch (err: any) {
+    if (err.name === "AbortError") {
+      return { code: 408, message: "Timeout: Paxity ne répond pas (30s)" };
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export const paxity = {
   async createPayin(params: PaxityPayinParams): Promise<PaxityPayinResponse> {
     try {
@@ -181,13 +203,11 @@ export const paxity = {
         ipn: params.ipn,
       };
       console.log("[paxity] createPayin →", JSON.stringify(body));
-      const res = await fetch(`${PAXITY_BASE_URL}/transaction/pay-in-mobile`, {
+      const data = await paxityFetch(`${PAXITY_BASE_URL}/transaction/pay-in-mobile`, {
         method: "POST",
         headers: paxityHeaders(),
         body: JSON.stringify(body),
       });
-      const data = await res.json();
-      console.log("[paxity] createPayin ←", JSON.stringify(data));
       return data;
     } catch (err) {
       console.error("Paxity createPayin error:", err);
@@ -197,11 +217,10 @@ export const paxity = {
 
   async getTransaction(transactionReference: string): Promise<PaxityTransactionResponse> {
     try {
-      const res = await fetch(`${PAXITY_BASE_URL}/transaction/pay-in-mobile/${transactionReference}`, {
+      return await paxityFetch(`${PAXITY_BASE_URL}/transaction/pay-in-mobile/${transactionReference}`, {
         method: "GET",
         headers: paxityHeaders(),
       });
-      return res.json();
     } catch (err) {
       console.error("Paxity getTransaction error:", err);
       return { code: 500, message: "Erreur de connexion à Paxity", errors: err };
@@ -210,7 +229,7 @@ export const paxity = {
 
   async createPayout(params: PaxityPayoutParams): Promise<PaxityPayoutResponse> {
     try {
-      const res = await fetch(`${PAXITY_BASE_URL}/transaction/pay-out-mobile`, {
+      return await paxityFetch(`${PAXITY_BASE_URL}/transaction/pay-out-mobile`, {
         method: "POST",
         headers: paxityHeaders(),
         body: JSON.stringify({
@@ -227,7 +246,6 @@ export const paxity = {
           email: params.email,
         }),
       });
-      return res.json();
     } catch (err) {
       console.error("Paxity createPayout error:", err);
       return { code: 500, message: "Erreur de connexion à Paxity", errors: err };
