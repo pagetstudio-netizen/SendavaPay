@@ -2304,6 +2304,82 @@ export async function registerRoutes(
       const idClient = data?.idClient;
       const status = (data?.status || "").toUpperCase();
 
+      if (!transactionReference && !idClient) {
+        console.error("❌ Paxity webhook: transactionReference et idClient manquants");
+        return;
+      }
+
+      // ── Détection PAYOUT : idClient commence par "paxity_payout_" ──────────
+      const payoutRef = idClient?.startsWith("paxity_payout_") ? idClient
+        : transactionReference?.startsWith("paxity_payout_") ? transactionReference
+        : null;
+
+      if (payoutRef) {
+        console.log(`💸 Paxity webhook PAYOUT reçu: ref=${payoutRef} status=${status}`);
+        // Retrouver la demande de retrait par externalReference
+        const allRequests = await storage.getAllWithdrawalRequests();
+        const withdrawalReq = allRequests.find((r: any) => r.externalReference === payoutRef);
+
+        if (!withdrawalReq) {
+          console.log(`⚠️ Paxity payout webhook: demande de retrait introuvable ref=${payoutRef}`);
+          return;
+        }
+
+        if (withdrawalReq.status === "approved" || withdrawalReq.status === "completed") {
+          console.log(`⚠️ Paxity payout webhook: déjà traité id=${withdrawalReq.id}`);
+          return;
+        }
+
+        if (status === "SUCCESS") {
+          await storage.updateWithdrawalRequest(withdrawalReq.id, {
+            status: "approved",
+            processedAt: new Date(),
+          });
+
+          const user = await storage.getUser(withdrawalReq.userId);
+          const currency = (data?.currency as string) || "XOF";
+
+          await storage.createTransaction({
+            userId: withdrawalReq.userId,
+            type: "withdrawal",
+            amount: withdrawalReq.amount,
+            fee: withdrawalReq.fee,
+            netAmount: withdrawalReq.netAmount,
+            status: "completed",
+            description: `Retrait automatique Paxity ${withdrawalReq.paymentMethod} - ${withdrawalReq.mobileNumber}`,
+            mobileNumber: withdrawalReq.mobileNumber,
+            paymentMethod: withdrawalReq.paymentMethod,
+          });
+
+          if (user?.email) {
+            sendWithdrawalEmail(user.email, {
+              userName: user.fullName,
+              amount: parseFloat(withdrawalReq.netAmount),
+              currency,
+              transactionId: withdrawalReq.id.toString(),
+              phone: withdrawalReq.mobileNumber,
+              operator: withdrawalReq.paymentMethod,
+            }).catch(err => console.error("Failed to send Paxity payout withdrawal email:", err));
+          }
+
+          console.log(`✅ Paxity payout confirmé: id=${withdrawalReq.id} montant=${withdrawalReq.netAmount} ${currency}`);
+        } else if (status === "REJECTED" || status === "FAILED") {
+          // Rembourser le solde
+          const user = await storage.getUser(withdrawalReq.userId);
+          if (user) {
+            const restoredBalance = parseFloat(user.balance) + parseFloat(withdrawalReq.amount);
+            await storage.setUserBalance(withdrawalReq.userId, restoredBalance.toString());
+          }
+          await storage.updateWithdrawalRequest(withdrawalReq.id, {
+            status: "failed",
+            rejectionReason: `Paxity payout rejeté: ${status}`,
+          });
+          console.log(`❌ Paxity payout rejeté: id=${withdrawalReq.id} status=${status} — solde restauré`);
+        }
+        return;
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       if (!transactionReference) {
         console.error("❌ Paxity webhook: transactionReference manquant");
         return;
@@ -3146,6 +3222,123 @@ export async function registerRoutes(
           await storage.updateWithdrawalRequest(withdrawalRequest.id, {
             status: "failed",
             rejectionReason: "Erreur technique lors du transfert automatique OmniPay",
+          });
+
+          return res.status(500).json({
+            message: "Erreur technique lors du retrait. Votre solde a été restauré.",
+          });
+        }
+      }
+
+      if (selectedOperator.paymentGateway === "paxity") {
+        const {
+          paxity: paxityClient,
+          getPaxityMethodCode,
+          getPaxityPhonePrefix,
+          getPaxityCurrency,
+          formatPhoneForPaxity,
+        } = await import("./paxity");
+
+        const paxityMethod = getPaxityMethodCode(selectedOperator.name, selectedCountry.code);
+        if (!paxityMethod) {
+          await storage.setUserBalance(req.session.userId!, balance.toString());
+          return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique Paxity" });
+        }
+
+        const currency = getPaxityCurrency(selectedCountry.code);
+        const prefixPhone = getPaxityPhonePrefix(selectedCountry.code);
+        const cleanPhone = formatPhoneForPaxity(mobileNumber, selectedCountry.code);
+
+        const withdrawalRequest = await storage.createWithdrawalRequest({
+          userId: req.session.userId!,
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          paymentMethod: selectedOperator.name,
+          mobileNumber,
+          country,
+          walletName: walletName || null,
+        });
+
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
+
+        const pxRef = `paxity_payout_${withdrawalRequest.id}_${Date.now()}`;
+
+        console.log(`💸 Paxity payout: method=${paxityMethod} amount=${netAmount} currency=${currency} prefix=${prefixPhone} phone=${cleanPhone} ref=${pxRef}`);
+
+        try {
+          const pxResult = await paxityClient.createPayout({
+            amount: netAmount,
+            country: selectedCountry.code.toUpperCase(),
+            currency,
+            prefixPhone,
+            phoneNumber: cleanPhone,
+            paymentMethod: paxityMethod,
+            ipn: "https://sendavapay.com/api/webhook/paxity",
+            description: `Retrait SendavaPay #${withdrawalRequest.id}`,
+            idClient: pxRef,
+            name: walletName || user.fullName || "Client",
+            email: user.email,
+          });
+
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+            externalReference: pxRef,
+            transactionReference: pxResult.data?.id || null,
+          });
+
+          if (pxResult.code === 200 || pxResult.code === 201) {
+            console.log(`✅ Paxity payout accepted: ref=${pxRef} txId=${pxResult.data?.id} — en attente webhook confirmation`);
+
+            notifyWithdrawalAutoProcessed({
+              userName: user.fullName,
+              userId: req.session.userId!,
+              amount: numericAmount.toString(),
+              netAmount: netAmount.toString(),
+              paymentMethod: selectedOperator.name,
+              mobileNumber,
+              payoutUuid: pxRef,
+              status: "success",
+              gateway: "Paxity",
+            });
+
+            return res.json({
+              message: "Retrait en cours de traitement. Vous recevrez l'argent dans quelques instants.",
+              request: { ...withdrawalRequest, status: "processing" },
+              autoProcessed: true,
+            });
+          } else {
+            const pxError = pxResult.message || "Erreur Paxity inconnue";
+            console.error("❌ Paxity payout failed:", pxResult);
+            await storage.setUserBalance(req.session.userId!, balance.toString());
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              status: "failed",
+              rejectionReason: pxError,
+            });
+
+            notifyWithdrawalAutoProcessed({
+              userName: user.fullName,
+              userId: req.session.userId!,
+              amount: numericAmount.toString(),
+              netAmount: netAmount.toString(),
+              paymentMethod: selectedOperator.name,
+              mobileNumber,
+              payoutUuid: "N/A",
+              status: "failed",
+              errorDetail: pxError,
+              payoutOperator: paxityMethod,
+              gateway: "Paxity",
+            });
+
+            return res.status(500).json({
+              message: `Le retrait automatique a échoué (${pxError}). Votre solde a été restauré.`,
+            });
+          }
+        } catch (pxErr) {
+          console.error("❌ Paxity payout exception:", pxErr);
+          await storage.setUserBalance(req.session.userId!, balance.toString());
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+            status: "failed",
+            rejectionReason: "Erreur technique lors du payout Paxity",
           });
 
           return res.status(500).json({
