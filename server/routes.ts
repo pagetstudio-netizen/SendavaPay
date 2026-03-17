@@ -733,13 +733,13 @@ export async function registerRoutes(
         const isQR = isPaxityQRMethod(methodCode);
         const isOTP = isPaxityOTPMethod(methodCode);
 
-        if (!isQR && !phoneNumber) {
+        if (!phoneNumber) {
           return res.status(400).json({ message: "Numéro de téléphone requis" });
         }
 
         const prefix = getPaxityPhonePrefix(service.countryCode);
         const currency = service.currency || getPaxityCurrency(service.countryCode);
-        const cleanPhone = isQR ? "" : formatPhoneForPaxity(phoneNumber || "", service.countryCode);
+        const cleanPhone = formatPhoneForPaxity(phoneNumber || "", service.countryCode);
         const paxityOtp = isOTP ? (otp || String(Math.floor(100000 + Math.random() * 900000))) : "";
 
         const paxResult = await paxityClient.createPayin({
@@ -1167,13 +1167,13 @@ export async function registerRoutes(
         const isQR = isPaxityQRMethod(methodCode);
         const isOTP = isPaxityOTPMethod(methodCode);
 
-        if (!isQR && !phoneNumber) {
+        if (!phoneNumber) {
           return res.status(400).json({ message: "Numéro de téléphone requis" });
         }
 
         const prefix = getPaxityPhonePrefix(service.countryCode);
         const currency = service.currency || getPaxityCurrency(service.countryCode);
-        const cleanPhone = isQR ? "" : formatPhoneForPaxity(phoneNumber || "", service.countryCode);
+        const cleanPhone = formatPhoneForPaxity(phoneNumber || "", service.countryCode);
         const paxityOtp = isOTP ? String(Math.floor(100000 + Math.random() * 900000)) : "";
 
         const paxResult = await paxityClient.createPayin({
