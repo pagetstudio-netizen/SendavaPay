@@ -169,9 +169,7 @@ export default function PaymentPage() {
     if (!currentPayId) return;
 
     try {
-      const verifyUrl = currentProvider === "winipayer"
-        ? `/api/verify-winipayer/${currentPayId}`
-        : currentProvider === "maishapay"
+      const verifyUrl = currentProvider === "maishapay"
         ? `/api/verify-maishapay/${currentPayId}`
         : currentProvider === "omnipay"
         ? `/api/verify-omnipay/${currentPayId}`
@@ -284,7 +282,7 @@ export default function PaymentPage() {
         setCurrentPayId(data.payId);
         setCurrentProvider(provider);
         
-        if ((provider === "winipayer" || provider === "omnipay" || provider === "paxity") && data.checkoutUrl) {
+        if ((provider === "omnipay" || provider === "paxity") && data.checkoutUrl) {
           toast({
             title: "Redirection en cours",
             description: "Vous allez être redirigé vers la page de paiement.",

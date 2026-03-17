@@ -3771,7 +3771,7 @@ function CountriesContent() {
                           <div className="flex items-center gap-3">
                             <span className="font-medium">{op.name}</span>
                             <Badge variant={op.paymentGateway === "soleaspay" ? "default" : op.paymentGateway === "maishapay" ? "outline" : op.paymentGateway === "omnipay" ? "outline" : op.paymentGateway === "paxity" ? "outline" : "secondary"}>
-                              {op.paymentGateway === "soleaspay" ? "SoleasPay" : op.paymentGateway === "winipayer" ? "WiniPayer" : op.paymentGateway === "maishapay" ? "MaishaPay" : op.paymentGateway === "omnipay" ? "OmniPay" : op.paymentGateway === "paxity" ? "Paxity" : op.paymentGateway}
+                              {op.paymentGateway === "soleaspay" ? "SoleasPay" : op.paymentGateway === "maishapay" ? "MaishaPay" : op.paymentGateway === "omnipay" ? "OmniPay" : op.paymentGateway === "paxity" ? "Paxity" : op.paymentGateway}
                             </Badge>
                             {op.inMaintenance && <Badge variant="destructive">Maintenance totale</Badge>}
                             {!op.inMaintenance && (op as any).maintenanceDeposit && <Badge variant="destructive" className="text-xs">🔴 Dépôts</Badge>}
