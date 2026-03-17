@@ -2061,6 +2061,70 @@ export function registerPartnerRoutes(app: Express) {
         }
       }
 
+      if (selectedOperator.paymentGateway === "paxity") {
+        const { paxity: paxityClient, getPaxityMethodCode, getPaxityPhonePrefix, getPaxityCurrency, formatPhoneForPaxity } = await import("./paxity");
+        const paxityMethod = getPaxityMethodCode(selectedOperator.name, selectedCountry.code);
+        if (!paxityMethod) {
+          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+          return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique Paxity" });
+        }
+
+        const currency = getPaxityCurrency(selectedCountry.code);
+        const prefixPhone = getPaxityPhonePrefix(selectedCountry.code);
+        const cleanPhone = formatPhoneForPaxity(mobileNumber, selectedCountry.code);
+
+        const withdrawalRequest = await storage.createWithdrawalRequest({
+          userId: 0,
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          paymentMethod: selectedOperator.name,
+          mobileNumber,
+          country,
+          walletName: `PARTENAIRE:${partner.name}` + (walletName ? ` - ${walletName}` : ""),
+        });
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
+
+        notifyPartnerWithdrawal({ partnerName: partner.name, partnerId: req.session.partnerId!, amount: numericAmount.toString(), fee: fee.toString(), netAmount: netAmount.toString(), paymentMethod: selectedOperator.name, mobileNumber, country });
+
+        const pxRef = `paxity_payout_${withdrawalRequest.id}_${Date.now()}`;
+        console.log(`💸 Paxity partner payout: method=${paxityMethod} amount=${netAmount} currency=${currency} phone=${cleanPhone} ref=${pxRef}`);
+
+        try {
+          const pxResult = await paxityClient.createPayout({
+            amount: netAmount,
+            country: selectedCountry.code.toUpperCase(),
+            currency,
+            prefixPhone,
+            phoneNumber: cleanPhone,
+            paymentMethod: paxityMethod,
+            ipn: "https://sendavapay.com/api/webhook/paxity",
+            description: `Retrait Partenaire SendavaPay #${withdrawalRequest.id}`,
+            idClient: pxRef,
+            name: walletName || partner.name || "Partenaire",
+            email: partner.email || "partner@sendavapay.com",
+          });
+
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, { externalReference: pxRef, transactionReference: pxResult.data?.id || null });
+
+          if (pxResult.code === 200 || pxResult.code === 201) {
+            console.log(`✅ Paxity partner payout accepted: ref=${pxRef} — en attente webhook`);
+            return res.json({ message: "Retrait en cours de traitement. Vous recevrez l'argent dans quelques instants.", request: { ...withdrawalRequest, status: "processing" }, autoProcessed: true });
+          } else {
+            const pxError = pxResult.message || "Erreur Paxity inconnue";
+            console.error("❌ Paxity partner payout failed:", pxResult);
+            await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "failed", rejectionReason: pxError });
+            return res.status(500).json({ message: `Le retrait automatique a échoué (${pxError}). Votre solde a été restauré.` });
+          }
+        } catch (pxErr) {
+          console.error("Partner Paxity payout error:", pxErr);
+          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "failed", rejectionReason: "Erreur technique Paxity" });
+          return res.status(500).json({ message: "Erreur technique lors du retrait. Votre solde a été restauré." });
+        }
+      }
+
       const withdrawalRequest = await storage.createWithdrawalRequest({
         userId: 0,
         amount: numericAmount.toString(),

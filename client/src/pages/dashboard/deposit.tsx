@@ -221,7 +221,7 @@ export default function DepositPage() {
   }, []);
 
   useEffect(() => {
-    if (paymentStatus === "processing" && currentPayId && (currentOrderId || currentProvider === "winipayer" || currentProvider === "maishapay" || currentProvider === "omnipay" || currentProvider === "paxity")) {
+    if (paymentStatus === "processing" && currentPayId && (currentOrderId || currentProvider === "maishapay" || currentProvider === "omnipay" || currentProvider === "paxity")) {
       checkPaymentStatus();
       pollingRef.current = setInterval(checkPaymentStatus, 3000);
     }
@@ -254,7 +254,7 @@ export default function DepositPage() {
         setCurrentPayId(data.payId);
         setCurrentProvider(provider);
         
-        if ((provider === "winipayer" || provider === "omnipay" || provider === "paxity") && data.checkoutUrl) {
+        if ((provider === "omnipay" || provider === "paxity") && data.checkoutUrl) {
           toast({
             title: "Redirection en cours",
             description: "Vous allez être redirigé vers la page de paiement.",
