@@ -81,7 +81,7 @@ export function getPaxityCurrency(countryCode: string): string {
 }
 
 export function formatPhoneForPaxity(phone: string, countryCode: string): string {
-  let cleaned = phone.replace(/\s/g, "").replace(/^0+/, "");
+  let cleaned = phone.replace(/\s/g, "").replace(/^\+/, "").replace(/^0+/, "");
   const prefix = PHONE_PREFIXES[countryCode.toUpperCase()] || "";
   if (prefix && cleaned.startsWith(prefix)) {
     cleaned = cleaned.slice(prefix.length);
