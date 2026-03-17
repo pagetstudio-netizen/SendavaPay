@@ -2111,7 +2111,7 @@ export function registerPartnerRoutes(app: Express) {
             console.log(`✅ Paxity partner payout accepted: ref=${pxRef} — en attente webhook`);
             return res.json({ message: "Retrait en cours de traitement. Vous recevrez l'argent dans quelques instants.", request: { ...withdrawalRequest, status: "processing" }, autoProcessed: true });
           } else {
-            const pxError = pxResult.message || "Erreur Paxity inconnue";
+            const pxError = pxResult.message || pxResult.description || pxResult.codeIntern || "Erreur Paxity inconnue";
             console.error("❌ Paxity partner payout failed:", pxResult);
             await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
             await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "failed", rejectionReason: pxError });

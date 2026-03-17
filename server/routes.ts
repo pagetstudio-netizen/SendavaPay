@@ -3307,7 +3307,7 @@ export async function registerRoutes(
               autoProcessed: true,
             });
           } else {
-            const pxError = pxResult.message || "Erreur Paxity inconnue";
+            const pxError = pxResult.message || pxResult.description || pxResult.codeIntern || "Erreur Paxity inconnue";
             console.error("❌ Paxity payout failed:", pxResult);
             await storage.setUserBalance(req.session.userId!, balance.toString());
             await storage.updateWithdrawalRequest(withdrawalRequest.id, {
