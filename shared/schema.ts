@@ -61,6 +61,7 @@ export const transactions = pgTable("transactions", {
   payerCountry: text("payer_country"),
   paymentMethod: text("payment_method"),
   paymentLinkId: integer("payment_link_id"),
+  adminNote: text("admin_note"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
