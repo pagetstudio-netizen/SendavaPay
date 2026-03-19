@@ -815,7 +815,29 @@ function UsersContent() {
   );
 }
 
+interface PaymentAttempt {
+  id: string;
+  reference: string;
+  source: string;
+  sourceLabel: string;
+  status: string;
+  amount: string;
+  currency: string;
+  userId?: number | null;
+  userName?: string | null;
+  userEmail?: string | null;
+  payerName?: string | null;
+  payerPhone?: string | null;
+  payerCountry?: string | null;
+  paymentMethod?: string | null;
+  description?: string | null;
+  errorInfo?: string | null;
+  partnerName?: string | null;
+  createdAt: string;
+}
+
 function TransactionsContent() {
+  const [activeTab, setActiveTab] = useState<"confirmed" | "attempts">("confirmed");
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -823,6 +845,20 @@ function TransactionsContent() {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [txNote, setTxNote] = useState("");
   const [txNoteSaved, setTxNoteSaved] = useState(false);
+  const [attemptSearch, setAttemptSearch] = useState("");
+  const [attemptStatusFilter, setAttemptStatusFilter] = useState("all");
+  const [copiedRef, setCopiedRef] = useState<string | null>(null);
+
+  const copyRef = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedRef(text);
+    setTimeout(() => setCopiedRef(null), 1500);
+  };
+
+  const { data: attempts = [], isLoading: attemptsLoading } = useQuery<PaymentAttempt[]>({
+    queryKey: ["/api/admin/payment-attempts"],
+    enabled: activeTab === "attempts",
+  });
 
   const saveNoteMutation = useMutation({
     mutationFn: async ({ id, note }: { id: number; note: string }) => {
@@ -906,15 +942,35 @@ function TransactionsContent() {
 
   const isHighValue = (amount: string) => parseFloat(amount) >= 60000;
 
+  const filteredAttempts = useMemo(() => {
+    return attempts.filter(a => {
+      const q = attemptSearch.toLowerCase();
+      const matchesSearch = !q ||
+        a.reference?.toLowerCase().includes(q) ||
+        a.userName?.toLowerCase().includes(q) ||
+        a.payerName?.toLowerCase().includes(q) ||
+        a.payerPhone?.includes(q) ||
+        a.userId?.toString().includes(q) ||
+        a.partnerName?.toLowerCase().includes(q) ||
+        a.paymentMethod?.toLowerCase().includes(q);
+      const matchesStatus = attemptStatusFilter === "all" || a.status === attemptStatusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [attempts, attemptSearch, attemptStatusFilter]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold">Transactions</h1>
-          <p className="text-muted-foreground">Historique de toutes les transactions ({transactions?.length || 0} total)</p>
+          <p className="text-muted-foreground">
+            {activeTab === "confirmed"
+              ? `Transactions confirmées (${transactions?.length || 0})`
+              : `Toutes les tentatives (${attempts.length})`}
+          </p>
         </div>
         <div className="flex gap-2">
-          {highValueCount > 0 && (
+          {activeTab === "confirmed" && highValueCount > 0 && (
             <Button
               variant={showHighValueOnly ? "default" : "outline"}
               onClick={() => setShowHighValueOnly(!showHighValueOnly)}
@@ -924,12 +980,173 @@ function TransactionsContent() {
               {highValueCount} transactions &gt;60k
             </Button>
           )}
-          <Button variant="outline" onClick={exportCSV} disabled={!filteredTransactions?.length}>
-            <Download className="h-4 w-4 mr-2" /> Exporter CSV
-          </Button>
+          {activeTab === "confirmed" && (
+            <Button variant="outline" onClick={exportCSV} disabled={!filteredTransactions?.length}>
+              <Download className="h-4 w-4 mr-2" /> Exporter CSV
+            </Button>
+          )}
         </div>
       </div>
 
+      {/* Tab switcher */}
+      <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+        <Button
+          variant={activeTab === "confirmed" ? "default" : "ghost"}
+          size="sm"
+          onClick={() => setActiveTab("confirmed")}
+          data-testid="tab-confirmed-transactions"
+        >
+          <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
+          Confirmées
+        </Button>
+        <Button
+          variant={activeTab === "attempts" ? "default" : "ghost"}
+          size="sm"
+          onClick={() => setActiveTab("attempts")}
+          data-testid="tab-payment-attempts"
+        >
+          <Clock className="h-3.5 w-3.5 mr-1.5" />
+          Toutes les tentatives
+          {attempts.length > 0 && (
+            <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[10px]">{attempts.length}</Badge>
+          )}
+        </Button>
+      </div>
+
+      {/* ── TENTATIVES VIEW ───────────────────────────────────────── */}
+      {activeTab === "attempts" && (
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Référence, utilisateur, téléphone, partenaire…"
+                    value={attemptSearch}
+                    onChange={e => setAttemptSearch(e.target.value)}
+                    className="pl-10"
+                    data-testid="input-search-attempts"
+                  />
+                </div>
+                <Select value={attemptStatusFilter} onValueChange={setAttemptStatusFilter}>
+                  <SelectTrigger className="w-36">
+                    <SelectValue placeholder="Statut" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Tous statuts</SelectItem>
+                    <SelectItem value="pending">En attente</SelectItem>
+                    <SelectItem value="processing">En cours</SelectItem>
+                    <SelectItem value="completed">Complété</SelectItem>
+                    <SelectItem value="failed">Échoué</SelectItem>
+                    <SelectItem value="cancelled">Annulé</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {attemptsLoading ? (
+                <div className="space-y-2 p-4">
+                  {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+                </div>
+              ) : filteredAttempts.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Clock className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                  <p>Aucune tentative trouvée</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-muted/30">
+                      <tr>
+                        <th className="text-left p-3 font-medium text-muted-foreground">Date</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground">Source</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground">Référence</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground">Montant</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground">Utilisateur / Payeur</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground">Méthode</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground">Statut</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground">Erreur</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {filteredAttempts.map(a => (
+                        <tr key={a.id} className="hover:bg-muted/30 transition-colors" data-testid={`row-attempt-${a.id}`}>
+                          <td className="p-3 whitespace-nowrap text-xs text-muted-foreground">{formatDate(a.createdAt)}</td>
+                          <td className="p-3">
+                            <Badge variant="outline" className="text-xs whitespace-nowrap">
+                              {a.sourceLabel}
+                            </Badge>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center gap-1">
+                              <span className="font-mono text-xs truncate max-w-[160px]" title={a.reference}>{a.reference}</span>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-5 w-5 shrink-0"
+                                onClick={() => copyRef(a.reference)}
+                                title="Copier la référence"
+                                data-testid={`button-copy-attempt-ref-${a.id}`}
+                              >
+                                {copiedRef === a.reference
+                                  ? <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                  : <Copy className="h-3 w-3" />}
+                              </Button>
+                            </div>
+                          </td>
+                          <td className="p-3 font-semibold whitespace-nowrap">
+                            {parseFloat(a.amount).toLocaleString()} {a.currency}
+                          </td>
+                          <td className="p-3">
+                            <div className="text-xs">
+                              {a.userName ? (
+                                <span className="font-medium">{a.userName}</span>
+                              ) : a.payerName ? (
+                                <span>{a.payerName}</span>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                              {a.userId && <span className="text-muted-foreground ml-1">(ID {a.userId})</span>}
+                              {a.payerPhone && <div className="text-muted-foreground font-mono">{a.payerPhone}</div>}
+                            </div>
+                          </td>
+                          <td className="p-3 text-xs text-muted-foreground">{a.paymentMethod || "—"}</td>
+                          <td className="p-3">
+                            <Badge className={
+                              a.status === "completed" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
+                              a.status === "failed" || a.status === "cancelled" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
+                              a.status === "processing" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" :
+                              "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                            }>
+                              {a.status === "pending" ? "En attente" :
+                               a.status === "processing" ? "En cours" :
+                               a.status === "completed" ? "Complété" :
+                               a.status === "failed" ? "Échoué" :
+                               a.status === "cancelled" ? "Annulé" : a.status}
+                            </Badge>
+                          </td>
+                          <td className="p-3 max-w-[200px]">
+                            {a.errorInfo ? (
+                              <span className="text-xs text-red-600 dark:text-red-400 truncate block" title={a.errorInfo}>
+                                {a.errorInfo}
+                              </span>
+                            ) : <span className="text-muted-foreground text-xs">—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* ── CONFIRMED TRANSACTIONS VIEW (existing) ───────────────── */}
+      {activeTab === "confirmed" && (
+      <>
       <Card>
         <CardHeader>
           <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
@@ -1279,6 +1496,9 @@ function TransactionsContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </>
+      )}
+
     </div>
   );
 }
