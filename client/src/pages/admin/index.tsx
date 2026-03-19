@@ -76,6 +76,8 @@ import {
   MessageSquare,
   RotateCcw,
   Activity,
+  Loader2,
+  CheckCircle2,
 } from "lucide-react";
 import { PartnersContent } from "@/pages/admin/partners";
 import type { 
@@ -819,6 +821,21 @@ function TransactionsContent() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [showHighValueOnly, setShowHighValueOnly] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [txNote, setTxNote] = useState("");
+  const [txNoteSaved, setTxNoteSaved] = useState(false);
+
+  const saveNoteMutation = useMutation({
+    mutationFn: async ({ id, note }: { id: number; note: string }) => {
+      const res = await apiRequest("PATCH", `/api/admin/transactions/${id}/note`, { adminNote: note });
+      return res.json();
+    },
+    onSuccess: (updated) => {
+      setSelectedTransaction(updated);
+      setTxNoteSaved(true);
+      setTimeout(() => setTxNoteSaved(false), 2500);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/transactions"] });
+    },
+  });
 
   const { data: transactions, isLoading } = useQuery<Transaction[]>({ queryKey: ["/api/admin/transactions"] });
   const { data: users, isLoading: usersLoading } = useQuery<UserType[]>({ queryKey: ["/api/admin/users"] });
@@ -1020,9 +1037,16 @@ function TransactionsContent() {
                       </td>
                       <td className="p-4 text-sm text-muted-foreground whitespace-nowrap">{formatDate(tx.createdAt)}</td>
                       <td className="p-4">
-                        <Button size="icon" variant="ghost" onClick={() => setSelectedTransaction(tx)} title="Voir détails" data-testid={`button-view-transaction-${tx.id}`}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          {tx.adminNote && (
+                            <span title={tx.adminNote} className="text-yellow-500">
+                              <StickyNote className="h-3.5 w-3.5" />
+                            </span>
+                          )}
+                          <Button size="icon" variant="ghost" onClick={() => { setSelectedTransaction(tx); setTxNote(tx.adminNote || ""); }} title="Voir détails" data-testid={`button-view-transaction-${tx.id}`}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   )})}
@@ -1033,7 +1057,7 @@ function TransactionsContent() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!selectedTransaction} onOpenChange={() => setSelectedTransaction(null)}>
+      <Dialog open={!!selectedTransaction} onOpenChange={(open) => { if (!open) { setSelectedTransaction(null); setTxNote(""); setTxNoteSaved(false); } }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1056,7 +1080,12 @@ function TransactionsContent() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <p className="text-sm text-muted-foreground">ID Transaction</p>
-                  <p className="font-mono font-medium">{selectedTransaction.id}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-mono font-medium">{selectedTransaction.id}</p>
+                    <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" onClick={() => { navigator.clipboard.writeText(String(selectedTransaction.id)); }} title="Copier l'ID" data-testid="button-copy-tx-id">
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <p className="text-sm text-muted-foreground">Type</p>
@@ -1136,14 +1165,26 @@ function TransactionsContent() {
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Numéro téléphone (payeur)</p>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
                       <Phone className="h-3 w-3 text-muted-foreground" />
                       <p className="font-mono">{selectedTransaction.mobileNumber || "-"}</p>
+                      {selectedTransaction.mobileNumber && (
+                        <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" onClick={() => navigator.clipboard.writeText(selectedTransaction.mobileNumber!)} title="Copier" data-testid="button-copy-tx-phone">
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">Référence externe</p>
-                    <p className="font-mono text-sm">{selectedTransaction.externalRef || "-"}</p>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="font-mono text-sm break-all">{selectedTransaction.externalRef || "-"}</p>
+                      {selectedTransaction.externalRef && (
+                        <Button size="icon" variant="ghost" className="h-6 w-6 shrink-0" onClick={() => navigator.clipboard.writeText(selectedTransaction.externalRef!)} title="Copier la référence" data-testid="button-copy-tx-extref">
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1202,6 +1243,33 @@ function TransactionsContent() {
                   <p className="text-sm bg-muted p-3 rounded-md">{selectedTransaction.description}</p>
                 </div>
               )}
+
+              <div className="border-t pt-4">
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <FileText className="h-4 w-4" /> Note administrative
+                </h4>
+                <div className="space-y-2">
+                  <Textarea
+                    placeholder="Ajouter une note interne sur cette transaction (visible uniquement par les admins)…"
+                    value={txNote}
+                    onChange={(e) => setTxNote(e.target.value)}
+                    rows={3}
+                    className="resize-none text-sm"
+                    data-testid="textarea-tx-admin-note"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => saveNoteMutation.mutate({ id: selectedTransaction.id, note: txNote })}
+                      disabled={saveNoteMutation.isPending}
+                      data-testid="button-save-tx-note"
+                    >
+                      {saveNoteMutation.isPending ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Sauvegarde…</> : "Sauvegarder la note"}
+                    </Button>
+                    {txNoteSaved && <span className="text-xs text-green-600 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" />Note sauvegardée</span>}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
           <DialogFooter>

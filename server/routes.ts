@@ -4933,6 +4933,20 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/admin/transactions/:id/note", requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { adminNote } = req.body;
+      if (typeof adminNote !== "string") return res.status(400).json({ message: "adminNote requis" });
+      const updated = await storage.updateTransactionNote(id, adminNote.trim());
+      if (!updated) return res.status(404).json({ message: "Transaction introuvable" });
+      res.json(updated);
+    } catch (error) {
+      console.error("Update transaction note error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.get("/api/admin/withdrawals", requireAdmin, async (req, res) => {
     try {
       const withdrawals = await storage.getAllWithdrawals();
