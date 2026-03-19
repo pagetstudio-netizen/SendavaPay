@@ -4933,6 +4933,146 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/payment-attempts", requireAdmin, async (req, res) => {
+    try {
+      const { db } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+
+      // 1. leekpay_payments — dépôts et paiements via liens
+      const leekpayRows = await db.execute(sql`
+        SELECT
+          lp.id,
+          lp.leekpay_payment_id   AS reference,
+          lp.user_id              AS user_id,
+          lp.payment_link_id      AS payment_link_id,
+          lp.amount,
+          lp.currency,
+          lp.type,
+          lp.status,
+          lp.description,
+          lp.payment_method,
+          lp.payer_name,
+          lp.payer_phone,
+          lp.payer_country,
+          lp.customer_email,
+          lp.webhook_data,
+          lp.created_at,
+          u.full_name             AS user_full_name,
+          u.email                 AS user_email
+        FROM leekpay_payments lp
+        LEFT JOIN users u ON u.id = lp.user_id
+        ORDER BY lp.created_at DESC
+        LIMIT 500
+      `);
+
+      // 2. partner_transactions — paiements API/SDK
+      const partnerRows = await db.execute(sql`
+        SELECT
+          pt.id,
+          pt.reference,
+          pt.partner_id,
+          pt.amount,
+          pt.fee,
+          pt.currency,
+          pt.status,
+          pt.customer_name,
+          pt.customer_email,
+          pt.customer_phone,
+          pt.payment_method,
+          pt.description,
+          pt.metadata,
+          pt.created_at,
+          pt.completed_at,
+          p.name                  AS partner_name,
+          p.website               AS partner_website
+        FROM partner_transactions pt
+        LEFT JOIN partners p ON p.id = pt.partner_id
+        ORDER BY pt.created_at DESC
+        LIMIT 500
+      `);
+
+      // Normalize leekpay rows
+      const leekpayAttempts = (leekpayRows.rows as any[]).map(r => {
+        let errorInfo: string | null = null;
+        if (r.webhook_data) {
+          try {
+            const wd = JSON.parse(r.webhook_data);
+            errorInfo = wd.message || wd.description || wd.error || null;
+          } catch {}
+        }
+        const sourceLabel =
+          r.type === "deposit" ? "Dépôt" :
+          r.type === "payment_link" ? "Lien paiement" :
+          r.type === "api_payment" ? "API" :
+          r.type || "Autre";
+        return {
+          _table: "leekpay",
+          id: `LP-${r.id}`,
+          reference: r.reference,
+          source: r.type,
+          sourceLabel,
+          status: r.status,
+          amount: r.amount,
+          currency: r.currency,
+          userId: r.user_id,
+          paymentLinkId: r.payment_link_id,
+          userName: r.user_full_name || null,
+          userEmail: r.user_email || null,
+          payerName: r.payer_name || r.customer_email || null,
+          payerPhone: r.payer_phone || null,
+          payerCountry: r.payer_country || null,
+          paymentMethod: r.payment_method || null,
+          description: r.description || null,
+          errorInfo,
+          createdAt: r.created_at,
+        };
+      });
+
+      // Normalize partner rows
+      const partnerAttempts = (partnerRows.rows as any[]).map(r => {
+        let errorInfo: string | null = null;
+        if (r.metadata) {
+          try {
+            const md = JSON.parse(r.metadata);
+            errorInfo = md.error || md.description || null;
+          } catch {}
+        }
+        return {
+          _table: "partner",
+          id: `PT-${r.id}`,
+          reference: r.reference,
+          source: "api_sdk",
+          sourceLabel: `API/SDK${r.partner_name ? ` (${r.partner_name})` : ""}`,
+          status: r.status,
+          amount: r.amount,
+          currency: r.currency,
+          userId: null,
+          paymentLinkId: null,
+          userName: null,
+          userEmail: null,
+          payerName: r.customer_name || null,
+          payerPhone: r.customer_phone || null,
+          payerCountry: null,
+          paymentMethod: r.payment_method || null,
+          description: r.description || null,
+          errorInfo,
+          partnerName: r.partner_name || null,
+          createdAt: r.created_at,
+        };
+      });
+
+      // Merge and sort by date desc
+      const all = [...leekpayAttempts, ...partnerAttempts]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 1000);
+
+      res.json(all);
+    } catch (error) {
+      console.error("Get payment attempts error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.patch("/api/admin/transactions/:id/note", requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
