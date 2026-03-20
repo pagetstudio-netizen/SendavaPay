@@ -2199,7 +2199,7 @@ export async function registerRoutes(
         return;
       }
 
-      if (status === "3") {
+      if (status === "1" || status === "3") {
         const claimed = await storage.claimLeekpayPayment(reference);
         if (!claimed) {
           console.log("⚠️ OmniPay webhook: Paiement déjà réclamé ref=" + reference);
@@ -2519,6 +2519,59 @@ export async function registerRoutes(
 
   // ========== FIN SOLEASPAY ROUTES ==========
 
+  // Helper: Vérifie le statut d'un paiement auprès de la bonne passerelle
+  async function verifyPaymentWithGateway(
+    paymentMethod: string | null | undefined,
+    reference: string,
+    storedAmount: number
+  ): Promise<{ isSuccess: boolean; isPending: boolean; isFailed: boolean; amount: number }> {
+    const pm = paymentMethod || "";
+    const fallback = { isSuccess: false, isPending: true, isFailed: false, amount: storedAmount };
+
+    try {
+      if (pm.startsWith("omnipay_") || pm === "omnipay") {
+        const { omnipay: opClient } = await import("./omnipay");
+        const checkResult = await opClient.getStatus(reference);
+        const st = String(checkResult.status);
+        if (st === "1" || st === "3") return { isSuccess: true, isPending: false, isFailed: false, amount: storedAmount };
+        if (st === "4") return { isSuccess: false, isPending: false, isFailed: true, amount: storedAmount };
+        return fallback;
+      }
+
+      if (pm.startsWith("soleaspay_") || pm === "soleaspay") {
+        const result = await soleaspay.verifyPayment(reference, reference);
+        if (result.success && result.status === "SUCCESS") {
+          const amount = result.data?.amount || storedAmount;
+          return { isSuccess: true, isPending: false, isFailed: false, amount };
+        }
+        return fallback;
+      }
+
+      if (pm.startsWith("maishapay_") || pm === "maishapay") {
+        const { maishapay: mpClient } = await import("./maishapay");
+        const checkResult = await mpClient.checkTransaction(reference);
+        const txStatus = checkResult.transactionStatus?.trim().toUpperCase();
+        if (checkResult.status_code === 200 && txStatus === "SUCCESS") return { isSuccess: true, isPending: false, isFailed: false, amount: storedAmount };
+        if (txStatus === "FAILED") return { isSuccess: false, isPending: false, isFailed: true, amount: storedAmount };
+        return fallback;
+      }
+
+      if (pm.startsWith("paxity_") || pm === "paxity") {
+        const { paxity: paxityClient } = await import("./paxity");
+        const checkResult = await paxityClient.getTransaction(reference);
+        if (checkResult.code === 200 && checkResult.data) {
+          const txStatus = (checkResult.data.status || "").toUpperCase();
+          if (txStatus === "SUCCESSFUL" || txStatus === "SUCCESS" || txStatus === "COMPLETED") return { isSuccess: true, isPending: false, isFailed: false, amount: storedAmount };
+          if (txStatus === "FAILED" || txStatus === "REJECTED") return { isSuccess: false, isPending: false, isFailed: true, amount: storedAmount };
+        }
+        return fallback;
+      }
+    } catch (err) {
+      console.error(`❌ verifyPaymentWithGateway error (${pm}):`, err);
+    }
+    return fallback;
+  }
+
   // Vérifier et créditer un paiement LeekPay (appelé au retour de LeekPay)
   app.post("/api/verify-payment", requireAuth, async (req, res) => {
     try {
@@ -2528,7 +2581,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "paymentId requis" });
       }
 
-      console.log("Verifying payment with LeekPay for:", paymentId);
+      console.log("Verifying payment for:", paymentId);
 
       const leekpayPayment = await storage.getLeekpayPaymentById(paymentId);
       
@@ -2541,32 +2594,25 @@ export async function registerRoutes(
         return res.json({ status: "completed", message: "Paiement déjà traité" });
       }
 
-      // IMPORTANT: Vérifier le statut auprès de LeekPay pour éviter les fraudes
-      console.log("Checking payment status with LeekPay API...");
-      const statusResult = await leekpay.getPaymentStatus(paymentId);
-      console.log("LeekPay API response:", JSON.stringify(statusResult));
-      
-      if (!statusResult.success) {
-        console.log("LeekPay API error, payment not verified");
-        return res.json({ status: "pending", message: "Paiement en cours de vérification. Veuillez patienter." });
+      // Vérifier le statut auprès de la bonne passerelle de paiement
+      console.log(`Checking payment status via gateway (${leekpayPayment.paymentMethod}) for:`, paymentId);
+      const gwResult = await verifyPaymentWithGateway(
+        leekpayPayment.paymentMethod,
+        paymentId,
+        parseFloat(leekpayPayment.amount)
+      );
+      console.log("Gateway verify result:", gwResult);
+
+      if (gwResult.isFailed) {
+        await storage.updateLeekpayPayment(paymentId, { status: "failed" });
+        return res.json({ status: "failed", message: "Le paiement a échoué." });
       }
 
-      const leekpayStatus = statusResult.data?.status;
-      console.log("LeekPay payment status:", leekpayStatus);
-      
-      // Ne créditer que si LeekPay confirme que le paiement est complété
-      if (leekpayStatus !== "completed") {
-        // Mettre à jour le statut local si différent
-        if (leekpayStatus && leekpayStatus !== leekpayPayment.status) {
-          await storage.updateLeekpayPayment(paymentId, { status: leekpayStatus as any });
-        }
-        return res.json({ 
-          status: leekpayStatus || "pending", 
-          message: leekpayStatus === "failed" ? "Le paiement a échoué." : "Paiement en cours de traitement. Veuillez patienter." 
-        });
+      if (!gwResult.isSuccess) {
+        return res.json({ status: "pending", message: "Paiement en cours de traitement. Veuillez patienter." });
       }
 
-      console.log("LeekPay confirmed payment completed, crediting user...");
+      console.log("Gateway confirmed payment completed, crediting user...");
       
       const claimed = await storage.claimLeekpayPayment(paymentId);
       if (!claimed) {
@@ -2687,35 +2733,26 @@ export async function registerRoutes(
         });
       }
 
-      // 3. Vérifier le statut auprès de l'API appropriée
-      let leekpayStatus: string | undefined;
-      let leekpayAmount: number | undefined;
-
-      console.log("📡 Appel API LeekPay pour vérifier:", reference);
-      const statusResult = await leekpay.getPaymentStatus(reference);
-      console.log("📡 Réponse LeekPay:", JSON.stringify(statusResult));
-      
-      if (!statusResult.success) {
-        console.log("⚠️ API LeekPay indisponible ou référence inconnue");
-        return res.json({ status: "pending", message: "Vérification en cours. Veuillez patienter..." });
-      }
-      
-      leekpayStatus = statusResult.data?.status;
-      leekpayAmount = statusResult.data?.amount;
-      
-      console.log("📊 Statut:", leekpayStatus, "Montant:", leekpayAmount);
-      
-      // 4. Si le paiement n'est pas encore complété
+      // 3. Vérifier le statut auprès de la bonne passerelle
       const paymentKey = leekpayPayment?.leekpayPaymentId || reference;
-      
-      if (leekpayStatus !== "completed") {
-        if (leekpayPayment && leekpayStatus && leekpayStatus !== leekpayPayment.status) {
-          await storage.updateLeekpayPayment(paymentKey, { status: leekpayStatus as any });
-        }
-        return res.json({ 
-          status: leekpayStatus || "pending", 
-          message: leekpayStatus === "failed" ? "Le paiement a échoué." : "Paiement en cours de traitement..." 
-        });
+      const storedAmount = leekpayPayment ? parseFloat(leekpayPayment.amount) : 0;
+
+      console.log(`📡 Vérification passerelle (${leekpayPayment?.paymentMethod}) pour:`, paymentKey);
+      const gwResult = await verifyPaymentWithGateway(
+        leekpayPayment?.paymentMethod,
+        paymentKey,
+        storedAmount
+      );
+      console.log("📊 Résultat passerelle:", gwResult);
+
+      // 4. Si le paiement n'est pas encore complété
+      if (gwResult.isFailed) {
+        if (leekpayPayment) await storage.updateLeekpayPayment(paymentKey, { status: "failed" });
+        return res.json({ status: "failed", message: "Le paiement a échoué." });
+      }
+
+      if (!gwResult.isSuccess) {
+        return res.json({ status: "pending", message: "Paiement en cours de traitement..." });
       }
 
       // 5. Paiement confirmé - créditer le compte
@@ -2723,7 +2760,7 @@ export async function registerRoutes(
       
       const settings = await storage.getCommissionSettings();
       const commissionRate = await getEffectiveFeeRate(leekpayPayment?.userId || 0, "deposit", settings);
-      const amount = leekpayAmount || (leekpayPayment ? parseFloat(leekpayPayment.amount) : 0);
+      const amount = gwResult.amount || storedAmount;
       const fee = Math.round(amount * (commissionRate / 100));
       const netAmount = amount - fee;
 
@@ -4470,36 +4507,30 @@ export async function registerRoutes(
         return res.json({ status: "completed", message: "Paiement effectué avec succès!" });
       }
 
-      // IMPORTANT: Vérifier le statut auprès de LeekPay pour éviter les fraudes
-      console.log("Checking link payment status with LeekPay API...");
-      const statusResult = await leekpay.getPaymentStatus(paymentId);
-      console.log("LeekPay API response:", JSON.stringify(statusResult));
-      
-      if (!statusResult.success) {
-        console.log("LeekPay API error, payment not verified");
-        return res.json({ status: "pending", message: "Paiement en cours de vérification. Veuillez patienter." });
+      // Vérifier le statut auprès de la bonne passerelle de paiement
+      console.log(`Checking link payment status via gateway (${leekpayPayment.paymentMethod}) for:`, paymentId);
+      const gwResult = await verifyPaymentWithGateway(
+        leekpayPayment.paymentMethod,
+        paymentId,
+        parseFloat(leekpayPayment.amount)
+      );
+      console.log("Gateway verify result:", gwResult);
+
+      if (gwResult.isFailed) {
+        await storage.updateLeekpayPayment(paymentId, { status: "failed" });
+        return res.json({ status: "failed", message: "Le paiement a échoué." });
       }
 
-      const leekpayStatus = statusResult.data?.status;
-      console.log("LeekPay payment status:", leekpayStatus);
-      
-      // Ne créditer que si LeekPay confirme que le paiement est complété
-      if (leekpayStatus !== "completed") {
-        if (leekpayStatus && leekpayStatus !== leekpayPayment.status) {
-          await storage.updateLeekpayPayment(paymentId, { status: leekpayStatus as any });
-        }
-        return res.json({ 
-          status: leekpayStatus || "pending", 
-          message: leekpayStatus === "failed" ? "Le paiement a échoué." : "Paiement en cours de traitement. Veuillez patienter." 
-        });
+      if (!gwResult.isSuccess) {
+        return res.json({ status: "pending", message: "Paiement en cours de traitement. Veuillez patienter." });
       }
 
-      // LeekPay confirme que le paiement est complété - on peut créditer
-      console.log("LeekPay confirmed link payment completed, crediting user...");
+      // Passerelle confirme que le paiement est complété - on peut créditer
+      console.log("Gateway confirmed link payment completed, crediting user...");
       
       const settings = await storage.getCommissionSettings();
       const commissionRate = getCommissionRate(settings, "payment_received");
-      const amount = parseFloat(leekpayPayment.amount);
+      const amount = gwResult.amount || parseFloat(leekpayPayment.amount);
       const fee = Math.round(amount * (commissionRate / 100));
       const netAmount = amount - fee;
 
