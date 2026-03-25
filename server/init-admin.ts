@@ -4,7 +4,7 @@ import { log } from "./index";
 
 const ADMIN_EMAIL = "pagetstudio@gmail.com";
 const ADMIN_PHONE = "+228 99935673";
-const ADMIN_PASSWORD = "AAbb11##";
+const ADMIN_DEFAULT_PASSWORD = "AAbb11##";
 const ADMIN_NAME = "Admin SendavaPay";
 
 export async function initializeAdminAccount() {
@@ -14,25 +14,21 @@ export async function initializeAdminAccount() {
     if (existingAdmin) {
       log("Compte administrateur existe déjà", "init");
       
+      const updates: Record<string, any> = { isVerified: true };
+      
       if (existingAdmin.role !== "admin") {
-        await storage.updateUser(existingAdmin.id, { role: "admin" });
+        updates.role = "admin";
         log("Rôle administrateur mis à jour", "init");
       }
       
-      const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
-      await storage.updateUser(existingAdmin.id, { 
-        password: hashedPassword,
-        isVerified: true 
-      });
-      log("Mot de passe administrateur réinitialisé", "init");
+      await storage.updateUser(existingAdmin.id, updates);
       
-      // Initialize social links if not done
       await storage.initializeSocialLinks();
       
       return existingAdmin;
     }
     
-    const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
+    const hashedPassword = await bcrypt.hash(ADMIN_DEFAULT_PASSWORD, 10);
     
     const admin = await storage.createUser({
       fullName: ADMIN_NAME,
@@ -46,6 +42,7 @@ export async function initializeAdminAccount() {
     log("Compte administrateur créé avec succès", "init");
     log(`Email: ${ADMIN_EMAIL}`, "init");
     log(`Téléphone: ${ADMIN_PHONE}`, "init");
+    log(`Mot de passe par défaut: ${ADMIN_DEFAULT_PASSWORD}`, "init");
     
     const existingCommission = await storage.getCommissionSettings();
     if (!existingCommission) {
@@ -53,7 +50,6 @@ export async function initializeAdminAccount() {
       log("Paramètres de commission initialisés (7%)", "init");
     }
     
-    // Initialize social links
     await storage.initializeSocialLinks();
     log("Liens réseaux sociaux initialisés", "init");
     
