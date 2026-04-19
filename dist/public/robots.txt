@@ -1,0 +1,21 @@
+User-agent: *
+Allow: /
+Allow: /about
+Allow: /help
+Allow: /terms
+Allow: /docs
+Allow: /pay/
+
+Disallow: /auth
+Disallow: /dashboard
+Disallow: /dashboard/
+Disallow: /admin
+Disallow: /admin/
+Disallow: /api-docs
+Disallow: /merchant
+Disallow: /merchant/
+Disallow: /api/
+Disallow: /success
+Disallow: /payment-success
+
+Sitemap: https://sendavapay.com/sitemap.xml

@@ -1,0 +1,45 @@
+{
+  "name": "SendavaPay",
+  "short_name": "SendavaPay",
+  "description": "Paiement Mobile Money en Afrique — Dépôts, retraits et liens de paiement instantanés.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#0066FF",
+  "lang": "fr",
+  "categories": ["finance", "business"],
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dépôt",
+      "short_name": "Dépôt",
+      "description": "Effectuer un dépôt Mobile Money",
+      "url": "/dashboard/deposit",
+      "icons": [{ "src": "/favicon.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Retrait",
+      "short_name": "Retrait",
+      "description": "Effectuer un retrait",
+      "url": "/dashboard/withdraw",
+      "icons": [{ "src": "/favicon.png", "sizes": "192x192" }]
+    }
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false
+}
