@@ -1,3 +1,5 @@
+import { getCredential } from "./credentials";
+
 const MAISHAPAY_API_URL = "https://marchand.maishapay.online/api";
 
 export interface MaishaPayCollectParams {
@@ -222,17 +224,11 @@ export function formatPhoneForMaishapay(phone: string, countryCode: string): str
 }
 
 export class MaishaPayClient {
-  private publicApiKey: string;
-  private secretApiKey: string;
-
   constructor() {
-    this.publicApiKey = process.env.MAISHAPAY_PUBLIC_KEY || "";
-    this.secretApiKey = process.env.MAISHAPAY_SECRET_KEY || "";
-
-    if (!this.publicApiKey) {
+    if (!getCredential("MAISHAPAY_PUBLIC_KEY")) {
       console.warn("MaishaPay: Clé publique non configurée (MAISHAPAY_PUBLIC_KEY)");
     }
-    if (!this.secretApiKey) {
+    if (!getCredential("MAISHAPAY_SECRET_KEY")) {
       console.warn("MaishaPay: Clé secrète non configurée (MAISHAPAY_SECRET_KEY)");
     }
   }
@@ -243,14 +239,15 @@ export class MaishaPayClient {
       console.log("📡 MaishaPay: Ref:", params.transactionReference, "Montant:", params.amount, params.currency);
       console.log("📡 MaishaPay: Provider:", params.provider, "WalletID:", params.walletID);
 
-      const publicKeyPreview = this.publicApiKey ? this.publicApiKey.substring(0, 15) + "..." : "NON CONFIGURÉE";
-      console.log("📡 MaishaPay: PublicKey:", publicKeyPreview);
+      const pubKey = getCredential("MAISHAPAY_PUBLIC_KEY");
+      const pubKeyPreview = pubKey ? pubKey.substring(0, 15) + "..." : "NON CONFIGURÉE";
+      console.log("📡 MaishaPay: PublicKey:", pubKeyPreview);
 
       const body = {
         transactionReference: params.transactionReference,
         gatewayMode: "1",
-        publicApiKey: this.publicApiKey,
-        secretApiKey: this.secretApiKey,
+        publicApiKey: pubKey,
+        secretApiKey: getCredential("MAISHAPAY_SECRET_KEY"),
         order: {
           amount: String(Math.round(params.amount)),
           currency: params.currency,
@@ -302,8 +299,8 @@ export class MaishaPayClient {
       const body = {
         transactionReference: params.transactionReference,
         gatewayMode: "1",
-        publicApiKey: this.publicApiKey,
-        secretApiKey: this.secretApiKey,
+        publicApiKey: getCredential("MAISHAPAY_PUBLIC_KEY"),
+        secretApiKey: getCredential("MAISHAPAY_SECRET_KEY"),
         order: {
           motif: params.motif || "Retrait SendavaPay",
           amount: params.amount.toString(),
@@ -346,8 +343,8 @@ export class MaishaPayClient {
 
       const body = {
         gatewayMode: 1,
-        publicApiKey: this.publicApiKey,
-        secretApiKey: this.secretApiKey,
+        publicApiKey: getCredential("MAISHAPAY_PUBLIC_KEY"),
+        secretApiKey: getCredential("MAISHAPAY_SECRET_KEY"),
         transactionId,
       };
 
