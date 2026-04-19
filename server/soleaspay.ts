@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { getCredential } from "./credentials";
 
 const SOLEASPAY_API_URL = "https://soleaspay.com";
 
@@ -277,21 +278,21 @@ interface TransactionDetailsResponse {
 }
 
 export class SoleasPayClient {
-  private apiKey: string;
-  private secretKey: string;
   private bearerToken: string | null = null;
   private tokenExpiry: Date | null = null;
 
   constructor() {
-    this.apiKey = process.env.SOLEASPAY_API_KEY || "";
-    this.secretKey = process.env.SOLEASPAY_SECRET_KEY || "";
-    
-    if (!this.apiKey) {
+    if (!getCredential("SOLEASPAY_API_KEY")) {
       console.warn("SoleasPay: Clé API non configurée (SOLEASPAY_API_KEY)");
     }
-    if (!this.secretKey) {
+    if (!getCredential("SOLEASPAY_SECRET_KEY")) {
       console.warn("SoleasPay: Clé secrète non configurée (SOLEASPAY_SECRET_KEY)");
     }
+  }
+
+  clearToken(): void {
+    this.bearerToken = null;
+    this.tokenExpiry = null;
   }
 
   async getAuthToken(): Promise<string | null> {
@@ -308,8 +309,8 @@ export class SoleasPayClient {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          public_apikey: this.apiKey,
-          private_secretkey: this.secretKey,
+          public_apikey: getCredential("SOLEASPAY_API_KEY"),
+          private_secretkey: getCredential("SOLEASPAY_SECRET_KEY"),
         }),
       });
 
@@ -354,7 +355,7 @@ export class SoleasPayClient {
       const response = await fetch(`${SOLEASPAY_API_URL}/api/agent/bills/v3`, {
         method: "POST",
         headers: {
-          "x-api-key": this.apiKey,
+          "x-api-key": getCredential("SOLEASPAY_API_KEY"),
           "operation": "2",
           "service": params.serviceId.toString(),
           "Content-Type": "application/json",
@@ -409,7 +410,7 @@ export class SoleasPayClient {
       const response = await fetch(url, {
         method: "GET",
         headers: {
-          "x-api-key": this.apiKey,
+          "x-api-key": getCredential("SOLEASPAY_API_KEY"),
           "Content-Type": "application/json",
         },
       });

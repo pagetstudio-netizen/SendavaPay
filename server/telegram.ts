@@ -1,7 +1,8 @@
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+import { getCredential } from "./credentials";
 
 async function sendTelegramMessage(text: string): Promise<boolean> {
+  const TELEGRAM_BOT_TOKEN = getCredential("TELEGRAM_BOT_TOKEN");
+  const TELEGRAM_CHAT_ID = getCredential("TELEGRAM_CHAT_ID");
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     console.log("[Telegram] Bot token or chat ID not configured, skipping notification");
     return false;
@@ -246,6 +247,7 @@ export function notifyNewUser(data: {
 }
 
 export async function sendBotReply(chatId: string | number, text: string): Promise<boolean> {
+  const TELEGRAM_BOT_TOKEN = getCredential("TELEGRAM_BOT_TOKEN");
   if (!TELEGRAM_BOT_TOKEN) return false;
   try {
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;

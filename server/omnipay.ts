@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { getCredential } from "./credentials";
 
 const OMNIPAY_API_URL = "https://omnipay.webtechci.com/interface/api2";
 
@@ -204,14 +205,8 @@ export function verifyOmnipaySignature(payload: OmniPayWebhookPayload, callbackK
 }
 
 export class OmniPayClient {
-  private apiKey: string;
-  private callbackKey: string;
-
   constructor() {
-    this.apiKey = process.env.OMNIPAY_API_KEY || "";
-    this.callbackKey = process.env.OMNIPAY_CALLBACK_KEY || "";
-
-    if (!this.apiKey) {
+    if (!getCredential("OMNIPAY_API_KEY")) {
       console.warn("OmniPay: Clé API non configurée (OMNIPAY_API_KEY)");
     }
   }
@@ -223,7 +218,7 @@ export class OmniPayClient {
 
       const body: Record<string, string> = {
         action: "paymentrequest",
-        apikey: this.apiKey,
+        apikey: getCredential("OMNIPAY_API_KEY"),
         msisdn: params.msisdn,
         amount: String(Math.round(params.amount)),
         reference: params.reference,
@@ -278,7 +273,7 @@ export class OmniPayClient {
 
       const body: Record<string, string> = {
         action: "transfer",
-        apikey: this.apiKey,
+        apikey: getCredential("OMNIPAY_API_KEY"),
         msisdn: params.msisdn,
         amount: amountStr,
         reference: params.reference,
@@ -317,7 +312,7 @@ export class OmniPayClient {
       console.log(`🚫 OmniPay cancelTransfer: tentative annulation ref=${reference}`);
       const body: Record<string, string> = {
         action: "cancel",
-        apikey: this.apiKey,
+        apikey: getCredential("OMNIPAY_API_KEY"),
         reference,
       };
 
@@ -347,7 +342,7 @@ export class OmniPayClient {
 
       const body = {
         action: "getstatus",
-        apikey: this.apiKey,
+        apikey: getCredential("OMNIPAY_API_KEY"),
         reference,
       };
 
@@ -385,7 +380,7 @@ export class OmniPayClient {
     try {
       const body: Record<string, string> = {
         action: "getbalance",
-        apikey: this.apiKey,
+        apikey: getCredential("OMNIPAY_API_KEY"),
       };
 
       const logLabel = countryCode ? `${currency ?? ""} (${countryCode})` : (currency ?? "");
@@ -445,7 +440,7 @@ export class OmniPayClient {
   }
 
   getCallbackKey(): string {
-    return this.callbackKey;
+    return getCredential("OMNIPAY_CALLBACK_KEY");
   }
 }
 

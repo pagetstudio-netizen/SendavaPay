@@ -3548,6 +3548,8 @@ function SettingsContent() {
         </CardContent>
       </Card>
 
+      <CredentialsCard />
+
       <Card>
         <CardHeader>
           <CardTitle>Maintenance</CardTitle>
@@ -3620,6 +3622,200 @@ function ApiMaintenanceToggle() {
         />
       </div>
     </div>
+  );
+}
+
+const CREDENTIAL_GROUPS = [
+  {
+    label: "OmniPay",
+    keys: [
+      { key: "OMNIPAY_API_KEY", label: "Clé API" },
+      { key: "OMNIPAY_CALLBACK_KEY", label: "Clé Callback" },
+    ],
+  },
+  {
+    label: "MaishaPay",
+    keys: [
+      { key: "MAISHAPAY_PUBLIC_KEY", label: "Clé publique" },
+      { key: "MAISHAPAY_SECRET_KEY", label: "Clé secrète" },
+    ],
+  },
+  {
+    label: "SoleasPay",
+    keys: [
+      { key: "SOLEASPAY_API_KEY", label: "Clé API" },
+      { key: "SOLEASPAY_SECRET_KEY", label: "Clé secrète" },
+    ],
+  },
+  {
+    label: "Paxity",
+    keys: [
+      { key: "PAXITY_API_KEY", label: "Clé API" },
+      { key: "PAXITY_API_TOKEN", label: "Token API" },
+      { key: "PAXITY_JWT_TOKEN", label: "JWT Token" },
+    ],
+  },
+  {
+    label: "Telegram",
+    keys: [
+      { key: "TELEGRAM_BOT_TOKEN", label: "Bot Token" },
+      { key: "TELEGRAM_CHAT_ID", label: "Chat ID" },
+    ],
+  },
+  {
+    label: "Supabase Storage",
+    keys: [
+      { key: "SUPABASE_URL", label: "URL" },
+      { key: "SUPABASE_SERVICE_ROLE_KEY", label: "Service Role Key" },
+    ],
+  },
+];
+
+type CredentialInfo = {
+  hasValue: boolean;
+  source: "db" | "env" | "none";
+  masked: string;
+};
+
+function CredentialsCard() {
+  const { toast } = useToast();
+  const [editing, setEditing] = useState<Record<string, boolean>>({});
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+
+  const { data: creds, isLoading, refetch } = useQuery<Record<string, CredentialInfo>>({
+    queryKey: ["/api/admin/credentials"],
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (updates: Record<string, string>) => {
+      const res = await apiRequest("POST", "/api/admin/credentials", updates);
+      return res.json();
+    },
+    onSuccess: () => {
+      refetch();
+      setEditing({});
+      setValues({});
+      toast({ title: "Clés enregistrées", description: "Les clés API ont été mises à jour avec succès" });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Impossible de sauvegarder les clés", variant: "destructive" });
+    },
+  });
+
+  const handleEdit = (key: string) => {
+    setEditing((prev) => ({ ...prev, [key]: true }));
+    setValues((prev) => ({ ...prev, [key]: "" }));
+  };
+
+  const handleCancel = (key: string) => {
+    setEditing((prev) => ({ ...prev, [key]: false }));
+    setValues((prev) => { const n = { ...prev }; delete n[key]; return n; });
+  };
+
+  const handleSave = (key: string) => {
+    const val = values[key] ?? "";
+    saveMutation.mutate({ [key]: val });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Clés API des passerelles</CardTitle>
+        <CardDescription>
+          Ces clés sont stockées en base de données et survivent aux déplacements de projet. Seul <code>SUPABASE_DATABASE_URL</code> doit rester dans les secrets Replit.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {isLoading ? (
+          <p className="text-muted-foreground text-sm">Chargement...</p>
+        ) : (
+          CREDENTIAL_GROUPS.map((group) => (
+            <div key={group.label}>
+              <p className="text-sm font-semibold text-muted-foreground mb-2 uppercase tracking-wide">{group.label}</p>
+              <div className="space-y-3">
+                {group.keys.map(({ key, label }) => {
+                  const info = creds?.[key];
+                  const isEdit = !!editing[key];
+                  const isReveal = !!revealed[key];
+                  return (
+                    <div key={key} className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 bg-muted/30 rounded-lg">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">{label}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{key}</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {!isEdit ? (
+                          <>
+                            <Badge
+                              variant={info?.hasValue ? "secondary" : "outline"}
+                              className={info?.hasValue ? "text-green-600" : "text-muted-foreground"}
+                              data-testid={`badge-cred-status-${key}`}
+                            >
+                              {info?.hasValue
+                                ? info.source === "db"
+                                  ? "✓ DB"
+                                  : "✓ Env"
+                                : "Non configuré"}
+                            </Badge>
+                            {info?.hasValue && (
+                              <span
+                                className="text-xs font-mono text-muted-foreground cursor-pointer select-none"
+                                onClick={() => setRevealed((p) => ({ ...p, [key]: !p[key] }))}
+                                title="Cliquer pour masquer/révéler"
+                                data-testid={`text-cred-masked-${key}`}
+                              >
+                                {isReveal ? info.masked : "••••••••"}
+                              </span>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEdit(key)}
+                              data-testid={`button-edit-cred-${key}`}
+                            >
+                              {info?.hasValue ? "Modifier" : "Configurer"}
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Input
+                              type="password"
+                              placeholder="Nouvelle valeur..."
+                              value={values[key] ?? ""}
+                              onChange={(e) => setValues((p) => ({ ...p, [key]: e.target.value }))}
+                              className="w-64 text-sm font-mono"
+                              data-testid={`input-cred-${key}`}
+                              autoFocus
+                            />
+                            <Button
+                              size="sm"
+                              onClick={() => handleSave(key)}
+                              disabled={saveMutation.isPending}
+                              data-testid={`button-save-cred-${key}`}
+                            >
+                              {saveMutation.isPending ? "..." : "Enregistrer"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleCancel(key)}
+                              data-testid={`button-cancel-cred-${key}`}
+                            >
+                              Annuler
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -2,20 +2,20 @@ import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
-
-const SUPABASE_URL = process.env.SUPABASE_URL || "";
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+import { getCredential } from "./credentials";
 
 export const KYC_BUCKET = "kyc_documents";
 export const PRODUCT_BUCKET = "product_images";
 
 function getSupabaseAdmin() {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  const url = getCredential("SUPABASE_URL");
+  const key = getCredential("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key) {
     throw new Error(
-      "SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY non configuré. Ajoutez ces variables dans les secrets Replit."
+      "SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY non configuré. Ajoutez ces valeurs dans la section Clés API du panneau admin."
     );
   }
-  return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  return createClient(url, key, {
     auth: { persistSession: false },
   });
 }

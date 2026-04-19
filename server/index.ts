@@ -7,6 +7,7 @@ import { initializeOmnipayServices } from "./init-omnipay";
 import { testDatabaseConnection, isDatabaseConnected, startBackgroundReconnection, pool } from "./db";
 import { notifyStartup, notifySystemError, notifyDailyReport } from "./telegram";
 import { storage } from "./storage";
+import { loadCredentialsFromDb, getCredential } from "./credentials";
 
 const app = express();
 const httpServer = createServer(app);
@@ -200,7 +201,13 @@ async function initializeWithTimeout<T>(
     
     if (dbConnected) {
       log("Database connection successful", "init");
-      
+
+      await initializeWithTimeout(
+        loadCredentialsFromDb((key) => storage.getSetting(key)),
+        10000,
+        "Credentials"
+      );
+
       await initializeWithTimeout(
         initializePartnerTables(),
         20000,
@@ -304,7 +311,7 @@ async function initializeWithTimeout<T>(
 
   // ===== Register Telegram webhook (T006) =====
   async function registerTelegramWebhook() {
-    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const token = getCredential("TELEGRAM_BOT_TOKEN");
     if (!token) return;
     try {
       const webhookUrl = "https://sendavapay.com/api/webhook/telegram";

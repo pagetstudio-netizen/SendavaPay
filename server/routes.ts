@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import express from "express";
 import { storage } from "./storage";
+import { getCredential, setCachedCredential, loadCredentialsFromDb, CREDENTIAL_KEYS } from "./credentials";
 import bcrypt from "bcrypt";
 import session from "express-session";
 import { v4 as uuidv4 } from "uuid";
@@ -2046,7 +2047,7 @@ export async function registerRoutes(
       res.status(200).json({ received: true });
 
       const { verifyOmnipaySignature } = await import("./omnipay");
-      const callbackKey = process.env.OMNIPAY_CALLBACK_KEY || "";
+      const callbackKey = getCredential("OMNIPAY_CALLBACK_KEY");
 
       if (callbackKey && data.signature) {
         const valid = verifyOmnipaySignature(data, callbackKey);
@@ -5389,6 +5390,59 @@ export async function registerRoutes(
       res.json(settings);
     } catch (error) {
       console.error("Update admin settings error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/admin/credentials", requireAdmin, async (req, res) => {
+    try {
+      const result: Record<string, { hasValue: boolean; source: "db" | "env" | "none"; masked: string }> = {};
+      for (const key of CREDENTIAL_KEYS) {
+        const dbVal = await storage.getSetting(`cred_${key}`);
+        const envVal = process.env[key];
+        const effectiveVal = dbVal || envVal || "";
+        let source: "db" | "env" | "none" = "none";
+        if (dbVal) source = "db";
+        else if (envVal) source = "env";
+        result[key] = {
+          hasValue: !!effectiveVal,
+          source,
+          masked: effectiveVal
+            ? effectiveVal.length > 8
+              ? "••••••••" + effectiveVal.slice(-4)
+              : "••••" + effectiveVal.slice(-2)
+            : "",
+        };
+      }
+      res.json(result);
+    } catch (error) {
+      console.error("Get credentials error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/credentials", requireAdmin, async (req, res) => {
+    try {
+      const updates = req.body as Record<string, string>;
+      const allowed = new Set<string>(CREDENTIAL_KEYS);
+      for (const [key, value] of Object.entries(updates)) {
+        if (!allowed.has(key)) continue;
+        if (value === null || value === undefined || value === "") {
+          await storage.setSetting(`cred_${key}`, "");
+          setCachedCredential(key, "");
+        } else {
+          await storage.setSetting(`cred_${key}`, String(value));
+          setCachedCredential(key, String(value));
+        }
+      }
+      // Reload all credentials from DB to ensure cache is coherent
+      await loadCredentialsFromDb((k) => storage.getSetting(k));
+      // Reset SoleasPay bearer token since API key may have changed
+      const { soleaspay } = await import("./soleaspay");
+      soleaspay.clearToken();
+      res.json({ message: "Clés API enregistrées avec succès" });
+    } catch (error) {
+      console.error("Update credentials error:", error);
       res.status(500).json({ message: "Erreur serveur" });
     }
   });
