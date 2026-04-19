@@ -93,7 +93,7 @@ export default function AuthPage() {
             <TabsContent value="login" className="mt-6">
               <div className="text-center mb-8">
                 <p className="text-muted-foreground">
-                  1 Veuillez utiliser vos identifiants Sendava pour accéder à votre compte SendavaPay.
+                  Veuillez utiliser vos identifiants Sendava pour accéder à votre compte SendavaPay.
                 </p>
               </div>
               <div className="space-y-6">
