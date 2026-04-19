@@ -3681,7 +3681,6 @@ function CredentialsCard() {
   const { toast } = useToast();
   const [editing, setEditing] = useState<Record<string, boolean>>({});
   const [values, setValues] = useState<Record<string, string>>({});
-  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
   const { data: creds, isLoading, refetch } = useQuery<Record<string, CredentialInfo>>({
     queryKey: ["/api/admin/credentials"],
@@ -3737,7 +3736,6 @@ function CredentialsCard() {
                 {group.keys.map(({ key, label }) => {
                   const info = creds?.[key];
                   const isEdit = !!editing[key];
-                  const isReveal = !!revealed[key];
                   return (
                     <div key={key} className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 bg-muted/30 rounded-lg">
                       <div className="flex-1 min-w-0">
@@ -3760,12 +3758,10 @@ function CredentialsCard() {
                             </Badge>
                             {info?.hasValue && (
                               <span
-                                className="text-xs font-mono text-muted-foreground cursor-pointer select-none"
-                                onClick={() => setRevealed((p) => ({ ...p, [key]: !p[key] }))}
-                                title="Cliquer pour masquer/révéler"
+                                className="text-xs font-mono text-muted-foreground"
                                 data-testid={`text-cred-masked-${key}`}
                               >
-                                {isReveal ? info.masked : "••••••••"}
+                                {info.masked}
                               </span>
                             )}
                             <Button
