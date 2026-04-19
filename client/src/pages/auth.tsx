@@ -84,7 +84,7 @@ export default function AuthPage() {
           <div className="flex flex-col items-center justify-center space-y-6">
             <Link href="/">
               <div className="flex flex-col items-center">
-                <span className="text-4xl font-black text-primary tracking-tighter italic">SendavaPay</span>
+                <span className="text-4xl font-black text-primary tracking-tighter italic">123 SendavaPay</span>
               </div>
             </Link>
           </div>
