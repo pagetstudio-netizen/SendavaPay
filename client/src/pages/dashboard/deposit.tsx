@@ -79,7 +79,7 @@ export default function DepositPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
   const [currentOrderId, setCurrentOrderId] = useState("");
-  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "maishapay" | "omnipay" | "paxity">("soleaspay");
+  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "maishapay" | "omnipay" | "paxity" | "mbiyopay">("soleaspay");
   const [timeLeft, setTimeLeft] = useState(TIMEOUT_SECONDS);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [depositAmount, setDepositAmount] = useState(0);
@@ -163,6 +163,8 @@ export default function DepositPage() {
         ? `/api/verify-omnipay/${currentPayId}`
         : currentProvider === "paxity"
         ? `/api/verify-paxity/${currentPayId}`
+        : currentProvider === "mbiyopay"
+        ? `/api/verify-mbiyopay/${currentPayId}`
         : `/api/verify-soleaspay/${currentOrderId}/${currentPayId}`;
 
       const response = await fetch(verifyUrl, { credentials: "include" });
@@ -262,7 +264,7 @@ export default function DepositPage() {
         setPaymentStatus("processing");
         openSheet();
 
-        if ((provider === "omnipay" || provider === "paxity") && data.checkoutUrl) {
+        if ((provider === "omnipay" || provider === "paxity" || provider === "mbiyopay") && data.checkoutUrl) {
           window.open(data.checkoutUrl, "_blank");
           setVerificationMessage("Complétez le paiement sur la page ouverte, puis revenez ici.");
         } else if (data.isWave && data.waveUrl) {
