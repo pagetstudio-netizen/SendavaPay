@@ -339,7 +339,13 @@ async function initializeWithTimeout<T>(
     },
     () => {
       log(`serving on port ${port}`);
-      notifyStartup().catch(err => log(`Telegram startup notification failed: ${err}`, "telegram"));
+      // N'envoie l'alerte Telegram « Bot Active » qu'en production, pour éviter
+      // le spam à chaque redémarrage en développement.
+      if (process.env.NODE_ENV === "production") {
+        notifyStartup().catch(err => log(`Telegram startup notification failed: ${err}`, "telegram"));
+      } else {
+        log("startup Telegram notification skipped (dev mode)", "telegram");
+      }
       scheduleDailyReport();
       registerTelegramWebhook().catch(err => log(`Telegram webhook setup error: ${err}`, "telegram"));
     },
