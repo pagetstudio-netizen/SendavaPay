@@ -8,6 +8,9 @@ SendavaPay is a fintech payment platform designed for West and Central African m
 - **SoleasPay** — USSD direct, primary gateway (XOF, XAF, CDF)
 - **WiniPayer** — Redirect checkout, asynchronous payout via webhook (XOF)
 - **MaishaPay** — USSD direct + synchronous B2C payout (XOF, XAF, CDF) — covers RDC, Congo, Cameroun, CI, Sénégal, Bénin, Togo
+- **OmniPay** — CI (MTN, Moov, Orange, Wave)
+- **Paxity** — Afrique de l'Ouest & Centrale (Wave, MTN, Orange, Moov, etc.)
+- **MbiyoPay** — Payin & payout via mobile money (BF, BJ, CG, CD, CM, CI, GM, GN, ML, SN, TG). Bearer auth (`MBIYOPAY_API_KEY`), HMAC-SHA256 webhook signature (`MBIYOPAY_WEBHOOK_SECRET`). Webhook URL: `/api/webhook/mbiyopay`. Module: `server/mbiyopay.ts`.
 
 ## User Preferences
 
