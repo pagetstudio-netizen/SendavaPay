@@ -5,6 +5,8 @@ import { storage } from "./storage";
 import { getCredential, setCachedCredential, loadCredentialsFromDb, CREDENTIAL_KEYS } from "./credentials";
 import bcrypt from "bcrypt";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
+import { pool } from "./db";
 import { v4 as uuidv4 } from "uuid";
 import { registerSchema, loginSchema } from "@shared/schema";
 import multer from "multer";
@@ -172,15 +174,23 @@ export async function registerRoutes(
   
   app.set("trust proxy", 1);
   
+  // Session store persistant en PostgreSQL → les sessions survivent aux redémarrages.
+  const PgSession = connectPgSimple(session);
   app.use(
     session({
+      store: pool ? new PgSession({
+        pool: pool as any,
+        tableName: "user_sessions",
+        createTableIfMissing: true,
+      }) : undefined,
       secret: process.env.SESSION_SECRET || "sendavapay-secret-key-2024",
       resave: false,
       saveUninitialized: false,
+      rolling: true,
       cookie: {
         secure: process.env.NODE_ENV === "production",
         httpOnly: true,
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+        maxAge: 30 * 24 * 60 * 60 * 1000,
         sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       },
     })
