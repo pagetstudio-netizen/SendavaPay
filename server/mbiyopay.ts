@@ -161,11 +161,20 @@ async function mbiyopayFetch(url: string, options: RequestInit): Promise<any> {
   }
 }
 
+// Frais MbiyoPay (3% sur le montant envoyé) sont supportés par le marchand.
+// Pour que le client confirme exactement le montant initial sur son téléphone,
+// on envoie à MbiyoPay un montant réduit tel que : montantEnvoyé + 3% ≈ montantInitial.
+export const MBIYOPAY_FEE_RATE = 0.03;
+export function adjustAmountForMerchantFees(originalAmount: number): number {
+  return Math.floor(originalAmount / (1 + MBIYOPAY_FEE_RATE));
+}
+
 export const mbiyopay = {
   async createPayin(params: MbiyopayPayinParams): Promise<MbiyopayResponse> {
     try {
+      const adjustedAmount = adjustAmountForMerchantFees(params.amount);
       const body: any = {
-        amount: params.amount,
+        amount: adjustedAmount,
         currency: params.currency,
         payment_method: "mobile_money",
         order_id: params.orderId,

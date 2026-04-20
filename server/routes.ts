@@ -2612,7 +2612,9 @@ export async function registerRoutes(
         return;
       }
 
-      const amount = parseFloat(data?.amount || claimed.amount);
+      // Le marchand absorbe les frais MbiyoPay : on a envoyé un montant réduit à MbiyoPay
+      // mais on crédite le client sur le montant initial qu'il a demandé (claimed.amount).
+      const amount = parseFloat(claimed.amount);
       const settings = await storage.getCommissionSettings();
 
       if (claimed.type === "deposit" && claimed.userId) {
