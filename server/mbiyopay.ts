@@ -228,7 +228,7 @@ export const mbiyopay = {
 
   async getStatus(transactionId: string): Promise<MbiyopayResponse> {
     try {
-      return await mbiyopayFetch(`${MBIYOPAY_BASE_URL}/merchant/status/${encodeURIComponent(transactionId)}`, {
+      return await mbiyopayFetch(`${MBIYOPAY_BASE_URL}/merchant/transactions/${encodeURIComponent(transactionId)}`, {
         method: "GET",
         headers: mbiyopayHeaders(),
       });
