@@ -3222,9 +3222,10 @@ export async function registerRoutes(
       }
       // ─────────────────────────────────────────────────────────────────────
 
-      const { amount, paymentMethod, mobileNumber, country, walletName } = req.body;
+      const { amount, paymentMethod, mobileNumber, country, walletName, coverFees } = req.body;
       const numericAmount = parseFloat(amount);
       const balance = parseFloat(user.balance);
+      const isCoverFees = coverFees === true || coverFees === "true";
 
       if (isNaN(numericAmount) || numericAmount < 200) {
         return res.status(400).json({ message: "Montant minimum: 200 XOF" });
@@ -3265,14 +3266,22 @@ export async function registerRoutes(
       const settings = await storage.getCommissionSettings();
       const commissionRate = getCommissionRate(settings, "withdrawal", (selectedCountry as any).withdrawFeeRate);
       const fee = Math.round(numericAmount * (commissionRate / 100));
-      const netAmount = numericAmount - fee;
+
+      // Mode "Je supporte les frais" : l'expéditeur paie le montant + les frais
+      // Le destinataire reçoit le montant complet
+      const netAmount = isCoverFees ? numericAmount : numericAmount - fee;
+      const totalDeducted = isCoverFees ? numericAmount + fee : numericAmount;
+
+      if (isCoverFees && totalDeducted > balance) {
+        return res.status(400).json({ message: `Solde insuffisant pour couvrir les frais. Il vous faut ${totalDeducted.toLocaleString("fr-FR")} XOF (montant + frais de ${fee.toLocaleString("fr-FR")} XOF).` });
+      }
 
       // Débiter le solde immédiatement (en attente de validation admin)
-      const newBalance = balance - numericAmount;
+      const newBalance = balance - totalDeducted;
       await storage.setUserBalance(req.session.userId!, newBalance.toString());
       
-      console.log("💸 Withdrawal request - Country:", selectedCountry.code, "Operator:", paymentMethod);
-      console.log("💸 Balance debited immediately:", numericAmount, "New balance:", newBalance);
+      console.log("💸 Withdrawal request - Country:", selectedCountry.code, "Operator:", paymentMethod, "coverFees:", isCoverFees);
+      console.log("💸 Balance debited immediately:", totalDeducted, "New balance:", newBalance);
 
       if (selectedOperator.paymentGateway === "maishapay") {
         const { maishapay: mpClient, getMaishapayProvider, formatPhoneForMaishapay } = await import("./maishapay");
