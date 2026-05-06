@@ -132,7 +132,6 @@ export default function DepositPage() {
   const phonePrefix = COUNTRY_PREFIXES[selectedService?.countryCode || ""] || "";
   const isMbiyopay = selectedService?.paymentGateway === "mbiyopay";
   const showMbiyoOtp = isMbiyopay && selectedService?.operator === "Orange" && isMbiyoOrangeCountry(selectedService?.countryCode || "");
-  const mbiyoUssdCode = showMbiyoOtp ? getMbiyoUssdCode(selectedService?.countryCode || "", numericAmount > 0 ? numericAmount : undefined) : "";
 
   const { data: publicFees } = useQuery<{ countries: { code: string; depositFee: number }[]; global: { depositFee: number } }>({
     queryKey: ["/api/public/fees"],
@@ -142,6 +141,8 @@ export default function DepositPage() {
   const numericAmount = parseFloat(amount) || 0;
   const fee = Math.round(numericAmount * (commissionRate / 100));
   const netAmount = numericAmount - fee;
+
+  const mbiyoUssdCode = showMbiyoOtp ? getMbiyoUssdCode(selectedService?.countryCode || "", numericAmount > 0 ? numericAmount : undefined) : "";
 
   const stopAll = useCallback(() => {
     if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
