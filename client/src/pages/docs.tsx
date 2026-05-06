@@ -684,49 +684,80 @@ app.listen(3000);`;
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
-                <p className="text-sm">
-                  <strong>Qu'est-ce qu'un code OTP ?</strong> Pour certains opérateurs (notamment Orange Money), 
-                  le client reçoit un code à usage unique (OTP) par SMS sur son téléphone. 
-                  Votre interface doit collecter ce code et l'envoyer via l'endpoint <code className="bg-muted px-1 py-0.5 rounded">/api/sdk/confirm-otp</code> pour finaliser le paiement.
-                </p>
+
+              {/* Explication des deux codes */}
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-4 space-y-2">
+                  <p className="text-sm font-semibold flex items-center gap-2">
+                    📱 Code USSD — composé par le client
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Le <strong>client</strong> ouvre le clavier de son téléphone et compose un code USSD 
+                    (ex : <code className="bg-muted px-1 py-0.5 rounded">*144*4*6*5000#</code>). 
+                    Orange Money traite alors la demande et envoie automatiquement un code OTP par SMS au client.
+                  </p>
+                  <p className="text-xs text-orange-700 dark:text-orange-400 font-medium">
+                    ✦ Ce code est composé par le client — pas par votre application
+                  </p>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 space-y-2">
+                  <p className="text-sm font-semibold flex items-center gap-2">
+                    🔐 Code OTP — saisi dans votre interface
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Après avoir composé le code USSD, le client reçoit un code OTP (6 chiffres) par SMS. 
+                    Votre interface affiche un champ de saisie. Le client entre ce code pour finaliser le paiement.
+                  </p>
+                  <p className="text-xs text-blue-700 dark:text-blue-400 font-medium">
+                    ✦ Ce code est entré dans votre application — vous l'envoyez à l'API
+                  </p>
+                </div>
               </div>
 
+              {/* Tableau des pays */}
               <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[600px] border rounded-lg overflow-hidden">
+                <table className="w-full text-sm min-w-[640px] border rounded-lg overflow-hidden">
                   <thead className="bg-muted">
                     <tr>
                       <th className="text-left p-3 font-semibold">Pays</th>
-                      <th className="text-left p-3 font-semibold">Code</th>
                       <th className="text-left p-3 font-semibold">Opérateur</th>
                       <th className="text-left p-3 font-semibold">Devise</th>
-                      <th className="text-left p-3 font-semibold">Code OTP requis</th>
+                      <th className="text-left p-3 font-semibold">Code USSD client ①</th>
+                      <th className="text-left p-3 font-semibold">OTP requis ②</th>
                       <th className="text-left p-3 font-semibold">Flux</th>
                     </tr>
                   </thead>
                   <tbody>
                     {[
-                      { country: "Togo", code: "TG", operators: "TMoney, Moov", currency: "XOF", otp: false, flow: "USSD push" },
-                      { country: "Bénin", code: "BJ", operators: "MTN, Moov", currency: "XOF", otp: false, flow: "USSD push" },
-                      { country: "Cameroun", code: "CM", operators: "MTN, Orange", currency: "XAF", otp: false, flow: "USSD push" },
-                      { country: "Burkina Faso", code: "BF", operators: "Orange Money", currency: "XOF", otp: true, flow: "OTP + confirmation" },
-                      { country: "Côte d'Ivoire", code: "CI", operators: "Orange Money", currency: "XOF", otp: true, flow: "OTP + confirmation" },
-                      { country: "Côte d'Ivoire", code: "CI", operators: "MTN, Moov, Wave", currency: "XOF", otp: false, flow: "USSD push / checkout" },
-                      { country: "Guinée", code: "GN", operators: "Orange Money", currency: "GNF", otp: true, flow: "OTP + confirmation" },
-                      { country: "Mali", code: "ML", operators: "Orange Money", currency: "XOF", otp: true, flow: "OTP + confirmation" },
-                      { country: "Sénégal", code: "SN", operators: "Orange Money", currency: "XOF", otp: true, flow: "OTP + confirmation" },
-                      { country: "Sénégal", code: "SN", operators: "Wave", currency: "XOF", otp: false, flow: "Checkout redirect" },
-                      { country: "RD Congo", code: "COD", operators: "Vodacom, Airtel, Orange", currency: "CDF", otp: false, flow: "Checkout redirect" },
-                      { country: "Congo", code: "COG", operators: "MTN", currency: "XAF", otp: false, flow: "USSD push" },
+                      { country: "🇹🇬 Togo", operators: "TMoney, Moov", currency: "XOF", ussd: "—", otp: false, flow: "USSD push auto" },
+                      { country: "🇧🇯 Bénin", operators: "MTN, Moov", currency: "XOF", ussd: "—", otp: false, flow: "USSD push auto" },
+                      { country: "🇨🇲 Cameroun", operators: "MTN, Orange", currency: "XAF", ussd: "—", otp: false, flow: "USSD push auto" },
+                      { country: "🇧🇫 Burkina Faso", operators: "Orange Money", currency: "XOF", ussd: "*144*4*6*[MONTANT]#", otp: true, flow: "USSD → OTP" },
+                      { country: "🇨🇮 Côte d'Ivoire", operators: "Orange Money", currency: "XOF", ussd: "#144*82#", otp: true, flow: "USSD → OTP" },
+                      { country: "🇨🇮 Côte d'Ivoire", operators: "MTN, Moov, Wave", currency: "XOF", ussd: "—", otp: false, flow: "USSD push / checkout" },
+                      { country: "🇬🇳 Guinée", operators: "Orange Money", currency: "GNF", ussd: "#144#", otp: true, flow: "USSD → OTP" },
+                      { country: "🇲🇱 Mali", operators: "Orange Money", currency: "XOF", ussd: "#144#77#", otp: true, flow: "USSD → OTP" },
+                      { country: "🇸🇳 Sénégal", operators: "Orange Money", currency: "XOF", ussd: "#144#391#", otp: true, flow: "USSD → OTP" },
+                      { country: "🇸🇳 Sénégal", operators: "Wave", currency: "XOF", ussd: "—", otp: false, flow: "Checkout redirect" },
+                      { country: "🇨🇩 RD Congo", operators: "Vodacom, Airtel, Orange", currency: "CDF", ussd: "—", otp: false, flow: "Checkout redirect" },
+                      { country: "🇨🇬 Congo", operators: "MTN", currency: "XAF", ussd: "—", otp: false, flow: "USSD push auto" },
                     ].map((row, i) => (
                       <tr key={i} className={`border-t ${row.otp ? "bg-orange-500/5" : ""}`}>
-                        <td className="p-3">{row.country}</td>
-                        <td className="p-3 font-mono font-semibold">{row.code}</td>
+                        <td className="p-3 text-sm">{row.country}</td>
                         <td className="p-3">{row.operators}</td>
-                        <td className="p-3 font-mono">{row.currency}</td>
+                        <td className="p-3 font-mono text-xs">{row.currency}</td>
+                        <td className="p-3 font-mono text-xs">
+                          {row.ussd !== "—" ? (
+                            <span className="bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300 px-2 py-0.5 rounded font-semibold">
+                              {row.ussd}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
                         <td className="p-3">
                           {row.otp ? (
-                            <Badge className="bg-orange-500 text-white">Oui — OTP</Badge>
+                            <Badge className="bg-orange-500 text-white">Oui ②</Badge>
                           ) : (
                             <Badge variant="outline" className="text-green-600 border-green-500">Non</Badge>
                           )}
@@ -738,25 +769,41 @@ app.listen(3000);`;
                 </table>
               </div>
 
+              {/* Note BF montant */}
+              <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3">
+                <p className="text-sm">
+                  <strong>Note Burkina Faso :</strong> le code <code className="bg-muted px-1 py-0.5 rounded">*144*4*6*[MONTANT]#</code> doit être composé avec le montant réel de la transaction. 
+                  Exemple pour 5 000 XOF : <code className="bg-muted px-1 py-0.5 rounded">*144*4*6*5000#</code>. 
+                  SendavaPay affiche automatiquement le bon code au client sur la page de paiement.
+                </p>
+              </div>
+
+              {/* Flux détaillé */}
               <div>
-                <h4 className="font-semibold mb-3">Flux de paiement avec OTP (Orange Money)</h4>
-                <ol className="space-y-3 text-sm text-muted-foreground list-decimal list-inside">
-                  <li>
-                    <strong className="text-foreground">Initier le paiement</strong> — Appelez <code className="bg-muted px-1 py-0.5 rounded">POST /api/sdk/payment</code> avec l'opérateur et le numéro du client
-                  </li>
-                  <li>
-                    <strong className="text-foreground">Réponse OTP attendue</strong> — La réponse contient <code className="bg-muted px-1 py-0.5 rounded">otpRequired: true</code> et la <code className="bg-muted px-1 py-0.5 rounded">reference</code>
-                  </li>
-                  <li>
-                    <strong className="text-foreground">Collecte du code</strong> — Affichez un champ dans votre interface pour que le client saisisse le code OTP reçu par SMS
-                  </li>
-                  <li>
-                    <strong className="text-foreground">Confirmer le paiement</strong> — Appelez <code className="bg-muted px-1 py-0.5 rounded">POST /api/sdk/confirm-otp</code> avec la <code className="bg-muted px-1 py-0.5 rounded">reference</code> et le <code className="bg-muted px-1 py-0.5 rounded">otp</code>
-                  </li>
-                  <li>
-                    <strong className="text-foreground">Vérifier le statut</strong> — Appelez <code className="bg-muted px-1 py-0.5 rounded">POST /api/sdk/verify</code> ou attendez le webhook <code className="bg-muted px-1 py-0.5 rounded">payment.completed</code>
-                  </li>
-                </ol>
+                <h4 className="font-semibold mb-3">Flux complet pour Orange Money (BF, CI, GN, ML, SN)</h4>
+                <div className="space-y-3">
+                  {[
+                    { who: "Votre serveur", step: "1", label: "Initier le paiement", detail: "Appelez POST /api/sdk/payment avec le numéro et l'opérateur Orange du client. Réponse : { otpRequired: true, reference, ussdCode }" },
+                    { who: "Votre interface", step: "2", label: "Afficher le code USSD", detail: "Montrez au client le code USSD à composer (ex : #144*82#). Ce code est dans la réponse API sous ussdCode." },
+                    { who: "Le client", step: "3", label: "Composer le code USSD", detail: "Le client ouvre son clavier téléphonique et compose le code USSD. Orange Money lui envoie ensuite un SMS avec un code OTP." },
+                    { who: "Votre interface", step: "4", label: "Afficher un champ OTP", detail: "Affichez un champ de saisie pour que le client entre le code OTP reçu par SMS." },
+                    { who: "Votre serveur", step: "5", label: "Confirmer l'OTP", detail: "Envoyez POST /api/sdk/confirm-otp avec { reference, otp }. Le paiement est validé." },
+                    { who: "Votre serveur", step: "6", label: "Vérifier le statut final", detail: "Utilisez POST /api/sdk/verify ou attendez le webhook payment.completed." },
+                  ].map((item) => (
+                    <div key={item.step} className="flex gap-3 items-start">
+                      <div className="shrink-0 w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+                        {item.step}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold">{item.label}</span>
+                          <Badge variant="outline" className="text-xs">{item.who}</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">{item.detail}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div>
