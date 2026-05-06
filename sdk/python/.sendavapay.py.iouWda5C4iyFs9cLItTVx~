@@ -151,24 +151,6 @@ class SendavaPay:
             provider="winipayer",
         )
 
-    def confirm_otp(self, reference, otp):
-        """
-        Confirm an OTP code for Orange Money payments (BF, CI, GN, ML, SN).
-        Call this after create_payment() returns { "otpRequired": True }.
-        The customer receives a one-time SMS code — collect it and pass it here.
-
-        Args:
-            reference: Transaction reference from create_payment()
-            otp: OTP code entered by the customer
-
-        Returns:
-            dict: Confirmation result with updated payment status
-        """
-        return self.request("POST", "/api/sdk/confirm-otp", {
-            "reference": reference,
-            "otp": otp,
-        })
-
     def create_withdraw(self, amount, phone_number, operator=None,
                         country=None, currency="XOF", description=None):
         """Request a withdrawal to a mobile money account."""
