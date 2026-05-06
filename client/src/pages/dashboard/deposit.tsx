@@ -418,7 +418,7 @@ export default function DepositPage() {
                         {mbiyoUssdCode}
                       </p>
                       <p className="text-xs text-orange-700 dark:text-orange-400 pt-1">
-                        Saisissez ensuite le code reçu ci-dessous (optionnel — accélère le traitement).
+                        Saisissez ensuite le code reçu ci-dessous pour finaliser le paiement.
                       </p>
                     </div>
                   </div>

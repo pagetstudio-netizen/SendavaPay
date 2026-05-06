@@ -167,7 +167,6 @@ export default function PaymentPage() {
   const phonePrefix = COUNTRY_PREFIXES[selectedService?.countryCode || ""] || "";
   const isMbiyopay = selectedService?.paymentGateway === "mbiyopay";
   const showMbiyoOtp = isMbiyopay && selectedService?.operator === "Orange" && isMbiyoOrangeCountry(selectedService?.countryCode || "");
-  const mbiyoUssdCode = showMbiyoOtp ? getMbiyoUssdCode(selectedService?.countryCode || "", Math.round(getPaymentAmount())) : "";
 
   const checkPaymentStatus = useCallback(async () => {
     if (!currentPayId) return;
@@ -338,6 +337,8 @@ export default function PaymentPage() {
     }
     return parseFloat(paymentLink?.amount || "0");
   };
+
+  const mbiyoUssdCode = showMbiyoOtp ? getMbiyoUssdCode(selectedService?.countryCode || "", Math.round(getPaymentAmount())) : "";
 
   const handleContinueToPayment = () => {
     if (!firstName.trim() || !lastName.trim()) {
@@ -855,7 +856,7 @@ export default function PaymentPage() {
                             {mbiyoUssdCode}
                           </p>
                           <p className="text-xs text-orange-700 dark:text-orange-400 pt-1">
-                            Saisissez ensuite le code reçu ci-dessous (optionnel — accélère le traitement).
+                            Saisissez ensuite le code reçu ci-dessous pour finaliser le paiement.
                           </p>
                         </div>
                       </div>
