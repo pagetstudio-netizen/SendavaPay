@@ -962,6 +962,80 @@ export function registerPartnerRoutes(app: Express) {
         });
       }
 
+      if (paymentGateway === "mbiyopay") {
+        const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo, isMbiyoOtpRequired } = await import("./mbiyopay");
+        const network = getMbiyoNetwork(service.operator);
+        if (!network) {
+          return res.status(400).json({ success: false, status: "ERROR", message: `Opérateur '${service.operator}' non supporté par MbiyoPay` });
+        }
+        const currency = txCurrency || getMbiyoCurrency(countryUpper);
+        const cleanPhone = formatPhoneForMbiyo(phone, countryUpper);
+        const baseUrl = process.env.BASE_URL || "https://sendavapay.com";
+        const needsOtp = isMbiyoOtpRequired(network, countryUpper);
+        const mbAutoOtp = needsOtp ? String(Math.floor(100000 + Math.random() * 900000)) : undefined;
+
+        await storage.createPartnerTransaction({
+          partnerId: partner.id,
+          reference,
+          amount: numericAmount.toString(),
+          fee,
+          currency,
+          customerName: customerName || null,
+          customerEmail: customerEmail || null,
+          customerPhone: cleanPhone,
+          description: description || null,
+          callbackUrl: callbackUrl || partner.callbackUrl || null,
+          redirectUrl: redirectUrl || null,
+          metadata: JSON.stringify({ ...(metadata || {}), provider: "mbiyopay", operator: service.operator, country: countryUpper, serviceId: service.id, network }),
+        });
+
+        const mbResult = await mbClient.payin({
+          amount: numericAmount,
+          currency,
+          network,
+          phoneNumber: cleanPhone,
+          countryCode: countryUpper,
+          orderId: reference,
+          callbackUrl: `${baseUrl}/api/webhook/mbiyopay`,
+          omOtp: mbAutoOtp,
+        });
+
+        console.log(`SDK Payment MbiyoPay result for ${reference}:`, JSON.stringify(mbResult));
+
+        const { db } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+
+        if (mbResult.status !== "success" || !mbResult.data) {
+          await db.execute(sql`UPDATE partner_transactions SET status = 'failed', metadata = ${JSON.stringify({ provider: "mbiyopay", operator: service.operator, country: countryUpper, error: mbResult.message })} WHERE reference = ${reference}`);
+          await storage.createPartnerLog({ partnerId: partner.id, action: "api_call", details: `SDK Paiement MbiyoPay échoué: ${reference} - ${mbResult.message}`, ipAddress: req.ip || req.socket.remoteAddress });
+          return res.status(400).json({ success: false, status: "FAILED", reference, provider: "mbiyopay", message: mbResult.message || "Échec MbiyoPay" });
+        }
+
+        const mbTransactionId = mbResult.data.transaction_id;
+        await db.execute(sql`UPDATE partner_transactions SET status = 'processing', metadata = ${JSON.stringify({ provider: "mbiyopay", operator: service.operator, country: countryUpper, serviceId: service.id, mbTransactionId, network })} WHERE reference = ${reference}`);
+        await storage.createPartnerLog({ partnerId: partner.id, action: "api_call", details: `SDK Paiement MbiyoPay initié: ${reference} - ${numericAmount} ${currency} via ${service.operator} (${network}) au ${cleanPhone}`, ipAddress: req.ip || req.socket.remoteAddress });
+
+        if (mbResult.data.redirect_url) {
+          return res.json({
+            success: true, status: "PROCESSING", txid: reference, reference,
+            provider: "mbiyopay", amount: numericAmount.toString(), fee, currency,
+            operator: service.operator, country: service.countryCode,
+            checkoutUrl: mbResult.data.redirect_url,
+            message: "Redirigez le client vers l'URL de paiement. Vérifiez le statut avec /api/sdk/verify",
+          });
+        }
+
+        return res.json({
+          success: true, status: "PROCESSING", txid: reference, reference,
+          provider: "mbiyopay", amount: numericAmount.toString(), fee, currency,
+          operator: service.operator, country: service.countryCode,
+          mbTransactionId,
+          authMode: mbResult.data.auth_mode || null,
+          instructions: mbResult.data.instructions || null,
+          message: "Notification envoyée au client. Vérifiez le statut avec /api/sdk/verify",
+        });
+      }
+
       const cleanPhone = formatPhoneForSoleasPay(phone, countryUpper);
       console.log(`📡 SDK SoleasPay: numéro normalisé ${phone} → ${cleanPhone} (pays ${countryUpper})`);
 
@@ -1303,6 +1377,23 @@ export function registerPartnerRoutes(app: Express) {
           } catch (verifyError) {
             console.error("SDK verify MaishaPay check error:", verifyError);
           }
+        } else if (txProvider === "mbiyopay") {
+          return res.json({
+            success: transaction.status === "completed",
+            status: transaction.status === "completed" ? "SUCCESS" : transaction.status === "failed" ? "FAILED" : "PROCESSING",
+            txid: transaction.reference,
+            reference: transaction.reference,
+            provider: "mbiyopay",
+            amount: transaction.amount,
+            fee: transaction.fee,
+            currency: transaction.currency,
+            message: transaction.status === "completed"
+              ? "Paiement confirmé"
+              : transaction.status === "failed"
+              ? "Paiement échoué"
+              : "En attente de confirmation MbiyoPay (webhook)",
+            createdAt: transaction.createdAt,
+          });
         } else if (txProvider === "paxity") {
           try {
             const { paxity: paxityClient } = await import("./paxity");
@@ -1703,6 +1794,41 @@ export function registerPartnerRoutes(app: Express) {
         return res.json({ success: true, payId: orderId, orderId, status: "PENDING", provider: "maishapay", message: "Veuillez confirmer le paiement sur votre téléphone." });
       }
 
+      if (paymentGateway === "mbiyopay") {
+        const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo, isMbiyoOtpRequired } = await import("./mbiyopay");
+        const network = getMbiyoNetwork(service.operator);
+        if (!network) {
+          return res.status(400).json({ message: `Opérateur '${service.operator}' non supporté par MbiyoPay` });
+        }
+        const currency = service.currency || getMbiyoCurrency(service.countryCode);
+        const cleanPhone = formatPhoneForMbiyo(phoneNumber, service.countryCode);
+        const orderId = `PDEP-MB-${Date.now()}-P${req.session.partnerId}`;
+        const needsOtp = isMbiyoOtpRequired(network, service.countryCode);
+        const mbAutoOtp = needsOtp ? String(Math.floor(100000 + Math.random() * 900000)) : undefined;
+
+        const mbResult = await mbClient.payin({
+          amount: numericAmount,
+          currency,
+          network,
+          phoneNumber: cleanPhone,
+          countryCode: service.countryCode.toUpperCase(),
+          orderId,
+          callbackUrl: `${baseUrl}/api/webhook/mbiyopay`,
+          omOtp: mbAutoOtp,
+        });
+
+        if (mbResult.status !== "success" || !mbResult.data) {
+          return res.status(500).json({ message: mbResult.message || "Erreur MbiyoPay" });
+        }
+
+        await storage.createPartnerLog({ partnerId: req.session.partnerId!, action: "api_call", details: `Dépôt MbiyoPay initié: ${numericAmount} ${currency} via ${service.operator} (${network}) au ${cleanPhone}`, ipAddress: req.ip || req.socket.remoteAddress });
+
+        if (mbResult.data.redirect_url) {
+          return res.json({ success: true, payId: mbResult.data.transaction_id, orderId, status: "PENDING", provider: "mbiyopay", checkoutUrl: mbResult.data.redirect_url, message: "Redirigez vers l'URL de paiement." });
+        }
+        return res.json({ success: true, payId: mbResult.data.transaction_id, orderId, status: "PENDING", provider: "mbiyopay", authMode: mbResult.data.auth_mode || null, instructions: mbResult.data.instructions || null, message: "Veuillez confirmer le paiement sur votre téléphone." });
+      }
+
       if (paymentGateway === "paxity") {
         const { paxity: paxityClient, getPaxityMethodCode, getPaxityPhonePrefix, getPaxityCurrency, formatPhoneForPaxity, isPaxityQRMethod, isPaxityOTPMethod } = await import("./paxity");
         const methodCode = getPaxityMethodCode(service.operator, countryCode);
@@ -1797,6 +1923,10 @@ export function registerPartnerRoutes(app: Express) {
       }
       if (orderId.includes("PDEP-MP-")) {
         res.json({ status: "pending", message: "En attente de confirmation MaishaPay..." });
+        return;
+      }
+      if (orderId.includes("PDEP-MB-")) {
+        res.json({ status: "pending", message: "En attente de confirmation MbiyoPay..." });
         return;
       }
 
