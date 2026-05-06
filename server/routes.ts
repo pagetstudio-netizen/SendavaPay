@@ -5066,11 +5066,13 @@ export async function registerRoutes(
 
   app.delete("/api/api-keys/:id", requireAuth, async (req, res) => {
     try {
-      await storage.deleteApiKey(parseInt(req.params.id));
+      const result = await storage.deleteApiKey(parseInt(req.params.id), req.session.userId!);
+      if (result === "not_found") return res.status(404).json({ message: "Clé introuvable" });
+      if (result === "forbidden") return res.status(403).json({ message: "Vous n'êtes pas autorisé à supprimer cette clé" });
       res.json({ message: "Clé supprimée" });
     } catch (error) {
       console.error("Delete API key error:", error);
-      res.status(500).json({ message: "Erreur serveur" });
+      res.status(500).json({ message: "Erreur lors de la suppression" });
     }
   });
 
