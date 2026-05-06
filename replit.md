@@ -28,7 +28,7 @@ Required env vars: `SUPABASE_DATABASE_URL`, `SOLEASPAY_API_KEY`, `SOLEASPAY_SECR
 - `server/` — Express backend (routes.ts, storage.ts, db.ts, credentials.ts)
 - `shared/schema.ts` — Drizzle DB schema (source of truth)
 - `server/replit_integrations/object_storage/` — Replit Object Storage integration
-- `server/soleaspay.ts`, `server/leekpay.ts`, `server/maishapay.ts`, `server/omnipay.ts`, `server/paxity.ts` — payment gateway clients
+- `server/soleaspay.ts`, `server/leekpay.ts`, `server/maishapay.ts`, `server/omnipay.ts`, `server/paxity.ts`, `server/mbiyopay.ts` — payment gateway clients
 - `server/partner-routes.ts` — partner sub-system routes
 - `sdk/` — JS, PHP, Python merchant SDK clients
 
@@ -43,7 +43,7 @@ Required env vars: `SUPABASE_DATABASE_URL`, `SOLEASPAY_API_KEY`, `SOLEASPAY_SECR
 ## Product
 
 - User registration, login, KYC identity verification
-- Mobile Money deposits (SoleasPay USSD, MaishaPay, OmniPay, Paxity, LeekPay checkout)
+- Mobile Money deposits (SoleasPay USSD, MaishaPay, OmniPay, Paxity, MbiyoPay, LeekPay checkout)
 - Instant withdrawals (WiniPayer auto-payout for supported operators, admin-approved for others)
 - Peer-to-peer transfers between SendavaPay accounts
 - Shareable payment links with unique codes
