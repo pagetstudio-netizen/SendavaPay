@@ -11,7 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import CountrySelect from "@/components/ui/country-select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Info, ArrowLeft, Shield, Clock, CheckCircle, XCircle, Wallet } from "lucide-react";
+import { Loader2, Info, ArrowLeft, Shield, Clock, CheckCircle, XCircle, Wallet, BadgeCheck } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Link } from "wouter";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
 import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
@@ -81,6 +82,7 @@ export default function WithdrawPage() {
   const [paymentMethod, setPaymentMethod] = useState("");
   const [mobileNumber, setMobileNumber] = useState("");
   const [walletName, setWalletName] = useState("");
+  const [coverFees, setCoverFees] = useState(false);
 
   const { data: countries = [], isLoading: countriesLoading } = useQuery<WithdrawCountry[]>({
     queryKey: ["/api/withdraw/operators"],
@@ -108,11 +110,13 @@ export default function WithdrawPage() {
   const balance = parseFloat(user?.balance || "0");
   const numericAmount = parseFloat(amount) || 0;
   const fee = Math.round(numericAmount * (commissionRate / 100));
-  const netAmount = numericAmount - fee;
+  // Mode "Je supporte les frais" : le destinataire reçoit le montant complet
+  const netAmount = coverFees ? numericAmount : numericAmount - fee;
+  const totalDeducted = coverFees ? numericAmount + fee : numericAmount;
   const minWithdrawal = 200;
 
   const withdrawMutation = useMutation({
-    mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string; country: string; walletName: string }) => {
+    mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string; country: string; walletName: string; coverFees: boolean }) => {
       const res = await apiRequest("POST", "/api/withdraw", data);
       return await res.json();
     },
@@ -156,10 +160,12 @@ export default function WithdrawPage() {
       return;
     }
 
-    if (numericAmount > balance) {
+    if (totalDeducted > balance) {
       toast({
         title: "Solde insuffisant",
-        description: "Vous n'avez pas assez de fonds pour ce retrait.",
+        description: coverFees
+          ? `Il vous faut ${totalDeducted.toLocaleString()} XOF (montant + frais de ${fee.toLocaleString()} XOF).`
+          : "Vous n'avez pas assez de fonds pour ce retrait.",
         variant: "destructive",
       });
       return;
@@ -189,6 +195,7 @@ export default function WithdrawPage() {
       mobileNumber: (phonePrefix + mobileNumber).replace(/\s/g, ""),
       country,
       walletName,
+      coverFees,
     });
   };
 
@@ -315,15 +322,56 @@ export default function WithdrawPage() {
                         <Info className="h-3 w-3" />
                         Frais ({commissionRate}%)
                       </span>
-                      <span>-{fee.toLocaleString()} XOF</span>
+                      <span className={coverFees ? "text-orange-600" : ""}>
+                        {coverFees ? "+" : "-"}{fee.toLocaleString()} XOF
+                      </span>
                     </div>
+                    {coverFees && (
+                      <div className="flex justify-between text-sm text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <Info className="h-3 w-3" />
+                          Total débité de votre compte
+                        </span>
+                        <span className="font-medium text-orange-600">{totalDeducted.toLocaleString()} XOF</span>
+                      </div>
+                    )}
                     <div className="flex justify-between font-semibold pt-2 border-t">
-                      <span>Vous recevez</span>
+                      <span>Destinataire reçoit</span>
                       <span className="text-green-600">{netAmount.toLocaleString()} XOF</span>
                     </div>
                   </CardContent>
                 </Card>
               )}
+
+              {/* Case à cocher "Je supporte les frais" */}
+              <div
+                className={`flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all select-none ${
+                  coverFees
+                    ? "border-primary bg-primary/5"
+                    : "border-border bg-muted/30 hover:border-primary/50"
+                }`}
+                onClick={() => setCoverFees(!coverFees)}
+                data-testid="checkbox-cover-fees"
+              >
+                <Checkbox
+                  id="cover-fees"
+                  checked={coverFees}
+                  onCheckedChange={(v) => setCoverFees(!!v)}
+                  className="mt-0.5"
+                />
+                <div className="flex-1 min-w-0">
+                  <label htmlFor="cover-fees" className="text-sm font-semibold cursor-pointer flex items-center gap-2">
+                    <BadgeCheck className="h-4 w-4 text-primary shrink-0" />
+                    Je supporte les frais
+                  </label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {coverFees && numericAmount > 0
+                      ? `Le destinataire recevra ${numericAmount.toLocaleString()} XOF. Les frais de ${fee.toLocaleString()} XOF seront prélevés en plus sur votre solde (total : ${totalDeducted.toLocaleString()} XOF).`
+                      : "Le destinataire recevra le montant complet. Les frais seront prélevés en supplément sur votre solde."
+                    }
+                  </p>
+                </div>
+              </div>
 
               <div className="space-y-2">
                 <Label>Pays de réception</Label>
@@ -426,7 +474,7 @@ export default function WithdrawPage() {
                 type="submit"
                 className="w-full"
                 size="lg"
-                disabled={withdrawMutation.isPending || numericAmount < minWithdrawal || numericAmount > balance || !country || !paymentMethod}
+                disabled={withdrawMutation.isPending || numericAmount < minWithdrawal || totalDeducted > balance || !country || !paymentMethod}
                 data-testid="button-withdraw-submit"
               >
                 {withdrawMutation.isPending ? (
