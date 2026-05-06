@@ -803,6 +803,89 @@ export async function registerRoutes(
         });
       }
 
+      if (paymentGateway === "mbiyopay") {
+        if (!phoneNumber) {
+          return res.status(400).json({ message: "Numéro de téléphone requis pour MbiyoPay" });
+        }
+
+        console.log(`📤 MbiyoPay: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
+
+        const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo } = await import("./mbiyopay");
+        const network = getMbiyoNetwork(operator?.name || service.operator);
+
+        if (!network) {
+          return res.status(400).json({ message: `Opérateur '${service.operator}' non supporté par MbiyoPay` });
+        }
+
+        const currency = service.currency || getMbiyoCurrency(service.countryCode);
+        const formattedPhone = formatPhoneForMbiyo(phoneNumber, service.countryCode);
+        const mbAutoOtp = otp || (
+          (operator?.name || service.operator).toLowerCase().includes("orange")
+            ? String(Math.floor(100000 + Math.random() * 900000))
+            : undefined
+        );
+
+        const mbResult = await mbClient.payin({
+          amount: numericAmount,
+          currency,
+          network,
+          phoneNumber: formattedPhone,
+          countryCode: service.countryCode.toUpperCase(),
+          orderId,
+          callbackUrl: `${baseUrl}/api/webhook/mbiyopay`,
+          omOtp: mbAutoOtp,
+        });
+
+        if (mbResult.status !== "success" || !mbResult.data) {
+          console.error("❌ MbiyoPay payin error:", mbResult);
+          return res.status(500).json({ message: mbResult.message || "Erreur lors de l'initiation du paiement MbiyoPay" });
+        }
+
+        const mbTransactionId = mbResult.data.transaction_id;
+
+        await storage.createLeekpayPayment({
+          leekpayPaymentId: mbTransactionId,
+          userId: req.session.userId!,
+          amount: numericAmount.toString(),
+          currency,
+          type: "deposit",
+          status: "pending",
+          description: `Dépôt via ${service.operator} (${service.country}) - MbiyoPay`,
+          customerEmail: user.email,
+          payerPhone: formattedPhone,
+          paymentMethod: `mbiyopay_${service.name}`,
+          returnUrl: `${baseUrl}/success`,
+          paymentUrl: mbResult.data.redirect_url || null,
+        });
+
+        console.log(`📤 MbiyoPay: Payin initié transactionId=${mbTransactionId} auth_mode=${mbResult.data.auth_mode} redirect=${mbResult.data.redirect_url}`);
+
+        if (mbResult.data.redirect_url) {
+          return res.json({
+            success: true,
+            payId: mbTransactionId,
+            orderId,
+            status: "PENDING",
+            provider: "mbiyopay",
+            checkoutUrl: mbResult.data.redirect_url,
+            message: "Vous allez être redirigé vers la page de paiement.",
+          });
+        }
+
+        return res.json({
+          success: true,
+          payId: mbTransactionId,
+          orderId,
+          status: "PENDING",
+          provider: "mbiyopay",
+          instructions: mbResult.data.instructions || null,
+          authMode: mbResult.data.auth_mode || null,
+          message: mbResult.data.auth_mode === "confirm"
+            ? "Veuillez confirmer le paiement sur votre téléphone."
+            : "Paiement initié. Veuillez confirmer sur votre téléphone.",
+        });
+      }
+
       if (!phoneNumber) {
         return res.status(400).json({ message: "Numéro de téléphone requis pour SoleasPay" });
       }
@@ -1237,6 +1320,92 @@ export async function registerRoutes(
           status: "PENDING",
           provider: "paxity",
           message: "Paiement initié. Veuillez confirmer sur votre téléphone.",
+        });
+      }
+
+      if (paymentGateway === "mbiyopay") {
+        if (!phoneNumber) {
+          return res.status(400).json({ message: "Numéro de téléphone requis pour MbiyoPay" });
+        }
+
+        console.log(`📤 MbiyoPay: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}`);
+
+        const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo } = await import("./mbiyopay");
+        const network = getMbiyoNetwork(operator?.name || service.operator);
+
+        if (!network) {
+          return res.status(400).json({ message: `Opérateur '${service.operator}' non supporté par MbiyoPay` });
+        }
+
+        const currency = service.currency || getMbiyoCurrency(service.countryCode);
+        const cleanPhone = formatPhoneForMbiyo(phoneNumber, service.countryCode);
+        const mbAutoOtp = otp || (
+          (operator?.name || service.operator).toLowerCase().includes("orange")
+            ? String(Math.floor(100000 + Math.random() * 900000))
+            : undefined
+        );
+
+        const mbResult = await mbClient.payin({
+          amount: numericAmount,
+          currency,
+          network,
+          phoneNumber: cleanPhone,
+          countryCode: service.countryCode.toUpperCase(),
+          orderId,
+          callbackUrl: `${baseUrl}/api/webhook/mbiyopay`,
+          omOtp: mbAutoOtp,
+        });
+
+        if (mbResult.status !== "success" || !mbResult.data) {
+          console.error("❌ MbiyoPay pay-link error:", mbResult);
+          return res.status(500).json({ message: mbResult.message || "Erreur lors du paiement MbiyoPay" });
+        }
+
+        const mbTransactionId = mbResult.data.transaction_id;
+
+        await storage.createLeekpayPayment({
+          leekpayPaymentId: mbTransactionId,
+          userId: null,
+          paymentLinkId: link.id,
+          amount: numericAmount.toString(),
+          currency,
+          type: "payment_link",
+          status: "pending",
+          description: `Paiement ${link.title} - MbiyoPay`,
+          customerEmail: payerEmail,
+          payerName,
+          payerPhone: cleanPhone,
+          payerCountry: service.countryCode,
+          paymentMethod: `mbiyopay_${service.name}`,
+          returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}`,
+          paymentUrl: mbResult.data.redirect_url || null,
+        });
+
+        console.log(`📤 MbiyoPay: Paiement lien initié transactionId=${mbTransactionId} redirect=${mbResult.data.redirect_url}`);
+
+        if (mbResult.data.redirect_url) {
+          return res.json({
+            success: true,
+            payId: mbTransactionId,
+            orderId,
+            status: "PENDING",
+            provider: "mbiyopay",
+            checkoutUrl: mbResult.data.redirect_url,
+            message: "Vous allez être redirigé vers la page de paiement.",
+          });
+        }
+
+        return res.json({
+          success: true,
+          payId: mbTransactionId,
+          orderId,
+          status: "PENDING",
+          provider: "mbiyopay",
+          instructions: mbResult.data.instructions || null,
+          authMode: mbResult.data.auth_mode || null,
+          message: mbResult.data.auth_mode === "confirm"
+            ? "Veuillez confirmer le paiement sur votre téléphone."
+            : "Paiement initié. Veuillez confirmer sur votre téléphone.",
         });
       }
 
@@ -1891,6 +2060,165 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Paxity verify error:", error);
       return res.json({ status: "PENDING", message: "Vérification en cours..." });
+    }
+  });
+
+  // Vérification manuelle d'un paiement MbiyoPay
+  app.get("/api/verify-mbiyopay/:transactionId", async (req, res) => {
+    try {
+      const { transactionId } = req.params;
+      console.log(`🔍 MbiyoPay: Vérification manuelle transactionId=${transactionId}`);
+
+      const existingPayment = await storage.getLeekpayPaymentById(transactionId);
+      if (existingPayment?.status === "completed") {
+        return res.json({ status: "SUCCESS", message: "Paiement déjà traité", amount: existingPayment.amount });
+      }
+
+      if (!existingPayment) {
+        return res.status(404).json({ status: "NOT_FOUND", message: "Paiement non trouvé" });
+      }
+
+      return res.json({ status: "PENDING", message: "Paiement en attente de confirmation" });
+    } catch (error) {
+      console.error("MbiyoPay verify error:", error);
+      return res.json({ status: "PENDING", message: "Vérification en cours..." });
+    }
+  });
+
+  // Callback webhook MbiyoPay
+  app.post("/api/webhook/mbiyopay", async (req, res) => {
+    try {
+      const data = req.body;
+      console.log("📥 === MbiyoPay Webhook reçu ===");
+      console.log("📥 Data:", JSON.stringify(data));
+
+      res.status(200).json({ received: true });
+
+      const txStatus = (data?.status || "").toLowerCase();
+      const transactionId = data?.transaction_id;
+      const orderId = data?.order_id;
+
+      const lookupId = transactionId || orderId;
+      if (!lookupId) {
+        console.error("❌ MbiyoPay webhook: transaction_id et order_id manquants");
+        return;
+      }
+
+      let payment = await storage.getLeekpayPaymentById(lookupId);
+      if (!payment && orderId && orderId !== lookupId) {
+        payment = await storage.getLeekpayPaymentById(orderId);
+      }
+
+      if (!payment) {
+        const partnerTx = await storage.getPartnerTransactionByReference(lookupId);
+        if (partnerTx && partnerTx.status !== "completed" && txStatus === "successful") {
+          const { db } = await import("./db");
+          const { sql } = await import("drizzle-orm");
+          const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${lookupId} AND status IN ('processing', 'pending')`);
+          const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
+          if (rowsAffected > 0) {
+            const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
+            await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partnerTx.partnerId}`);
+            console.log(`✅ MbiyoPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${lookupId} net=${netAmount}`);
+            if (partnerTx.callbackUrl) {
+              try {
+                await fetch(partnerTx.callbackUrl, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ reference: lookupId, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: netAmount.toString(), currency: partnerTx.currency, provider: "mbiyopay" }),
+                });
+                console.log(`📤 MbiyoPay webhook: Callback envoyé à ${partnerTx.callbackUrl}`);
+              } catch (cbErr) { console.error("MbiyoPay webhook: Callback error:", cbErr); }
+            }
+          }
+        } else {
+          console.log("⚠️ MbiyoPay webhook: Paiement non trouvé ref=" + lookupId);
+        }
+        return;
+      }
+
+      if (payment.status === "completed") {
+        console.log("⚠️ MbiyoPay webhook: Paiement déjà traité ref=" + lookupId);
+        return;
+      }
+
+      if (txStatus === "successful") {
+        const claimId = payment.leekpayPaymentId;
+        const claimed = await storage.claimLeekpayPayment(claimId);
+        if (!claimed) {
+          console.log("⚠️ MbiyoPay webhook: Paiement déjà réclamé ref=" + claimId);
+          return;
+        }
+
+        const amount = parseFloat(data?.amount?.toString() || claimed.amount);
+        const settings = await storage.getCommissionSettings();
+
+        if (claimed.type === "deposit" && claimed.userId) {
+          const commissionRate = await getEffectiveFeeRate(claimed.userId, "deposit", settings);
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
+
+          await storage.createTransaction({
+            userId: claimed.userId,
+            type: "deposit",
+            amount: amount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: claimed.description || "Dépôt via MbiyoPay",
+            externalRef: claimId,
+            paymentMethod: claimed.paymentMethod || "mbiyopay",
+          });
+
+          await storage.updateUserBalance(claimed.userId, netAmount.toString());
+
+          const depositUser = await storage.getUser(claimed.userId);
+          if (depositUser?.email) {
+            sendDepositEmail(depositUser.email, {
+              userName: depositUser.fullName,
+              amount: netAmount,
+              currency: claimed.currency || "XOF",
+              transactionId: claimId,
+              phone: claimed.payerPhone || "",
+              operator: claimed.paymentMethod?.replace("mbiyopay_", "") || "MbiyoPay",
+            }).catch(err => console.error("Failed to send deposit email:", err));
+          }
+
+          console.log(`✅ MbiyoPay webhook: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
+        } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
+          const commissionRate = getCommissionRate(settings, "payment_received");
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
+
+          const link = await storage.getPaymentLink(claimed.paymentLinkId);
+          if (link) {
+            await storage.updatePaymentLink(link.id, { paidAt: new Date(), paidAmount: amount.toString() });
+            await storage.createTransaction({
+              userId: link.userId,
+              type: "payment_received",
+              amount: amount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: `Paiement reçu - ${link.title}`,
+              externalRef: claimId,
+              paymentMethod: claimed.paymentMethod || "mbiyopay",
+              mobileNumber: claimed.payerPhone,
+              payerName: claimed.payerName,
+              payerEmail: claimed.customerEmail,
+              payerCountry: claimed.payerCountry,
+              paymentLinkId: link.id,
+            });
+            await storage.updateUserBalance(link.userId, netAmount.toString());
+            console.log(`✅ MbiyoPay webhook: Paiement lien confirmé vendeur #${link.userId}: ${netAmount}`);
+          }
+        }
+      } else if (txStatus === "failed" || txStatus === "cancelled") {
+        await storage.updateLeekpayPayment(payment.leekpayPaymentId, { status: "failed" });
+        console.log(`❌ MbiyoPay webhook: Paiement échoué/annulé ref=${lookupId} status=${txStatus}`);
+      }
+    } catch (error) {
+      console.error("❌ MbiyoPay webhook error:", error);
     }
   });
 
@@ -3377,6 +3705,112 @@ export async function registerRoutes(
           await storage.updateWithdrawalRequest(withdrawalRequest.id, {
             status: "failed",
             rejectionReason: "Erreur technique lors du payout Paxity",
+          });
+
+          return res.status(500).json({
+            message: "Erreur technique lors du retrait. Votre solde a été restauré.",
+          });
+        }
+      }
+
+      if (selectedOperator.paymentGateway === "mbiyopay") {
+        const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo } = await import("./mbiyopay");
+
+        const network = getMbiyoNetwork(selectedOperator.name);
+        if (!network) {
+          await storage.setUserBalance(req.session.userId!, balance.toString());
+          return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique MbiyoPay" });
+        }
+
+        const currency = getMbiyoCurrency(selectedCountry.code);
+        const formattedPhone = formatPhoneForMbiyo(mobileNumber, selectedCountry.code);
+
+        const withdrawalRequest = await storage.createWithdrawalRequest({
+          userId: req.session.userId!,
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          paymentMethod: selectedOperator.name,
+          mobileNumber,
+          country,
+          walletName: walletName || null,
+        });
+
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
+
+        const mbRef = `mbiyopay_payout_${withdrawalRequest.id}_${Date.now()}`;
+
+        console.log(`💸 MbiyoPay payout: network=${network} amount=${netAmount} currency=${currency} phone=${formattedPhone} ref=${mbRef}`);
+
+        try {
+          const mbResult = await mbClient.payout({
+            amount: netAmount,
+            currency,
+            network,
+            phoneNumber: formattedPhone,
+            countryCode: selectedCountry.code.toUpperCase(),
+            orderId: mbRef,
+            callbackUrl: "https://sendavapay.com/api/webhook/mbiyopay",
+            beneficiary: walletName || user.fullName || "Client",
+          });
+
+          if (mbResult.status === "success" && mbResult.data) {
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              externalReference: mbRef,
+              transactionReference: mbResult.data.transaction_id || null,
+            });
+
+            console.log(`✅ MbiyoPay payout accepted: ref=${mbRef} txId=${mbResult.data.transaction_id} — en attente webhook`);
+
+            notifyWithdrawalAutoProcessed({
+              userName: user.fullName,
+              userId: req.session.userId!,
+              amount: numericAmount.toString(),
+              netAmount: netAmount.toString(),
+              paymentMethod: selectedOperator.name,
+              mobileNumber,
+              payoutUuid: mbRef,
+              status: "success",
+              gateway: "MbiyoPay",
+            });
+
+            return res.json({
+              message: "Retrait en cours de traitement. Vous recevrez l'argent dans quelques instants.",
+              request: { ...withdrawalRequest, status: "processing" },
+              autoProcessed: true,
+            });
+          } else {
+            const mbError = mbResult.message || "Erreur MbiyoPay inconnue";
+            console.error("❌ MbiyoPay payout failed:", mbResult);
+            await storage.setUserBalance(req.session.userId!, balance.toString());
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              status: "failed",
+              rejectionReason: mbError,
+            });
+
+            notifyWithdrawalAutoProcessed({
+              userName: user.fullName,
+              userId: req.session.userId!,
+              amount: numericAmount.toString(),
+              netAmount: netAmount.toString(),
+              paymentMethod: selectedOperator.name,
+              mobileNumber,
+              payoutUuid: "N/A",
+              status: "failed",
+              errorDetail: mbError,
+              gateway: "MbiyoPay",
+            });
+
+            return res.status(500).json({
+              message: `Le retrait automatique a échoué (${mbError}). Votre solde a été restauré.`,
+            });
+          }
+        } catch (mbErr) {
+          console.error("❌ MbiyoPay payout exception:", mbErr);
+          await storage.setUserBalance(req.session.userId!, balance.toString());
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+            status: "failed",
+            rejectionReason: "Erreur technique lors du payout MbiyoPay",
           });
 
           return res.status(500).json({
