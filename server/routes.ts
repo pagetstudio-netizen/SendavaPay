@@ -819,11 +819,7 @@ export async function registerRoutes(
 
         const currency = service.currency || getMbiyoCurrency(service.countryCode);
         const formattedPhone = formatPhoneForMbiyo(phoneNumber, service.countryCode);
-        const mbAutoOtp = otp || (
-          (operator?.name || service.operator).toLowerCase().includes("orange")
-            ? String(Math.floor(100000 + Math.random() * 900000))
-            : undefined
-        );
+        const mbAutoOtp = otp || undefined;
 
         const mbResult = await mbClient.payin({
           amount: numericAmount,
@@ -1339,11 +1335,7 @@ export async function registerRoutes(
 
         const currency = service.currency || getMbiyoCurrency(service.countryCode);
         const cleanPhone = formatPhoneForMbiyo(phoneNumber, service.countryCode);
-        const mbAutoOtp = otp || (
-          (operator?.name || service.operator).toLowerCase().includes("orange")
-            ? String(Math.floor(100000 + Math.random() * 900000))
-            : undefined
-        );
+        const mbAutoOtp = otp || undefined;
 
         const mbResult = await mbClient.payin({
           amount: numericAmount,
