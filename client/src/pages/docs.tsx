@@ -673,6 +673,148 @@ app.listen(3000);`;
             </CardContent>
           </Card>
 
+          <Card id="countries-operators">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CreditCard className="h-5 w-5" />
+                Pays, opérateurs & code OTP
+              </CardTitle>
+              <CardDescription>
+                Liste des pays et opérateurs supportés — certains opérateurs exigent un code OTP pour valider le paiement
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                <p className="text-sm">
+                  <strong>Qu'est-ce qu'un code OTP ?</strong> Pour certains opérateurs (notamment Orange Money), 
+                  le client reçoit un code à usage unique (OTP) par SMS sur son téléphone. 
+                  Votre interface doit collecter ce code et l'envoyer via l'endpoint <code className="bg-muted px-1 py-0.5 rounded">/api/sdk/confirm-otp</code> pour finaliser le paiement.
+                </p>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[600px] border rounded-lg overflow-hidden">
+                  <thead className="bg-muted">
+                    <tr>
+                      <th className="text-left p-3 font-semibold">Pays</th>
+                      <th className="text-left p-3 font-semibold">Code</th>
+                      <th className="text-left p-3 font-semibold">Opérateur</th>
+                      <th className="text-left p-3 font-semibold">Devise</th>
+                      <th className="text-left p-3 font-semibold">Code OTP requis</th>
+                      <th className="text-left p-3 font-semibold">Flux</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { country: "Togo", code: "TG", operators: "TMoney, Moov", currency: "XOF", otp: false, flow: "USSD push" },
+                      { country: "Bénin", code: "BJ", operators: "MTN, Moov", currency: "XOF", otp: false, flow: "USSD push" },
+                      { country: "Cameroun", code: "CM", operators: "MTN, Orange", currency: "XAF", otp: false, flow: "USSD push" },
+                      { country: "Burkina Faso", code: "BF", operators: "Orange Money", currency: "XOF", otp: true, flow: "OTP + confirmation" },
+                      { country: "Côte d'Ivoire", code: "CI", operators: "Orange Money", currency: "XOF", otp: true, flow: "OTP + confirmation" },
+                      { country: "Côte d'Ivoire", code: "CI", operators: "MTN, Moov, Wave", currency: "XOF", otp: false, flow: "USSD push / checkout" },
+                      { country: "Guinée", code: "GN", operators: "Orange Money", currency: "GNF", otp: true, flow: "OTP + confirmation" },
+                      { country: "Mali", code: "ML", operators: "Orange Money", currency: "XOF", otp: true, flow: "OTP + confirmation" },
+                      { country: "Sénégal", code: "SN", operators: "Orange Money", currency: "XOF", otp: true, flow: "OTP + confirmation" },
+                      { country: "Sénégal", code: "SN", operators: "Wave", currency: "XOF", otp: false, flow: "Checkout redirect" },
+                      { country: "RD Congo", code: "COD", operators: "Vodacom, Airtel, Orange", currency: "CDF", otp: false, flow: "Checkout redirect" },
+                      { country: "Congo", code: "COG", operators: "MTN", currency: "XAF", otp: false, flow: "USSD push" },
+                    ].map((row, i) => (
+                      <tr key={i} className={`border-t ${row.otp ? "bg-orange-500/5" : ""}`}>
+                        <td className="p-3">{row.country}</td>
+                        <td className="p-3 font-mono font-semibold">{row.code}</td>
+                        <td className="p-3">{row.operators}</td>
+                        <td className="p-3 font-mono">{row.currency}</td>
+                        <td className="p-3">
+                          {row.otp ? (
+                            <Badge className="bg-orange-500 text-white">Oui — OTP</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-green-600 border-green-500">Non</Badge>
+                          )}
+                        </td>
+                        <td className="p-3 text-muted-foreground text-xs">{row.flow}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-3">Flux de paiement avec OTP (Orange Money)</h4>
+                <ol className="space-y-3 text-sm text-muted-foreground list-decimal list-inside">
+                  <li>
+                    <strong className="text-foreground">Initier le paiement</strong> — Appelez <code className="bg-muted px-1 py-0.5 rounded">POST /api/sdk/payment</code> avec l'opérateur et le numéro du client
+                  </li>
+                  <li>
+                    <strong className="text-foreground">Réponse OTP attendue</strong> — La réponse contient <code className="bg-muted px-1 py-0.5 rounded">otpRequired: true</code> et la <code className="bg-muted px-1 py-0.5 rounded">reference</code>
+                  </li>
+                  <li>
+                    <strong className="text-foreground">Collecte du code</strong> — Affichez un champ dans votre interface pour que le client saisisse le code OTP reçu par SMS
+                  </li>
+                  <li>
+                    <strong className="text-foreground">Confirmer le paiement</strong> — Appelez <code className="bg-muted px-1 py-0.5 rounded">POST /api/sdk/confirm-otp</code> avec la <code className="bg-muted px-1 py-0.5 rounded">reference</code> et le <code className="bg-muted px-1 py-0.5 rounded">otp</code>
+                  </li>
+                  <li>
+                    <strong className="text-foreground">Vérifier le statut</strong> — Appelez <code className="bg-muted px-1 py-0.5 rounded">POST /api/sdk/verify</code> ou attendez le webhook <code className="bg-muted px-1 py-0.5 rounded">payment.completed</code>
+                  </li>
+                </ol>
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-2">Endpoint de confirmation OTP</h4>
+                <CodeBlock
+                  id="otp-endpoint"
+                  language="json"
+                  code={`// POST /api/sdk/confirm-otp
+// Corps de la requête :
+{
+  "reference": "pay_abc123_xyz789",  // référence obtenue à l'étape 1
+  "otp": "123456"                    // code OTP saisi par le client
+}
+
+// Réponse :
+{
+  "success": true,
+  "status": "PROCESSING",
+  "reference": "pay_abc123_xyz789",
+  "message": "Paiement en cours de traitement"
+}`}
+                />
+              </div>
+
+              <div>
+                <h4 className="font-semibold mb-2">Exemple complet — Orange Money CI (JavaScript)</h4>
+                <CodeBlock
+                  id="otp-example-js"
+                  language="javascript"
+                  code={`const sdk = new SendavaPay('sk_live_...', 'votre_secret');
+
+// Étape 1 : Initier le paiement Orange Money
+const payment = await sdk.createPayment({
+  amount: 5000,
+  phoneNumber: '+2250700000000',
+  operator: 'Orange',
+  country: 'CI',
+  description: 'Achat article #123',
+  callbackUrl: 'https://votre-site.com/webhook'
+});
+
+if (payment.otpRequired) {
+  // Étape 2 : Afficher un champ OTP à l'utilisateur
+  const otp = await demander_otp_au_client(); // votre logique UI
+
+  // Étape 3 : Confirmer avec l'OTP
+  const confirmation = await sdk.confirmOtp(payment.reference, otp);
+  console.log('Confirmation OTP :', confirmation);
+}
+
+// Étape 4 : Attendre la finalisation (webhook ou polling)
+const final = await sdk.waitForPayment(payment.reference);
+console.log('Résultat final :', final.status); // SUCCESS / FAILED`}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
           <Card id="code-examples">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

@@ -53,28 +53,66 @@ class SendavaPay {
     }
 
     /**
-     * Initiate a payment via SoleasPay (USSD push) or WiniPayer (checkout redirect)
+     * Initiate a Mobile Money payment.
      *
-     * For SoleasPay (default): sends USSD push to customer's phone
-     * For WiniPayer: returns a checkout URL to redirect the customer
+     * SUPPORTED COUNTRIES, OPERATORS & OTP REQUIREMENTS
+     * ─────────────────────────────────────────────────
+     * | Pays              | Code | Opérateur(s)             | Devise | OTP requis |
+     * |-------------------|------|--------------------------|--------|------------|
+     * | Togo              | TG   | TMoney, Moov             | XOF    | Non        |
+     * | Bénin             | BJ   | MTN, Moov                | XOF    | Non        |
+     * | Cameroun          | CM   | MTN, Orange              | XAF    | Non        |
+     * | Burkina Faso      | BF   | Orange Money             | XOF    | OUI ★      |
+     * | Côte d'Ivoire     | CI   | Orange Money             | XOF    | OUI ★      |
+     * | Côte d'Ivoire     | CI   | MTN, Moov, Wave          | XOF    | Non        |
+     * | Guinée            | GN   | Orange Money             | GNF    | OUI ★      |
+     * | Mali              | ML   | Orange Money             | XOF    | OUI ★      |
+     * | Sénégal           | SN   | Orange Money             | XOF    | OUI ★      |
+     * | Sénégal           | SN   | Wave                     | XOF    | Non        |
+     * | RD Congo          | COD  | Vodacom, Airtel, Orange  | CDF    | Non        |
+     * | Congo             | COG  | MTN                      | XAF    | Non        |
      *
-     * @param array $data Required: amount, phoneNumber, operator, country
-     *   - amount: float - Amount to charge
-     *   - phoneNumber: string - Customer's mobile number (required for SoleasPay, optional for WiniPayer)
-     *   - operator: string - MTN, Moov, Orange, TMoney, Wave, Vodacom, Airtel (required for SoleasPay)
-     *   - country: string - Country code: TG, BJ, BF, CM, CI, COD, COG (required for SoleasPay)
-     *   - currency: string (optional) - Auto-detected from country
-     *   - customerName: string (optional)
-     *   - customerEmail: string (optional)
-     *   - description: string (optional)
-     *   - callbackUrl: string (optional) - Webhook for status updates
-     *   - redirectUrl: string (optional) - Redirect after payment
-     *   - metadata: array (optional)
-     *   - provider: string (optional) - "soleaspay" (default) or "winipayer"
-     * @return array Payment result with reference for verification
+     * ★ OTP FLOW (Orange Money — BF, CI, GN, ML, SN)
+     * ────────────────────────────────────────────────
+     * 1. Appelez createPayment() → la réponse contient { "otpRequired": true, "reference": "..." }
+     * 2. Affichez un champ de saisie OTP dans votre interface
+     * 3. Le client reçoit un code SMS à usage unique — collectez-le
+     * 4. Appelez confirmOtp($reference, $otp) pour soumettre le code
+     * 5. Vérifiez le statut final avec verifyPayment() ou attendez le webhook
+     *
+     * @param array $data
+     *   - amount: float (requis) - Montant à débiter
+     *   - phoneNumber: string (requis) - Numéro mobile du client
+     *   - operator: string (requis) - MTN, Moov, Orange, TMoney, Wave, Vodacom, Airtel
+     *   - country: string (requis) - TG, BJ, BF, CM, CI, GN, ML, SN, COD, COG
+     *   - currency: string (optionnel) - Détectée automatiquement selon le pays
+     *   - customerName: string (optionnel)
+     *   - customerEmail: string (optionnel)
+     *   - description: string (optionnel)
+     *   - callbackUrl: string (optionnel) - Webhook de notification de statut
+     *   - redirectUrl: string (optionnel) - Redirection après paiement
+     *   - metadata: array (optionnel)
+     *   - provider: string (optionnel) - "soleaspay" (défaut, USSD) ou "winipayer" (checkout)
+     * @return array Résultat du paiement — inclut otpRequired:true pour les opérateurs Orange Money
      */
     public function createPayment($data) {
         return $this->request("POST", "/api/sdk/payment", $data);
+    }
+
+    /**
+     * Confirmer un code OTP pour les paiements Orange Money (BF, CI, GN, ML, SN).
+     * À appeler après createPayment() lorsque la réponse contient { "otpRequired": true }.
+     * Le client reçoit un code SMS — collectez-le et passez-le ici.
+     *
+     * @param string $reference Référence de la transaction (depuis createPayment)
+     * @param string $otp Code OTP saisi par le client
+     * @return array Résultat de la confirmation avec le statut mis à jour
+     */
+    public function confirmOtp($reference, $otp) {
+        return $this->request("POST", "/api/sdk/confirm-otp", [
+            "reference" => $reference,
+            "otp" => $otp,
+        ]);
     }
 
     /**
