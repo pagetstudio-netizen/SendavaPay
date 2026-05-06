@@ -10,14 +10,15 @@ A fintech payment platform for West and Central African markets enabling Mobile 
 - **DB push**: `npm run db:push`
 - **Typecheck**: `npm run check`
 
-Required env vars: `SUPABASE_DATABASE_URL`, `SOLEASPAY_API_KEY`, `SOLEASPAY_SECRET_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `WINIPAYER_MERCHANT_APPLY`, `WINIPAYER_MERCHANT_TOKEN`, `WINIPAYER_PRIVATE_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+Required env vars: `SUPABASE_DATABASE_URL` (set), `SUPABASE_URL` (set)
+Optional secrets (stored in DB via admin panel): `SOLEASPAY_API_KEY`, `SOLEASPAY_SECRET_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `SUPABASE_SERVICE_ROLE_KEY`, `OMNIPAY_API_KEY`, `OMNIPAY_CALLBACK_KEY`, `MAISHAPAY_PUBLIC_KEY`, `MAISHAPAY_SECRET_KEY`, `PAXITY_API_KEY`, `MBIYOPAY_API_KEY`
 
 ## Stack
 
 - **Frontend**: React 18, TypeScript, Tailwind CSS, shadcn/ui, Wouter routing, TanStack React Query
 - **Backend**: Node.js, Express.js, TypeScript (ESM)
 - **Auth**: Session-based (express-session + bcrypt) — no external auth provider
-- **Database**: Supabase PostgreSQL via Drizzle ORM
+- **Database**: Supabase PostgreSQL via Drizzle ORM (SUPABASE_DATABASE_URL)
 - **Email**: Resend via Replit connector integration
 - **File storage**: Replit Object Storage + Supabase Storage for KYC docs
 - **Build**: Vite (frontend), esbuild (backend)
@@ -44,7 +45,7 @@ Required env vars: `SUPABASE_DATABASE_URL`, `SOLEASPAY_API_KEY`, `SOLEASPAY_SECR
 
 - User registration, login, KYC identity verification
 - Mobile Money deposits (SoleasPay USSD, MaishaPay, OmniPay, Paxity, MbiyoPay, LeekPay checkout)
-- Instant withdrawals (WiniPayer auto-payout for supported operators, admin-approved for others)
+- Instant withdrawals (auto-payout for supported operators, admin-approved for others)
 - Peer-to-peer transfers between SendavaPay accounts
 - Shareable payment links with unique codes
 - Partner system with SDK for merchant API integration
@@ -58,10 +59,11 @@ Required env vars: `SUPABASE_DATABASE_URL`, `SOLEASPAY_API_KEY`, `SOLEASPAY_SECR
 ## Gotchas
 
 - `tsx` is a devDependency; workflow uses `npx tsx` (not bare `tsx`) to ensure it resolves from `node_modules/.bin`
-- DB uses only `SUPABASE_DATABASE_URL` — Replit's built-in PostgreSQL module is present but not connected
+- DB uses only `SUPABASE_DATABASE_URL` — Replit's built-in PostgreSQL env vars are present but not used by the app
 - `drizzle.config.ts` falls back to `DATABASE_URL` if `SUPABASE_DATABASE_URL` is missing
 - Telegram webhook is hardcoded to `https://sendavapay.com/api/webhook/telegram` — update for Replit deployment domain
 - SoleasPay API endpoint uses lowercase `v3` in path
+- Admin account email: `pagetstudio@gmail.com`, default password: `AAbb11##`
 
 ## Pointers
 
