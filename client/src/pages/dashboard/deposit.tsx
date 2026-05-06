@@ -60,12 +60,19 @@ const operatorLogos: Record<string, string> = {
 
 const quickAmounts = [5000, 10000, 25000, 50000, 100000];
 
-function getOrangeUssdCode(countryCode: string): string {
+function getMbiyoUssdCode(countryCode: string, amount?: number): string {
   const codes: Record<string, string> = {
-    CI: "#144#", CM: "#150*50#", BF: "#144#",
-    COD: "#144#", COG: "#150#", BJ: "#144#", TG: "#144#",
+    BF: amount ? `*144*4*6*${amount}#` : "*144*4*6*MONTANT#",
+    CI: "#144*82#",
+    GN: "#144#",
+    ML: "#144#77#",
+    SN: "#144#391#",
   };
-  return codes[countryCode] || "#144#";
+  return codes[countryCode] || "";
+}
+
+function isMbiyoOrangeCountry(countryCode: string): boolean {
+  return ["BF", "CI", "GN", "ML", "SN"].includes(countryCode);
 }
 
 export default function DepositPage() {
@@ -79,7 +86,8 @@ export default function DepositPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
   const [currentOrderId, setCurrentOrderId] = useState("");
-  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "maishapay" | "omnipay" | "paxity">("soleaspay");
+  const [otp, setOtp] = useState("");
+  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "maishapay" | "omnipay" | "paxity" | "mbiyopay">("soleaspay");
   const [timeLeft, setTimeLeft] = useState(TIMEOUT_SECONDS);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [depositAmount, setDepositAmount] = useState(0);
@@ -116,11 +124,15 @@ export default function DepositPage() {
       else setSelectedServiceId("");
     }
     setPhoneNumber("");
+    setOtp("");
   }, [services, selectedServiceId]);
 
   const selectedService = services.find(s => s.id.toString() === selectedServiceId);
   const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
   const phonePrefix = COUNTRY_PREFIXES[selectedService?.countryCode || ""] || "";
+  const isMbiyopay = selectedService?.paymentGateway === "mbiyopay";
+  const showMbiyoOtp = isMbiyopay && selectedService?.operator === "Orange" && isMbiyoOrangeCountry(selectedService?.countryCode || "");
+  const mbiyoUssdCode = showMbiyoOtp ? getMbiyoUssdCode(selectedService?.countryCode || "", numericAmount > 0 ? numericAmount : undefined) : "";
 
   const { data: publicFees } = useQuery<{ countries: { code: string; depositFee: number }[]; global: { depositFee: number } }>({
     queryKey: ["/api/public/fees"],
@@ -163,6 +175,8 @@ export default function DepositPage() {
         ? `/api/verify-omnipay/${currentPayId}`
         : currentProvider === "paxity"
         ? `/api/verify-paxity/${currentPayId}`
+        : currentProvider === "mbiyopay"
+        ? `/api/verify-mbiyopay/${currentPayId}`
         : `/api/verify-soleaspay/${currentOrderId}/${currentPayId}`;
 
       const response = await fetch(verifyUrl, { credentials: "include" });
@@ -239,7 +253,7 @@ export default function DepositPage() {
   }, [paymentStatus, startCountdown]);
 
   const depositMutation = useMutation({
-    mutationFn: async (data: { amount: number; serviceId: string; phoneNumber?: string }) => {
+    mutationFn: async (data: { amount: number; serviceId: string; phoneNumber?: string; otp?: string }) => {
       const response = await apiRequest("POST", "/api/deposit-soleaspay", data);
       return response.json();
     },
@@ -294,6 +308,7 @@ export default function DepositPage() {
       amount: numericAmount,
       serviceId: selectedServiceId,
       phoneNumber: (phonePrefix + phoneNumber).replace(/\s/g, ""),
+      otp: otp.trim() || undefined,
     });
   };
 
@@ -386,6 +401,44 @@ export default function DepositPage() {
                   Entrez le numéro local associé à votre compte {selectedService?.operator || "Mobile Money"}
                 </p>
               </div>
+
+              {showMbiyoOtp && (
+                <div className="rounded-xl border border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950/30 p-4 space-y-3">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 text-orange-600 mt-0.5 shrink-0" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold text-orange-800 dark:text-orange-300">
+                        Autorisation Orange Money requise
+                      </p>
+                      <p className="text-xs text-orange-700 dark:text-orange-400">
+                        Composez ce code sur votre téléphone Orange pour générer votre code d'autorisation :
+                      </p>
+                      <p className="text-sm font-mono font-bold text-orange-900 dark:text-orange-200 bg-orange-100 dark:bg-orange-900/50 rounded px-2 py-1 inline-block tracking-widest">
+                        {mbiyoUssdCode}
+                      </p>
+                      <p className="text-xs text-orange-700 dark:text-orange-400 pt-1">
+                        Saisissez ensuite le code reçu ci-dessous (optionnel — accélère le traitement).
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="otp" className="text-sm text-orange-800 dark:text-orange-300">
+                      Code d'autorisation Orange
+                    </Label>
+                    <Input
+                      id="otp"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="Ex. 123456"
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                      maxLength={8}
+                      className="font-mono tracking-widest"
+                      data-testid="input-otp"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-4">
                 <Label htmlFor="amount">Montant ({currency})</Label>

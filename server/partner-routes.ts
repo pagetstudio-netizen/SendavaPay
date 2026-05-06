@@ -963,7 +963,7 @@ export function registerPartnerRoutes(app: Express) {
       }
 
       if (paymentGateway === "mbiyopay") {
-        const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo, isMbiyoOtpRequired } = await import("./mbiyopay");
+        const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo } = await import("./mbiyopay");
         const network = getMbiyoNetwork(service.operator);
         if (!network) {
           return res.status(400).json({ success: false, status: "ERROR", message: `Opérateur '${service.operator}' non supporté par MbiyoPay` });
@@ -971,8 +971,7 @@ export function registerPartnerRoutes(app: Express) {
         const currency = txCurrency || getMbiyoCurrency(countryUpper);
         const cleanPhone = formatPhoneForMbiyo(phone, countryUpper);
         const baseUrl = process.env.BASE_URL || "https://sendavapay.com";
-        const needsOtp = isMbiyoOtpRequired(network, countryUpper);
-        const mbAutoOtp = needsOtp ? String(Math.floor(100000 + Math.random() * 900000)) : undefined;
+        const mbAutoOtp = (body.otp as string | undefined) || undefined;
 
         await storage.createPartnerTransaction({
           partnerId: partner.id,
@@ -1795,7 +1794,7 @@ export function registerPartnerRoutes(app: Express) {
       }
 
       if (paymentGateway === "mbiyopay") {
-        const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo, isMbiyoOtpRequired } = await import("./mbiyopay");
+        const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo } = await import("./mbiyopay");
         const network = getMbiyoNetwork(service.operator);
         if (!network) {
           return res.status(400).json({ message: `Opérateur '${service.operator}' non supporté par MbiyoPay` });
@@ -1803,8 +1802,7 @@ export function registerPartnerRoutes(app: Express) {
         const currency = service.currency || getMbiyoCurrency(service.countryCode);
         const cleanPhone = formatPhoneForMbiyo(phoneNumber, service.countryCode);
         const orderId = `PDEP-MB-${Date.now()}-P${req.session.partnerId}`;
-        const needsOtp = isMbiyoOtpRequired(network, service.countryCode);
-        const mbAutoOtp = needsOtp ? String(Math.floor(100000 + Math.random() * 900000)) : undefined;
+        const mbAutoOtp = (req.body.otp as string | undefined) || undefined;
 
         const mbResult = await mbClient.payin({
           amount: numericAmount,
