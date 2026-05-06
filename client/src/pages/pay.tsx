@@ -97,7 +97,11 @@ function getMbiyoUssdCode(countryCode: string, amount?: number): string {
 }
 
 function isMbiyoOrangeCountry(countryCode: string): boolean {
-  return ["BF", "CI", "GN", "ML", "SN"].includes(countryCode);
+  return ["BF", "CI", "GN", "ML", "SN"].includes(countryCode.toUpperCase());
+}
+
+function isMbiyoOrangeOperator(operator: string): boolean {
+  return operator.toLowerCase().includes("orange");
 }
 
 export default function PaymentPage() {
@@ -166,7 +170,7 @@ export default function PaymentPage() {
   const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || "XOF";
   const phonePrefix = COUNTRY_PREFIXES[selectedService?.countryCode || ""] || "";
   const isMbiyopay = selectedService?.paymentGateway === "mbiyopay";
-  const showMbiyoOtp = isMbiyopay && selectedService?.operator === "Orange" && isMbiyoOrangeCountry(selectedService?.countryCode || "");
+  const showMbiyoOtp = isMbiyopay && isMbiyoOrangeOperator(selectedService?.operator || "") && isMbiyoOrangeCountry(selectedService?.countryCode || "");
 
   const checkPaymentStatus = useCallback(async () => {
     if (!currentPayId) return;
