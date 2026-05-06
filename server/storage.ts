@@ -106,7 +106,7 @@ export interface IStorage {
   getApiKeyByKey(key: string): Promise<ApiKey | undefined>;
   createApiKey(apiKey: InsertApiKey): Promise<ApiKey>;
   updateApiKey(id: number, updates: Partial<ApiKey>): Promise<ApiKey | undefined>;
-  deleteApiKey(id: number): Promise<void>;
+  deleteApiKey(id: number, userId?: number): Promise<"not_found" | "forbidden" | "ok">;
   incrementApiKeyRequestCount(id: number): Promise<void>;
   
   getPendingWithdrawals(): Promise<Transaction[]>;
@@ -397,8 +397,15 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async deleteApiKey(id: number): Promise<void> {
+  async deleteApiKey(id: number, userId?: number): Promise<"not_found" | "forbidden" | "ok"> {
+    const [key] = await getDb().select().from(apiKeys).where(eq(apiKeys.id, id));
+    if (!key) return "not_found";
+    if (userId !== undefined && key.userId !== userId) return "forbidden";
+    // Mettre à null les références FK dans apiTransactions et apiLogs avant suppression
+    await getDb().update(apiTransactions).set({ apiKeyId: null }).where(eq(apiTransactions.apiKeyId, id));
+    await getDb().update(apiLogs).set({ apiKeyId: null }).where(eq(apiLogs.apiKeyId, id));
     await getDb().delete(apiKeys).where(eq(apiKeys.id, id));
+    return "ok";
   }
 
   async getAllApiKeys(): Promise<ApiKey[]> {
