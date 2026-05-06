@@ -17,15 +17,24 @@ const MBIYOPAY_NETWORK_MAP: Record<string, string> = {
   "Moov": "moov",
   "Moov Money": "moov",
   "Wave": "wave",
+  "Free": "free",
+  "Free Money": "free",
   "Airtel": "airtel",
   "Airtel Money": "airtel",
-  "Vodacom": "mpesa",
-  "M-Pesa": "mpesa",
-  "Mpesa": "mpesa",
-  "TMoney": "tmoney",
-  "T-Money": "tmoney",
-  "Mixx": "mixx",
+  "Vodacom": "vodacom",
+  "M-Pesa": "vodacom",
+  "Mpesa": "vodacom",
+  "Africell": "africell",
+  "Togocom": "togocom",
+  "TMoney": "togocom",
+  "T-Money": "togocom",
+  "Coris": "coris",
+  "Coris Bank": "coris",
+  "Celtiis": "celtiis",
   "Afrimoney": "afrimoney",
+  "QMoney": "qmoney",
+  "Q-Money": "qmoney",
+  "APS": "aps",
   "Tigo": "tigo",
   "Vodafone": "vodafone",
 };
@@ -33,12 +42,32 @@ const MBIYOPAY_NETWORK_MAP: Record<string, string> = {
 const COUNTRY_CURRENCIES: Record<string, string> = {
   BF: "XOF", CI: "XOF", SN: "XOF", ML: "XOF", BJ: "XOF", TG: "XOF", NE: "XOF",
   CM: "XAF", CG: "XAF", GA: "XAF", CF: "XAF", TD: "XAF",
-  CD: "CDF",
+  CD: "USD",
   GH: "GHS",
   NG: "NGN",
   KE: "KES",
   GM: "GMD",
+  GN: "GNF",
 };
+
+const PHONE_PREFIXES: Record<string, string> = {
+  BF: "226", CI: "225", SN: "221", ML: "223", BJ: "229", TG: "228",
+  CM: "237", GH: "233", NG: "234", KE: "254", CD: "243", CG: "242",
+  GM: "220", GN: "224",
+};
+
+const MBIYO_OTP_NETWORKS = new Set([
+  "BF:orange",
+  "CI:orange",
+  "GN:orange",
+  "ML:orange",
+  "SN:orange",
+]);
+
+const MBIYO_PIN_NETWORKS = new Set([
+  "GM:qmoney",
+  "GM:aps",
+]);
 
 export function getMbiyoNetwork(operatorName: string): string | null {
   return MBIYOPAY_NETWORK_MAP[operatorName] || null;
@@ -48,15 +77,18 @@ export function getMbiyoCurrency(countryCode: string): string {
   return COUNTRY_CURRENCIES[countryCode.toUpperCase()] || "XOF";
 }
 
+export function isMbiyoOtpRequired(network: string, countryCode: string): boolean {
+  return MBIYO_OTP_NETWORKS.has(`${countryCode.toUpperCase()}:${network.toLowerCase()}`);
+}
+
+export function isMbiyoPinRequired(network: string, countryCode: string): boolean {
+  return MBIYO_PIN_NETWORKS.has(`${countryCode.toUpperCase()}:${network.toLowerCase()}`);
+}
+
 export function formatPhoneForMbiyo(phone: string, countryCode: string): string {
   let cleaned = phone.replace(/\s/g, "").replace(/^\+/, "");
-  const prefixes: Record<string, string> = {
-    BF: "226", CI: "225", SN: "221", ML: "223", BJ: "229", TG: "228",
-    CM: "237", GH: "233", NG: "234", KE: "254", CD: "243", CG: "242",
-    GM: "220",
-  };
-  const prefix = prefixes[countryCode.toUpperCase()] || "";
-  if (prefix && !cleaned.startsWith("+")) {
+  const prefix = PHONE_PREFIXES[countryCode.toUpperCase()] || "";
+  if (prefix) {
     if (!cleaned.startsWith(prefix)) {
       cleaned = `+${prefix}${cleaned.replace(/^0+/, "")}`;
     } else {
