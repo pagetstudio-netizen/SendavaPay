@@ -3,6 +3,15 @@ import { Resend } from 'resend';
 let connectionSettings: any;
 
 async function getCredentials() {
+  // Priorité 1 : clé API directe dans les variables d'environnement (Plesk / prod externe)
+  if (process.env.RESEND_API_KEY) {
+    return {
+      apiKey: process.env.RESEND_API_KEY,
+      fromEmail: process.env.RESEND_FROM_EMAIL || 'noreply@sendavapay.com'
+    };
+  }
+
+  // Priorité 2 : connecteur Replit (environnement Replit uniquement)
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY 
     ? 'repl ' + process.env.REPL_IDENTITY 
@@ -10,8 +19,8 @@ async function getCredentials() {
     ? 'depl ' + process.env.WEB_REPL_RENEWAL 
     : null;
 
-  if (!xReplitToken) {
-    throw new Error('X_REPLIT_TOKEN not found for repl/depl');
+  if (!xReplitToken || !hostname) {
+    throw new Error('Email non configuré: définissez RESEND_API_KEY dans vos variables d\'environnement');
   }
 
   connectionSettings = await fetch(
@@ -25,7 +34,7 @@ async function getCredentials() {
   ).then(res => res.json()).then(data => data.items?.[0]);
 
   if (!connectionSettings || (!connectionSettings.settings.api_key)) {
-    throw new Error('Resend not connected');
+    throw new Error('Resend non connecté');
   }
   return {
     apiKey: connectionSettings.settings.api_key, 

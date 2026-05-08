@@ -4,7 +4,8 @@ set -e
 echo "==> Installation des dépendances..."
 npm install --production=false
 
-echo "==> Build du projet..."
+echo "==> Compilation du projet..."
 npm run build
 
-echo "==> Déploiement terminé. Redémarre l'application Node.js dans Plesk."
+echo "==> Déploiement terminé avec succès."
+echo "    Redémarrez maintenant l'application Node.js dans Plesk."
