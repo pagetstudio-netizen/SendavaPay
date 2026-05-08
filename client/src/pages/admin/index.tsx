@@ -4357,15 +4357,15 @@ function CountriesContent() {
               <Label>Passerelle de paiement</Label>
               <Select value={operatorForm.paymentGateway} onValueChange={(v) => setOperatorForm({ ...operatorForm, paymentGateway: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
+                <SelectContent position="popper" className="max-h-60 overflow-y-auto">
+                  <SelectItem value="mbiyopay">MbiyoPay</SelectItem>
                   <SelectItem value="soleaspay">SoleasPay</SelectItem>
                   <SelectItem value="maishapay">MaishaPay</SelectItem>
                   <SelectItem value="omnipay">OmniPay</SelectItem>
                   <SelectItem value="paxity">Paxity</SelectItem>
-                  <SelectItem value="mbiyopay">MbiyoPay</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">SoleasPay: USSD direct | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave) | Paxity: Afrique de l'Ouest &amp; Centrale (Wave, MTN, Orange, Moov…) | MbiyoPay: Afrique de l'Ouest &amp; Centrale</p>
+              <p className="text-xs text-muted-foreground">MbiyoPay: Afrique de l'Ouest &amp; Centrale | SoleasPay: USSD direct | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave) | Paxity: Afrique de l'Ouest &amp; Centrale</p>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -4445,15 +4445,15 @@ function CountriesContent() {
               <Label>Passerelle de paiement</Label>
               <Select value={operatorForm.paymentGateway} onValueChange={(v) => setOperatorForm({ ...operatorForm, paymentGateway: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
+                <SelectContent position="popper" className="max-h-60 overflow-y-auto">
+                  <SelectItem value="mbiyopay">MbiyoPay</SelectItem>
                   <SelectItem value="soleaspay">SoleasPay</SelectItem>
                   <SelectItem value="maishapay">MaishaPay</SelectItem>
                   <SelectItem value="omnipay">OmniPay</SelectItem>
                   <SelectItem value="paxity">Paxity</SelectItem>
-                  <SelectItem value="mbiyopay">MbiyoPay</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">SoleasPay: USSD direct | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave) | Paxity: Afrique de l'Ouest &amp; Centrale (Wave, MTN, Orange, Moov…) | MbiyoPay: Afrique de l'Ouest &amp; Centrale</p>
+              <p className="text-xs text-muted-foreground">MbiyoPay: Afrique de l'Ouest &amp; Centrale | SoleasPay: USSD direct | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave) | Paxity: Afrique de l'Ouest &amp; Centrale</p>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
