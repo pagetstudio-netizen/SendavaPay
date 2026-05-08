@@ -100,5 +100,5 @@ export async function getKycSignedUrl(objectPath: string, expiresInSeconds = 360
 }
 
 export function isSupabaseStorageConfigured(): boolean {
-  return !!(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+  return !!(getCredential("SUPABASE_URL") && getCredential("SUPABASE_SERVICE_ROLE_KEY"));
 }
