@@ -11,8 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import CountrySelect from "@/components/ui/country-select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Info, ArrowLeft, Shield, Clock, CheckCircle, XCircle, Wallet, BadgeCheck } from "lucide-react";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, Info, ArrowLeft, Shield, Clock, CheckCircle, XCircle, Wallet, BadgeCheck, Check } from "lucide-react";
 import { Link } from "wouter";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
 import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
@@ -353,18 +352,16 @@ export default function WithdrawPage() {
                 onClick={() => setCoverFees(prev => !prev)}
                 data-testid="checkbox-cover-fees"
               >
-                <Checkbox
-                  id="cover-fees"
-                  checked={coverFees}
-                  onCheckedChange={(v) => setCoverFees(!!v)}
-                  onClick={(e) => e.stopPropagation()}
-                  className="mt-0.5"
-                />
+                <div className={`mt-0.5 h-4 w-4 shrink-0 rounded-sm border-2 flex items-center justify-center transition-colors ${
+                  coverFees ? "bg-primary border-primary" : "border-primary bg-transparent"
+                }`}>
+                  {coverFees && <Check className="h-3 w-3 text-primary-foreground" strokeWidth={3} />}
+                </div>
                 <div className="flex-1 min-w-0">
-                  <label htmlFor="cover-fees" className="text-sm font-semibold cursor-pointer flex items-center gap-2">
+                  <span className="text-sm font-semibold flex items-center gap-2">
                     <BadgeCheck className="h-4 w-4 text-primary shrink-0" />
                     Je supporte les frais
-                  </label>
+                  </span>
                   <p className="text-xs text-muted-foreground mt-1">
                     {coverFees && numericAmount > 0
                       ? `Le destinataire recevra ${numericAmount.toLocaleString()} XOF. Les frais de ${fee.toLocaleString()} XOF seront prélevés en plus sur votre solde (total : ${totalDeducted.toLocaleString()} XOF).`
