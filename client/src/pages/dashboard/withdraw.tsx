@@ -350,13 +350,14 @@ export default function WithdrawPage() {
                     ? "border-primary bg-primary/5"
                     : "border-border bg-muted/30 hover:border-primary/50"
                 }`}
-                onClick={() => setCoverFees(!coverFees)}
+                onClick={() => setCoverFees(prev => !prev)}
                 data-testid="checkbox-cover-fees"
               >
                 <Checkbox
                   id="cover-fees"
                   checked={coverFees}
                   onCheckedChange={(v) => setCoverFees(!!v)}
+                  onClick={(e) => e.stopPropagation()}
                   className="mt-0.5"
                 />
                 <div className="flex-1 min-w-0">
@@ -502,7 +503,7 @@ export default function WithdrawPage() {
                   <p className="text-muted-foreground text-center py-4">Chargement...</p>
                 ) : (
                   withdrawalRequests.map((request) => {
-                    const status = statusConfig[request.status];
+                    const status = statusConfig[request.status] || { label: request.status, icon: Clock, color: "text-gray-600 bg-gray-100 dark:bg-gray-900/30" };
                     const StatusIcon = status.icon;
                     const countryName = countries.find(c => c.id === request.country)?.name || request.country;
                     
