@@ -828,26 +828,34 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
   const { toast } = useToast();
   const [amount, setAmount] = useState("");
   const [accountIdentifier, setAccountIdentifier] = useState("");
-  const [transferSuccess, setTransferSuccess] = useState<{ message: string; amount: number } | null>(null);
+  const [selectedWalletId, setSelectedWalletId] = useState<string>("");
+  const [transferSuccess, setTransferSuccess] = useState<{ message: string; amount: number; currency: string } | null>(null);
 
-  const balance = parseFloat(partner?.balance || "0");
-  const balanceLabel = `${balance.toLocaleString()} FCFA (solde global)`;
-  const currencyLabel = "FCFA";
+  const { data: walletsData } = useQuery<{ wallets: any[]; exchanges: any[] }>({
+    queryKey: ["/api/partner/wallets"],
+  });
+  const HIDDEN_WALLETS = ["NE", "GW"];
+  const wallets = (walletsData?.wallets ?? []).filter((w: any) => !HIDDEN_WALLETS.includes(w.countryCode));
+
+  const selectedWallet = wallets.find((w: any) => w.id.toString() === selectedWalletId) ?? null;
+  const balance = selectedWallet ? parseFloat(selectedWallet.balance) : 0;
+  const currency = selectedWallet ? selectedWallet.currency : "FCFA";
   const numericAmount = parseFloat(amount) || 0;
   const minTransfer = 500;
 
   const transferMutation = useMutation({
-    mutationFn: async (data: { amount: number; accountIdentifier: string }) => {
+    mutationFn: async (data: { amount: number; accountIdentifier: string; walletId: number }) => {
       const res = await apiRequest("POST", "/api/partner/transfer-to-personal", data);
       return await res.json();
     },
     onSuccess: (data) => {
-      setTransferSuccess({ message: data.message, amount: numericAmount });
+      setTransferSuccess({ message: data.message, amount: numericAmount, currency });
       queryClient.invalidateQueries({ queryKey: ["/api/partner/me"] });
       queryClient.invalidateQueries({ queryKey: ["/api/partner/stats"] });
       queryClient.invalidateQueries({ queryKey: ["/api/partner/wallets"] });
       setAmount("");
       setAccountIdentifier("");
+      setSelectedWalletId("");
     },
     onError: (error: Error) => {
       toast({ title: "Transfert échoué", description: error.message, variant: "destructive" });
@@ -856,19 +864,23 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!selectedWallet) {
+      toast({ title: "Portefeuille requis", description: "Choisissez un portefeuille source.", variant: "destructive" });
+      return;
+    }
     if (numericAmount < minTransfer) {
-      toast({ title: "Montant insuffisant", description: `Minimum: ${minTransfer.toLocaleString()} ${currencyLabel}`, variant: "destructive" });
+      toast({ title: "Montant insuffisant", description: `Minimum: ${minTransfer.toLocaleString()} ${currency}`, variant: "destructive" });
       return;
     }
     if (numericAmount > balance) {
-      toast({ title: "Solde insuffisant", description: "Vous n'avez pas assez de fonds.", variant: "destructive" });
+      toast({ title: "Solde insuffisant", description: "Vous n'avez pas assez de fonds dans ce portefeuille.", variant: "destructive" });
       return;
     }
     if (!accountIdentifier.trim()) {
       toast({ title: "Identifiant requis", description: "Entrez l'email ou le téléphone de votre compte personnel.", variant: "destructive" });
       return;
     }
-    transferMutation.mutate({ amount: numericAmount, accountIdentifier });
+    transferMutation.mutate({ amount: numericAmount, accountIdentifier, walletId: selectedWallet.id });
   };
 
   if (transferSuccess) {
@@ -889,7 +901,7 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
             </div>
             <div className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">
               <p className="font-medium">Prochaine étape :</p>
-              <p>Connectez-vous sur votre compte personnel SendavaPay et effectuez un retrait Mobile Money.</p>
+              <p>Connectez-vous sur votre compte personnel SendavaPay et effectuez un retrait Mobile Money depuis le portefeuille crédité.</p>
             </div>
             <Button onClick={() => setTransferSuccess(null)} data-testid="button-partner-transfer-new">
               Nouveau transfert
@@ -907,10 +919,34 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
         <p className="text-muted-foreground">Transférez votre solde vers votre compte personnel</p>
       </div>
 
+      {/* Wallet selector — required */}
+      <Card>
+        <CardContent className="p-4 space-y-2">
+          <Label>Portefeuille à débiter <span className="text-red-500">*</span></Label>
+          <Select value={selectedWalletId} onValueChange={(v) => { setSelectedWalletId(v); setAmount(""); }}>
+            <SelectTrigger data-testid="select-partner-withdraw-wallet">
+              <SelectValue placeholder="Choisissez un portefeuille" />
+            </SelectTrigger>
+            <SelectContent>
+              {wallets.map((w: any) => (
+                <SelectItem key={w.id} value={w.id.toString()}>
+                  {FLAG_MAP[w.countryCode] || "🌍"} {w.countryName} — {formatWalletAmount(w.balance, w.currency)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
+
+      {/* Balance card — dynamic per selected wallet */}
       <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground">
         <CardContent className="p-6">
-          <p className="text-sm opacity-80">Solde disponible</p>
-          <p className="text-3xl font-bold mt-1" data-testid="text-partner-balance">{balanceLabel}</p>
+          <p className="text-sm opacity-80">
+            {selectedWallet ? `Solde — ${selectedWallet.countryName}` : "Sélectionnez un portefeuille"}
+          </p>
+          <p className="text-3xl font-bold mt-1" data-testid="text-partner-balance">
+            {selectedWallet ? formatWalletAmount(selectedWallet.balance, selectedWallet.currency) : "—"}
+          </p>
         </CardContent>
       </Card>
 
@@ -918,77 +954,81 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
         <CardContent className="p-4 flex items-start gap-3">
           <Info className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
           <p className="text-sm text-amber-700 dark:text-amber-300">
-            Pour retirer de l'argent, transférez d'abord votre solde partenaire vers votre compte personnel SendavaPay, puis effectuez un retrait Mobile Money depuis votre compte personnel.
+            {selectedWallet
+              ? `Les fonds seront crédités en ${selectedWallet.currency} sur votre compte personnel SendavaPay (portefeuille ${selectedWallet.countryName}). Effectuez ensuite un retrait Mobile Money depuis votre compte personnel.`
+              : "Choisissez un portefeuille pour voir le solde disponible et initier le transfert."}
           </p>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Transférer vers compte personnel</CardTitle>
-          <CardDescription>Minimum: {minTransfer.toLocaleString()} {currencyLabel}. Le transfert est instantané.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between flex-wrap gap-1">
-                <Label>Montant à transférer ({currencyLabel})</Label>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setAmount(Math.floor(balance).toString())} data-testid="button-partner-transfer-max">
-                  Tout: {balance.toLocaleString()} {currencyLabel}
-                </Button>
+      {selectedWallet && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Transférer vers compte personnel</CardTitle>
+            <CardDescription>Minimum : {minTransfer.toLocaleString()} {currency}. Le transfert est instantané.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between flex-wrap gap-1">
+                  <Label>Montant à transférer ({currency})</Label>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setAmount(Math.floor(balance).toString())} data-testid="button-partner-transfer-max">
+                    Tout : {formatWalletAmount(balance, currency)}
+                  </Button>
+                </div>
+                <Input
+                  type="number"
+                  placeholder="Entrez le montant"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  className="text-2xl h-14 font-semibold"
+                  min={minTransfer}
+                  max={balance}
+                  data-testid="input-partner-transfer-amount"
+                />
               </div>
-              <Input
-                type="number"
-                placeholder="Entrez le montant"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="text-2xl h-14 font-semibold"
-                min={minTransfer}
-                max={balance}
-                data-testid="input-partner-transfer-amount"
-              />
-            </div>
 
-            {numericAmount > 0 && (
-              <Card className="bg-muted/50 border-none">
-                <CardContent className="p-4">
-                  <div className="flex justify-between font-semibold">
-                    <span>Montant transféré</span>
-                    <span className="text-green-600">{numericAmount.toLocaleString()} {currencyLabel}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">Aucun frais — transfert interne SendavaPay</p>
-                </CardContent>
-              </Card>
-            )}
+              {numericAmount > 0 && (
+                <Card className="bg-muted/50 border-none">
+                  <CardContent className="p-4">
+                    <div className="flex justify-between font-semibold">
+                      <span>Montant transféré</span>
+                      <span className="text-green-600">{formatWalletAmount(numericAmount, currency)}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">Aucun frais — transfert interne SendavaPay</p>
+                  </CardContent>
+                </Card>
+              )}
 
-            <div className="space-y-2">
-              <Label>Compte personnel de destination</Label>
-              <Input
-                type="text"
-                placeholder="Email ou téléphone de votre compte personnel"
-                value={accountIdentifier}
-                onChange={(e) => setAccountIdentifier(e.target.value)}
-                data-testid="input-partner-transfer-account"
-              />
-              <p className="text-xs text-muted-foreground">
-                Entrez l'email ou le numéro de téléphone associé à votre compte personnel SendavaPay.
-              </p>
-            </div>
+              <div className="space-y-2">
+                <Label>Compte personnel de destination</Label>
+                <Input
+                  type="text"
+                  placeholder="Email ou téléphone de votre compte personnel"
+                  value={accountIdentifier}
+                  onChange={(e) => setAccountIdentifier(e.target.value)}
+                  data-testid="input-partner-transfer-account"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Entrez l'email ou le numéro de téléphone associé à votre compte personnel SendavaPay.
+                </p>
+              </div>
 
-            <Button
-              type="submit"
-              className="w-full"
-              size="lg"
-              disabled={transferMutation.isPending || numericAmount < minTransfer || numericAmount > balance || !accountIdentifier.trim()}
-              data-testid="button-partner-transfer-submit"
-            >
-              {transferMutation.isPending
-                ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Transfert en cours...</>)
-                : `Transférer ${numericAmount > 0 ? numericAmount.toLocaleString() + " FCFA" : ""} vers mon compte personnel`}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+              <Button
+                type="submit"
+                className="w-full"
+                size="lg"
+                disabled={transferMutation.isPending || numericAmount < minTransfer || numericAmount > balance || !accountIdentifier.trim()}
+                data-testid="button-partner-transfer-submit"
+              >
+                {transferMutation.isPending
+                  ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" />Transfert en cours...</>)
+                  : `Transférer ${numericAmount > 0 ? formatWalletAmount(numericAmount, currency) : ""} vers mon compte personnel`}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

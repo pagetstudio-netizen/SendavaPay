@@ -2460,23 +2460,18 @@ export function registerPartnerRoutes(app: Express) {
         return res.status(400).json({ message: "Montant minimum: 500 FCFA" });
       }
 
-      // Determine source: specific wallet or global partner balance
-      let sourceWallet: { id: number; balance: string } | null = null;
-      if (walletId) {
-        const pw = await storage.getPartnerWalletById(parseInt(walletId));
-        if (!pw || pw.partnerId !== req.session.partnerId!) {
-          return res.status(404).json({ message: "Portefeuille introuvable" });
-        }
-        if (parseFloat(pw.balance) < numericAmount) {
-          return res.status(400).json({ message: "Solde insuffisant dans ce portefeuille" });
-        }
-        sourceWallet = pw;
-      } else {
-        const balance = parseFloat(partner.balance);
-        if (numericAmount > balance) {
-          return res.status(400).json({ message: "Solde partenaire insuffisant" });
-        }
+      // Wallet requis
+      if (!walletId) {
+        return res.status(400).json({ message: "Veuillez sélectionner un portefeuille source." });
       }
+      const sourceWallet = await storage.getPartnerWalletById(parseInt(walletId));
+      if (!sourceWallet || sourceWallet.partnerId !== req.session.partnerId!) {
+        return res.status(404).json({ message: "Portefeuille introuvable" });
+      }
+      if (parseFloat(sourceWallet.balance) < numericAmount) {
+        return res.status(400).json({ message: "Solde insuffisant dans ce portefeuille" });
+      }
+
       if (!accountIdentifier || !accountIdentifier.trim()) {
         return res.status(400).json({ message: "Identifiant du compte personnel requis (email ou téléphone)" });
       }
@@ -2489,14 +2484,14 @@ export function registerPartnerRoutes(app: Express) {
         });
       }
 
-      // Debit from wallet or global balance
-      if (sourceWallet) {
-        const debited = await storage.debitPartnerWallet(sourceWallet.id, numericAmount.toString());
-        if (!debited) return res.status(400).json({ message: "Solde insuffisant dans ce portefeuille" });
-      } else {
-        await storage.updatePartnerBalance(req.session.partnerId!, (-numericAmount).toString());
-      }
-      await storage.updateUserBalance(user.id, numericAmount.toString());
+      // Débiter le portefeuille partenaire
+      const debited = await storage.debitPartnerWallet(sourceWallet.id, numericAmount.toString());
+      if (!debited) return res.status(400).json({ message: "Solde insuffisant dans ce portefeuille" });
+
+      // Créditer le portefeuille personnel correspondant (même pays/devise)
+      await storage.creditWallet(user.id, sourceWallet.countryCode, sourceWallet.countryName, sourceWallet.currency, numericAmount.toString());
+
+      const currencyLabel = sourceWallet.currency;
 
       await storage.createTransaction({
         userId: user.id,
@@ -2505,21 +2500,22 @@ export function registerPartnerRoutes(app: Express) {
         fee: "0",
         netAmount: numericAmount.toString(),
         status: "completed",
-        description: `Transfert depuis compte partenaire ${partner.name}`,
+        description: `Transfert depuis compte partenaire ${partner.name} (${sourceWallet.countryName})`,
       });
 
       await storage.createPartnerLog({
         partnerId: req.session.partnerId!,
         action: "system",
-        details: `Transfert de ${numericAmount.toLocaleString("fr-FR")} FCFA vers compte personnel (${user.email || user.phone})`,
+        details: `Transfert de ${numericAmount.toLocaleString("fr-FR")} ${currencyLabel} (${sourceWallet.countryName}) vers compte personnel (${user.email || user.phone})`,
         ipAddress: req.ip || req.socket.remoteAddress,
       });
 
-      console.log(`✅ Partner transfer-to-personal: partnerId=${req.session.partnerId} → userId=${user.id} amount=${numericAmount}`);
+      console.log(`✅ Partner transfer-to-personal: partnerId=${req.session.partnerId} → userId=${user.id} amount=${numericAmount} ${currencyLabel} wallet=${sourceWallet.countryCode}`);
 
       res.json({
-        message: `${numericAmount.toLocaleString("fr-FR")} FCFA ont été transférés vers votre compte personnel. Vous pouvez maintenant effectuer un retrait depuis votre compte personnel.`,
+        message: `${numericAmount.toLocaleString("fr-FR")} ${currencyLabel} ont été transférés vers votre portefeuille ${sourceWallet.countryName} sur votre compte personnel. Vous pouvez maintenant effectuer un retrait Mobile Money.`,
         transferredAmount: numericAmount,
+        currency: currencyLabel,
         userEmail: user.email,
       });
     } catch (error) {
