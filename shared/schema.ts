@@ -720,6 +720,32 @@ export const partnerTransactions = pgTable("partner_transactions", {
   completedAt: timestamp("completed_at"),
 });
 
+export const partnerWallets = pgTable("partner_wallets", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  partnerId: integer("partner_id").notNull().references(() => partners.id),
+  countryCode: text("country_code").notNull(),
+  countryName: text("country_name").notNull(),
+  currency: text("currency").notNull(),
+  balance: decimal("balance", { precision: 15, scale: 2 }).default("0").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const partnerWalletExchanges = pgTable("partner_wallet_exchanges", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  partnerId: integer("partner_id").notNull().references(() => partners.id),
+  fromWalletId: integer("from_wallet_id").notNull().references(() => partnerWallets.id),
+  toWalletId: integer("to_wallet_id").notNull().references(() => partnerWallets.id),
+  fromCountryCode: text("from_country_code").notNull(),
+  toCountryCode: text("to_country_code").notNull(),
+  currency: text("currency").notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type PartnerWallet = typeof partnerWallets.$inferSelect;
+export type PartnerWalletExchange = typeof partnerWalletExchanges.$inferSelect;
+
 export const partnersRelations = relations(partners, ({ many }) => ({
   logs: many(partnerLogs),
   transactions: many(partnerTransactions),

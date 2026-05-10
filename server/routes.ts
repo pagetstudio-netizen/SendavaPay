@@ -2268,6 +2268,19 @@ export async function registerRoutes(
           if (rowsAffected > 0) {
             const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
             await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partnerTx.partnerId}`);
+            // Credit partner wallet by country
+            try {
+              let metadata: any = {};
+              try { metadata = JSON.parse(partnerTx.metadata as string || "{}"); } catch {}
+              const countryCode = metadata.country;
+              if (countryCode) {
+                const allCountries = await storage.getCountries();
+                const countryRec = allCountries.find((c: any) => c.code.toUpperCase() === countryCode.toUpperCase());
+                if (countryRec) {
+                  await storage.creditPartnerWallet(partnerTx.partnerId as number, countryRec.code, countryRec.name, partnerTx.currency || countryRec.currency, netAmount.toString());
+                }
+              }
+            } catch (wErr) { console.error("MbiyoPay webhook: partner wallet credit error:", wErr); }
             console.log(`✅ MbiyoPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${lookupId} net=${netAmount}`);
             if (partnerTx.callbackUrl) {
               try {
@@ -2399,6 +2412,18 @@ export async function registerRoutes(
           if (rowsAffected > 0) {
             const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
             await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partnerTx.partnerId}`);
+            try {
+              let metadata: any = {};
+              try { metadata = JSON.parse(partnerTx.metadata as string || "{}"); } catch {}
+              const countryCode = metadata.country;
+              if (countryCode) {
+                const allCountries = await storage.getCountries();
+                const countryRec = allCountries.find((c: any) => c.code.toUpperCase() === countryCode.toUpperCase());
+                if (countryRec) {
+                  await storage.creditPartnerWallet(partnerTx.partnerId as number, countryRec.code, countryRec.name, partnerTx.currency || countryRec.currency, netAmount.toString());
+                }
+              }
+            } catch (wErr) { console.error("MaishaPay webhook: partner wallet credit error:", wErr); }
             console.log(`✅ MaishaPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${originatingTransactionId} net=${netAmount}`);
             if (partnerTx.callbackUrl) {
               try {
@@ -2653,6 +2678,18 @@ export async function registerRoutes(
         if (rowsAffected > 0) {
           const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
           await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partnerTx.partnerId}`);
+          try {
+            let metadata: any = {};
+            try { metadata = JSON.parse(partnerTx.metadata as string || "{}"); } catch {}
+            const countryCode = metadata.country;
+            if (countryCode) {
+              const allCountries = await storage.getCountries();
+              const countryRec = allCountries.find((c: any) => c.code.toUpperCase() === countryCode.toUpperCase());
+              if (countryRec) {
+                await storage.creditPartnerWallet(partnerTx.partnerId as number, countryRec.code, countryRec.name, partnerTx.currency || countryRec.currency, netAmount.toString());
+              }
+            }
+          } catch (wErr) { console.error("OmniPay webhook: partner wallet credit error:", wErr); }
           console.log(`✅ OmniPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${reference} status=${status} net=${netAmount}`);
           if (partnerTx.callbackUrl) {
             try {
@@ -2886,6 +2923,18 @@ export async function registerRoutes(
           if (rowsAffected > 0) {
             const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
             await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partnerTx.partnerId}`);
+            try {
+              let metadata: any = {};
+              try { metadata = JSON.parse(partnerTx.metadata as string || "{}"); } catch {}
+              const countryCode = metadata.country;
+              if (countryCode) {
+                const allCountries = await storage.getCountries();
+                const countryRec = allCountries.find((c: any) => c.code.toUpperCase() === countryCode.toUpperCase());
+                if (countryRec) {
+                  await storage.creditPartnerWallet(partnerTx.partnerId as number, countryRec.code, countryRec.name, partnerTx.currency || countryRec.currency, netAmount.toString());
+                }
+              }
+            } catch (wErr) { console.error("Paxity webhook: partner wallet credit error:", wErr); }
             console.log(`✅ Paxity webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${ref} net=${netAmount}`);
             if (partnerTx.callbackUrl) {
               try {
