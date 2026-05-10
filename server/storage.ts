@@ -1238,8 +1238,6 @@ export class DatabaseStorage implements IStorage {
       { countryCode: "BF",  countryName: "Burkina Faso",        currency: "XOF" },
       { countryCode: "BJ",  countryName: "Bénin",               currency: "XOF" },
       { countryCode: "TG",  countryName: "Togo",                currency: "XOF" },
-      { countryCode: "NE",  countryName: "Niger",               currency: "XOF" },
-      { countryCode: "GW",  countryName: "Guinée-Bissau",       currency: "XOF" },
       // Zone CEMAC (XAF)
       { countryCode: "CM",  countryName: "Cameroun",            currency: "XAF" },
       { countryCode: "COG", countryName: "Congo Brazzaville",   currency: "XAF" },
