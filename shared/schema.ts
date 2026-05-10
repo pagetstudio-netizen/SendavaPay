@@ -203,6 +203,7 @@ export const withdrawalRequests = pgTable("withdrawal_requests", {
   mobileNumber: text("mobile_number").notNull(),
   country: text("country").notNull(),
   walletName: text("wallet_name"),
+  walletId: integer("wallet_id").references(() => wallets.id),
   status: withdrawalRequestStatusEnum("status").default("pending").notNull(),
   externalReference: text("external_reference"),
   transactionReference: text("transaction_reference"),
