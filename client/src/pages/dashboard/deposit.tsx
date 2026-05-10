@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,12 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
-import { Info, ArrowLeft, Loader2, CheckCircle, XCircle, Clock, AlertCircle } from "lucide-react";
+import { Info, ArrowLeft, Loader2, CheckCircle, XCircle, Clock, AlertCircle, Wallet, Check } from "lucide-react";
 import { Link } from "wouter";
 import { queryClient } from "@/lib/queryClient";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import CountrySelect from "@/components/ui/country-select";
+import type { Wallet as WalletType } from "@shared/schema";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
 import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
 import orangeLogo from "@assets/images_1769443862827.png";
@@ -25,6 +26,14 @@ const COUNTRY_PREFIXES: Record<string, string> = {
   CI: "+225", BJ: "+229", TG: "+228", BF: "+226",
   SN: "+221", CM: "+237", ML: "+223", GN: "+224",
   COG: "+242", COD: "+243",
+};
+
+// Map currency → country codes that credit that currency
+const CURRENCY_COUNTRY_CODES: Record<string, string[]> = {
+  XOF: ["SN", "ML", "CI", "BF", "BJ", "TG", "NE", "GW"],
+  XAF: ["CM", "CG", "GA", "CF", "TD", "GQ"],
+  CDF: ["COD"],
+  GNF: ["GN"],
 };
 
 const TIMEOUT_SECONDS = 120;
@@ -82,6 +91,7 @@ function isMbiyoOrangeOperator(operator: string): boolean {
 export default function DepositPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [selectedWalletId, setSelectedWalletId] = useState<number | null>(null);
   const [amount, setAmount] = useState("");
   const [selectedCountry, setSelectedCountry] = useState("");
   const [selectedServiceId, setSelectedServiceId] = useState("");
@@ -101,9 +111,31 @@ export default function DepositPage() {
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const timeLeftRef = useRef(TIMEOUT_SECONDS);
 
-  const { data: countries = [] } = useQuery<SoleasPayCountry[]>({
+  const { data: walletsData } = useQuery<{ wallets: WalletType[] }>({
+    queryKey: ["/api/wallets"],
+  });
+  const wallets = walletsData?.wallets ?? [];
+
+  // Auto-select first wallet
+  useEffect(() => {
+    if (wallets.length > 0 && !selectedWalletId) {
+      setSelectedWalletId(wallets[0].id);
+    }
+  }, [wallets, selectedWalletId]);
+
+  const selectedWallet = wallets.find(w => w.id === selectedWalletId) ?? null;
+
+  const { data: allCountries = [] } = useQuery<SoleasPayCountry[]>({
     queryKey: ["/api/soleaspay/countries"],
   });
+
+  // Filter countries by selected wallet's currency zone
+  const countries = useMemo(() => {
+    if (!selectedWallet) return allCountries;
+    const allowed = CURRENCY_COUNTRY_CODES[selectedWallet.currency] ?? [];
+    if (allowed.length === 0) return allCountries;
+    return allCountries.filter(c => allowed.includes(c.code.toUpperCase()));
+  }, [allCountries, selectedWallet]);
 
   const { data: services = [] } = useQuery<SoleasPayService[]>({
     queryKey: ["/api/soleaspay/services", selectedCountry],
@@ -120,6 +152,13 @@ export default function DepositPage() {
       setSelectedCountry(countries[0].code);
     }
   }, [countries, selectedCountry]);
+
+  // Reset country when wallet changes (currency zone changes)
+  useEffect(() => {
+    setSelectedCountry("");
+    setSelectedServiceId("");
+    setPhoneNumber("");
+  }, [selectedWalletId]);
 
   useEffect(() => {
     if (services.length > 0 && (!selectedServiceId || !services.find(s => s.id.toString() === selectedServiceId))) {
@@ -194,6 +233,7 @@ export default function DepositPage() {
         localStorage.removeItem("soleaspay_payment");
         queryClient.invalidateQueries({ queryKey: ["/api/user"] });
         queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/wallets"] });
       } else if (data.status === "FAILURE") {
         stopAll();
         setPaymentStatus("failed");
@@ -333,10 +373,60 @@ export default function DepositPage() {
           </div>
         </div>
 
+        {/* Wallet Selector */}
+        {wallets.length > 0 && (
+          <div className="space-y-3">
+            <Label className="flex items-center gap-2 text-base font-semibold">
+              <Wallet className="h-4 w-4" />
+              Sélectionnez le portefeuille à recharger
+            </Label>
+            <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(wallets.length, 2)}, 1fr)` }}>
+              {wallets.map((w) => {
+                const isSelected = selectedWalletId === w.id;
+                return (
+                  <button
+                    key={w.id}
+                    type="button"
+                    onClick={() => setSelectedWalletId(w.id)}
+                    data-testid={`button-deposit-wallet-${w.id}`}
+                    className={`text-left rounded-xl border-2 p-4 transition-all ${
+                      isSelected
+                        ? "border-primary bg-primary/5"
+                        : "border-border bg-muted/30 hover:border-primary/40"
+                    }`}
+                  >
+                    <p className="text-xs font-medium text-muted-foreground">{w.countryName}</p>
+                    <p className="text-lg font-bold mt-0.5">
+                      {new Intl.NumberFormat("fr-FR").format(parseFloat(w.balance))} {w.currency}
+                    </p>
+                    {isSelected && (
+                      <span className="inline-flex items-center gap-1 text-xs text-primary font-semibold mt-1">
+                        <Check className="h-3 w-3" /> Sélectionné
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {selectedWallet && (
+              <p className="text-xs text-muted-foreground">
+                Seuls les opérateurs compatibles avec <strong>{selectedWallet.currency}</strong> sont affichés.
+              </p>
+            )}
+          </div>
+        )}
+
         <Card>
           <CardHeader>
             <CardTitle>Dépôt Mobile Money</CardTitle>
-            <CardDescription>Configurez votre dépôt par pays et opérateur</CardDescription>
+            <CardDescription>
+              Configurez votre dépôt par pays et opérateur
+              {selectedWallet && (
+                <span className="block mt-1 text-primary">
+                  Le paiement sera crédité sur votre portefeuille {selectedWallet.countryName} ({selectedWallet.currency})
+                </span>
+              )}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">

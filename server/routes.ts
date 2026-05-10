@@ -3379,9 +3379,20 @@ export async function registerRoutes(
       }
       // ─────────────────────────────────────────────────────────────────────
 
-      const { amount, paymentMethod, mobileNumber, country, walletName, coverFees } = req.body;
+      const { amount, paymentMethod, mobileNumber, country, walletName, coverFees, walletId: walletIdRaw } = req.body;
+      const walletId: number | null = walletIdRaw ? parseInt(String(walletIdRaw)) : null;
+
+      // Fetch wallet if provided and verify ownership
+      let walletRecord: Awaited<ReturnType<typeof storage.getWalletById>> | null = null;
+      if (walletId) {
+        walletRecord = await storage.getWalletById(walletId) ?? null;
+        if (!walletRecord || walletRecord.userId !== req.session.userId!) {
+          return res.status(400).json({ message: "Portefeuille invalide" });
+        }
+      }
+
       const numericAmount = parseFloat(amount);
-      const balance = parseFloat(user.balance);
+      const balance = walletRecord ? parseFloat(walletRecord.balance) : parseFloat(user.balance);
       const isCoverFees = coverFees === true || coverFees === "true";
 
       if (isNaN(numericAmount) || numericAmount < 200) {
@@ -3389,7 +3400,7 @@ export async function registerRoutes(
       }
 
       if (numericAmount > balance) {
-        return res.status(400).json({ message: "Solde insuffisant" });
+        return res.status(400).json({ message: "Solde insuffisant dans ce portefeuille" });
       }
 
       // Validate country and payment method using database operators
@@ -3433,19 +3444,35 @@ export async function registerRoutes(
         return res.status(400).json({ message: `Solde insuffisant pour couvrir les frais. Il vous faut ${totalDeducted.toLocaleString("fr-FR")} XOF (montant + frais de ${fee.toLocaleString("fr-FR")} XOF).` });
       }
 
+      // Helpers wallet-aware pour débit et restauration
+      const doDebit = async () => {
+        if (walletId) {
+          const ok = await storage.debitWallet(walletId, totalDeducted.toString());
+          if (!ok) throw new Error("Solde insuffisant dans ce portefeuille");
+        } else {
+          await storage.setUserBalance(req.session.userId!, (balance - totalDeducted).toString());
+        }
+      };
+      const restore = async () => {
+        if (walletId) {
+          await storage.creditWalletById(walletId, totalDeducted.toString());
+        } else {
+          await storage.setUserBalance(req.session.userId!, balance.toString());
+        }
+      };
+
       // Débiter le solde immédiatement (en attente de validation admin)
-      const newBalance = balance - totalDeducted;
-      await storage.setUserBalance(req.session.userId!, newBalance.toString());
+      await doDebit();
       
       console.log("💸 Withdrawal request - Country:", selectedCountry.code, "Operator:", paymentMethod, "coverFees:", isCoverFees);
-      console.log("💸 Balance debited immediately:", totalDeducted, "New balance:", newBalance);
+      console.log("💸 Balance debited immediately:", totalDeducted, "walletId:", walletId);
 
       if (selectedOperator.paymentGateway === "maishapay") {
         const { maishapay: mpClient, getMaishapayProvider, formatPhoneForMaishapay } = await import("./maishapay");
         const mpProvider = getMaishapayProvider(selectedOperator.name, selectedCountry.code);
 
         if (!mpProvider) {
-          await storage.setUserBalance(req.session.userId!, balance.toString());
+          await restore();
           return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique MaishaPay" });
         }
 
@@ -3535,7 +3562,7 @@ export async function registerRoutes(
           } else {
             const mpError = b2cResult.message || b2cResult.error || "Erreur MaishaPay inconnue";
             console.error("❌ MaishaPay B2C failed:", b2cResult);
-            await storage.setUserBalance(req.session.userId!, balance.toString());
+            await restore();
             await storage.updateWithdrawalRequest(withdrawalRequest.id, {
               status: "failed",
               rejectionReason: mpError,
@@ -3561,7 +3588,7 @@ export async function registerRoutes(
           }
         } catch (mpError) {
           console.error("❌ MaishaPay B2C exception:", mpError);
-          await storage.setUserBalance(req.session.userId!, balance.toString());
+          await restore();
           await storage.updateWithdrawalRequest(withdrawalRequest.id, {
             status: "failed",
             rejectionReason: "Erreur technique lors du transfert automatique MaishaPay",
@@ -3578,7 +3605,7 @@ export async function registerRoutes(
         const opOperator = getOmnipayOperator(selectedOperator.name);
 
         if (opOperator === undefined) {
-          await storage.setUserBalance(req.session.userId!, balance.toString());
+          await restore();
           return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique OmniPay" });
         }
 
@@ -3716,7 +3743,7 @@ export async function registerRoutes(
               });
             }
 
-            await storage.setUserBalance(req.session.userId!, balance.toString());
+            await restore();
             await storage.updateWithdrawalRequest(withdrawalRequest.id, {
               status: "failed",
               rejectionReason: opError,
@@ -3742,7 +3769,7 @@ export async function registerRoutes(
           }
         } catch (opErr) {
           console.error("❌ OmniPay transfer exception:", opErr);
-          await storage.setUserBalance(req.session.userId!, balance.toString());
+          await restore();
           await storage.updateWithdrawalRequest(withdrawalRequest.id, {
             status: "failed",
             rejectionReason: "Erreur technique lors du transfert automatique OmniPay",
@@ -3765,7 +3792,7 @@ export async function registerRoutes(
 
         const paxityMethod = getPaxityMethodCode(selectedOperator.name, selectedCountry.code);
         if (!paxityMethod) {
-          await storage.setUserBalance(req.session.userId!, balance.toString());
+          await restore();
           return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique Paxity" });
         }
 
@@ -3833,7 +3860,7 @@ export async function registerRoutes(
           } else {
             const pxError = pxResult.message || pxResult.description || pxResult.codeIntern || "Erreur Paxity inconnue";
             console.error("❌ Paxity payout failed:", pxResult);
-            await storage.setUserBalance(req.session.userId!, balance.toString());
+            await restore();
             await storage.updateWithdrawalRequest(withdrawalRequest.id, {
               status: "failed",
               rejectionReason: pxError,
@@ -3859,7 +3886,7 @@ export async function registerRoutes(
           }
         } catch (pxErr) {
           console.error("❌ Paxity payout exception:", pxErr);
-          await storage.setUserBalance(req.session.userId!, balance.toString());
+          await restore();
           await storage.updateWithdrawalRequest(withdrawalRequest.id, {
             status: "failed",
             rejectionReason: "Erreur technique lors du payout Paxity",
@@ -3876,7 +3903,7 @@ export async function registerRoutes(
 
         const network = getMbiyoNetwork(selectedOperator.name);
         if (!network) {
-          await storage.setUserBalance(req.session.userId!, balance.toString());
+          await restore();
           return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique MbiyoPay" });
         }
 
@@ -3940,7 +3967,7 @@ export async function registerRoutes(
           } else {
             const mbError = mbResult.message || "Erreur MbiyoPay inconnue";
             console.error("❌ MbiyoPay payout failed:", mbResult);
-            await storage.setUserBalance(req.session.userId!, balance.toString());
+            await restore();
             await storage.updateWithdrawalRequest(withdrawalRequest.id, {
               status: "failed",
               rejectionReason: mbError,
@@ -3965,7 +3992,7 @@ export async function registerRoutes(
           }
         } catch (mbErr) {
           console.error("❌ MbiyoPay payout exception:", mbErr);
-          await storage.setUserBalance(req.session.userId!, balance.toString());
+          await restore();
           await storage.updateWithdrawalRequest(withdrawalRequest.id, {
             status: "failed",
             rejectionReason: "Erreur technique lors du payout MbiyoPay",
