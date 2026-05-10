@@ -33,6 +33,7 @@ import {
   type Partner,
   type PartnerLog,
   type PartnerTransaction,
+  type PasswordResetToken,
   users,
   transactions,
   transfers,
@@ -61,6 +62,7 @@ import {
   partners,
   partnerLogs,
   partnerTransactions,
+  passwordResetTokens,
   type StatsOffset,
 } from "@shared/schema";
 import { db as dbInstance } from "./db";
@@ -165,6 +167,11 @@ export interface IStorage {
   
   getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string): Promise<void>;
+
+  createPasswordResetToken(userId: number, token: string, code: string, expiresAt: Date): Promise<PasswordResetToken>;
+  getPasswordResetTokenByToken(token: string): Promise<PasswordResetToken | undefined>;
+  getPasswordResetTokenByCode(userId: number, code: string): Promise<PasswordResetToken | undefined>;
+  markPasswordResetTokenUsed(id: number): Promise<void>;
   
   createWithdrawalRequest(request: InsertWithdrawalRequest): Promise<WithdrawalRequest>;
   getWithdrawalRequests(userId: number): Promise<WithdrawalRequest[]>;
@@ -1198,6 +1205,26 @@ export class DatabaseStorage implements IStorage {
   async updatePartnerTransaction(id: number, updates: Partial<PartnerTransaction>): Promise<PartnerTransaction | undefined> {
     const [updated] = await getDb().update(partnerTransactions).set(updates).where(eq(partnerTransactions.id, id)).returning();
     return updated;
+  }
+
+  async createPasswordResetToken(userId: number, token: string, code: string, expiresAt: Date): Promise<PasswordResetToken> {
+    const [created] = await getDb().insert(passwordResetTokens).values({ userId, token, code, expiresAt }).returning();
+    return created;
+  }
+
+  async getPasswordResetTokenByToken(token: string): Promise<PasswordResetToken | undefined> {
+    const [found] = await getDb().select().from(passwordResetTokens).where(eq(passwordResetTokens.token, token));
+    return found;
+  }
+
+  async getPasswordResetTokenByCode(userId: number, code: string): Promise<PasswordResetToken | undefined> {
+    const [found] = await getDb().select().from(passwordResetTokens)
+      .where(and(eq(passwordResetTokens.userId, userId), eq(passwordResetTokens.code, code)));
+    return found;
+  }
+
+  async markPasswordResetTokenUsed(id: number): Promise<void> {
+    await getDb().update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, id));
   }
 }
 

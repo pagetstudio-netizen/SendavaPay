@@ -35,6 +35,7 @@ import StatistiquesPage from "@/pages/statistiques";
 import LiensPaiementPage from "@/pages/liens-paiement";
 import AssistancePage from "@/pages/assistance";
 import ApiPaiementPage from "@/pages/api-paiement";
+import ForgotPasswordPage from "@/pages/forgot-password";
 
 function Router() {
   return (
@@ -56,6 +57,7 @@ function Router() {
       <Route path="/liens-de-paiement" component={LiensPaiementPage} />
       <Route path="/assistance" component={AssistancePage} />
       <Route path="/api-de-paiement" component={ApiPaiementPage} />
+      <Route path="/forgot-password" component={ForgotPasswordPage} />
       
       <ProtectedRoute path="/dashboard" component={DashboardPage} />
       <ProtectedRoute path="/dashboard/deposit" component={DepositPage} />
