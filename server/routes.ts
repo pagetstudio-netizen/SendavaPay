@@ -1251,12 +1251,15 @@ export async function registerRoutes(
 
           await storage.updateUserBalance(existingPayment.userId, netAmount.toString());
 
-          // Créditer le portefeuille pays
-          if (existingPayment.payerCountry) {
-            const allCountries = await storage.getCountries();
-            const countryRec = allCountries.find((c: any) => c.code.toUpperCase() === existingPayment.payerCountry!.toUpperCase());
-            if (countryRec) {
-              storage.creditWallet(existingPayment.userId, countryRec.code, countryRec.name, existingPayment.currency, netAmount.toString()).catch((e: any) => console.error("Wallet credit error:", e));
+          // Créditer le portefeuille pays (avec fallback sur paymentMethod si payerCountry absent)
+          {
+            const _cc = existingPayment.payerCountry || (existingPayment.paymentMethod ? existingPayment.paymentMethod.trim().split(/\s+/).pop()?.toUpperCase() : null);
+            if (_cc) {
+              const allCountries = await storage.getCountries();
+              const countryRec = allCountries.find((c: any) => c.code.toUpperCase() === _cc.toUpperCase());
+              if (countryRec) {
+                storage.creditWallet(existingPayment.userId, countryRec.code, countryRec.name, existingPayment.currency || countryRec.currency, netAmount.toString()).catch((e: any) => console.error("Wallet credit error:", e));
+              }
             }
           }
 
@@ -1933,12 +1936,15 @@ export async function registerRoutes(
 
           await storage.updateUserBalance(claimed.userId, netAmount.toString());
 
-          // Créditer le portefeuille pays
-          if (claimed.payerCountry) {
-            const allCountries = await storage.getCountries();
-            const countryRec = allCountries.find((c: any) => c.code.toUpperCase() === claimed.payerCountry!.toUpperCase());
-            if (countryRec) {
-              storage.creditWallet(claimed.userId, countryRec.code, countryRec.name, claimed.currency, netAmount.toString()).catch((e: any) => console.error("Wallet credit error:", e));
+          // Créditer le portefeuille pays (avec fallback sur paymentMethod si payerCountry absent)
+          {
+            const _cc = claimed.payerCountry || (claimed.paymentMethod ? claimed.paymentMethod.trim().split(/\s+/).pop()?.toUpperCase() : null);
+            if (_cc) {
+              const allCountries = await storage.getCountries();
+              const countryRec = allCountries.find((c: any) => c.code.toUpperCase() === _cc.toUpperCase());
+              if (countryRec) {
+                storage.creditWallet(claimed.userId, countryRec.code, countryRec.name, claimed.currency || countryRec.currency, netAmount.toString()).catch((e: any) => console.error("Wallet credit error:", e));
+              }
             }
           }
 
@@ -3141,12 +3147,15 @@ export async function registerRoutes(
           if (user) {
             const restoredBalance = parseFloat(user.balance) + parseFloat(withdrawalReq.amount);
             await storage.setUserBalance(withdrawalReq.userId, restoredBalance.toString());
+            if (withdrawalReq.walletId) {
+              await storage.creditWalletById(withdrawalReq.walletId, withdrawalReq.amount);
+            }
           }
           await storage.updateWithdrawalRequest(withdrawalReq.id, {
             status: "failed",
             rejectionReason: `Paxity payout rejeté: ${status}`,
           });
-          console.log(`❌ Paxity payout rejeté: id=${withdrawalReq.id} status=${status} — solde restauré`);
+          console.log(`❌ Paxity payout rejeté: id=${withdrawalReq.id} status=${status} — solde restauré walletId=${withdrawalReq.walletId || "none"}`);
         }
         return;
       }
@@ -3762,20 +3771,21 @@ export async function registerRoutes(
       }
 
       // Helpers wallet-aware pour débit et restauration
+      const userBalance = parseFloat(user.balance);
       const doDebit = async () => {
         if (walletId) {
           const ok = await storage.debitWallet(walletId, totalDeducted.toString());
           if (!ok) throw new Error("Solde insuffisant dans ce portefeuille");
-        } else {
-          await storage.setUserBalance(req.session.userId!, (balance - totalDeducted).toString());
         }
+        // Toujours synchroniser users.balance (dashboard + sécurité)
+        await storage.setUserBalance(req.session.userId!, (userBalance - totalDeducted).toString());
       };
       const restore = async () => {
         if (walletId) {
           await storage.creditWalletById(walletId, totalDeducted.toString());
-        } else {
-          await storage.setUserBalance(req.session.userId!, balance.toString());
         }
+        // Toujours restaurer users.balance
+        await storage.setUserBalance(req.session.userId!, userBalance.toString());
       };
 
       // Débiter le solde immédiatement (en attente de validation admin)
@@ -3803,6 +3813,7 @@ export async function registerRoutes(
           mobileNumber,
           country,
           walletName: walletName || null,
+          walletId: walletId || null,
         });
 
         await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
@@ -3936,6 +3947,7 @@ export async function registerRoutes(
           mobileNumber,
           country,
           walletName: walletName || null,
+          walletId: walletId || null,
         });
 
         await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
@@ -4126,6 +4138,7 @@ export async function registerRoutes(
           mobileNumber,
           country,
           walletName: walletName || null,
+          walletId: walletId || null,
         });
 
         await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
@@ -4236,6 +4249,7 @@ export async function registerRoutes(
           mobileNumber,
           country,
           walletName: walletName || null,
+          walletId: walletId || null,
         });
 
         await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
@@ -4330,6 +4344,7 @@ export async function registerRoutes(
         mobileNumber,
         country,
         walletName: walletName || null,
+        walletId: walletId || null,
       });
 
       notifyWithdrawalRequest({
@@ -4577,7 +4592,11 @@ export async function registerRoutes(
         const refundAmount = parseFloat(withdrawalRequest.amount);
         const newBalance = currentBalance + refundAmount;
         await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
-        console.log("💰 Balance refunded for user", withdrawalRequest.userId, "Amount:", refundAmount, "New balance:", newBalance);
+        // Restaurer aussi le wallet si le retrait venait d'un wallet précis
+        if (withdrawalRequest.walletId) {
+          await storage.creditWalletById(withdrawalRequest.walletId, refundAmount.toString());
+        }
+        console.log("💰 Balance refunded for user", withdrawalRequest.userId, "Amount:", refundAmount, "New balance:", newBalance, "walletId:", withdrawalRequest.walletId || "none");
       }
       
       await storage.updateWithdrawalRequest(requestId, {
@@ -4632,7 +4651,10 @@ export async function registerRoutes(
         const currentBalance = parseFloat(user.balance as string);
         const newBalance = currentBalance + refundAmount;
         await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
-        console.log(`💰 Remboursement annulation OmniPay: userId=${withdrawalRequest.userId} +${refundAmount} → ${newBalance}`);
+        if (withdrawalRequest.walletId) {
+          await storage.creditWalletById(withdrawalRequest.walletId, refundAmount.toString());
+        }
+        console.log(`💰 Remboursement annulation OmniPay: userId=${withdrawalRequest.userId} +${refundAmount} → ${newBalance} walletId=${withdrawalRequest.walletId || "none"}`);
       }
 
       await storage.updateWithdrawalRequest(requestId, {
