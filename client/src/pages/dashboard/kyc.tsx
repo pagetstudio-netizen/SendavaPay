@@ -58,13 +58,15 @@ export default function KycPage() {
     queryKey: ["/api/kyc"],
   });
 
-  const { data: platformFees } = useQuery<{ countries: { name: string; code: string }[] }>({
-    queryKey: ["/api/public/fees"],
+  const { data: platformCountries = [] } = useQuery<{ id: number; code: string; name: string; currency: string }[]>({
+    queryKey: ["/api/public/countries"],
   });
-  const platformCountries = platformFees?.countries.slice().sort((a, b) => a.name.localeCompare(b.name)) ?? [];
   const FLAG_MAP: Record<string, string> = {
     CI: "🇨🇮", BJ: "🇧🇯", TG: "🇹🇬", BF: "🇧🇫", SN: "🇸🇳",
     CM: "🇨🇲", ML: "🇲🇱", GN: "🇬🇳", COG: "🇨🇬", COD: "🇨🇩",
+    NE: "🇳🇪", TD: "🇹🇩", CF: "🇨🇫", GA: "🇬🇦", GQ: "🇬🇶",
+    GW: "🇬🇼", MR: "🇲🇷", BI: "🇧🇮", RW: "🇷🇼", KM: "🇰🇲",
+    ST: "🇸🇹", CV: "🇨🇻", LR: "🇱🇷", SL: "🇸🇱", GM: "🇬🇲",
   };
 
   const submitKycMutation = useMutation({

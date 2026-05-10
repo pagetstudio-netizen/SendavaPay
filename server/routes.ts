@@ -6021,6 +6021,20 @@ export async function registerRoutes(
   });
 
   // Public fees endpoint — countries + operators + rates
+  app.get("/api/public/countries", async (req, res) => {
+    try {
+      const countries = await storage.getCountries();
+      const active = countries
+        .filter((c: any) => c.isActive)
+        .map((c: any) => ({ id: c.id, code: c.code, name: c.name, currency: c.currency }))
+        .sort((a: any, b: any) => a.name.localeCompare(b.name));
+      res.json(active);
+    } catch (error) {
+      console.error("Public countries error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.get("/api/public/fees", async (req, res) => {
     try {
       const [countries, operators, settings] = await Promise.all([
