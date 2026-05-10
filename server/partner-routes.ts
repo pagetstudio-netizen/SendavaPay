@@ -7,7 +7,7 @@ import { partnerLoginSchema } from "@shared/schema";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { notifyPartnerWithdrawal } from "./telegram";
+import { notifyPartnerWithdrawal, notifyPartnerWalletExchange } from "./telegram";
 
 declare module "express-session" {
   interface SessionData {
@@ -2036,7 +2036,7 @@ export function registerPartnerRoutes(app: Express) {
         return res.status(400).json({ message: "Solde insuffisant dans le portefeuille source" });
       }
       await storage.creditPartnerWalletById(toWallet.id, numAmount.toString());
-      await storage.createPartnerWalletExchange({
+      const created = await storage.createPartnerWalletExchange({
         partnerId,
         fromWalletId: fromWallet.id,
         toWalletId: toWallet.id,
@@ -2045,6 +2045,19 @@ export function registerPartnerRoutes(app: Express) {
         currency: fromWallet.currency,
         amount: numAmount.toString(),
       });
+
+      const partner = await storage.getPartner(partnerId);
+      if (partner) {
+        notifyPartnerWalletExchange({
+          partnerName: partner.name,
+          partnerId: partner.id,
+          fromCountry: fromWallet.countryName,
+          toCountry: toWallet.countryName,
+          currency: fromWallet.currency,
+          amount: numAmount.toString(),
+          exchangeId: created.id,
+        });
+      }
 
       res.json({ message: "Échange effectué avec succès" });
     } catch (error) {

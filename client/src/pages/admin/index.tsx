@@ -4774,6 +4774,7 @@ function WalletExchangesContent() {
     return exchanges.filter(ex =>
       !q ||
       ex.user?.fullName?.toLowerCase().includes(q) ||
+      (ex as any).partner?.name?.toLowerCase().includes(q) ||
       ex.fromCountryCode.toLowerCase().includes(q) ||
       ex.toCountryCode.toLowerCase().includes(q) ||
       ex.currency.toLowerCase().includes(q)
@@ -4910,12 +4911,21 @@ function WalletExchangesContent() {
                     </TableCell>
                   </TableRow>
                 ) : filtered.map(ex => (
-                  <TableRow key={ex.id} data-testid={`exchange-row-${ex.id}`}>
+                  <TableRow key={`${(ex as any).isPartner ? "p" : "u"}-${ex.id}`} data-testid={`exchange-row-${ex.id}`}>
                     <TableCell className="text-xs text-muted-foreground font-mono">#{ex.id}</TableCell>
                     <TableCell className="whitespace-nowrap">
                       <div>
-                        <p className="font-medium text-sm">{ex.user?.fullName || "—"}</p>
-                        <p className="text-xs text-muted-foreground">#{ex.userId}</p>
+                        {(ex as any).isPartner ? (
+                          <>
+                            <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300 border-0 text-xs mb-0.5">Partenaire</Badge>
+                            <p className="font-medium text-sm">{(ex as any).partner?.name || "—"}</p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="font-medium text-sm">{ex.user?.fullName || "—"}</p>
+                            <p className="text-xs text-muted-foreground">#{ex.userId}</p>
+                          </>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
