@@ -5,7 +5,7 @@ import { createServer } from "http";
 import { initializeAdminAccount } from "./init-admin";
 import { initializeOmnipayServices } from "./init-omnipay";
 import { testDatabaseConnection, isDatabaseConnected, startBackgroundReconnection, pool } from "./db";
-import { notifyStartup, notifySystemError, notifyDailyReport } from "./telegram";
+import { notifySystemError, notifyDailyReport } from "./telegram";
 import { storage } from "./storage";
 import { loadCredentialsFromDb, getCredential } from "./credentials";
 
@@ -340,7 +340,6 @@ async function initializeWithTimeout<T>(
     },
     () => {
       log(`serving on port ${port}`);
-      notifyStartup().catch(err => log(`Telegram startup notification failed: ${err}`, "telegram"));
       scheduleDailyReport();
       registerTelegramWebhook().catch(err => log(`Telegram webhook setup error: ${err}`, "telegram"));
     },
