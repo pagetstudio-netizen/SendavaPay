@@ -252,6 +252,7 @@ export interface IStorage {
   updatePartnerTransaction(id: number, updates: Partial<PartnerTransaction>): Promise<PartnerTransaction | undefined>;
 
   createDefaultWallets(userId: number): Promise<Wallet[]>;
+  createDefaultPartnerWallets(partnerId: number): Promise<PartnerWallet[]>;
   getUserWallets(userId: number): Promise<Wallet[]>;
   getOrCreateWallet(userId: number, countryCode: string, countryName: string, currency: string): Promise<Wallet>;
   creditWallet(userId: number, countryCode: string, countryName: string, currency: string, amount: string): Promise<void>;
@@ -1364,6 +1365,28 @@ export class DatabaseStorage implements IStorage {
 
   async getPartnerWallets(partnerId: number): Promise<PartnerWallet[]> {
     return getDb().select().from(partnerWallets).where(eq(partnerWallets.partnerId, partnerId)).orderBy(desc(partnerWallets.balance));
+  }
+
+  async createDefaultPartnerWallets(partnerId: number): Promise<PartnerWallet[]> {
+    const DEFAULT_WALLETS = [
+      { countryCode: "SN",  countryName: "Sénégal",            currency: "XOF" },
+      { countryCode: "ML",  countryName: "Mali",                currency: "XOF" },
+      { countryCode: "CI",  countryName: "Côte d'Ivoire",       currency: "XOF" },
+      { countryCode: "BF",  countryName: "Burkina Faso",        currency: "XOF" },
+      { countryCode: "BJ",  countryName: "Bénin",               currency: "XOF" },
+      { countryCode: "TG",  countryName: "Togo",                currency: "XOF" },
+      { countryCode: "CM",  countryName: "Cameroun",            currency: "XAF" },
+      { countryCode: "COG", countryName: "Congo Brazzaville",   currency: "XAF" },
+      { countryCode: "COD", countryName: "RDC",                 currency: "CDF" },
+    ];
+    const existing = await getDb().select().from(partnerWallets).where(eq(partnerWallets.partnerId, partnerId));
+    const existingCodes = new Set(existing.map(w => w.countryCode));
+    const toInsert = DEFAULT_WALLETS.filter(w => !existingCodes.has(w.countryCode));
+    if (toInsert.length === 0) return existing;
+    const created = await getDb().insert(partnerWallets)
+      .values(toInsert.map(w => ({ partnerId, ...w })))
+      .returning();
+    return [...existing, ...created];
   }
 
   async getOrCreatePartnerWallet(partnerId: number, countryCode: string, countryName: string, currency: string): Promise<PartnerWallet> {

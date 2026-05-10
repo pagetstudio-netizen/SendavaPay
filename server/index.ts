@@ -242,6 +242,19 @@ async function initializeWithTimeout<T>(
         "Wallet backfill"
       ).catch(err => log(`Wallet backfill error: ${err}`, "init"));
 
+      // Backfill default wallets for all existing partners (idempotent)
+      initializeWithTimeout(
+        (async () => {
+          const allPartners = await storage.getAllPartners();
+          for (const p of allPartners) {
+            await storage.createDefaultPartnerWallets(p.id);
+          }
+          log(`Default partner wallets backfill: ${allPartners.length} partners processed`, "init");
+        })(),
+        60000,
+        "Partner wallet backfill"
+      ).catch(err => log(`Partner wallet backfill error: ${err}`, "init"));
+
     } else {
       log("Database connection failed or timed out, starting background reconnection...", "init");
     }

@@ -113,6 +113,8 @@ export function registerPartnerRoutes(app: Express) {
         details: "Connexion réussie",
         ipAddress: req.ip || req.socket.remoteAddress,
       });
+      // Ensure default wallets exist for all supported countries
+      storage.createDefaultPartnerWallets(partner.id).catch(() => {});
 
       const { password, apiSecret, ...safePartner } = partner;
       res.json(safePartner);
