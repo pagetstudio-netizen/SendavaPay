@@ -462,3 +462,40 @@ export async function sendDepositEmail(to: string, data: Parameters<typeof email
   const template = emailTemplates.depositCompleted(data);
   return sendEmail({ to, ...template });
 }
+
+export async function sendPasswordResetEmail(to: string, data: { fullName: string; code: string; resetUrl: string }): Promise<{ success: boolean; error?: string }> {
+  const content = `
+    <h2>Réinitialisation de mot de passe</h2>
+    <p>Bonjour ${data.fullName},</p>
+    <p>Vous avez demandé la réinitialisation de votre mot de passe SendavaPay.</p>
+
+    <div style="text-align: center; margin: 30px 0;">
+      <p style="color: #6b7280; margin-bottom: 10px; font-size: 14px;">Votre code de vérification :</p>
+      <div style="display: inline-block; background: #f0fdf4; border: 2px dashed #059669; border-radius: 12px; padding: 20px 40px;">
+        <span style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #059669; font-family: monospace;">${data.code}</span>
+      </div>
+      <p style="color: #6b7280; margin-top: 10px; font-size: 13px;">Ce code expire dans <strong>15 minutes</strong></p>
+    </div>
+
+    <p style="text-align: center; color: #6b7280; margin: 20px 0;">— ou —</p>
+
+    <p style="text-align: center;">
+      <a href="${data.resetUrl}" class="button">Réinitialiser mon mot de passe</a>
+    </p>
+
+    <div class="info-box" style="background-color: #fef9f0; border-left-color: #f59e0b; margin-top: 25px;">
+      <p style="margin: 0; font-size: 13px; color: #92400e;">
+        <strong>Vous n'avez pas fait cette demande ?</strong><br>
+        Ignorez cet email. Votre mot de passe ne sera pas modifié.
+      </p>
+    </div>
+    <p>À bientôt,<br>L'équipe SendavaPay</p>
+  `;
+
+  return sendEmail({
+    to,
+    subject: 'Réinitialisation de votre mot de passe SendavaPay',
+    html: getBaseTemplate(content, 'Réinitialisation de mot de passe'),
+    text: `Votre code de réinitialisation : ${data.code}\n\nOu cliquez sur ce lien : ${data.resetUrl}\n\nCe code expire dans 15 minutes.`
+  });
+}

@@ -24,7 +24,8 @@ import {
   sendKycApprovedEmail,
   sendKycRejectedEmail,
   sendTransferReceivedEmail,
-  sendDepositEmail
+  sendDepositEmail,
+  sendPasswordResetEmail
 } from "./email";
 import {
   notifyDeposit,
@@ -304,6 +305,82 @@ export async function registerRoutes(
       }
       res.json({ message: "Déconnecté" });
     });
+  });
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ message: "Email requis" });
+
+      const user = await storage.getUserByEmail(email);
+      // Always return success to prevent email enumeration
+      if (!user) return res.json({ message: "Si cet email existe, un code a été envoyé." });
+
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const token = uuidv4();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+      await storage.createPasswordResetToken(user.id, token, code, expiresAt);
+
+      const baseUrl = process.env.NODE_ENV === "production"
+        ? "https://sendavapay.com"
+        : `https://${process.env.REPL_SLUG || "localhost"}.${process.env.REPL_OWNER || "repl"}.repl.co`;
+
+      const resetUrl = `${baseUrl}/forgot-password?token=${token}`;
+
+      sendPasswordResetEmail(email, {
+        fullName: user.fullName,
+        code,
+        resetUrl,
+      }).catch(err => console.error("Failed to send password reset email:", err));
+
+      res.json({ message: "Si cet email existe, un code a été envoyé." });
+    } catch (error) {
+      console.error("Forgot password error:", error);
+      res.status(500).json({ message: "Erreur lors de l'envoi de l'email" });
+    }
+  });
+
+  app.post("/api/auth/verify-reset-code", async (req, res) => {
+    try {
+      const { email, code } = req.body;
+      if (!email || !code) return res.status(400).json({ message: "Email et code requis" });
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) return res.status(400).json({ message: "Code invalide ou expiré" });
+
+      const tokenRecord = await storage.getPasswordResetTokenByCode(user.id, code);
+      if (!tokenRecord) return res.status(400).json({ message: "Code invalide ou expiré" });
+      if (tokenRecord.usedAt) return res.status(400).json({ message: "Ce code a déjà été utilisé" });
+      if (new Date() > new Date(tokenRecord.expiresAt)) return res.status(400).json({ message: "Code expiré. Faites une nouvelle demande." });
+
+      res.json({ token: tokenRecord.token });
+    } catch (error) {
+      console.error("Verify reset code error:", error);
+      res.status(500).json({ message: "Erreur de vérification" });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, password } = req.body;
+      if (!token || !password) return res.status(400).json({ message: "Token et mot de passe requis" });
+      if (password.length < 6) return res.status(400).json({ message: "Mot de passe minimum 6 caractères" });
+
+      const tokenRecord = await storage.getPasswordResetTokenByToken(token);
+      if (!tokenRecord) return res.status(400).json({ message: "Lien invalide ou expiré" });
+      if (tokenRecord.usedAt) return res.status(400).json({ message: "Ce lien a déjà été utilisé" });
+      if (new Date() > new Date(tokenRecord.expiresAt)) return res.status(400).json({ message: "Lien expiré. Faites une nouvelle demande." });
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+      await storage.updateUser(tokenRecord.userId, { password: hashedPassword });
+      await storage.markPasswordResetTokenUsed(tokenRecord.id);
+
+      res.json({ message: "Mot de passe réinitialisé avec succès" });
+    } catch (error) {
+      console.error("Reset password error:", error);
+      res.status(500).json({ message: "Erreur lors de la réinitialisation" });
+    }
   });
 
   app.get("/api/commission-rates", requireAuth, async (req, res) => {
