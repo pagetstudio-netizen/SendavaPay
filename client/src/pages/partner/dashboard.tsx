@@ -477,7 +477,8 @@ function PartnerWalletsSection() {
     queryKey: ["/api/partner/wallets"],
   });
 
-  const wallets = data?.wallets ?? [];
+  const HIDDEN_WALLETS = ["NE", "GW"];
+  const wallets = (data?.wallets ?? []).filter((w: any) => !HIDDEN_WALLETS.includes(w.countryCode));
   const exchanges = data?.exchanges ?? [];
 
   const exchangeMutation = useMutation({
@@ -639,23 +640,6 @@ function PartnerWalletsSection() {
         )}
       </div>
 
-      {totalByCurrency.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {totalByCurrency.map(({ currency, total, count }) => {
-            const colors = ZONE_COLORS[currency] || ZONE_COLORS["XOF"];
-            return (
-              <div key={currency} className={`rounded-xl border p-4 ${colors.bg} ${colors.border}`}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-medium text-muted-foreground">{ZONE_LABELS[currency] || currency}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors.badge}`}>{count} pays</span>
-                </div>
-                <p className={`text-xl font-bold ${colors.text}`}>{formatWalletAmount(total, currency)}</p>
-                <p className="text-xs text-muted-foreground mt-1">Total de la zone</p>
-              </div>
-            );
-          })}
-        </div>
-      )}
 
       {wallets.length === 0 && (
         <Card>
