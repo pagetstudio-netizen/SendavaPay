@@ -372,7 +372,12 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Solde insuffisant dans ce portefeuille" });
       }
 
-      // Debit immediately (funds held during processing)
+      // Calculate exchange fee
+      const feeRateStr = await storage.getSetting("wallet_exchange_rate");
+      const feeRate = parseFloat(feeRateStr || "4");
+      const fee = Math.floor(numAmount * feeRate / 100);
+
+      // Debit immediately (funds held during processing, fee included)
       await storage.debitWallet(fromWallet.id, numAmount.toString());
 
       const exchange = await storage.createWalletExchange({
@@ -383,6 +388,7 @@ export async function registerRoutes(
         toCountryCode: toWallet.countryCode,
         currency: fromWallet.currency,
         amount: numAmount.toString(),
+        fee: fee.toString(),
       });
 
       const user = await storage.getUser(req.session.userId!);
@@ -427,11 +433,13 @@ export async function registerRoutes(
       if (!exchange) return res.status(404).json({ message: "Échange introuvable" });
       if (exchange.status !== "pending") return res.status(400).json({ message: "Cet échange n'est plus en attente" });
 
-      // Credit the destination wallet
+      // Credit the destination wallet (amount minus fee)
       const toWallet = await storage.getWalletById(exchange.toWalletId);
       if (!toWallet) return res.status(404).json({ message: "Portefeuille destination introuvable" });
 
-      await storage.creditWallet(exchange.userId, toWallet.countryCode, toWallet.countryName, toWallet.currency, exchange.amount);
+      const exchangeFee = parseFloat(exchange.fee || "0");
+      const netAmount = (parseFloat(exchange.amount) - exchangeFee).toString();
+      await storage.creditWallet(exchange.userId, toWallet.countryCode, toWallet.countryName, toWallet.currency, netAmount);
       await storage.approveWalletExchange(id, req.session.userId!, adminNote);
 
       const user = exchange.user;
@@ -6331,7 +6339,8 @@ export async function registerRoutes(
   app.get("/api/admin/settings", requireAdmin, async (req, res) => {
     try {
       const settings = await storage.getCommissionSettings();
-      res.json(settings || { depositRate: "7", encaissementRate: "5", withdrawalRate: "7" });
+      const walletExchangeRate = await storage.getSetting("wallet_exchange_rate");
+      res.json({ ...(settings || { depositRate: "7", encaissementRate: "5", withdrawalRate: "7" }), walletExchangeRate: walletExchangeRate || "4" });
     } catch (error) {
       console.error("Get admin settings error:", error);
       res.status(500).json({ message: "Erreur serveur" });
@@ -6419,7 +6428,7 @@ export async function registerRoutes(
 
   app.post("/api/admin/fees/update", requireAdmin, async (req, res) => {
     try {
-      const { depositRate, encaissementRate, withdrawalRate, reason } = req.body;
+      const { depositRate, encaissementRate, withdrawalRate, walletExchangeRate, reason } = req.body;
       
       const rates = { depositRate, encaissementRate, withdrawalRate };
       for (const [key, value] of Object.entries(rates)) {
@@ -6429,6 +6438,13 @@ export async function registerRoutes(
             return res.status(400).json({ message: `Le taux ${key} doit être entre 0 et 20%` });
           }
         }
+      }
+      if (walletExchangeRate !== undefined) {
+        const numVal = parseFloat(walletExchangeRate);
+        if (isNaN(numVal) || numVal < 0 || numVal > 20) {
+          return res.status(400).json({ message: "Le taux d'échange wallet doit être entre 0 et 20%" });
+        }
+        await storage.setSetting("wallet_exchange_rate", parseFloat(walletExchangeRate).toFixed(2));
       }
 
       const currentSettings = await storage.getCommissionSettings();

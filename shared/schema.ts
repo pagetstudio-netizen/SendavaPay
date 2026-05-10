@@ -163,6 +163,7 @@ export const walletExchanges = pgTable("wallet_exchanges", {
   toCountryCode: text("to_country_code").notNull(),
   currency: text("currency").notNull(),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  fee: decimal("fee", { precision: 15, scale: 2 }).default("0").notNull(),
   status: walletExchangeStatusEnum("status").default("pending").notNull(),
   adminNote: text("admin_note"),
   reviewedBy: integer("reviewed_by").references(() => users.id),
