@@ -23,6 +23,7 @@ import {
   ShoppingBag,
   Megaphone,
   MousePointer,
+  Mail,
 } from "lucide-react";
 
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
@@ -606,11 +607,25 @@ export default function HomePage() {
               <div className="rounded-xl overflow-hidden mb-4">
                 <img src={imgApiPaiement} alt="API de paiement SendavaPay" className="w-full object-cover" />
               </div>
-              <Link href="/api-de-paiement">
-                <Button className="w-full bg-primary hover:bg-primary/90 text-white font-semibold text-base py-3 rounded-xl">
-                  En savoir plus
-                </Button>
-              </Link>
+              <div className="rounded-xl bg-primary/5 border border-primary/20 p-4 mb-4">
+                <p className="text-sm font-medium mb-1">Mode white-label</p>
+                <p className="text-xs text-muted-foreground">
+                  Intégrez SendavaPay directement sur votre site web en mode white-label.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Link href="/api-de-paiement">
+                  <Button className="w-full bg-primary hover:bg-primary/90 text-white font-semibold text-base py-3 rounded-xl" data-testid="button-api-learn-more">
+                    En savoir plus
+                  </Button>
+                </Link>
+                <a href="mailto:contact@sendavapay.com?subject=Demande accès API white-label SendavaPay" className="block">
+                  <Button variant="outline" className="w-full font-semibold text-base py-3 rounded-xl" data-testid="button-api-contact-support">
+                    <Mail className="h-4 w-4 mr-2" />
+                    Contacter le support
+                  </Button>
+                </a>
+              </div>
             </div>
           </div>
 
