@@ -348,9 +348,7 @@ export default function WalletsPage() {
                           </p>
                         </div>
                         <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/50">
-                          <p className="text-xs text-muted-foreground">
-                            Créé le {formatDate(wallet.createdAt)}
-                          </p>
+                          <span />
                           {zoneWallets.length >= 2 && (
                             <button
                               className={`text-xs flex items-center gap-1 ${colors2.text} hover:underline`}
