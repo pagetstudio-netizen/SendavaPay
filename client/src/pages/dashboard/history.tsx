@@ -23,6 +23,7 @@ import {
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  ArrowLeftRight,
   Clock,
   Search,
   Eye,
@@ -35,7 +36,7 @@ import {
   ShoppingBag,
   Hourglass,
 } from "lucide-react";
-import type { Transaction, WithdrawalRequest } from "@shared/schema";
+import type { Transaction, WithdrawalRequest, WalletExchange } from "@shared/schema";
 
 interface CombinedHistoryItem {
   id: number;
@@ -52,14 +53,18 @@ interface CombinedHistoryItem {
   payerEmail?: string | null;
   payerCountry?: string | null;
   isWithdrawalRequest?: boolean;
+  isWalletExchange?: boolean;
   country?: string | null;
   walletName?: string | null;
   rejectionReason?: string | null;
+  fromCountryCode?: string | null;
+  toCountryCode?: string | null;
+  currency?: string | null;
 }
 
-function formatCurrency(amount: string | number) {
+function formatCurrency(amount: string | number, currency = "XOF") {
   const num = typeof amount === "string" ? parseFloat(amount) : amount;
-  return new Intl.NumberFormat("fr-FR").format(num) + " XOF";
+  return new Intl.NumberFormat("fr-FR").format(num) + " " + currency;
 }
 
 function formatDate(date: string | Date) {
@@ -141,6 +146,7 @@ const transactionTypeLabels: Record<string, { label: string; icon: typeof ArrowD
   transfer_in: { label: "Transfert reçu", icon: ArrowDownLeft, incoming: true },
   transfer_out: { label: "Transfert envoyé", icon: ArrowUpRight, incoming: false },
   payment_received: { label: "Paiement reçu", icon: ArrowDownLeft, incoming: true },
+  wallet_exchange: { label: "Échange de portefeuille", icon: ArrowLeftRight, incoming: false },
 };
 
 const statusBadges: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -167,7 +173,11 @@ export default function HistoryPage() {
     queryKey: ["/api/withdrawal-requests"],
   });
 
-  const isLoading = loadingTransactions || loadingWithdrawals;
+  const { data: walletsData, isLoading: loadingWallets } = useQuery<{ wallets: any[]; exchanges: WalletExchange[] }>({
+    queryKey: ["/api/wallets"],
+  });
+
+  const isLoading = loadingTransactions || loadingWithdrawals || loadingWallets;
 
   const combinedHistory = useMemo(() => {
     const items: CombinedHistoryItem[] = [];
@@ -215,11 +225,31 @@ export default function HistoryPage() {
       }
     });
 
+    // Add wallet exchanges
+    walletsData?.exchanges?.forEach((ex) => {
+      const fromName = countryNames[ex.fromCountryCode] || ex.fromCountryCode;
+      const toName = countryNames[ex.toCountryCode] || ex.toCountryCode;
+      items.push({
+        id: ex.id,
+        type: "wallet_exchange",
+        amount: ex.amount,
+        fee: "0",
+        netAmount: ex.amount,
+        status: ex.status,
+        description: `${fromName} → ${toName}`,
+        createdAt: ex.createdAt,
+        isWalletExchange: true,
+        fromCountryCode: ex.fromCountryCode,
+        toCountryCode: ex.toCountryCode,
+        currency: ex.currency,
+      });
+    });
+
     // Sort by date (newest first)
     return items.sort((a, b) => 
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-  }, [transactions, withdrawalRequests]);
+  }, [transactions, withdrawalRequests, walletsData]);
 
   const filteredHistory = combinedHistory.filter((item) => {
     const matchesSearch = 
@@ -266,6 +296,7 @@ export default function HistoryPage() {
                     <SelectItem value="transfer_in">Transfert reçu</SelectItem>
                     <SelectItem value="transfer_out">Transfert envoyé</SelectItem>
                     <SelectItem value="payment_received">Paiement reçu</SelectItem>
+                    <SelectItem value="wallet_exchange">Échange de portefeuille</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -314,7 +345,7 @@ export default function HistoryPage() {
                   const typeInfo = transactionTypeLabels[item.type] || { label: item.type, icon: Clock, incoming: true };
                   const statusInfo = statusBadges[item.status] || { label: item.status, variant: "secondary" as const };
                   const TypeIcon = typeInfo.icon;
-                  const uniqueKey = item.isWithdrawalRequest ? `wr-${item.id}` : `tx-${item.id}`;
+                  const uniqueKey = item.isWithdrawalRequest ? `wr-${item.id}` : item.isWalletExchange ? `ex-${item.id}` : `tx-${item.id}`;
 
                   return (
                     <div 
@@ -349,12 +380,12 @@ export default function HistoryPage() {
                         </div>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <p className={`font-bold ${typeInfo.incoming ? "text-green-600" : "text-orange-600"}`}>
-                          {typeInfo.incoming ? "+" : "-"}{formatCurrency(item.netAmount)}
+                        <p className={`font-bold ${item.isWalletExchange ? "text-blue-600" : typeInfo.incoming ? "text-green-600" : "text-orange-600"}`}>
+                          {item.isWalletExchange ? "↔" : typeInfo.incoming ? "+" : "-"}{formatCurrency(item.netAmount, item.currency || "XOF")}
                         </p>
                         {parseFloat(item.fee) > 0 && (
                           <p className="text-xs text-muted-foreground">
-                            Frais: {formatCurrency(item.fee)}
+                            Frais: {formatCurrency(item.fee, item.currency || "XOF")}
                           </p>
                         )}
                       </div>
@@ -393,17 +424,44 @@ export default function HistoryPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-3 rounded-lg bg-muted/30">
                   <p className="text-xs text-muted-foreground mb-1">Montant brut</p>
-                  <p className="font-bold">{formatCurrency(selectedItem.amount)}</p>
+                  <p className="font-bold">{formatCurrency(selectedItem.amount, selectedItem.currency || "XOF")}</p>
                 </div>
                 <div className="p-3 rounded-lg bg-muted/30">
                   <p className="text-xs text-muted-foreground mb-1">Frais</p>
-                  <p className="font-bold">{formatCurrency(selectedItem.fee)}</p>
+                  <p className="font-bold">{formatCurrency(selectedItem.fee, selectedItem.currency || "XOF")}</p>
                 </div>
                 <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/20 col-span-2">
                   <p className="text-xs text-muted-foreground mb-1">Montant net</p>
-                  <p className="font-bold text-green-600 text-xl">{formatCurrency(selectedItem.netAmount)}</p>
+                  <p className="font-bold text-green-600 text-xl">{formatCurrency(selectedItem.netAmount, selectedItem.currency || "XOF")}</p>
                 </div>
               </div>
+
+              {selectedItem.isWalletExchange && selectedItem.fromCountryCode && selectedItem.toCountryCode && (
+                <div className="space-y-3 pt-2 border-t">
+                  <h4 className="font-semibold text-sm">Détails de l'échange</h4>
+                  <div className="flex items-center gap-3">
+                    <MapPin className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Portefeuille source</p>
+                      <p className="font-medium">{countryNames[selectedItem.fromCountryCode] || selectedItem.fromCountryCode}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Portefeuille destination</p>
+                      <p className="font-medium">{countryNames[selectedItem.toCountryCode] || selectedItem.toCountryCode}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <CreditCard className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Devise</p>
+                      <p className="font-medium">{selectedItem.currency}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {selectedItem.isWithdrawalRequest && selectedItem.rejectionReason && (
                 <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
