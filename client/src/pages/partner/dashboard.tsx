@@ -922,35 +922,6 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
         <p className="text-muted-foreground">Transférez votre solde vers votre compte personnel</p>
       </div>
 
-      {wallets.length > 0 && (
-        <Card className="border-blue-200 dark:border-blue-800">
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <Wallet className="h-4 w-4 text-blue-600" />
-              <p className="text-sm font-medium">Portefeuille source (optionnel)</p>
-            </div>
-            <Select value={selectedWalletId} onValueChange={setSelectedWalletId}>
-              <SelectTrigger data-testid="select-partner-withdraw-wallet">
-                <SelectValue placeholder="Solde global partenaire" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Solde global — {globalBalance.toLocaleString()} FCFA</SelectItem>
-                {wallets.map((w: any) => (
-                  <SelectItem key={w.id} value={w.id.toString()}>
-                    {FLAG_MAP[w.countryCode] || "🌍"} {w.countryName} — {formatWalletAmount(w.balance, w.currency)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {selectedWallet && (
-              <p className="text-xs text-muted-foreground">
-                Disponible dans ce portefeuille : <strong>{formatWalletAmount(selectedWallet.balance, selectedWallet.currency)}</strong>
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
       <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground">
         <CardContent className="p-6">
           <p className="text-sm opacity-80">Solde disponible</p>
