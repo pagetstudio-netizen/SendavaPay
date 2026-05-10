@@ -1383,9 +1383,20 @@ export class DatabaseStorage implements IStorage {
     const existingCodes = new Set(existing.map(w => w.countryCode));
     const toInsert = DEFAULT_WALLETS.filter(w => !existingCodes.has(w.countryCode));
     if (toInsert.length === 0) return existing;
-    const created = await getDb().insert(partnerWallets)
-      .values(toInsert.map(w => ({ partnerId, ...w })))
-      .returning();
+    const created: PartnerWallet[] = [];
+    for (const w of toInsert) {
+      try {
+        const [wallet] = await getDb().insert(partnerWallets)
+          .values({ partnerId, ...w })
+          .returning();
+        if (wallet) created.push(wallet);
+      } catch (_) {
+        // Race condition — fetch existing
+        const [found] = await getDb().select().from(partnerWallets)
+          .where(and(eq(partnerWallets.partnerId, partnerId), eq(partnerWallets.countryCode, w.countryCode)));
+        if (found) created.push(found);
+      }
+    }
     return [...existing, ...created];
   }
 
