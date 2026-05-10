@@ -63,6 +63,10 @@ import {
   partnerLogs,
   partnerTransactions,
   passwordResetTokens,
+  wallets,
+  walletExchanges,
+  type Wallet,
+  type WalletExchange,
   type StatsOffset,
 } from "@shared/schema";
 import { db as dbInstance } from "./db";
@@ -1205,6 +1209,54 @@ export class DatabaseStorage implements IStorage {
   async updatePartnerTransaction(id: number, updates: Partial<PartnerTransaction>): Promise<PartnerTransaction | undefined> {
     const [updated] = await getDb().update(partnerTransactions).set(updates).where(eq(partnerTransactions.id, id)).returning();
     return updated;
+  }
+
+  async getUserWallets(userId: number): Promise<Wallet[]> {
+    return getDb().select().from(wallets).where(eq(wallets.userId, userId)).orderBy(desc(wallets.balance));
+  }
+
+  async getOrCreateWallet(userId: number, countryCode: string, countryName: string, currency: string): Promise<Wallet> {
+    const code = countryCode.toUpperCase();
+    const [existing] = await getDb().select().from(wallets)
+      .where(and(eq(wallets.userId, userId), eq(wallets.countryCode, code)));
+    if (existing) return existing;
+    const [created] = await getDb().insert(wallets)
+      .values({ userId, countryCode: code, countryName, currency })
+      .returning();
+    return created;
+  }
+
+  async creditWallet(userId: number, countryCode: string, countryName: string, currency: string, amount: string): Promise<void> {
+    const wallet = await this.getOrCreateWallet(userId, countryCode, countryName, currency);
+    await getDb().update(wallets)
+      .set({ balance: sql`${wallets.balance} + ${amount}::decimal`, updatedAt: new Date() })
+      .where(eq(wallets.id, wallet.id));
+  }
+
+  async debitWallet(walletId: number, amount: string): Promise<boolean> {
+    const [wallet] = await getDb().select().from(wallets).where(eq(wallets.id, walletId));
+    if (!wallet || parseFloat(wallet.balance) < parseFloat(amount)) return false;
+    await getDb().update(wallets)
+      .set({ balance: sql`${wallets.balance} - ${amount}::decimal`, updatedAt: new Date() })
+      .where(eq(wallets.id, walletId));
+    return true;
+  }
+
+  async getWalletById(walletId: number): Promise<Wallet | undefined> {
+    const [wallet] = await getDb().select().from(wallets).where(eq(wallets.id, walletId));
+    return wallet;
+  }
+
+  async createWalletExchange(data: { userId: number; fromWalletId: number; toWalletId: number; fromCountryCode: string; toCountryCode: string; currency: string; amount: string }): Promise<WalletExchange> {
+    const [created] = await getDb().insert(walletExchanges).values(data).returning();
+    return created;
+  }
+
+  async getWalletExchanges(userId: number): Promise<WalletExchange[]> {
+    return getDb().select().from(walletExchanges)
+      .where(eq(walletExchanges.userId, userId))
+      .orderBy(desc(walletExchanges.createdAt))
+      .limit(20);
   }
 
   async createPasswordResetToken(userId: number, token: string, code: string, expiresAt: Date): Promise<PasswordResetToken> {

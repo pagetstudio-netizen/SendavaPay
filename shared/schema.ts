@@ -140,6 +140,32 @@ export const feeChanges = pgTable("fee_changes", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const wallets = pgTable("wallets", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  countryCode: text("country_code").notNull(),
+  countryName: text("country_name").notNull(),
+  currency: text("currency").notNull(),
+  balance: decimal("balance", { precision: 15, scale: 2 }).default("0").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const walletExchanges = pgTable("wallet_exchanges", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  fromWalletId: integer("from_wallet_id").notNull().references(() => wallets.id),
+  toWalletId: integer("to_wallet_id").notNull().references(() => wallets.id),
+  fromCountryCode: text("from_country_code").notNull(),
+  toCountryCode: text("to_country_code").notNull(),
+  currency: text("currency").notNull(),
+  amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type Wallet = typeof wallets.$inferSelect;
+export type WalletExchange = typeof walletExchanges.$inferSelect;
+
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: integer("user_id").notNull().references(() => users.id),

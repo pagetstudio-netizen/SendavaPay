@@ -36,6 +36,7 @@ import LiensPaiementPage from "@/pages/liens-paiement";
 import AssistancePage from "@/pages/assistance";
 import ApiPaiementPage from "@/pages/api-paiement";
 import ForgotPasswordPage from "@/pages/forgot-password";
+import WalletsPage from "@/pages/dashboard/wallets";
 
 function Router() {
   return (
@@ -70,6 +71,7 @@ function Router() {
       <ProtectedRoute path="/dashboard/api-keys" component={ApiKeysPage} />
       <ProtectedRoute path="/dashboard/help" component={DashboardHelpPage} />
       <ProtectedRoute path="/dashboard/settings" component={SettingsPage} />
+      <ProtectedRoute path="/dashboard/wallets" component={WalletsPage} />
       
       <AdminRoute path="/admin" component={AdminDashboardPage} />
       <AdminRoute path="/admin/users" component={AdminDashboardPage} />
