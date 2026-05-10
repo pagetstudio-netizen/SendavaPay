@@ -105,33 +105,33 @@ export default function WithdrawPage() {
     queryKey: ["/api/withdrawal-requests"],
   });
 
-  // Auto-select first wallet
+  // Auto-select first wallet and matching country
   useEffect(() => {
     if (wallets.length > 0 && !selectedWalletId) {
-      setSelectedWalletId(wallets[0].id);
+      const first = wallets[0];
+      setSelectedWalletId(first.id);
+      const matchingCountry = allCountries.find(c => c.id.toUpperCase() === first.countryCode.toUpperCase());
+      if (matchingCountry) setCountry(matchingCountry.id);
     }
-  }, [wallets, selectedWalletId]);
+  }, [wallets, allCountries, selectedWalletId]);
 
   const selectedWallet = wallets.find(w => w.id === selectedWalletId) ?? null;
 
-  // Filter countries to those matching the selected wallet's currency
-  const countries = useMemo(() => {
-    if (!selectedWallet) return allCountries;
-    const allowed = CURRENCY_COUNTRY_CODES[selectedWallet.currency] ?? [];
-    if (allowed.length === 0) return allCountries;
-    return allCountries.filter(c => allowed.includes(c.id.toUpperCase()));
-  }, [allCountries, selectedWallet]);
-
-  // Reset country+operator when wallet changes (currency zone changes)
-  useEffect(() => {
-    setCountry("");
-    setPaymentMethod("");
-    setMobileNumber("");
-  }, [selectedWalletId]);
+  // All countries (no filtering by wallet — user picks country independently)
+  const countries = useMemo(() => allCountries, [allCountries]);
 
   const selectedCountryObj = countries.find(c => c.id === country);
   const availableMethods = selectedCountryObj?.methods || [];
   const phonePrefix = COUNTRY_PREFIXES[country.toUpperCase()] || "";
+
+  // When country changes, auto-select the matching wallet if one exists
+  const handleCountryChange = (val: string) => {
+    setCountry(val);
+    setPaymentMethod("");
+    setMobileNumber("");
+    const matchingWallet = wallets.find(w => w.countryCode.toUpperCase() === val.toUpperCase());
+    if (matchingWallet) setSelectedWalletId(matchingWallet.id);
+  };
 
   useEffect(() => {
     setPaymentMethod("");
@@ -287,11 +287,19 @@ export default function WithdrawPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {wallets.map((w) => {
                 const isSelected = selectedWalletId === w.id;
+                const matchingCountry = allCountries.find(c => c.id.toUpperCase() === w.countryCode.toUpperCase());
                 return (
                   <button
                     key={w.id}
                     type="button"
-                    onClick={() => setSelectedWalletId(w.id)}
+                    onClick={() => {
+                      setSelectedWalletId(w.id);
+                      if (matchingCountry) {
+                        setCountry(matchingCountry.id);
+                        setPaymentMethod("");
+                        setMobileNumber("");
+                      }
+                    }}
                     data-testid={`button-wallet-${w.id}`}
                     className={`text-left rounded-xl border-2 p-3 transition-all ${
                       isSelected
@@ -300,7 +308,7 @@ export default function WithdrawPage() {
                     }`}
                   >
                     <p className="text-xs font-medium text-muted-foreground truncate">{w.countryName}</p>
-                    <p className="text-sm font-bold mt-0.5 truncate">
+                    <p className="text-sm font-bold mt-0.5">
                       {new Intl.NumberFormat("fr-FR").format(parseFloat(w.balance))} <span className="text-xs font-semibold text-muted-foreground">{w.currency}</span>
                     </p>
                     {isSelected && (
@@ -418,9 +426,16 @@ export default function WithdrawPage() {
               <div className="space-y-2">
                 <Label>Pays de réception</Label>
                 <CountrySelect
-                  options={countries.map(c => ({ value: c.id, label: c.name }))}
+                  options={countries.map(c => {
+                    const w = wallets.find(w => w.countryCode.toUpperCase() === c.id.toUpperCase());
+                    return {
+                      value: c.id,
+                      label: c.name,
+                      subLabel: w ? `${new Intl.NumberFormat("fr-FR").format(parseFloat(w.balance))} ${c.currency}` : c.currency,
+                    };
+                  })}
                   value={country}
-                  onChange={(val) => { setCountry(val); setPaymentMethod(""); }}
+                  onChange={handleCountryChange}
                   placeholder={countriesLoading ? "Chargement..." : "Sélectionnez un pays"}
                   data-testid="select-country"
                 />
