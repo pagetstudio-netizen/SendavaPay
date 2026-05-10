@@ -24,16 +24,15 @@ import type { Wallet as WalletType } from "@shared/schema";
 
 const COUNTRY_PREFIXES: Record<string, string> = {
   CI: "+225", BJ: "+229", TG: "+228", BF: "+226",
-  SN: "+221", CM: "+237", ML: "+223", GN: "+224",
-  COG: "+242", COD: "+243",
+  SN: "+221", CM: "+237", ML: "+223", NE: "+227",
+  GW: "+245", COG: "+242", COD: "+243",
 };
 
 // Map currency → country codes eligible to receive that currency
 const CURRENCY_COUNTRY_CODES: Record<string, string[]> = {
   XOF: ["SN", "ML", "CI", "BF", "BJ", "TG", "NE", "GW"],
-  XAF: ["CM", "CG", "GA", "CF", "TD", "GQ"],
+  XAF: ["CM", "COG"],
   CDF: ["COD"],
-  GNF: ["GN"],
 };
 
 interface WithdrawOperator {

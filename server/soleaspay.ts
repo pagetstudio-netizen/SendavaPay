@@ -43,13 +43,15 @@ export const SOLEASPAY_SERVICES: SoleasPayService[] = [
 export const SOLEASPAY_COUNTRIES = [
   { code: "BJ", name: "Bénin", flag: "🇧🇯", currency: "XOF" },
   { code: "BF", name: "Burkina Faso", flag: "🇧🇫", currency: "XOF" },
-  { code: "CM", name: "Cameroun", flag: "🇨🇲", currency: "XAF" },
   { code: "CI", name: "Côte d'Ivoire", flag: "🇨🇮", currency: "XOF" },
-  { code: "COG", name: "Congo Brazzaville", flag: "🇨🇬", currency: "XAF" },
-  { code: "COD", name: "RDC", flag: "🇨🇩", currency: "CDF" },
+  { code: "GW", name: "Guinée-Bissau", flag: "🇬🇼", currency: "XOF" },
   { code: "ML", name: "Mali", flag: "🇲🇱", currency: "XOF" },
+  { code: "NE", name: "Niger", flag: "🇳🇪", currency: "XOF" },
   { code: "SN", name: "Sénégal", flag: "🇸🇳", currency: "XOF" },
   { code: "TG", name: "Togo", flag: "🇹🇬", currency: "XOF" },
+  { code: "CM", name: "Cameroun", flag: "🇨🇲", currency: "XAF" },
+  { code: "COG", name: "Congo Brazzaville", flag: "🇨🇬", currency: "XAF" },
+  { code: "COD", name: "RDC", flag: "🇨🇩", currency: "CDF" },
 ];
 
 export function formatPhoneForSoleasPay(phone: string, countryCode: string): string {
