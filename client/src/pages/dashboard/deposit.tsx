@@ -30,10 +30,12 @@ const COUNTRY_PREFIXES: Record<string, string> = {
 
 // Map currency → country codes that credit that currency
 const CURRENCY_COUNTRY_CODES: Record<string, string[]> = {
-  XOF: ["SN", "ML", "CI", "BF", "BJ", "TG", "NE", "GW"],
+  XOF: ["SN", "ML", "CI", "BF", "BJ", "TG"],
   XAF: ["CM", "COG"],
   CDF: ["COD"],
 };
+
+const HIDDEN_WALLETS = ["NE", "GW"];
 
 const TIMEOUT_SECONDS = 120;
 
@@ -112,7 +114,7 @@ export default function DepositPage() {
   const { data: walletsData } = useQuery<{ wallets: WalletType[] }>({
     queryKey: ["/api/wallets"],
   });
-  const wallets = walletsData?.wallets ?? [];
+  const wallets = (walletsData?.wallets ?? []).filter(w => !HIDDEN_WALLETS.includes(w.countryCode));
 
   // Auto-select first wallet
   useEffect(() => {
@@ -378,7 +380,7 @@ export default function DepositPage() {
               <Wallet className="h-4 w-4" />
               Sélectionnez le portefeuille à recharger
             </Label>
-            <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(wallets.length, 2)}, 1fr)` }}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {wallets.map((w) => {
                 const isSelected = selectedWalletId === w.id;
                 return (
@@ -387,15 +389,15 @@ export default function DepositPage() {
                     type="button"
                     onClick={() => setSelectedWalletId(w.id)}
                     data-testid={`button-deposit-wallet-${w.id}`}
-                    className={`text-left rounded-xl border-2 p-4 transition-all ${
+                    className={`text-left rounded-xl border-2 p-3 transition-all ${
                       isSelected
                         ? "border-primary bg-primary/5"
                         : "border-border bg-muted/30 hover:border-primary/40"
                     }`}
                   >
-                    <p className="text-xs font-medium text-muted-foreground">{w.countryName}</p>
-                    <p className="text-lg font-bold mt-0.5">
-                      {new Intl.NumberFormat("fr-FR").format(parseFloat(w.balance))} {w.currency}
+                    <p className="text-xs font-medium text-muted-foreground truncate">{w.countryName}</p>
+                    <p className="text-sm font-bold mt-0.5 truncate">
+                      {new Intl.NumberFormat("fr-FR").format(parseFloat(w.balance))} <span className="text-xs font-semibold text-muted-foreground">{w.currency}</span>
                     </p>
                     {isSelected && (
                       <span className="inline-flex items-center gap-1 text-xs text-primary font-semibold mt-1">
