@@ -27,7 +27,10 @@ const MBIYOPAY_NETWORK_MAP: Record<string, string> = {
   "Africell": "africell",
   "Togocom": "togocom",
   "TMoney": "togocom",
+  "Tmoney": "togocom",
   "T-Money": "togocom",
+  "Flooz": "flooz",
+  "Flooz TG": "flooz",
   "Coris": "coris",
   "Coris Bank": "coris",
   "Celtiis": "celtiis",
@@ -37,6 +40,14 @@ const MBIYOPAY_NETWORK_MAP: Record<string, string> = {
   "APS": "aps",
   "Tigo": "tigo",
   "Vodafone": "vodafone",
+};
+
+const MBIYOPAY_COUNTRY_NETWORK_OVERRIDES: Record<string, Record<string, string>> = {
+  TG: {
+    "Moov": "flooz",
+    "Moov Money": "flooz",
+    "Flooz": "flooz",
+  },
 };
 
 const COUNTRY_CURRENCIES: Record<string, string> = {
@@ -69,7 +80,13 @@ const MBIYO_PIN_NETWORKS = new Set([
   "GM:aps",
 ]);
 
-export function getMbiyoNetwork(operatorName: string): string | null {
+export function getMbiyoNetwork(operatorName: string, countryCode?: string): string | null {
+  if (countryCode) {
+    const countryOverrides = MBIYOPAY_COUNTRY_NETWORK_OVERRIDES[countryCode.toUpperCase()];
+    if (countryOverrides && countryOverrides[operatorName] !== undefined) {
+      return countryOverrides[operatorName];
+    }
+  }
   return MBIYOPAY_NETWORK_MAP[operatorName] || null;
 }
 

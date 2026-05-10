@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { getCredential, setCachedCredential, loadCredentialsFromDb, CREDENTIAL_KEYS } from "./credentials";
 import bcrypt from "bcrypt";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 import { v4 as uuidv4 } from "uuid";
 import { registerSchema, loginSchema } from "@shared/schema";
 import multer from "multer";
@@ -12,7 +13,7 @@ import path from "path";
 import fs from "fs";
 import { leekpay } from "./leekpay";
 import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById } from "./soleaspay";
-import { isDatabaseConnected } from "./db";
+import { isDatabaseConnected, pool } from "./db";
 import merchantApi from "./merchant-api";
 import { registerPartnerRoutes } from "./partner-routes";
 import { registerObjectStorageRoutes, ObjectStorageService } from "./replit_integrations/object_storage";
@@ -175,16 +176,26 @@ export async function registerRoutes(
 ): Promise<Server> {
   
   app.set("trust proxy", 1);
-  
+
+  const PgSession = connectPgSimple(session);
+  const sessionStore = pool
+    ? new PgSession({
+        pool: pool as any,
+        tableName: "session",
+        createTableIfMissing: true,
+      })
+    : undefined;
+
   app.use(
     session({
+      store: sessionStore,
       secret: process.env.SESSION_SECRET || "sendavapay-secret-key-2024",
       resave: false,
       saveUninitialized: false,
       cookie: {
         secure: process.env.NODE_ENV === "production",
         httpOnly: true,
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+        maxAge: 30 * 24 * 60 * 60 * 1000,
         sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
       },
     })
@@ -1054,7 +1065,7 @@ export async function registerRoutes(
         console.log(`📤 MbiyoPay: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
 
         const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo } = await import("./mbiyopay");
-        const network = getMbiyoNetwork(operator?.name || service.operator);
+        const network = getMbiyoNetwork(operator?.name || service.operator, service.countryCode);
 
         if (!network) {
           return res.status(400).json({ message: `Opérateur '${service.operator}' non supporté par MbiyoPay` });
@@ -1579,7 +1590,7 @@ export async function registerRoutes(
         console.log(`📤 MbiyoPay: Paiement lien ${linkCode} montant=${numericAmount} ${service.currency}`);
 
         const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo } = await import("./mbiyopay");
-        const network = getMbiyoNetwork(operator?.name || service.operator);
+        const network = getMbiyoNetwork(operator?.name || service.operator, service.countryCode);
 
         if (!network) {
           return res.status(400).json({ message: `Opérateur '${service.operator}' non supporté par MbiyoPay` });
@@ -4166,7 +4177,7 @@ export async function registerRoutes(
       if (selectedOperator.paymentGateway === "mbiyopay") {
         const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo } = await import("./mbiyopay");
 
-        const network = getMbiyoNetwork(selectedOperator.name);
+        const network = getMbiyoNetwork(selectedOperator.name, selectedCountry.code);
         if (!network) {
           await restore();
           return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique MbiyoPay" });

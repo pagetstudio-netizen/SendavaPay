@@ -964,7 +964,7 @@ export function registerPartnerRoutes(app: Express) {
 
       if (paymentGateway === "mbiyopay") {
         const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo } = await import("./mbiyopay");
-        const network = getMbiyoNetwork(service.operator);
+        const network = getMbiyoNetwork(service.operator, service.countryCode);
         if (!network) {
           return res.status(400).json({ success: false, status: "ERROR", message: `Opérateur '${service.operator}' non supporté par MbiyoPay` });
         }
@@ -1835,7 +1835,7 @@ export function registerPartnerRoutes(app: Express) {
 
       if (paymentGateway === "mbiyopay") {
         const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo } = await import("./mbiyopay");
-        const network = getMbiyoNetwork(service.operator);
+        const network = getMbiyoNetwork(service.operator, service.countryCode);
         if (!network) {
           return res.status(400).json({ message: `Opérateur '${service.operator}' non supporté par MbiyoPay` });
         }
