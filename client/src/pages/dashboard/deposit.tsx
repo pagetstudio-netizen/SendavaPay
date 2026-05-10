@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
-import { Info, ArrowLeft, Loader2, CheckCircle, XCircle, Clock, AlertCircle, Wallet, Check } from "lucide-react";
+import { Info, ArrowLeft, Loader2, CheckCircle, XCircle, Clock, AlertCircle } from "lucide-react";
 import { Link } from "wouter";
 import { queryClient } from "@/lib/queryClient";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -129,13 +129,13 @@ export default function DepositPage() {
     queryKey: ["/api/soleaspay/countries"],
   });
 
-  // Filter countries by selected wallet's currency zone
-  const countries = useMemo(() => {
-    if (!selectedWallet) return allCountries;
-    const allowed = CURRENCY_COUNTRY_CODES[selectedWallet.currency] ?? [];
-    if (allowed.length === 0) return allCountries;
-    return allCountries.filter(c => allowed.includes(c.code.toUpperCase()));
-  }, [allCountries, selectedWallet]);
+  const countries = useMemo(() => allCountries, [allCountries]);
+
+  const handleCountryChange = (code: string) => {
+    setSelectedCountry(code);
+    const matchingWallet = wallets.find(w => w.countryCode.toUpperCase() === code.toUpperCase());
+    if (matchingWallet) setSelectedWalletId(matchingWallet.id);
+  };
 
   const { data: services = [] } = useQuery<SoleasPayService[]>({
     queryKey: ["/api/soleaspay/services", selectedCountry],
@@ -153,12 +153,6 @@ export default function DepositPage() {
     }
   }, [countries, selectedCountry]);
 
-  // Reset country when wallet changes (currency zone changes)
-  useEffect(() => {
-    setSelectedCountry("");
-    setSelectedServiceId("");
-    setPhoneNumber("");
-  }, [selectedWalletId]);
 
   useEffect(() => {
     if (services.length > 0 && (!selectedServiceId || !services.find(s => s.id.toString() === selectedServiceId))) {
@@ -373,69 +367,27 @@ export default function DepositPage() {
           </div>
         </div>
 
-        {/* Wallet Selector */}
-        {wallets.length > 0 && (
-          <div className="space-y-3">
-            <Label className="flex items-center gap-2 text-base font-semibold">
-              <Wallet className="h-4 w-4" />
-              Sélectionnez le portefeuille à recharger
-            </Label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {wallets.map((w) => {
-                const isSelected = selectedWalletId === w.id;
-                return (
-                  <button
-                    key={w.id}
-                    type="button"
-                    onClick={() => setSelectedWalletId(w.id)}
-                    data-testid={`button-deposit-wallet-${w.id}`}
-                    className={`text-left rounded-xl border-2 p-3 transition-all ${
-                      isSelected
-                        ? "border-primary bg-primary/5"
-                        : "border-border bg-muted/30 hover:border-primary/40"
-                    }`}
-                  >
-                    <p className="text-xs font-medium text-muted-foreground truncate">{w.countryName}</p>
-                    <p className="text-sm font-bold mt-0.5 truncate">
-                      {new Intl.NumberFormat("fr-FR").format(parseFloat(w.balance))} <span className="text-xs font-semibold text-muted-foreground">{w.currency}</span>
-                    </p>
-                    {isSelected && (
-                      <span className="inline-flex items-center gap-1 text-xs text-primary font-semibold mt-1">
-                        <Check className="h-3 w-3" /> Sélectionné
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            {selectedWallet && (
-              <p className="text-xs text-muted-foreground">
-                Seuls les opérateurs compatibles avec <strong>{selectedWallet.currency}</strong> sont affichés.
-              </p>
-            )}
-          </div>
-        )}
-
         <Card>
           <CardHeader>
             <CardTitle>Dépôt Mobile Money</CardTitle>
-            <CardDescription>
-              Configurez votre dépôt par pays et opérateur
-              {selectedWallet && (
-                <span className="block mt-1 text-primary">
-                  Le paiement sera crédité sur votre portefeuille {selectedWallet.countryName} ({selectedWallet.currency})
-                </span>
-              )}
-            </CardDescription>
+            <CardDescription>Configurez votre dépôt par pays et opérateur</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-4">
                 <Label htmlFor="country">Choisir le pays</Label>
                 <CountrySelect
-                  options={countries.map(c => ({ value: c.code, label: c.name, flag: c.flag, subLabel: c.currency }))}
+                  options={countries.map(c => {
+                    const w = wallets.find(w => w.countryCode.toUpperCase() === c.code.toUpperCase());
+                    return {
+                      value: c.code,
+                      label: c.name,
+                      flag: c.flag,
+                      subLabel: w ? `${new Intl.NumberFormat("fr-FR").format(parseFloat(w.balance))} ${c.currency}` : c.currency,
+                    };
+                  })}
                   value={selectedCountry}
-                  onChange={setSelectedCountry}
+                  onChange={handleCountryChange}
                   placeholder="Sélectionnez un pays"
                   data-testid="select-country"
                 />

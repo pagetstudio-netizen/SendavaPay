@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import CountrySelect from "@/components/ui/country-select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Info, ArrowLeft, Shield, Clock, CheckCircle, XCircle, Wallet, BadgeCheck, Check } from "lucide-react";
+import { Loader2, Info, ArrowLeft, Shield, Clock, CheckCircle, XCircle, BadgeCheck, Check } from "lucide-react";
 import { Link } from "wouter";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
 import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
@@ -276,52 +276,6 @@ export default function WithdrawPage() {
             <p className="text-muted-foreground">Demandez un retrait vers votre Mobile Money</p>
           </div>
         </div>
-
-        {/* Wallet Selector */}
-        {wallets.length > 0 && (
-          <div className="space-y-3">
-            <Label className="flex items-center gap-2 text-base font-semibold">
-              <Wallet className="h-4 w-4" />
-              Sélectionnez le portefeuille à débiter
-            </Label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {wallets.map((w) => {
-                const isSelected = selectedWalletId === w.id;
-                const matchingCountry = allCountries.find(c => c.id.toUpperCase() === w.countryCode.toUpperCase());
-                return (
-                  <button
-                    key={w.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedWalletId(w.id);
-                      if (matchingCountry) {
-                        setCountry(matchingCountry.id);
-                        setPaymentMethod("");
-                        setMobileNumber("");
-                      }
-                    }}
-                    data-testid={`button-wallet-${w.id}`}
-                    className={`text-left rounded-xl border-2 p-3 transition-all ${
-                      isSelected
-                        ? "border-primary bg-primary/5"
-                        : "border-border bg-muted/30 hover:border-primary/40"
-                    }`}
-                  >
-                    <p className="text-xs font-medium text-muted-foreground truncate">{w.countryName}</p>
-                    <p className="text-sm font-bold mt-0.5">
-                      {new Intl.NumberFormat("fr-FR").format(parseFloat(w.balance))} <span className="text-xs font-semibold text-muted-foreground">{w.currency}</span>
-                    </p>
-                    {isSelected && (
-                      <span className="inline-flex items-center gap-1 text-xs text-primary font-semibold mt-1">
-                        <Check className="h-3 w-3" /> Sélectionné
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* Balance card */}
         <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground">
