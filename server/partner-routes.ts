@@ -1255,6 +1255,16 @@ export function registerPartnerRoutes(app: Express) {
               if (rowsAffected > 0) {
                 const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
                 await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
+                try {
+                  let txMeta: any = {};
+                  try { txMeta = JSON.parse(transaction.metadata || "{}"); } catch {}
+                  const cCode = txMeta.country;
+                  if (cCode) {
+                    const allC = await storage.getCountries();
+                    const cRec = allC.find((c: any) => c.code.toUpperCase() === cCode.toUpperCase());
+                    if (cRec) await storage.creditPartnerWallet(partner.id, cRec.code, cRec.name, transaction.currency || cRec.currency, netAmount.toString());
+                  }
+                } catch (wErr) { console.error("SDK OmniPay verify: wallet credit error:", wErr); }
                 console.log(`✅ SDK OmniPay: Paiement confirmé partner #${partner.id} ref=${ref} net=${netAmount}`);
                 if (transaction.callbackUrl) {
                   try {
@@ -1324,6 +1334,16 @@ export function registerPartnerRoutes(app: Express) {
               if (rowsAffected > 0) {
                 const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
                 await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
+                try {
+                  let txMeta: any = {};
+                  try { txMeta = JSON.parse(transaction.metadata || "{}"); } catch {}
+                  const cCode = txMeta.country;
+                  if (cCode) {
+                    const allC = await storage.getCountries();
+                    const cRec = allC.find((c: any) => c.code.toUpperCase() === cCode.toUpperCase());
+                    if (cRec) await storage.creditPartnerWallet(partner.id, cRec.code, cRec.name, transaction.currency || cRec.currency, netAmount.toString());
+                  }
+                } catch (wErr) { console.error("SDK MaishaPay verify: wallet credit error:", wErr); }
                 console.log(`✅ SDK MaishaPay: Paiement confirmé partner #${partner.id} ref=${ref} net=${netAmount}`);
                 if (transaction.callbackUrl) {
                   try {
@@ -1410,6 +1430,16 @@ export function registerPartnerRoutes(app: Express) {
               if (rowsAffected > 0) {
                 const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
                 await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
+                try {
+                  let txMeta: any = {};
+                  try { txMeta = JSON.parse(transaction.metadata || "{}"); } catch {}
+                  const cCode = txMeta.country;
+                  if (cCode) {
+                    const allC = await storage.getCountries();
+                    const cRec = allC.find((c: any) => c.code.toUpperCase() === cCode.toUpperCase());
+                    if (cRec) await storage.creditPartnerWallet(partner.id, cRec.code, cRec.name, transaction.currency || cRec.currency, netAmount.toString());
+                  }
+                } catch (wErr) { console.error("SDK Paxity verify: wallet credit error:", wErr); }
                 console.log(`✅ SDK Paxity: Paiement confirmé partner #${partner.id} ref=${ref} net=${netAmount}`);
                 if (transaction.callbackUrl) {
                   try {
@@ -1477,6 +1507,16 @@ export function registerPartnerRoutes(app: Express) {
               if (rowsAffected > 0) {
                 const netAmount = parseFloat(transaction.amount as string) - parseFloat(transaction.fee as string);
                 await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
+                try {
+                  let txMeta: any = {};
+                  try { txMeta = JSON.parse(transaction.metadata || "{}"); } catch {}
+                  const cCode = txMeta.country;
+                  if (cCode) {
+                    const allC = await storage.getCountries();
+                    const cRec = allC.find((c: any) => c.code.toUpperCase() === cCode.toUpperCase());
+                    if (cRec) await storage.creditPartnerWallet(partner.id, cRec.code, cRec.name, transaction.currency || cRec.currency, netAmount.toString());
+                  }
+                } catch (wErr) { console.error("SDK SoleasPay verify: wallet credit error:", wErr); }
                 console.log(`✅ SDK SoleasPay: Paiement confirmé partner #${partner.id} ref=${ref} net=${netAmount}`);
                 if (transaction.callbackUrl) {
                   try {
