@@ -18,7 +18,10 @@ import {
   Shield,
   FileCode,
   Wrench,
-  Loader2
+  Loader2,
+  Sparkles,
+  MessageCircle,
+  Mail
 } from "lucide-react";
 
 export default function ApiDocs() {
@@ -557,6 +560,45 @@ app.listen(3000);`;
               </Badge>
             </div>
           </section>
+
+          {/* White-label + support CTA */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="p-6 flex flex-col gap-4 h-full">
+                <div className="flex items-center gap-2 text-primary font-semibold">
+                  <Sparkles className="h-5 w-5" />
+                  Mode white-label
+                </div>
+                <p className="text-sm text-muted-foreground flex-1">
+                  Intégrez SendavaPay directement sur votre site web en mode white-label. Vos clients paient sans quitter votre plateforme, sous votre marque.
+                </p>
+                <a href="mailto:contact@sendavapay.com?subject=Demande accès API white-label SendavaPay" className="block">
+                  <Button className="w-full" data-testid="button-request-api">
+                    <Mail className="h-4 w-4 mr-2" />
+                    Demander l'API
+                  </Button>
+                </a>
+              </CardContent>
+            </Card>
+
+            <Card className="border-muted">
+              <CardContent className="p-6 flex flex-col gap-4 h-full">
+                <div className="flex items-center gap-2 font-semibold">
+                  <MessageCircle className="h-5 w-5 text-muted-foreground" />
+                  Besoin d'aide ?
+                </div>
+                <p className="text-sm text-muted-foreground flex-1">
+                  Notre équipe technique est disponible pour vous accompagner dans l'intégration de l'API et répondre à vos questions.
+                </p>
+                <a href="mailto:support@sendavapay.com?subject=Support technique API SendavaPay" className="block">
+                  <Button variant="outline" className="w-full" data-testid="button-contact-support">
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    Contacter le support
+                  </Button>
+                </a>
+              </CardContent>
+            </Card>
+          </div>
 
           <Card id="getting-started">
             <CardHeader>
