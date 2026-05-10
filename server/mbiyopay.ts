@@ -53,7 +53,7 @@ const MBIYOPAY_COUNTRY_NETWORK_OVERRIDES: Record<string, Record<string, string>>
 const COUNTRY_CURRENCIES: Record<string, string> = {
   BF: "XOF", CI: "XOF", SN: "XOF", ML: "XOF", BJ: "XOF", TG: "XOF", NE: "XOF",
   CM: "XAF", CG: "XAF", GA: "XAF", CF: "XAF", TD: "XAF",
-  CD: "USD",
+  CD: "CDF", COD: "CDF",
   GH: "GHS",
   NG: "NGN",
   KE: "KES",
@@ -63,7 +63,7 @@ const COUNTRY_CURRENCIES: Record<string, string> = {
 
 const PHONE_PREFIXES: Record<string, string> = {
   BF: "226", CI: "225", SN: "221", ML: "223", BJ: "229", TG: "228",
-  CM: "237", GH: "233", NG: "234", KE: "254", CD: "243", CG: "242",
+  CM: "237", GH: "233", NG: "234", KE: "254", CD: "243", COD: "243", CG: "242",
   GM: "220", GN: "224",
 };
 
