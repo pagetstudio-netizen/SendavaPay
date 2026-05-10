@@ -828,26 +828,16 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
   const { toast } = useToast();
   const [amount, setAmount] = useState("");
   const [accountIdentifier, setAccountIdentifier] = useState("");
-  const [selectedWalletId, setSelectedWalletId] = useState<string>("");
   const [transferSuccess, setTransferSuccess] = useState<{ message: string; amount: number } | null>(null);
 
-  const { data: walletsData } = useQuery<{ wallets: any[]; exchanges: any[] }>({
-    queryKey: ["/api/partner/wallets"],
-  });
-  const wallets = walletsData?.wallets ?? [];
-
-  const globalBalance = parseFloat(partner?.balance || "0");
-  const selectedWallet = wallets.find((w: any) => w.id === parseInt(selectedWalletId));
-  const balance = selectedWallet ? parseFloat(selectedWallet.balance) : globalBalance;
-  const balanceLabel = selectedWallet
-    ? `${formatWalletAmount(selectedWallet.balance, selectedWallet.currency)} — ${FLAG_MAP[selectedWallet.countryCode] || "🌍"} ${selectedWallet.countryName}`
-    : `${globalBalance.toLocaleString()} FCFA (solde global)`;
-  const currencyLabel = selectedWallet ? selectedWallet.currency : "FCFA";
+  const balance = parseFloat(partner?.balance || "0");
+  const balanceLabel = `${balance.toLocaleString()} FCFA (solde global)`;
+  const currencyLabel = "FCFA";
   const numericAmount = parseFloat(amount) || 0;
   const minTransfer = 500;
 
   const transferMutation = useMutation({
-    mutationFn: async (data: { amount: number; accountIdentifier: string; walletId?: number }) => {
+    mutationFn: async (data: { amount: number; accountIdentifier: string }) => {
       const res = await apiRequest("POST", "/api/partner/transfer-to-personal", data);
       return await res.json();
     },
@@ -858,7 +848,6 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
       queryClient.invalidateQueries({ queryKey: ["/api/partner/wallets"] });
       setAmount("");
       setAccountIdentifier("");
-      setSelectedWalletId("");
     },
     onError: (error: Error) => {
       toast({ title: "Transfert échoué", description: error.message, variant: "destructive" });
@@ -879,11 +868,7 @@ function PartnerWithdrawSection({ partner }: { partner: any }) {
       toast({ title: "Identifiant requis", description: "Entrez l'email ou le téléphone de votre compte personnel.", variant: "destructive" });
       return;
     }
-    transferMutation.mutate({
-      amount: numericAmount,
-      accountIdentifier,
-      ...(selectedWallet ? { walletId: selectedWallet.id } : {}),
-    });
+    transferMutation.mutate({ amount: numericAmount, accountIdentifier });
   };
 
   if (transferSuccess) {
