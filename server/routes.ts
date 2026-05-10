@@ -3717,7 +3717,8 @@ export async function registerRoutes(
       const totalDeducted = isCoverFees ? numericAmount + fee : numericAmount;
 
       if (isCoverFees && totalDeducted > balance) {
-        return res.status(400).json({ message: `Solde insuffisant pour couvrir les frais. Il vous faut ${totalDeducted.toLocaleString("fr-FR")} XOF (montant + frais de ${fee.toLocaleString("fr-FR")} XOF).` });
+        const curr = selectedCountry.currency || "XOF";
+        return res.status(400).json({ message: `Solde insuffisant pour couvrir les frais. Il vous faut ${totalDeducted.toLocaleString("fr-FR")} ${curr} (montant + frais de ${fee.toLocaleString("fr-FR")} ${curr}).` });
       }
 
       // Helpers wallet-aware pour débit et restauration
