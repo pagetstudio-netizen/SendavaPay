@@ -250,6 +250,20 @@ export interface IStorage {
   getPartnerTransactionByReference(reference: string): Promise<PartnerTransaction | undefined>;
   getPartnerTransactions(partnerId: number): Promise<PartnerTransaction[]>;
   updatePartnerTransaction(id: number, updates: Partial<PartnerTransaction>): Promise<PartnerTransaction | undefined>;
+
+  createDefaultWallets(userId: number): Promise<Wallet[]>;
+  getUserWallets(userId: number): Promise<Wallet[]>;
+  getOrCreateWallet(userId: number, countryCode: string, countryName: string, currency: string): Promise<Wallet>;
+  creditWallet(userId: number, countryCode: string, countryName: string, currency: string, amount: string): Promise<void>;
+  debitWallet(walletId: number, amount: string): Promise<boolean>;
+  creditWalletById(walletId: number, amount: string): Promise<void>;
+  getWalletById(walletId: number): Promise<Wallet | undefined>;
+  createWalletExchange(data: { userId: number; fromWalletId: number; toWalletId: number; fromCountryCode: string; toCountryCode: string; currency: string; amount: string }): Promise<WalletExchange>;
+  getWalletExchanges(userId: number): Promise<WalletExchange[]>;
+  getAllWalletExchanges(): Promise<(WalletExchange & { user?: User })[]>;
+  getWalletExchange(id: number): Promise<(WalletExchange & { user?: User }) | undefined>;
+  approveWalletExchange(id: number, adminId: number): Promise<WalletExchange | undefined>;
+  rejectWalletExchange(id: number, adminId: number, note?: string): Promise<WalletExchange | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1213,6 +1227,37 @@ export class DatabaseStorage implements IStorage {
   async updatePartnerTransaction(id: number, updates: Partial<PartnerTransaction>): Promise<PartnerTransaction | undefined> {
     const [updated] = await getDb().update(partnerTransactions).set(updates).where(eq(partnerTransactions.id, id)).returning();
     return updated;
+  }
+
+  async createDefaultWallets(userId: number): Promise<Wallet[]> {
+    const DEFAULT_WALLETS = [
+      // Zone UEMOA (XOF)
+      { countryCode: "SN",  countryName: "Sénégal",            currency: "XOF" },
+      { countryCode: "ML",  countryName: "Mali",                currency: "XOF" },
+      { countryCode: "CI",  countryName: "Côte d'Ivoire",       currency: "XOF" },
+      { countryCode: "BF",  countryName: "Burkina Faso",        currency: "XOF" },
+      { countryCode: "BJ",  countryName: "Bénin",               currency: "XOF" },
+      { countryCode: "TG",  countryName: "Togo",                currency: "XOF" },
+      { countryCode: "NE",  countryName: "Niger",               currency: "XOF" },
+      { countryCode: "GW",  countryName: "Guinée-Bissau",       currency: "XOF" },
+      // Zone CEMAC (XAF)
+      { countryCode: "CM",  countryName: "Cameroun",            currency: "XAF" },
+      { countryCode: "COG", countryName: "Congo Brazzaville",   currency: "XAF" },
+      // CDF
+      { countryCode: "COD", countryName: "RDC",                 currency: "CDF" },
+    ];
+
+    const existing = await getDb().select().from(wallets).where(eq(wallets.userId, userId));
+    const existingCodes = new Set(existing.map(w => w.countryCode));
+
+    const toInsert = DEFAULT_WALLETS.filter(w => !existingCodes.has(w.countryCode));
+    if (toInsert.length === 0) return existing;
+
+    const created = await getDb().insert(wallets)
+      .values(toInsert.map(w => ({ userId, ...w })))
+      .returning();
+
+    return [...existing, ...created];
   }
 
   async getUserWallets(userId: number): Promise<Wallet[]> {

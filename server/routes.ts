@@ -251,7 +251,12 @@ export async function registerRoutes(
 
       req.session.userId = user.id;
       const { password: _, ...userWithoutPassword } = user;
-      
+
+      // Create default wallets for all supported countries (non-blocking)
+      storage.createDefaultWallets(user.id).catch(err =>
+        console.error("Failed to create default wallets:", err)
+      );
+
       // Send welcome email (non-blocking)
       sendWelcomeEmail(email, fullName).catch(err => 
         console.error("Failed to send welcome email:", err)
@@ -303,6 +308,11 @@ export async function registerRoutes(
           ip: req.ip || req.socket?.remoteAddress || "inconnu",
         });
       }
+
+      // Ensure all default wallets exist for this user (non-blocking, idempotent)
+      storage.createDefaultWallets(user.id).catch(err =>
+        console.error("Failed to ensure default wallets on login:", err)
+      );
 
       const { password: _, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
