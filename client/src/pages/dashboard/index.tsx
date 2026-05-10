@@ -16,7 +16,9 @@ import {
   MousePointer,
   CreditCard,
   Globe,
+  ChevronRight,
 } from "lucide-react";
+import type { Wallet as WalletType } from "@shared/schema";
 import {
   Select,
   SelectContent,
@@ -72,6 +74,22 @@ export default function DashboardPage() {
   const { data: transactions = [] } = useQuery<Transaction[]>({
     queryKey: ["/api/transactions"],
   });
+
+  const { data: walletsData } = useQuery<{ wallets: WalletType[] }>({
+    queryKey: ["/api/wallets"],
+  });
+
+  const wallets = walletsData?.wallets ?? [];
+
+  // Calcul du solde total par devise depuis les wallets
+  const walletTotals = useMemo(() => {
+    if (wallets.length === 0) return null;
+    const totals: Record<string, number> = {};
+    for (const w of wallets) {
+      totals[w.currency] = (totals[w.currency] || 0) + parseFloat(w.balance);
+    }
+    return Object.entries(totals).map(([currency, total]) => ({ currency, total }));
+  }, [wallets]);
 
   const stats = useMemo(() => {
     const activeLinks = paymentLinks.filter(l => l.isActive).length;
@@ -215,14 +233,36 @@ export default function DashboardPage() {
         <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm opacity-80">Solde disponible</p>
-                <p className="text-3xl md:text-4xl font-bold mt-1" data-testid="text-balance">
-                  {formatCurrency(user?.balance || 0)} XOF
-                </p>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm opacity-80">Solde total des portefeuilles</p>
+                {walletTotals ? (
+                  <>
+                    <p className="text-3xl md:text-4xl font-bold mt-1" data-testid="text-balance">
+                      {formatCurrency(walletTotals[0].total)} {walletTotals[0].currency}
+                    </p>
+                    {walletTotals.slice(1).map(({ currency, total }) => (
+                      <p key={currency} className="text-base font-semibold opacity-80 mt-0.5">
+                        + {formatCurrency(total)} {currency}
+                      </p>
+                    ))}
+                  </>
+                ) : (
+                  <p className="text-3xl md:text-4xl font-bold mt-1" data-testid="text-balance">
+                    {formatCurrency(user?.balance || 0)} XOF
+                  </p>
+                )}
               </div>
-              <div className="h-16 w-16 rounded-full bg-white/20 flex items-center justify-center">
-                <Wallet className="h-8 w-8" />
+              <div className="flex flex-col items-center gap-2 ml-4">
+                <div className="h-16 w-16 rounded-full bg-white/20 flex items-center justify-center">
+                  <Wallet className="h-8 w-8" />
+                </div>
+                {walletTotals && wallets.length > 0 && (
+                  <Link href="/dashboard/wallets">
+                    <span className="text-xs opacity-70 hover:opacity-100 flex items-center gap-0.5 whitespace-nowrap cursor-pointer">
+                      {wallets.length} portefeuille{wallets.length > 1 ? "s" : ""} <ChevronRight className="h-3 w-3" />
+                    </span>
+                  </Link>
+                )}
               </div>
             </div>
           </CardContent>
