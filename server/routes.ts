@@ -411,12 +411,43 @@ export async function registerRoutes(
     }
   });
 
-  // Admin: list all wallet exchanges
+  // Admin: list all wallet exchanges (users + partners)
   app.get("/api/admin/wallet-exchanges", requireAuth, requireAdmin, async (req, res) => {
     try {
       const { status } = req.query;
-      const exchanges = await storage.getAllWalletExchanges({ status: status as string });
-      res.json(exchanges);
+      const [userExchanges, partnerExchanges] = await Promise.all([
+        storage.getAllWalletExchanges({ status: status as string }),
+        storage.getAllPartnerWalletExchanges(),
+      ]);
+
+      const partnerMapped = (status && status !== "all" && status !== "approved")
+        ? [] // partner exchanges are always approved (instant)
+        : partnerExchanges.map(e => ({
+            id: e.id,
+            userId: null,
+            fromWalletId: e.fromWalletId,
+            toWalletId: e.toWalletId,
+            fromCountryCode: e.fromCountryCode,
+            toCountryCode: e.toCountryCode,
+            currency: e.currency,
+            amount: e.amount,
+            fee: "0",
+            status: "approved",
+            adminNote: null,
+            reviewedBy: null,
+            reviewedAt: null,
+            createdAt: e.createdAt,
+            isPartner: true,
+            partner: e.partner,
+            user: undefined,
+          }));
+
+      const merged = [
+        ...userExchanges.map(e => ({ ...e, isPartner: false })),
+        ...partnerMapped,
+      ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      res.json(merged);
     } catch (error) {
       console.error("Admin get wallet exchanges error:", error);
       res.status(500).json({ message: "Erreur serveur" });

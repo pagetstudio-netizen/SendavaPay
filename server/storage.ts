@@ -264,6 +264,7 @@ export interface IStorage {
   getWalletExchange(id: number): Promise<(WalletExchange & { user?: User }) | undefined>;
   approveWalletExchange(id: number, adminId: number): Promise<WalletExchange | undefined>;
   rejectWalletExchange(id: number, adminId: number, note?: string): Promise<WalletExchange | undefined>;
+  getAllPartnerWalletExchanges(): Promise<(PartnerWalletExchange & { partner?: Partner })[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1406,6 +1407,13 @@ export class DatabaseStorage implements IStorage {
   async createPartnerWalletExchange(data: { partnerId: number; fromWalletId: number; toWalletId: number; fromCountryCode: string; toCountryCode: string; currency: string; amount: string }): Promise<PartnerWalletExchange> {
     const [created] = await getDb().insert(partnerWalletExchanges).values(data).returning();
     return created;
+  }
+
+  async getAllPartnerWalletExchanges(): Promise<(PartnerWalletExchange & { partner?: Partner })[]> {
+    const rows = await getDb().select().from(partnerWalletExchanges)
+      .leftJoin(partners, eq(partnerWalletExchanges.partnerId, partners.id))
+      .orderBy(desc(partnerWalletExchanges.createdAt));
+    return rows.map(r => ({ ...r.partner_wallet_exchanges, partner: r.partners || undefined }));
   }
 
   async getPartnerWalletExchanges(partnerId: number): Promise<PartnerWalletExchange[]> {

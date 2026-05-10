@@ -412,6 +412,31 @@ export async function notifyDailyReport(stats: {
   return sendTelegramMessage(msg);
 }
 
+export function notifyPartnerWalletExchange(data: {
+  partnerName: string;
+  partnerId: number;
+  fromCountry: string;
+  toCountry: string;
+  currency: string;
+  amount: string;
+  exchangeId: number;
+}) {
+  const msg =
+    `<b>🔄 ÉCHANGE WALLET PARTENAIRE</b>\n\n` +
+    `<b>Partenaire:</b> ${data.partnerName} (#${data.partnerId})\n` +
+    `<b>De:</b> ${data.fromCountry}\n` +
+    `<b>Vers:</b> ${data.toCountry}\n` +
+    `<b>Devise:</b> ${data.currency}\n` +
+    `<b>Montant:</b> ${formatAmount(data.amount)} ${data.currency}\n` +
+    `<b>ID Échange:</b> #${data.exchangeId}\n` +
+    `<b>Date:</b> ${formatDate()}\n\n` +
+    `✅ Échange effectué instantanément.`;
+
+  sendTelegramMessage(msg).catch(err =>
+    console.error("[Telegram] Partner wallet exchange notification error:", err)
+  );
+}
+
 export function notifyWalletExchangeRequest(data: {
   userName: string;
   userId: number;
