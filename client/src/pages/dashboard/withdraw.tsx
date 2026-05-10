@@ -165,7 +165,6 @@ export default function WithdrawPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/user"] });
       queryClient.invalidateQueries({ queryKey: ["/api/wallets"] });
       setAmount("");
-      setWalletName("");
     },
     onError: (error: Error) => {
       toast({
