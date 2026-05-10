@@ -225,6 +225,23 @@ async function initializeWithTimeout<T>(
         20000,
         "OmniPay services"
       );
+
+      // Backfill default wallets for all existing users (idempotent)
+      initializeWithTimeout(
+        (async () => {
+          const allUsers = await storage.getAllUsers();
+          const nonAdmins = allUsers.filter(u => u.role !== "admin");
+          let created = 0;
+          for (const u of nonAdmins) {
+            const wallets = await storage.createDefaultWallets(u.id);
+            created += wallets.length;
+          }
+          log(`Default wallets backfill: ${nonAdmins.length} users processed`, "init");
+        })(),
+        60000,
+        "Wallet backfill"
+      ).catch(err => log(`Wallet backfill error: ${err}`, "init"));
+
     } else {
       log("Database connection failed or timed out, starting background reconnection...", "init");
     }
