@@ -68,7 +68,6 @@ interface WithdrawalRequest {
   paymentMethod: string;
   mobileNumber: string;
   country: string;
-  walletName: string | null;
   status: "pending" | "approved" | "rejected";
   rejectionReason: string | null;
   createdAt: string;
@@ -90,7 +89,6 @@ export default function WithdrawPage() {
   const [country, setCountry] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [mobileNumber, setMobileNumber] = useState("");
-  const [walletName, setWalletName] = useState("");
   const [coverFees, setCoverFees] = useState(false);
 
   const { data: walletsData } = useQuery<{ wallets: WalletType[] }>({
@@ -154,7 +152,7 @@ export default function WithdrawPage() {
   const minWithdrawal = 200;
 
   const withdrawMutation = useMutation({
-    mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string; country: string; walletName: string; coverFees: boolean; walletId?: number }) => {
+    mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string; country: string; coverFees: boolean; walletId?: number }) => {
       const res = await apiRequest("POST", "/api/withdraw", data);
       return await res.json();
     },
@@ -222,7 +220,6 @@ export default function WithdrawPage() {
       paymentMethod,
       mobileNumber: (phonePrefix + mobileNumber).replace(/\s/g, ""),
       country,
-      walletName,
       coverFees,
       walletId: selectedWalletId ?? undefined,
     });
@@ -482,21 +479,6 @@ export default function WithdrawPage() {
                     data-testid="input-withdraw-mobile"
                   />
                 </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="walletName" className="flex items-center gap-2">
-                  <Wallet className="h-4 w-4" />
-                  Nom du bénéficiaire (optionnel)
-                </Label>
-                <Input
-                  id="walletName"
-                  type="text"
-                  placeholder="Ex: Jean Dupont"
-                  value={walletName}
-                  onChange={(e) => setWalletName(e.target.value)}
-                  data-testid="input-wallet-name"
-                />
               </div>
 
               <Button
