@@ -68,7 +68,6 @@ const operatorLogos: Record<string, string> = {
   "Wave": waveLogo,
 };
 
-const quickAmounts = [5000, 10000, 25000, 50000, 100000];
 
 function getMbiyoUssdCode(countryCode: string, amount?: number): string {
   const codes: Record<string, string> = {
@@ -499,20 +498,6 @@ export default function DepositPage() {
                   min="100"
                   data-testid="input-deposit-amount"
                 />
-                <div className="flex flex-wrap gap-2">
-                  {quickAmounts.map((qa) => (
-                    <Button
-                      key={qa}
-                      type="button"
-                      variant={numericAmount === qa ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setAmount(qa.toString())}
-                      data-testid={`button-quick-amount-${qa}`}
-                    >
-                      {qa.toLocaleString()} {currency}
-                    </Button>
-                  ))}
-                </div>
               </div>
 
               {numericAmount > 0 && (
