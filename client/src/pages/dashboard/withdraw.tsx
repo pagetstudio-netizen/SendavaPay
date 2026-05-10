@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -20,11 +20,20 @@ import tmoneyLogo from "@assets/images_(1)_1769443862863.png";
 import airtelLogo from "@assets/Airtel_logo-01_1769443862893.png";
 import vodacomLogo from "@assets/vodacom_1769443862923.png";
 import waveLogo from "@assets/images_(16)_1772485816419.jpeg";
+import type { Wallet as WalletType } from "@shared/schema";
 
 const COUNTRY_PREFIXES: Record<string, string> = {
   CI: "+225", BJ: "+229", TG: "+228", BF: "+226",
   SN: "+221", CM: "+237", ML: "+223", GN: "+224",
   COG: "+242", COD: "+243",
+};
+
+// Map currency → country codes eligible to receive that currency
+const CURRENCY_COUNTRY_CODES: Record<string, string[]> = {
+  XOF: ["SN", "ML", "CI", "BF", "BJ", "TG", "NE", "GW"],
+  XAF: ["CM", "CG", "GA", "CF", "TD", "GQ"],
+  CDF: ["COD"],
+  GNF: ["GN"],
 };
 
 interface WithdrawOperator {
@@ -76,6 +85,7 @@ const statusConfig: Record<string, { label: string; icon: typeof Clock; color: s
 export default function WithdrawPage() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [selectedWalletId, setSelectedWalletId] = useState<number | null>(null);
   const [amount, setAmount] = useState("");
   const [country, setCountry] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
@@ -83,7 +93,12 @@ export default function WithdrawPage() {
   const [walletName, setWalletName] = useState("");
   const [coverFees, setCoverFees] = useState(false);
 
-  const { data: countries = [], isLoading: countriesLoading } = useQuery<WithdrawCountry[]>({
+  const { data: walletsData } = useQuery<{ wallets: WalletType[] }>({
+    queryKey: ["/api/wallets"],
+  });
+  const wallets = walletsData?.wallets ?? [];
+
+  const { data: allCountries = [], isLoading: countriesLoading } = useQuery<WithdrawCountry[]>({
     queryKey: ["/api/withdraw/operators"],
   });
 
@@ -91,11 +106,34 @@ export default function WithdrawPage() {
     queryKey: ["/api/withdrawal-requests"],
   });
 
-  const selectedCountry = countries.find(c => c.id === country);
-  const availableMethods = selectedCountry?.methods || [];
+  // Auto-select first wallet
+  useEffect(() => {
+    if (wallets.length > 0 && !selectedWalletId) {
+      setSelectedWalletId(wallets[0].id);
+    }
+  }, [wallets, selectedWalletId]);
+
+  const selectedWallet = wallets.find(w => w.id === selectedWalletId) ?? null;
+
+  // Filter countries to those matching the selected wallet's currency
+  const countries = useMemo(() => {
+    if (!selectedWallet) return allCountries;
+    const allowed = CURRENCY_COUNTRY_CODES[selectedWallet.currency] ?? [];
+    if (allowed.length === 0) return allCountries;
+    return allCountries.filter(c => allowed.includes(c.id.toUpperCase()));
+  }, [allCountries, selectedWallet]);
+
+  // Reset country+operator when wallet changes (currency zone changes)
+  useEffect(() => {
+    setCountry("");
+    setPaymentMethod("");
+    setMobileNumber("");
+  }, [selectedWalletId]);
+
+  const selectedCountryObj = countries.find(c => c.id === country);
+  const availableMethods = selectedCountryObj?.methods || [];
   const phonePrefix = COUNTRY_PREFIXES[country.toUpperCase()] || "";
 
-  // Reset payment method and phone when country changes
   useEffect(() => {
     setPaymentMethod("");
     setMobileNumber("");
@@ -106,16 +144,17 @@ export default function WithdrawPage() {
   });
   const countryFeeData = publicFees?.countries.find(c => c.code === country.toUpperCase());
   const commissionRate = countryFeeData?.withdrawFee ?? publicFees?.global?.withdrawFee ?? 7;
-  const balance = parseFloat(user?.balance || "0");
+
+  const balance = selectedWallet ? parseFloat(selectedWallet.balance) : parseFloat(user?.balance || "0");
+  const currency = selectedWallet?.currency || "XOF";
   const numericAmount = parseFloat(amount) || 0;
   const fee = Math.round(numericAmount * (commissionRate / 100));
-  // Mode "Je supporte les frais" : le destinataire reçoit le montant complet
   const netAmount = coverFees ? numericAmount : numericAmount - fee;
   const totalDeducted = coverFees ? numericAmount + fee : numericAmount;
   const minWithdrawal = 200;
 
   const withdrawMutation = useMutation({
-    mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string; country: string; walletName: string; coverFees: boolean }) => {
+    mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string; country: string; walletName: string; coverFees: boolean; walletId?: number }) => {
       const res = await apiRequest("POST", "/api/withdraw", data);
       return await res.json();
     },
@@ -126,6 +165,7 @@ export default function WithdrawPage() {
       });
       queryClient.invalidateQueries({ queryKey: ["/api/withdrawal-requests"] });
       queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/wallets"] });
       setAmount("");
       setWalletName("");
     },
@@ -140,22 +180,19 @@ export default function WithdrawPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!user?.isVerified) {
-      toast({
-        title: "Compte non vérifié",
-        description: "Veuillez vérifier votre compte pour effectuer des retraits.",
-        variant: "destructive",
-      });
+      toast({ title: "Compte non vérifié", description: "Veuillez vérifier votre compte pour effectuer des retraits.", variant: "destructive" });
+      return;
+    }
+
+    if (!selectedWalletId) {
+      toast({ title: "Portefeuille requis", description: "Veuillez sélectionner un portefeuille.", variant: "destructive" });
       return;
     }
 
     if (numericAmount < minWithdrawal) {
-      toast({
-        title: "Montant insuffisant",
-        description: `Le montant minimum de retrait est de ${minWithdrawal} XOF.`,
-        variant: "destructive",
-      });
+      toast({ title: "Montant insuffisant", description: `Le montant minimum de retrait est de ${minWithdrawal} ${currency}.`, variant: "destructive" });
       return;
     }
 
@@ -163,28 +200,20 @@ export default function WithdrawPage() {
       toast({
         title: "Solde insuffisant",
         description: coverFees
-          ? `Il vous faut ${totalDeducted.toLocaleString()} XOF (montant + frais de ${fee.toLocaleString()} XOF).`
-          : "Vous n'avez pas assez de fonds pour ce retrait.",
+          ? `Il vous faut ${totalDeducted.toLocaleString("fr-FR")} ${currency} (montant + frais de ${fee.toLocaleString("fr-FR")} ${currency}).`
+          : "Vous n'avez pas assez de fonds dans ce portefeuille.",
         variant: "destructive",
       });
       return;
     }
 
     if (!country) {
-      toast({
-        title: "Pays requis",
-        description: "Veuillez sélectionner un pays.",
-        variant: "destructive",
-      });
+      toast({ title: "Pays requis", description: "Veuillez sélectionner un pays.", variant: "destructive" });
       return;
     }
 
     if (!paymentMethod) {
-      toast({
-        title: "Moyen de paiement requis",
-        description: "Veuillez sélectionner un moyen de paiement.",
-        variant: "destructive",
-      });
+      toast({ title: "Moyen de paiement requis", description: "Veuillez sélectionner un moyen de paiement.", variant: "destructive" });
       return;
     }
 
@@ -195,6 +224,7 @@ export default function WithdrawPage() {
       country,
       walletName,
       coverFees,
+      walletId: selectedWalletId ?? undefined,
     });
   };
 
@@ -202,53 +232,36 @@ export default function WithdrawPage() {
     setAmount(Math.floor(balance).toString());
   };
 
-  const formatCurrency = (amount: string | number) => {
+  const formatAmount = (amount: string | number, curr?: string) => {
     const num = typeof amount === "string" ? parseFloat(amount) : amount;
-    return new Intl.NumberFormat("fr-FR").format(num) + " XOF";
+    return new Intl.NumberFormat("fr-FR").format(num) + " " + (curr || currency);
   };
 
   const formatDate = (date: string) => {
     return new Intl.DateTimeFormat("fr-FR", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
+      day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
     }).format(new Date(date));
   };
-
 
   if (!user?.isVerified) {
     return (
       <DashboardLayout>
         <div className="max-w-2xl mx-auto space-y-6">
           <div className="flex items-center gap-4">
-            <Link href="/dashboard">
-              <Button variant="ghost" size="icon">
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-            </Link>
+            <Link href="/dashboard"><Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button></Link>
             <div>
               <h1 className="text-2xl font-bold">Retrait</h1>
               <p className="text-muted-foreground">Retirez de l'argent vers votre Mobile Money</p>
             </div>
           </div>
-
           <Card className="border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950/30">
             <CardContent className="p-8 text-center">
               <Shield className="h-16 w-16 mx-auto mb-4 text-orange-500" />
-              <h2 className="text-xl font-semibold text-orange-800 dark:text-orange-200 mb-2">
-                Compte non vérifié
-              </h2>
+              <h2 className="text-xl font-semibold text-orange-800 dark:text-orange-200 mb-2">Compte non vérifié</h2>
               <p className="text-orange-600 dark:text-orange-300 mb-6 max-w-md mx-auto">
-                Votre compte n'est pas encore vérifié. Veuillez vérifier votre compte afin d'utiliser 
-                nos services de paiement sécurisés. Un compte non vérifié ne peut pas effectuer de retraits.
+                Votre compte n'est pas encore vérifié. Veuillez vérifier votre compte afin d'utiliser nos services de paiement sécurisés.
               </p>
-              <Link href="/dashboard/kyc">
-                <Button data-testid="button-verify-now">
-                  Vérifier mon compte
-                </Button>
-              </Link>
+              <Link href="/dashboard/kyc"><Button data-testid="button-verify-now">Vérifier mon compte</Button></Link>
             </CardContent>
           </Card>
         </div>
@@ -260,22 +273,59 @@ export default function WithdrawPage() {
     <DashboardLayout>
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="flex items-center gap-4">
-          <Link href="/dashboard">
-            <Button variant="ghost" size="icon">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
+          <Link href="/dashboard"><Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button></Link>
           <div>
             <h1 className="text-2xl font-bold">Retrait</h1>
             <p className="text-muted-foreground">Demandez un retrait vers votre Mobile Money</p>
           </div>
         </div>
 
+        {/* Wallet Selector */}
+        {wallets.length > 0 && (
+          <div className="space-y-3">
+            <Label className="flex items-center gap-2 text-base font-semibold">
+              <Wallet className="h-4 w-4" />
+              Sélectionnez le portefeuille à débiter
+            </Label>
+            <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(wallets.length, 2)}, 1fr)` }}>
+              {wallets.map((w) => {
+                const isSelected = selectedWalletId === w.id;
+                return (
+                  <button
+                    key={w.id}
+                    type="button"
+                    onClick={() => setSelectedWalletId(w.id)}
+                    data-testid={`button-wallet-${w.id}`}
+                    className={`text-left rounded-xl border-2 p-4 transition-all ${
+                      isSelected
+                        ? "border-primary bg-primary/5"
+                        : "border-border bg-muted/30 hover:border-primary/40"
+                    }`}
+                  >
+                    <p className="text-xs font-medium text-muted-foreground">{w.countryName}</p>
+                    <p className="text-lg font-bold mt-0.5">
+                      {new Intl.NumberFormat("fr-FR").format(parseFloat(w.balance))} {w.currency}
+                    </p>
+                    {isSelected && (
+                      <span className="inline-flex items-center gap-1 text-xs text-primary font-semibold mt-1">
+                        <Check className="h-3 w-3" /> Sélectionné
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Balance card */}
         <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground">
           <CardContent className="p-6">
-            <p className="text-sm opacity-80">Solde disponible</p>
+            <p className="text-sm opacity-80">
+              {selectedWallet ? `Solde — ${selectedWallet.countryName}` : "Solde disponible"}
+            </p>
             <p className="text-3xl font-bold mt-1" data-testid="text-available-balance">
-              {balance.toLocaleString()} XOF
+              {new Intl.NumberFormat("fr-FR").format(balance)} {currency}
             </p>
           </CardContent>
         </Card>
@@ -284,16 +334,24 @@ export default function WithdrawPage() {
           <CardHeader>
             <CardTitle>Nouvelle demande de retrait</CardTitle>
             <CardDescription>
-              Minimum: {minWithdrawal.toLocaleString()} XOF. Les retraits sont traités instantanément.
+              Minimum: {minWithdrawal.toLocaleString("fr-FR")} {currency}. Les retraits sont traités instantanément.
+              {selectedWallet && (
+                <span className="block mt-1 text-primary">
+                  Portefeuille sélectionné : {selectedWallet.countryName} ({selectedWallet.currency})
+                  {Object.keys(CURRENCY_COUNTRY_CODES).includes(selectedWallet.currency)
+                    ? " — pays compatibles affichés uniquement"
+                    : ""}
+                </span>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="amount">Montant (XOF)</Label>
+                  <Label htmlFor="amount">Montant ({currency})</Label>
                   <Button type="button" variant="ghost" size="sm" onClick={handleMaxAmount}>
-                    Max: {balance.toLocaleString()} XOF
+                    Max: {new Intl.NumberFormat("fr-FR").format(Math.floor(balance))} {currency}
                   </Button>
                 </div>
                 <Input
@@ -314,40 +372,30 @@ export default function WithdrawPage() {
                   <CardContent className="p-4 space-y-2">
                     <div className="flex justify-between text-sm">
                       <span>Montant demandé</span>
-                      <span>{numericAmount.toLocaleString()} XOF</span>
+                      <span>{numericAmount.toLocaleString("fr-FR")} {currency}</span>
                     </div>
                     <div className="flex justify-between text-sm text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Info className="h-3 w-3" />
-                        Frais ({commissionRate}%)
-                      </span>
-                      <span className={coverFees ? "text-orange-600" : ""}>
-                        {coverFees ? "+" : "-"}{fee.toLocaleString()} XOF
-                      </span>
+                      <span className="flex items-center gap-1"><Info className="h-3 w-3" />Frais ({commissionRate}%)</span>
+                      <span className={coverFees ? "text-orange-600" : ""}>{coverFees ? "+" : "-"}{fee.toLocaleString("fr-FR")} {currency}</span>
                     </div>
                     {coverFees && (
                       <div className="flex justify-between text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <Info className="h-3 w-3" />
-                          Total débité de votre compte
-                        </span>
-                        <span className="font-medium text-orange-600">{totalDeducted.toLocaleString()} XOF</span>
+                        <span className="flex items-center gap-1"><Info className="h-3 w-3" />Total débité de votre portefeuille</span>
+                        <span className="font-medium text-orange-600">{totalDeducted.toLocaleString("fr-FR")} {currency}</span>
                       </div>
                     )}
                     <div className="flex justify-between font-semibold pt-2 border-t">
                       <span>Destinataire reçoit</span>
-                      <span className="text-green-600">{netAmount.toLocaleString()} XOF</span>
+                      <span className="text-green-600">{netAmount.toLocaleString("fr-FR")} {currency}</span>
                     </div>
                   </CardContent>
                 </Card>
               )}
 
-              {/* Case à cocher "Je supporte les frais" */}
+              {/* Je supporte les frais */}
               <div
                 className={`flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all select-none ${
-                  coverFees
-                    ? "border-primary bg-primary/5"
-                    : "border-border bg-muted/30 hover:border-primary/50"
+                  coverFees ? "border-primary bg-primary/5" : "border-border bg-muted/30 hover:border-primary/50"
                 }`}
                 onClick={() => setCoverFees(prev => !prev)}
                 data-testid="checkbox-cover-fees"
@@ -364,9 +412,8 @@ export default function WithdrawPage() {
                   </span>
                   <p className="text-xs text-muted-foreground mt-1">
                     {coverFees && numericAmount > 0
-                      ? `Le destinataire recevra ${numericAmount.toLocaleString()} XOF. Les frais de ${fee.toLocaleString()} XOF seront prélevés en plus sur votre solde (total : ${totalDeducted.toLocaleString()} XOF).`
-                      : "Le destinataire recevra le montant complet. Les frais seront prélevés en supplément sur votre solde."
-                    }
+                      ? `Le destinataire recevra ${numericAmount.toLocaleString("fr-FR")} ${currency}. Les frais de ${fee.toLocaleString("fr-FR")} ${currency} seront prélevés en plus sur votre portefeuille (total : ${totalDeducted.toLocaleString("fr-FR")} ${currency}).`
+                      : "Le destinataire recevra le montant complet. Les frais seront prélevés en supplément sur votre portefeuille."}
                   </p>
                 </div>
               </div>
@@ -377,7 +424,7 @@ export default function WithdrawPage() {
                   options={countries.map(c => ({ value: c.id, label: c.name }))}
                   value={country}
                   onChange={(val) => { setCountry(val); setPaymentMethod(""); }}
-                  placeholder="Sélectionnez un pays"
+                  placeholder={countriesLoading ? "Chargement..." : "Sélectionnez un pays"}
                   data-testid="select-country"
                 />
               </div>
@@ -385,26 +432,19 @@ export default function WithdrawPage() {
               {availableMethods.length > 0 && (
                 <div className="space-y-4">
                   <Label>Moyen de paiement</Label>
-                  <RadioGroup 
-                    value={paymentMethod} 
+                  <RadioGroup
+                    value={paymentMethod}
                     onValueChange={(val) => {
                       const method = availableMethods.find(m => m.id === val);
-                      if (!method?.inMaintenance) {
-                        setPaymentMethod(val);
-                      }
-                    }} 
+                      if (!method?.inMaintenance) setPaymentMethod(val);
+                    }}
                     className="grid grid-cols-2 md:grid-cols-3 gap-4"
                   >
                     {availableMethods.map((method) => {
                       const logoKey = method.name.toLowerCase().replace(/\s+/g, "").replace("-", "");
                       return (
                         <div key={method.id} className="relative">
-                          <RadioGroupItem
-                            value={method.id}
-                            id={`withdraw-${method.id}`}
-                            className="peer sr-only"
-                            disabled={method.inMaintenance}
-                          />
+                          <RadioGroupItem value={method.id} id={`withdraw-${method.id}`} className="peer sr-only" disabled={method.inMaintenance} />
                           <Label
                             htmlFor={`withdraw-${method.id}`}
                             className={`flex flex-col items-center gap-2 rounded-lg border-2 p-4 transition-all ${
@@ -413,15 +453,9 @@ export default function WithdrawPage() {
                                 : "cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5"
                             }`}
                           >
-                            <img 
-                              src={methodLogos[logoKey] || methodLogos[method.name.toLowerCase()] || moovLogo} 
-                              alt={method.name} 
-                              className="h-12 w-12 object-contain rounded-full" 
-                            />
+                            <img src={methodLogos[logoKey] || methodLogos[method.name.toLowerCase()] || moovLogo} alt={method.name} className="h-12 w-12 object-contain rounded-full" />
                             <span className="text-xs font-medium text-center">{method.name}</span>
-                            {method.inMaintenance && (
-                              <span className="text-xs text-orange-600 font-medium">En maintenance</span>
-                            )}
+                            {method.inMaintenance && <span className="text-xs text-orange-600 font-medium">En maintenance</span>}
                           </Label>
                         </div>
                       );
@@ -453,35 +487,36 @@ export default function WithdrawPage() {
               <div className="space-y-2">
                 <Label htmlFor="walletName" className="flex items-center gap-2">
                   <Wallet className="h-4 w-4" />
-                  Nom du portefeuille (optionnel)
+                  Nom du bénéficiaire (optionnel)
                 </Label>
                 <Input
                   id="walletName"
                   type="text"
-                  placeholder="Ex: Mon portefeuille principal"
+                  placeholder="Ex: Jean Dupont"
                   value={walletName}
                   onChange={(e) => setWalletName(e.target.value)}
                   data-testid="input-wallet-name"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Un nom pour identifier ce portefeuille dans vos demandes
-                </p>
               </div>
 
               <Button
                 type="submit"
                 className="w-full"
                 size="lg"
-                disabled={withdrawMutation.isPending || numericAmount < minWithdrawal || totalDeducted > balance || !country || !paymentMethod}
+                disabled={
+                  withdrawMutation.isPending ||
+                  !selectedWalletId ||
+                  numericAmount < minWithdrawal ||
+                  totalDeducted > balance ||
+                  !country ||
+                  !paymentMethod
+                }
                 data-testid="button-withdraw-submit"
               >
                 {withdrawMutation.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Envoi...
-                  </>
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Envoi...</>
                 ) : (
-                  `Demander le retrait${numericAmount > 0 ? ` de ${numericAmount.toLocaleString()} XOF` : ""}`
+                  `Demander le retrait${numericAmount > 0 ? ` de ${numericAmount.toLocaleString("fr-FR")} ${currency}` : ""}`
                 )}
               </Button>
             </form>
@@ -502,33 +537,27 @@ export default function WithdrawPage() {
                   withdrawalRequests.map((request) => {
                     const status = statusConfig[request.status] || { label: request.status, icon: Clock, color: "text-gray-600 bg-gray-100 dark:bg-gray-900/30" };
                     const StatusIcon = status.icon;
-                    const countryName = countries.find(c => c.id === request.country)?.name || request.country;
-                    
+                    const countryName = allCountries.find(c => c.id === request.country)?.name || request.country;
+
                     return (
                       <div key={request.id} className="flex items-start justify-between p-4 rounded-lg bg-muted/30">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2">
-                            <span className="font-semibold">{formatCurrency(request.amount)}</span>
+                            <span className="font-semibold">{formatAmount(request.amount, "XOF")}</span>
                             <Badge className={status.color}>
                               <StatusIcon className="h-3 w-3 mr-1" />
                               {status.label}
                             </Badge>
                           </div>
-                          <p className="text-sm text-muted-foreground">
-                            {request.paymentMethod.toUpperCase()} - {request.mobileNumber}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {countryName} • {formatDate(request.createdAt)}
-                          </p>
+                          <p className="text-sm text-muted-foreground">{request.paymentMethod.toUpperCase()} - {request.mobileNumber}</p>
+                          <p className="text-xs text-muted-foreground">{countryName} • {formatDate(request.createdAt)}</p>
                           {request.rejectionReason && (
-                            <p className="text-sm text-red-600 mt-2">
-                              Raison: {request.rejectionReason}
-                            </p>
+                            <p className="text-sm text-red-600 mt-2">Raison: {request.rejectionReason}</p>
                           )}
                         </div>
                         <div className="text-right">
                           <p className="text-sm text-muted-foreground">Vous recevez</p>
-                          <p className="font-semibold text-green-600">{formatCurrency(request.netAmount)}</p>
+                          <p className="font-semibold text-green-600">{formatAmount(request.netAmount, "XOF")}</p>
                         </div>
                       </div>
                     );

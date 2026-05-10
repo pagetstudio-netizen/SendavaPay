@@ -1242,6 +1242,12 @@ export class DatabaseStorage implements IStorage {
     return true;
   }
 
+  async creditWalletById(walletId: number, amount: string): Promise<void> {
+    await getDb().update(wallets)
+      .set({ balance: sql`${wallets.balance} + ${amount}::decimal`, updatedAt: new Date() })
+      .where(eq(wallets.id, walletId));
+  }
+
   async getWalletById(walletId: number): Promise<Wallet | undefined> {
     const [wallet] = await getDb().select().from(wallets).where(eq(wallets.id, walletId));
     return wallet;
