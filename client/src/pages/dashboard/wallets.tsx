@@ -35,6 +35,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import type { Wallet as WalletType, WalletExchange } from "@shared/schema";
+import walletIcon from "@assets/6360759_(1)_1778446078347.png";
 
 const FLAG_MAP: Record<string, string> = {
   CI: "🇨🇮", BJ: "🇧🇯", TG: "🇹🇬", BF: "🇧🇫", SN: "🇸🇳",
@@ -330,11 +331,11 @@ export default function WalletsPage() {
                       <CardContent className="p-5">
                         <div className="flex items-start justify-between">
                           <div className="flex items-center gap-3">
-                            <div className={`w-12 h-12 rounded-full ${colors2.bg} flex items-center justify-center text-2xl border ${colors2.border}`}>
-                              {flag}
+                            <div className={`w-12 h-12 rounded-full ${colors2.bg} flex items-center justify-center border ${colors2.border} overflow-hidden`}>
+                              <img src={walletIcon} alt="wallet" className="w-8 h-8 object-contain" />
                             </div>
                             <div>
-                              <p className="font-semibold text-sm">{wallet.countryName}</p>
+                              <p className="font-semibold text-sm">{wallet.countryName} {flag}</p>
                               <p className="text-xs text-muted-foreground">{wallet.currency} · {wallet.countryCode}</p>
                             </div>
                           </div>
