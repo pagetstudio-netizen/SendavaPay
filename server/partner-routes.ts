@@ -971,7 +971,7 @@ export function registerPartnerRoutes(app: Express) {
         const currency = txCurrency || getMbiyoCurrency(countryUpper);
         const cleanPhone = formatPhoneForMbiyo(phone, countryUpper);
         const baseUrl = process.env.BASE_URL || "https://sendavapay.com";
-        const mbAutoOtp = (body.otp as string | undefined) || undefined;
+        const mbAutoOtp = (req.body.otp as string | undefined) || undefined;
 
         await storage.createPartnerTransaction({
           partnerId: partner.id,
@@ -1829,21 +1829,22 @@ export function registerPartnerRoutes(app: Express) {
 
       if (paymentGateway === "paxity") {
         const { paxity: paxityClient, getPaxityMethodCode, getPaxityPhonePrefix, getPaxityCurrency, formatPhoneForPaxity, isPaxityQRMethod, isPaxityOTPMethod } = await import("./paxity");
-        const methodCode = getPaxityMethodCode(service.operator, countryCode);
+        const svcCountry = service.countryCode || "";
+        const methodCode = getPaxityMethodCode(service.operator, svcCountry);
         if (!methodCode) {
           return res.status(400).json({ message: `Opérateur '${service.operator}' non supporté par Paxity` });
         }
         const isQR = isPaxityQRMethod(methodCode);
         const isOTP = isPaxityOTPMethod(methodCode);
-        const prefix = getPaxityPhonePrefix(countryCode);
-        const currency = service.currency || getPaxityCurrency(countryCode);
-        const cleanPhone = isQR ? "" : formatPhoneForPaxity(phoneNumber, countryCode);
+        const prefix = getPaxityPhonePrefix(svcCountry);
+        const currency = service.currency || getPaxityCurrency(svcCountry);
+        const cleanPhone = isQR ? "" : formatPhoneForPaxity(phoneNumber, svcCountry);
         const paxityOtp = isOTP ? String(Math.floor(100000 + Math.random() * 900000)) : "";
         const orderId = `PDEP-PAX-${Date.now()}-P${req.session.partnerId}`;
 
         const paxResult = await paxityClient.createPayin({
           amount: numericAmount,
-          country: countryCode,
+          country: svcCountry,
           currency,
           phoneNumber: cleanPhone,
           prefixPhone: prefix,
@@ -1945,6 +1946,73 @@ export function registerPartnerRoutes(app: Express) {
 
   // ========== PARTNER WITHDRAWAL ROUTES ==========
 
+  // ========== PARTNER WALLET ROUTES ==========
+
+  app.get("/api/partner/wallets", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      const partnerId = req.session.partnerId!;
+      const [wallets, exchanges] = await Promise.all([
+        storage.getPartnerWallets(partnerId),
+        storage.getPartnerWalletExchanges(partnerId),
+      ]);
+      res.json({ wallets, exchanges });
+    } catch (error) {
+      console.error("Partner wallets error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/partner/wallets/exchange", requirePartnerAuth, async (req: Request, res: Response) => {
+    try {
+      const partnerId = req.session.partnerId!;
+      const { fromWalletId, toWalletId, amount } = req.body;
+
+      if (!fromWalletId || !toWalletId || !amount) {
+        return res.status(400).json({ message: "Paramètres manquants" });
+      }
+      const numAmount = parseFloat(amount);
+      if (isNaN(numAmount) || numAmount <= 0) {
+        return res.status(400).json({ message: "Montant invalide" });
+      }
+
+      const fromWallet = await storage.getPartnerWalletById(parseInt(fromWalletId));
+      const toWallet = await storage.getPartnerWalletById(parseInt(toWalletId));
+
+      if (!fromWallet || fromWallet.partnerId !== partnerId) {
+        return res.status(404).json({ message: "Portefeuille source introuvable" });
+      }
+      if (!toWallet || toWallet.partnerId !== partnerId) {
+        return res.status(404).json({ message: "Portefeuille destination introuvable" });
+      }
+      if (fromWallet.currency !== toWallet.currency) {
+        return res.status(400).json({ message: "Échange impossible entre zones monétaires différentes" });
+      }
+      if (fromWallet.id === toWallet.id) {
+        return res.status(400).json({ message: "Source et destination identiques" });
+      }
+
+      const debited = await storage.debitPartnerWallet(fromWallet.id, numAmount.toString());
+      if (!debited) {
+        return res.status(400).json({ message: "Solde insuffisant dans le portefeuille source" });
+      }
+      await storage.creditPartnerWalletById(toWallet.id, numAmount.toString());
+      await storage.createPartnerWalletExchange({
+        partnerId,
+        fromWalletId: fromWallet.id,
+        toWalletId: toWallet.id,
+        fromCountryCode: fromWallet.countryCode,
+        toCountryCode: toWallet.countryCode,
+        currency: fromWallet.currency,
+        amount: numAmount.toString(),
+      });
+
+      res.json({ message: "Échange effectué avec succès" });
+    } catch (error) {
+      console.error("Partner wallet exchange error:", error);
+      res.status(500).json({ message: "Erreur lors de l'échange" });
+    }
+  });
+
   app.get("/api/partner/withdraw/operators", requirePartnerAuth, async (req: Request, res: Response) => {
     try {
       const operators = await storage.getOperators();
@@ -2007,19 +2075,42 @@ export function registerPartnerRoutes(app: Express) {
       partnerWithdrawAttempts.set(pid, [...prevAttempts, now]);
       // ─────────────────────────────────────────────────────────────────────
 
-      const { amount, paymentMethod, mobileNumber, country, walletName } = req.body;
+      const { amount, paymentMethod, mobileNumber, country, walletName, walletId } = req.body;
       const numericAmount = parseFloat(amount);
-      const balance = parseFloat(partner.balance);
 
       if (isNaN(numericAmount) || numericAmount < 500) {
         return res.status(400).json({ message: "Montant minimum: 500" });
       }
-      if (numericAmount > balance) {
-        return res.status(400).json({ message: "Solde insuffisant" });
-      }
       if (!mobileNumber) {
         return res.status(400).json({ message: "Numéro de téléphone requis" });
       }
+
+      // Determine balance source: specific wallet or global partner balance
+      let selectedWallet: { id: number; balance: string } | null = null;
+      if (walletId) {
+        const pw = await storage.getPartnerWalletById(parseInt(walletId));
+        if (!pw || pw.partnerId !== req.session.partnerId!) {
+          return res.status(404).json({ message: "Portefeuille introuvable" });
+        }
+        selectedWallet = pw;
+        if (parseFloat(pw.balance) < numericAmount) {
+          return res.status(400).json({ message: "Solde insuffisant dans ce portefeuille" });
+        }
+      } else {
+        const balance = parseFloat(partner.balance);
+        if (numericAmount > balance) {
+          return res.status(400).json({ message: "Solde insuffisant" });
+        }
+      }
+
+      // Restore helper — restores to wallet or global balance
+      const restore = async () => {
+        if (selectedWallet) {
+          await storage.creditPartnerWalletById(selectedWallet.id, numericAmount.toString());
+        } else {
+          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+        }
+      };
 
       const countries = await storage.getCountries();
       const operators = await storage.getOperators();
@@ -2038,7 +2129,13 @@ export function registerPartnerRoutes(app: Express) {
       const fee = Math.round(numericAmount * (commissionRate / 100));
       const netAmount = numericAmount - fee;
 
-      await storage.updatePartnerBalance(req.session.partnerId!, (-numericAmount).toString());
+      // Debit from the appropriate source
+      if (selectedWallet) {
+        const debited = await storage.debitPartnerWallet(selectedWallet.id, numericAmount.toString());
+        if (!debited) return res.status(400).json({ message: "Solde insuffisant dans ce portefeuille" });
+      } else {
+        await storage.updatePartnerBalance(req.session.partnerId!, (-numericAmount).toString());
+      }
 
       await storage.createPartnerLog({
         partnerId: req.session.partnerId!,
@@ -2052,7 +2149,7 @@ export function registerPartnerRoutes(app: Express) {
         const mpProvider = getMaishapayProvider(selectedOperator.name, selectedCountry.code);
 
         if (!mpProvider) {
-          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+          await restore();
           return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique MaishaPay" });
         }
 
@@ -2114,7 +2211,7 @@ export function registerPartnerRoutes(app: Express) {
           } else {
             const mpError = b2cResult.message || b2cResult.error || "Erreur MaishaPay inconnue";
             console.error("❌ MaishaPay partner B2C failed:", mpError, "| provider:", mpProvider);
-            await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+            await restore();
             await storage.updateWithdrawalRequest(withdrawalRequest.id, {
               status: "failed",
               rejectionReason: mpError,
@@ -2123,7 +2220,7 @@ export function registerPartnerRoutes(app: Express) {
           }
         } catch (mpError) {
           console.error("Partner MaishaPay B2C error:", mpError);
-          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+          await restore();
           await storage.updateWithdrawalRequest(withdrawalRequest.id, {
             status: "failed",
             rejectionReason: "Erreur technique MaishaPay",
@@ -2136,7 +2233,7 @@ export function registerPartnerRoutes(app: Express) {
         const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
         const opOperator = getOmnipayOperator(selectedOperator.name);
         if (opOperator === undefined) {
-          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+          await restore();
           return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique OmniPay" });
         }
 
@@ -2177,13 +2274,13 @@ export function registerPartnerRoutes(app: Express) {
           } else {
             const opError = opResult.message || "Erreur OmniPay inconnue";
             console.error("❌ OmniPay partner transfer failed:", opError);
-            await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+            await restore();
             await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "failed", rejectionReason: opError });
             return res.status(500).json({ message: `Le retrait automatique a échoué (${opError}). Votre solde a été restauré.` });
           }
         } catch (opErr) {
           console.error("Partner OmniPay transfer error:", opErr);
-          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+          await restore();
           await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "failed", rejectionReason: "Erreur technique OmniPay" });
           return res.status(500).json({ message: "Erreur technique lors du retrait. Votre solde a été restauré." });
         }
@@ -2193,7 +2290,7 @@ export function registerPartnerRoutes(app: Express) {
         const { paxity: paxityClient, getPaxityMethodCode, getPaxityPhonePrefix, getPaxityCurrency, formatPhoneForPaxity } = await import("./paxity");
         const paxityMethod = getPaxityMethodCode(selectedOperator.name, selectedCountry.code);
         if (!paxityMethod) {
-          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+          await restore();
           return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique Paxity" });
         }
 
@@ -2241,13 +2338,13 @@ export function registerPartnerRoutes(app: Express) {
           } else {
             const pxError = pxResult.message || pxResult.description || pxResult.codeIntern || "Erreur Paxity inconnue";
             console.error("❌ Paxity partner payout failed:", pxResult);
-            await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+            await restore();
             await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "failed", rejectionReason: pxError });
             return res.status(500).json({ message: `Le retrait automatique a échoué (${pxError}). Votre solde a été restauré.` });
           }
         } catch (pxErr) {
           console.error("Partner Paxity payout error:", pxErr);
-          await storage.updatePartnerBalance(req.session.partnerId!, numericAmount.toString());
+          await restore();
           await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "failed", rejectionReason: "Erreur technique Paxity" });
           return res.status(500).json({ message: "Erreur technique lors du retrait. Votre solde a été restauré." });
         }
@@ -2301,15 +2398,29 @@ export function registerPartnerRoutes(app: Express) {
       const partner = await storage.getPartner(req.session.partnerId!);
       if (!partner) return res.status(404).json({ message: "Partenaire non trouvé" });
 
-      const { amount, accountIdentifier } = req.body;
+      const { amount, accountIdentifier, walletId } = req.body;
       const numericAmount = parseFloat(amount);
-      const balance = parseFloat(partner.balance);
 
       if (isNaN(numericAmount) || numericAmount < 500) {
         return res.status(400).json({ message: "Montant minimum: 500 FCFA" });
       }
-      if (numericAmount > balance) {
-        return res.status(400).json({ message: "Solde partenaire insuffisant" });
+
+      // Determine source: specific wallet or global partner balance
+      let sourceWallet: { id: number; balance: string } | null = null;
+      if (walletId) {
+        const pw = await storage.getPartnerWalletById(parseInt(walletId));
+        if (!pw || pw.partnerId !== req.session.partnerId!) {
+          return res.status(404).json({ message: "Portefeuille introuvable" });
+        }
+        if (parseFloat(pw.balance) < numericAmount) {
+          return res.status(400).json({ message: "Solde insuffisant dans ce portefeuille" });
+        }
+        sourceWallet = pw;
+      } else {
+        const balance = parseFloat(partner.balance);
+        if (numericAmount > balance) {
+          return res.status(400).json({ message: "Solde partenaire insuffisant" });
+        }
       }
       if (!accountIdentifier || !accountIdentifier.trim()) {
         return res.status(400).json({ message: "Identifiant du compte personnel requis (email ou téléphone)" });
@@ -2323,7 +2434,13 @@ export function registerPartnerRoutes(app: Express) {
         });
       }
 
-      await storage.updatePartnerBalance(req.session.partnerId!, (-numericAmount).toString());
+      // Debit from wallet or global balance
+      if (sourceWallet) {
+        const debited = await storage.debitPartnerWallet(sourceWallet.id, numericAmount.toString());
+        if (!debited) return res.status(400).json({ message: "Solde insuffisant dans ce portefeuille" });
+      } else {
+        await storage.updatePartnerBalance(req.session.partnerId!, (-numericAmount).toString());
+      }
       await storage.updateUserBalance(user.id, numericAmount.toString());
 
       await storage.createTransaction({
