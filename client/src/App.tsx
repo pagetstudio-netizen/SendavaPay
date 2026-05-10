@@ -88,6 +88,7 @@ function Router() {
       <AdminRoute path="/admin/logs" component={AdminDashboardPage} />
       <AdminRoute path="/admin/reports" component={AdminDashboardPage} />
       <AdminRoute path="/admin/partners" component={AdminDashboardPage} />
+      <AdminRoute path="/admin/wallet-exchanges" component={AdminDashboardPage} />
       <AdminRoute path="/admin/settings" component={AdminDashboardPage} />
       
       <Route component={NotFound} />

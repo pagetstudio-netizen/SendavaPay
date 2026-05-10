@@ -41,6 +41,9 @@ import {
   notifyLargeAmount,
   notifyLiquidityEmpty,
   sendBotReply,
+  notifyWalletExchangeRequest,
+  notifyWalletExchangeApproved,
+  notifyWalletExchangeRejected,
 } from "./telegram";
 
 function getCommissionRate(settings: any, transactionType: string, countryOverride?: string | number | null): number {
@@ -348,9 +351,10 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Solde insuffisant dans ce portefeuille" });
       }
 
+      // Debit immediately (funds held during processing)
       await storage.debitWallet(fromWallet.id, numAmount.toString());
-      await storage.creditWallet(req.session.userId!, toWallet.countryCode, toWallet.countryName, toWallet.currency, numAmount.toString());
-      await storage.createWalletExchange({
+
+      const exchange = await storage.createWalletExchange({
         userId: req.session.userId!,
         fromWalletId: fromWallet.id,
         toWalletId: toWallet.id,
@@ -360,10 +364,111 @@ export async function registerRoutes(
         amount: numAmount.toString(),
       });
 
-      res.json({ message: "Échange effectué avec succès" });
+      const user = await storage.getUser(req.session.userId!);
+      if (user) {
+        notifyWalletExchangeRequest({
+          userName: user.fullName,
+          userId: user.id,
+          fromCountry: fromWallet.countryName,
+          toCountry: toWallet.countryName,
+          currency: fromWallet.currency,
+          amount: numAmount.toString(),
+          exchangeId: exchange.id,
+        });
+      }
+
+      res.json({ message: "Demande d'échange soumise avec succès. Elle sera traitée sous 24h." });
     } catch (error) {
       console.error("Wallet exchange error:", error);
       res.status(500).json({ message: "Erreur lors de l'échange" });
+    }
+  });
+
+  // Admin: list all wallet exchanges
+  app.get("/api/admin/wallet-exchanges", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { status } = req.query;
+      const exchanges = await storage.getAllWalletExchanges({ status: status as string });
+      res.json(exchanges);
+    } catch (error) {
+      console.error("Admin get wallet exchanges error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // Admin: approve a wallet exchange
+  app.post("/api/admin/wallet-exchanges/:id/approve", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { adminNote } = req.body;
+
+      const exchange = await storage.getWalletExchangeById(id);
+      if (!exchange) return res.status(404).json({ message: "Échange introuvable" });
+      if (exchange.status !== "pending") return res.status(400).json({ message: "Cet échange n'est plus en attente" });
+
+      // Credit the destination wallet
+      const toWallet = await storage.getWalletById(exchange.toWalletId);
+      if (!toWallet) return res.status(404).json({ message: "Portefeuille destination introuvable" });
+
+      await storage.creditWallet(exchange.userId, toWallet.countryCode, toWallet.countryName, toWallet.currency, exchange.amount);
+      await storage.approveWalletExchange(id, req.session.userId!, adminNote);
+
+      const user = exchange.user;
+      if (user) {
+        notifyWalletExchangeApproved({
+          userName: user.fullName,
+          userId: user.id,
+          fromCountry: exchange.fromCountryCode,
+          toCountry: exchange.toCountryCode,
+          currency: exchange.currency,
+          amount: exchange.amount,
+          exchangeId: exchange.id,
+          adminNote,
+        });
+      }
+
+      res.json({ message: "Échange approuvé avec succès" });
+    } catch (error) {
+      console.error("Admin approve wallet exchange error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // Admin: reject a wallet exchange
+  app.post("/api/admin/wallet-exchanges/:id/reject", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { adminNote } = req.body;
+
+      const exchange = await storage.getWalletExchangeById(id);
+      if (!exchange) return res.status(404).json({ message: "Échange introuvable" });
+      if (exchange.status !== "pending") return res.status(400).json({ message: "Cet échange n'est plus en attente" });
+
+      // Refund the source wallet
+      const fromWallet = await storage.getWalletById(exchange.fromWalletId);
+      if (!fromWallet) return res.status(404).json({ message: "Portefeuille source introuvable" });
+
+      await storage.creditWallet(exchange.userId, fromWallet.countryCode, fromWallet.countryName, fromWallet.currency, exchange.amount);
+      await storage.rejectWalletExchange(id, req.session.userId!, adminNote);
+
+      const user = exchange.user;
+      if (user) {
+        notifyWalletExchangeRejected({
+          userName: user.fullName,
+          userId: user.id,
+          fromCountry: exchange.fromCountryCode,
+          toCountry: exchange.toCountryCode,
+          currency: exchange.currency,
+          amount: exchange.amount,
+          exchangeId: exchange.id,
+          adminNote,
+        });
+      }
+
+      res.json({ message: "Échange rejeté, fonds recrédités au portefeuille source" });
+    } catch (error) {
+      console.error("Admin reject wallet exchange error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
     }
   });
 

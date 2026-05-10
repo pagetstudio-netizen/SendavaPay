@@ -412,6 +412,82 @@ export async function notifyDailyReport(stats: {
   return sendTelegramMessage(msg);
 }
 
+export function notifyWalletExchangeRequest(data: {
+  userName: string;
+  userId: number;
+  fromCountry: string;
+  toCountry: string;
+  currency: string;
+  amount: string;
+  exchangeId: number;
+}) {
+  const msg =
+    `<b>🔄 DEMANDE D'ÉCHANGE WALLET</b>\n\n` +
+    `<b>Utilisateur:</b> ${data.userName} (#${data.userId})\n` +
+    `<b>De:</b> ${data.fromCountry}\n` +
+    `<b>Vers:</b> ${data.toCountry}\n` +
+    `<b>Devise:</b> ${data.currency}\n` +
+    `<b>Montant:</b> ${formatAmount(data.amount)} ${data.currency}\n` +
+    `<b>ID Échange:</b> #${data.exchangeId}\n` +
+    `<b>Date:</b> ${formatDate()}\n\n` +
+    `⏳ En attente de validation — panneau admin → Échanges Wallets.`;
+
+  sendTelegramMessage(msg).catch(err =>
+    console.error("[Telegram] Wallet exchange request notification error:", err)
+  );
+}
+
+export function notifyWalletExchangeApproved(data: {
+  userName: string;
+  userId: number;
+  fromCountry: string;
+  toCountry: string;
+  currency: string;
+  amount: string;
+  exchangeId: number;
+  adminNote?: string;
+}) {
+  const msg =
+    `<b>✅ ÉCHANGE WALLET APPROUVÉ</b>\n\n` +
+    `<b>Utilisateur:</b> ${data.userName} (#${data.userId})\n` +
+    `<b>De:</b> ${data.fromCountry}\n` +
+    `<b>Vers:</b> ${data.toCountry}\n` +
+    `<b>Montant:</b> ${formatAmount(data.amount)} ${data.currency}\n` +
+    `<b>ID Échange:</b> #${data.exchangeId}\n` +
+    (data.adminNote ? `<b>Note admin:</b> ${data.adminNote}\n` : "") +
+    `<b>Date:</b> ${formatDate()}`;
+
+  sendTelegramMessage(msg).catch(err =>
+    console.error("[Telegram] Wallet exchange approved notification error:", err)
+  );
+}
+
+export function notifyWalletExchangeRejected(data: {
+  userName: string;
+  userId: number;
+  fromCountry: string;
+  toCountry: string;
+  currency: string;
+  amount: string;
+  exchangeId: number;
+  adminNote?: string;
+}) {
+  const msg =
+    `<b>❌ ÉCHANGE WALLET REJETÉ</b>\n\n` +
+    `<b>Utilisateur:</b> ${data.userName} (#${data.userId})\n` +
+    `<b>De:</b> ${data.fromCountry}\n` +
+    `<b>Vers:</b> ${data.toCountry}\n` +
+    `<b>Montant:</b> ${formatAmount(data.amount)} ${data.currency}\n` +
+    `<b>ID Échange:</b> #${data.exchangeId}\n` +
+    (data.adminNote ? `<b>Raison:</b> ${data.adminNote}\n` : "") +
+    `<b>Date:</b> ${formatDate()}\n\n` +
+    `Les fonds ont été recrédités dans le portefeuille source.`;
+
+  sendTelegramMessage(msg).catch(err =>
+    console.error("[Telegram] Wallet exchange rejected notification error:", err)
+  );
+}
+
 export async function notifyIpChanged(newIp: string) {
   const msg =
     `<b>⚠️ ALERTE IP SERVEUR CHANGEE</b>\n\n` +
