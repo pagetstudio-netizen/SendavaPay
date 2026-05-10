@@ -77,7 +77,8 @@ export const transfers = pgTable("transfers", {
 
 export const paymentLinks = pgTable("payment_links", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id").notNull().references(() => users.id),
+  userId: integer("user_id").references(() => users.id),
+  partnerId: integer("partner_id"),
   linkCode: text("link_code").notNull().unique(),
   title: text("title").notNull(),
   description: text("description"),

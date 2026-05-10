@@ -1680,6 +1680,21 @@ export async function registerRoutes(
 
           await storage.updateUserBalance(link.userId, netAmount.toString());
 
+          // Crédit portefeuille partenaire si lien partenaire
+          try {
+            if (link.partnerId) {
+              const { db: _dbPL } = await import("./db");
+              const { sql: _sqlPL } = await import("drizzle-orm");
+              const allCPL = await storage.getCountries();
+              const currPL = existingPayment.currency || "";
+              const cRecPL = allCPL.find((c: any) => c.currency === currPL);
+              if (cRecPL) {
+                await _dbPL.execute(_sqlPL`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${link.partnerId}`);
+                await storage.creditPartnerWallet(link.partnerId, cRecPL.code, cRecPL.name, currPL || cRecPL.currency, netAmount.toString());
+              }
+            }
+          } catch (pwErr) { console.error("Partner wallet (SoleasPay verify lien) error:", pwErr); }
+
           console.log(`✅ SoleasPay: Paiement lien confirmé pour vendeur #${link.userId}: ${netAmount} ${existingPayment.currency}`);
 
           // Envoyer email de paiement reçu au vendeur
@@ -1842,6 +1857,22 @@ export async function registerRoutes(
             });
 
             await storage.updateUserBalance(link.userId, netAmount.toString());
+            try {
+              if (link.partnerId) {
+                const { db: _dbPL2 } = await import("./db");
+                const { sql: _sqlPL2 } = await import("drizzle-orm");
+                const allCPL2 = await storage.getCountries();
+                const payerCPL2 = claimed.payerCountry || "";
+                const currPL2 = claimed.currency || "";
+                const cRecPL2 = allCPL2.find((c: any) =>
+                  (payerCPL2 && c.code.toUpperCase() === payerCPL2.toUpperCase()) || (!payerCPL2 && c.currency === currPL2)
+                );
+                if (cRecPL2) {
+                  await _dbPL2.execute(_sqlPL2`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${link.partnerId}`);
+                  await storage.creditPartnerWallet(link.partnerId, cRecPL2.code, cRecPL2.name, currPL2 || cRecPL2.currency, netAmount.toString());
+                }
+              }
+            } catch (pwErr) { console.error("Partner wallet (SoleasPay webhook lien) error:", pwErr); }
             console.log(`✅ SoleasPay webhook: Paiement lien confirmé vendeur #${link.userId}: ${netAmount}`);
           }
         }
@@ -1991,6 +2022,22 @@ export async function registerRoutes(
               paymentLinkId: link.id,
             });
             await storage.updateUserBalance(link.userId, netAmount.toString());
+            try {
+              if (link.partnerId) {
+                const { db: _dbPL3 } = await import("./db");
+                const { sql: _sqlPL3 } = await import("drizzle-orm");
+                const allCPL3 = await storage.getCountries();
+                const payerCPL3 = claimed.payerCountry || "";
+                const currPL3 = claimed.currency || "";
+                const cRecPL3 = allCPL3.find((c: any) =>
+                  (payerCPL3 && c.code.toUpperCase() === payerCPL3.toUpperCase()) || (!payerCPL3 && c.currency === currPL3)
+                );
+                if (cRecPL3) {
+                  await _dbPL3.execute(_sqlPL3`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${link.partnerId}`);
+                  await storage.creditPartnerWallet(link.partnerId, cRecPL3.code, cRecPL3.name, currPL3 || cRecPL3.currency, netAmount.toString());
+                }
+              }
+            } catch (pwErr) { console.error("Partner wallet (OmniPay verify lien) error:", pwErr); }
           }
           return res.json({ status: "SUCCESS", message: "Paiement confirmé", amount: netAmount });
         }
@@ -2091,6 +2138,22 @@ export async function registerRoutes(
               paymentLinkId: link.id,
             });
             await storage.updateUserBalance(link.userId, netAmount.toString());
+            try {
+              if (link.partnerId) {
+                const { db: _dbPL4 } = await import("./db");
+                const { sql: _sqlPL4 } = await import("drizzle-orm");
+                const allCPL4 = await storage.getCountries();
+                const payerCPL4 = claimed.payerCountry || "";
+                const currPL4 = claimed.currency || "";
+                const cRecPL4 = allCPL4.find((c: any) =>
+                  (payerCPL4 && c.code.toUpperCase() === payerCPL4.toUpperCase()) || (!payerCPL4 && c.currency === currPL4)
+                );
+                if (cRecPL4) {
+                  await _dbPL4.execute(_sqlPL4`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${link.partnerId}`);
+                  await storage.creditPartnerWallet(link.partnerId, cRecPL4.code, cRecPL4.name, currPL4 || cRecPL4.currency, netAmount.toString());
+                }
+              }
+            } catch (pwErr) { console.error("Partner wallet (MaishaPay verify lien) error:", pwErr); }
             console.log(`✅ MaishaPay verify: Paiement lien confirmé vendeur #${link.userId}: ${netAmount}`);
           }
           return res.json({ status: "SUCCESS", message: "Paiement confirmé", amount: netAmount });
@@ -2195,6 +2258,22 @@ export async function registerRoutes(
                 paymentLinkId: link.id,
               });
               await storage.updateUserBalance(link.userId, netAmount.toString());
+              try {
+                if (link.partnerId) {
+                  const { db: _dbPL5 } = await import("./db");
+                  const { sql: _sqlPL5 } = await import("drizzle-orm");
+                  const allCPL5 = await storage.getCountries();
+                  const payerCPL5 = claimed.payerCountry || "";
+                  const currPL5 = claimed.currency || "";
+                  const cRecPL5 = allCPL5.find((c: any) =>
+                    (payerCPL5 && c.code.toUpperCase() === payerCPL5.toUpperCase()) || (!payerCPL5 && c.currency === currPL5)
+                  );
+                  if (cRecPL5) {
+                    await _dbPL5.execute(_sqlPL5`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${link.partnerId}`);
+                    await storage.creditPartnerWallet(link.partnerId, cRecPL5.code, cRecPL5.name, currPL5 || cRecPL5.currency, netAmount.toString());
+                  }
+                }
+              } catch (pwErr) { console.error("Partner wallet (Paxity verify lien) error:", pwErr); }
               console.log(`✅ Paxity verify: Paiement lien confirmé vendeur #${link.userId}: ${netAmount}`);
             }
             return res.json({ status: "SUCCESS", message: "Paiement confirmé", amount: netAmount });
@@ -2372,6 +2451,22 @@ export async function registerRoutes(
               paymentLinkId: link.id,
             });
             await storage.updateUserBalance(link.userId, netAmount.toString());
+            try {
+              if (link.partnerId) {
+                const { db: _dbPL6 } = await import("./db");
+                const { sql: _sqlPL6 } = await import("drizzle-orm");
+                const allCPL6 = await storage.getCountries();
+                const payerCPL6 = claimed.payerCountry || "";
+                const currPL6 = claimed.currency || "";
+                const cRecPL6 = allCPL6.find((c: any) =>
+                  (payerCPL6 && c.code.toUpperCase() === payerCPL6.toUpperCase()) || (!payerCPL6 && c.currency === currPL6)
+                );
+                if (cRecPL6) {
+                  await _dbPL6.execute(_sqlPL6`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${link.partnerId}`);
+                  await storage.creditPartnerWallet(link.partnerId, cRecPL6.code, cRecPL6.name, currPL6 || cRecPL6.currency, netAmount.toString());
+                }
+              }
+            } catch (pwErr) { console.error("Partner wallet (MbiyoPay webhook lien) error:", pwErr); }
             console.log(`✅ MbiyoPay webhook: Paiement lien confirmé vendeur #${link.userId}: ${netAmount}`);
           }
         }
@@ -2527,6 +2622,22 @@ export async function registerRoutes(
               paymentLinkId: link.id,
             });
             await storage.updateUserBalance(link.userId, netAmount.toString());
+            try {
+              if (link.partnerId) {
+                const { db: _dbPL7 } = await import("./db");
+                const { sql: _sqlPL7 } = await import("drizzle-orm");
+                const allCPL7 = await storage.getCountries();
+                const payerCPL7 = claimed.payerCountry || "";
+                const currPL7 = claimed.currency || "";
+                const cRecPL7 = allCPL7.find((c: any) =>
+                  (payerCPL7 && c.code.toUpperCase() === payerCPL7.toUpperCase()) || (!payerCPL7 && c.currency === currPL7)
+                );
+                if (cRecPL7) {
+                  await _dbPL7.execute(_sqlPL7`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${link.partnerId}`);
+                  await storage.creditPartnerWallet(link.partnerId, cRecPL7.code, cRecPL7.name, currPL7 || cRecPL7.currency, netAmount.toString());
+                }
+              }
+            } catch (pwErr) { console.error("Partner wallet (MaishaPay webhook lien) error:", pwErr); }
             console.log(`✅ MaishaPay webhook: Paiement lien confirmé vendeur #${link.userId}: ${netAmount}`);
           }
         }
