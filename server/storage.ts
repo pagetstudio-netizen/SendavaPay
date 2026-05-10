@@ -653,6 +653,13 @@ export class DatabaseStorage implements IStorage {
 
     const settings = await this.getCommissionSettings();
 
+    // Get exchange commissions
+    const allExchanges = await getDb().select().from(walletExchanges);
+    const approvedExchanges = allExchanges.filter(e => e.status === "approved");
+    const pendingExchanges = allExchanges.filter(e => e.status === "pending");
+    const totalExchangeCommissions = approvedExchanges.reduce((sum, e) => sum + parseFloat(e.fee || "0"), 0);
+    const pendingExchangeCommissions = pendingExchanges.reduce((sum, e) => sum + parseFloat(e.fee || "0"), 0);
+
     // Get offsets to subtract from amounts
     const offsets = await this.getStatsOffsets();
     const depositsOffset = parseFloat(offsets?.totalDepositsOffset || "0");
@@ -662,6 +669,8 @@ export class DatabaseStorage implements IStorage {
     const apiPaymentsOffset = parseFloat(offsets?.totalApiPaymentsOffset || "0");
     const transactionsAmountOffset = parseFloat(offsets?.totalTransactionsAmountOffset || "0");
     const paymentLinkAmountOffset = parseFloat(offsets?.paymentLinkTransactionsAmountOffset || "0");
+
+    const walletExchangeRate = await this.getSetting("wallet_exchange_rate");
 
     return {
       totalUsers: allUsers.length,
@@ -684,6 +693,11 @@ export class DatabaseStorage implements IStorage {
       paymentLinkTransactionsAmount: Math.max(0, totalPaymentLinkAmount - paymentLinkAmountOffset).toString(),
       totalPaymentLinks: allPaymentLinks.length,
       lastResetAt: offsets?.lastResetAt?.toISOString() || null,
+      totalExchangeCommissions: totalExchangeCommissions.toString(),
+      pendingExchangeCommissions: pendingExchangeCommissions.toString(),
+      totalExchangesCount: allExchanges.length,
+      pendingExchangesCount: pendingExchanges.length,
+      walletExchangeRate: walletExchangeRate || "4",
     };
   }
 

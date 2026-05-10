@@ -41,6 +41,7 @@ import {
   Wallet,
   ArrowUpRight,
   ArrowDownLeft,
+  ArrowLeftRight,
   TrendingUp,
   Shield,
   Key,
@@ -115,6 +116,11 @@ interface AdminStats {
   paymentLinkTransactionsAmount?: string;
   totalPaymentLinks?: number;
   lastResetAt?: string | null;
+  totalExchangeCommissions?: string;
+  pendingExchangeCommissions?: string;
+  totalExchangesCount?: number;
+  pendingExchangesCount?: number;
+  walletExchangeRate?: string;
 }
 
 interface KycRequestWithUser extends KycRequest {
@@ -204,6 +210,7 @@ function DashboardContent() {
     { title: "Clés API", value: stats?.totalApiKeys || 0, description: `${stats?.activeApiKeys || 0} actives`, icon: Key, color: "text-indigo-500", bgColor: "bg-indigo-100 dark:bg-indigo-900/30" },
     { title: "Liens de paiement", value: stats?.totalPaymentLinks || 0, description: "Créés sur la plateforme", icon: FileText, color: "text-teal-500", bgColor: "bg-teal-100 dark:bg-teal-900/30" },
     { title: "KYC en attente", value: stats?.pendingKyc || 0, description: "Demandes à traiter", icon: Shield, color: "text-yellow-500", bgColor: "bg-yellow-100 dark:bg-yellow-900/30" },
+    { title: "Commissions Échanges", value: formatCurrency(stats?.totalExchangeCommissions || 0), description: `${stats?.totalExchangesCount || 0} échanges • Taux: ${stats?.walletExchangeRate || 4}%`, icon: ArrowLeftRight, color: "text-violet-500", bgColor: "bg-violet-100 dark:bg-violet-900/30" },
   ];
 
   return (
@@ -2709,10 +2716,11 @@ function CommissionsContent() {
   const [depositRate, setDepositRate] = useState("7");
   const [encaissementRate, setEncaissementRate] = useState("5");
   const [withdrawalRate, setWithdrawalRate] = useState("7");
+  const [walletExchangeRate, setWalletExchangeRate] = useState("4");
   const [reason, setReason] = useState("");
   const [editingFees, setEditingFees] = useState<Record<number, { deposit: string; withdraw: string; encaissement: string; api: string }>>({});
 
-  const { data: settings } = useQuery<{ depositRate: string; encaissementRate: string; withdrawalRate: string }>({
+  const { data: settings } = useQuery<{ depositRate: string; encaissementRate: string; withdrawalRate: string; walletExchangeRate: string }>({
     queryKey: ["/api/admin/settings"],
   });
 
@@ -2729,11 +2737,12 @@ function CommissionsContent() {
       setDepositRate(settings.depositRate || "7");
       setEncaissementRate(settings.encaissementRate || "5");
       setWithdrawalRate(settings.withdrawalRate || "7");
+      setWalletExchangeRate(settings.walletExchangeRate || "4");
     }
   }, [settings]);
 
   const updateMutation = useMutation({
-    mutationFn: async (data: { depositRate: string; encaissementRate: string; withdrawalRate: string; reason?: string }) => {
+    mutationFn: async (data: { depositRate: string; encaissementRate: string; withdrawalRate: string; walletExchangeRate: string; reason?: string }) => {
       await apiRequest("POST", "/api/admin/fees/update", data);
     },
     onSuccess: () => {
@@ -2767,11 +2776,11 @@ function CommissionsContent() {
   };
 
   const handleSubmit = () => {
-    if (!validateRate(depositRate) || !validateRate(encaissementRate) || !validateRate(withdrawalRate)) {
-      toast({ title: "Erreur de validation", description: "Les taux doivent \u00eatre entre 0% et 20%", variant: "destructive" });
+    if (!validateRate(depositRate) || !validateRate(encaissementRate) || !validateRate(withdrawalRate) || !validateRate(walletExchangeRate)) {
+      toast({ title: "Erreur de validation", description: "Les taux doivent être entre 0% et 20%", variant: "destructive" });
       return;
     }
-    updateMutation.mutate({ depositRate, encaissementRate, withdrawalRate, reason: reason || undefined });
+    updateMutation.mutate({ depositRate, encaissementRate, withdrawalRate, walletExchangeRate, reason: reason || undefined });
   };
 
   const fieldLabel = (field: string) => {
@@ -2841,8 +2850,25 @@ function CommissionsContent() {
                 step="0.1"
               />
               {!validateRate(withdrawalRate) && (
-                <p className="text-sm text-destructive" data-testid="text-withdrawal-error">Doit \u00eatre entre 0 et 20</p>
+                <p className="text-sm text-destructive" data-testid="text-withdrawal-error">Doit être entre 0 et 20</p>
               )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="exchange-rate">Frais d'échange wallet (%)</Label>
+              <Input
+                id="exchange-rate"
+                data-testid="input-exchange-rate"
+                type="number"
+                value={walletExchangeRate}
+                onChange={(e) => setWalletExchangeRate(e.target.value)}
+                min="0"
+                max="20"
+                step="0.1"
+              />
+              {!validateRate(walletExchangeRate) && (
+                <p className="text-sm text-destructive" data-testid="text-exchange-rate-error">Doit être entre 0 et 20</p>
+              )}
+              <p className="text-xs text-muted-foreground">Prélevé lors des échanges entre portefeuilles. Actuellement : {settings?.walletExchangeRate || "4"}%</p>
             </div>
           </div>
           <div className="space-y-2">
@@ -4762,6 +4788,13 @@ function WalletExchangesContent() {
     return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 border-0 gap-1"><XCircle className="h-3 w-3" />Rejeté</Badge>;
   };
 
+  const totalCommissionEarned = (exchanges || [])
+    .filter(e => e.status === "approved")
+    .reduce((sum, e) => sum + parseFloat((e as any).fee || "0"), 0);
+  const pendingCommission = (exchanges || [])
+    .filter(e => e.status === "pending")
+    .reduce((sum, e) => sum + parseFloat((e as any).fee || "0"), 0);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -4774,6 +4807,52 @@ function WalletExchangesContent() {
           </h1>
           <p className="text-muted-foreground">Validez ou rejetez les demandes d'échange entre portefeuilles utilisateurs</p>
         </div>
+      </div>
+
+      {/* Statistiques de commission */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
+                <DollarSign className="h-5 w-5 text-violet-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Commissions encaissées</p>
+                <p className="text-xl font-bold text-violet-600">{new Intl.NumberFormat("fr-FR").format(totalCommissionEarned)} FCFA</p>
+                <p className="text-xs text-muted-foreground">{(exchanges || []).filter(e => e.status === "approved").length} échanges approuvés</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+                <Clock className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Commissions en attente</p>
+                <p className="text-xl font-bold text-amber-600">{new Intl.NumberFormat("fr-FR").format(pendingCommission)} FCFA</p>
+                <p className="text-xs text-muted-foreground">{pendingCount} échanges à traiter</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                <ArrowLeftRight className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Total échanges</p>
+                <p className="text-xl font-bold">{(exchanges || []).length}</p>
+                <p className="text-xs text-muted-foreground">{(exchanges || []).filter(e => e.status === "rejected").length} rejetés</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <Card>
