@@ -307,6 +307,66 @@ export async function registerRoutes(
     });
   });
 
+  // ========== WALLET ROUTES ==========
+
+  app.get("/api/wallets", requireAuth, async (req, res) => {
+    try {
+      const [userWallets, exchanges] = await Promise.all([
+        storage.getUserWallets(req.session.userId!),
+        storage.getWalletExchanges(req.session.userId!),
+      ]);
+      res.json({ wallets: userWallets, exchanges });
+    } catch (error) {
+      console.error("Get wallets error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/wallets/exchange", requireAuth, async (req, res) => {
+    try {
+      const { fromWalletId, toWalletId, amount } = req.body;
+      const numAmount = parseFloat(amount);
+
+      if (!fromWalletId || !toWalletId || isNaN(numAmount) || numAmount <= 0) {
+        return res.status(400).json({ message: "Paramètres invalides" });
+      }
+      if (fromWalletId === toWalletId) {
+        return res.status(400).json({ message: "Impossible d'échanger avec le même portefeuille" });
+      }
+
+      const userWallets = await storage.getUserWallets(req.session.userId!);
+      const fromWallet = userWallets.find(w => w.id === parseInt(fromWalletId));
+      const toWallet = userWallets.find(w => w.id === parseInt(toWalletId));
+
+      if (!fromWallet || !toWallet) {
+        return res.status(404).json({ message: "Portefeuille introuvable" });
+      }
+      if (fromWallet.currency !== toWallet.currency) {
+        return res.status(400).json({ message: "Échange impossible entre zones monétaires différentes" });
+      }
+      if (parseFloat(fromWallet.balance) < numAmount) {
+        return res.status(400).json({ message: "Solde insuffisant dans ce portefeuille" });
+      }
+
+      await storage.debitWallet(fromWallet.id, numAmount.toString());
+      await storage.creditWallet(req.session.userId!, toWallet.countryCode, toWallet.countryName, toWallet.currency, numAmount.toString());
+      await storage.createWalletExchange({
+        userId: req.session.userId!,
+        fromWalletId: fromWallet.id,
+        toWalletId: toWallet.id,
+        fromCountryCode: fromWallet.countryCode,
+        toCountryCode: toWallet.countryCode,
+        currency: fromWallet.currency,
+        amount: numAmount.toString(),
+      });
+
+      res.json({ message: "Échange effectué avec succès" });
+    } catch (error) {
+      console.error("Wallet exchange error:", error);
+      res.status(500).json({ message: "Erreur lors de l'échange" });
+    }
+  });
+
   app.post("/api/auth/forgot-password", async (req, res) => {
     try {
       const { email } = req.body;
@@ -535,6 +595,7 @@ export async function registerRoutes(
         description: `Dépôt via ${paymentMethod}`,
         customerEmail: user.email,
         paymentMethod,
+        payerCountry: country ? country.toUpperCase() : null,
         returnUrl: `${baseUrl}/success?reference=${leekpayId}`,
         paymentUrl: checkoutResult.data.payment_url,
       });
@@ -1073,6 +1134,15 @@ export async function registerRoutes(
           });
 
           await storage.updateUserBalance(existingPayment.userId, netAmount.toString());
+
+          // Créditer le portefeuille pays
+          if (existingPayment.payerCountry) {
+            const allCountries = await storage.getCountries();
+            const countryRec = allCountries.find((c: any) => c.code.toUpperCase() === existingPayment.payerCountry!.toUpperCase());
+            if (countryRec) {
+              storage.creditWallet(existingPayment.userId, countryRec.code, countryRec.name, existingPayment.currency, netAmount.toString()).catch((e: any) => console.error("Wallet credit error:", e));
+            }
+          }
 
           console.log(`✅ SoleasPay: Dépôt confirmé pour utilisateur #${existingPayment.userId}: ${netAmount} ${existingPayment.currency}`);
 
@@ -1731,6 +1801,16 @@ export async function registerRoutes(
           });
 
           await storage.updateUserBalance(claimed.userId, netAmount.toString());
+
+          // Créditer le portefeuille pays
+          if (claimed.payerCountry) {
+            const allCountries = await storage.getCountries();
+            const countryRec = allCountries.find((c: any) => c.code.toUpperCase() === claimed.payerCountry!.toUpperCase());
+            if (countryRec) {
+              storage.creditWallet(claimed.userId, countryRec.code, countryRec.name, claimed.currency, netAmount.toString()).catch((e: any) => console.error("Wallet credit error:", e));
+            }
+          }
+
           console.log(`✅ SoleasPay webhook: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
         } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
           const commissionRate = getCommissionRate(settings, "payment_received");

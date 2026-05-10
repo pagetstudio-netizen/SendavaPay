@@ -53,6 +53,7 @@ import logoPath from "@assets/20251211_105226_1765450558306.png";
 
 const userMenuItems = [
   { icon: LayoutGrid, label: "Tableau de bord", href: "/dashboard" },
+  { icon: Wallet, label: "Portefeuilles", href: "/dashboard/wallets" },
   { icon: CreditCard, label: "Dépôt", href: "/dashboard/deposit" },
   { icon: Send, label: "Retrait", href: "/dashboard/withdraw" },
   { icon: LinkIcon, label: "Liens de paiement", href: "/dashboard/payment-links" },
