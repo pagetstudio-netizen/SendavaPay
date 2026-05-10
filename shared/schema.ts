@@ -152,6 +152,8 @@ export const wallets = pgTable("wallets", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const walletExchangeStatusEnum = pgEnum("wallet_exchange_status", ["pending", "approved", "rejected"]);
+
 export const walletExchanges = pgTable("wallet_exchanges", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   userId: integer("user_id").notNull().references(() => users.id),
@@ -161,6 +163,10 @@ export const walletExchanges = pgTable("wallet_exchanges", {
   toCountryCode: text("to_country_code").notNull(),
   currency: text("currency").notNull(),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  status: walletExchangeStatusEnum("status").default("pending").notNull(),
+  adminNote: text("admin_note"),
+  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

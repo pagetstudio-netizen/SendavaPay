@@ -26,11 +26,13 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   Wallet,
   ArrowLeftRight,
-  TrendingUp,
   Clock,
   Info,
   ChevronRight,
   Loader2,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
 } from "lucide-react";
 import type { Wallet as WalletType, WalletExchange } from "@shared/schema";
 
@@ -64,6 +66,24 @@ function formatDate(date: string | Date) {
   return new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(date));
 }
 
+function StatusBadge({ status }: { status: string }) {
+  if (status === "pending") return (
+    <Badge variant="outline" className="gap-1 text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-950/30">
+      <Clock className="h-3 w-3" /> En cours
+    </Badge>
+  );
+  if (status === "approved") return (
+    <Badge variant="outline" className="gap-1 text-green-600 border-green-300 bg-green-50 dark:bg-green-950/30">
+      <CheckCircle2 className="h-3 w-3" /> Approuvé
+    </Badge>
+  );
+  return (
+    <Badge variant="outline" className="gap-1 text-red-600 border-red-300 bg-red-50 dark:bg-red-950/30">
+      <XCircle className="h-3 w-3" /> Rejeté
+    </Badge>
+  );
+}
+
 export default function WalletsPage() {
   const { toast } = useToast();
   const [exchangeOpen, setExchangeOpen] = useState(false);
@@ -88,7 +108,10 @@ export default function WalletsPage() {
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Échange effectué", description: "Les fonds ont été transférés avec succès." });
+      toast({
+        title: "Demande envoyée",
+        description: "Votre demande d'échange est en cours de traitement. Elle sera validée par l'administrateur sous 24h.",
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/wallets"] });
       queryClient.invalidateQueries({ queryKey: ["/api/user"] });
       setExchangeOpen(false);
@@ -121,6 +144,8 @@ export default function WalletsPage() {
   const canExchange = wallets.length >= 2 &&
     Object.values(groupedWallets).some(ws => ws.length >= 2);
 
+  const pendingCount = exchanges.filter(e => (e as any).status === "pending").length;
+
   if (isLoading) {
     return (
       <DashboardLayout>
@@ -149,16 +174,22 @@ export default function WalletsPage() {
               <DialogTrigger asChild>
                 <Button className="gap-2" data-testid="button-open-exchange">
                   <ArrowLeftRight className="h-4 w-4" />
-                  Échanger
+                  Demander un échange
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                   <DialogTitle>Échange entre portefeuilles</DialogTitle>
                   <DialogDescription>
-                    L'échange est possible uniquement entre pays de la même zone monétaire (même devise).
+                    L'échange est possible uniquement entre pays de la même zone monétaire. Il sera traité par l'administrateur sous 24h.
                   </DialogDescription>
                 </DialogHeader>
+
+                <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-sm text-amber-700 dark:text-amber-300">
+                  <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <span>Les fonds seront débités immédiatement et crédités après validation (maximum 24h).</span>
+                </div>
+
                 <div className="space-y-4 pt-2">
                   <div className="space-y-2">
                     <Label>Portefeuille source</Label>
@@ -230,9 +261,9 @@ export default function WalletsPage() {
                     data-testid="button-confirm-exchange"
                   >
                     {exchangeMutation.isPending ? (
-                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Traitement...</>
+                      <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Envoi en cours...</>
                     ) : (
-                      <><ArrowLeftRight className="h-4 w-4 mr-2" />Confirmer l'échange</>
+                      <><ArrowLeftRight className="h-4 w-4 mr-2" />Soumettre la demande</>
                     )}
                   </Button>
                 </div>
@@ -350,26 +381,38 @@ export default function WalletsPage() {
               <CardTitle className="text-base flex items-center gap-2">
                 <Clock className="h-4 w-4" />
                 Historique des échanges
+                {pendingCount > 0 && (
+                  <Badge className="ml-1 bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 border-0">
+                    {pendingCount} en attente
+                  </Badge>
+                )}
               </CardTitle>
-              <CardDescription>Les 20 derniers échanges entre portefeuilles</CardDescription>
+              <CardDescription>Vos demandes d'échange entre portefeuilles</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
                 {exchanges.map(ex => {
                   const fromFlag = FLAG_MAP[ex.fromCountryCode] || "🌍";
                   const toFlag = FLAG_MAP[ex.toCountryCode] || "🌍";
+                  const status = (ex as any).status ?? "pending";
                   return (
                     <div key={ex.id} className="flex items-center justify-between py-2 border-b last:border-0" data-testid={`exchange-row-${ex.id}`}>
-                      <div className="flex items-center gap-2 text-sm">
-                        <span>{fromFlag}</span>
-                        <span className="text-muted-foreground">{ex.fromCountryCode}</span>
-                        <ArrowLeftRight className="h-3 w-3 text-muted-foreground" />
-                        <span>{toFlag}</span>
-                        <span className="text-muted-foreground">{ex.toCountryCode}</span>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-sm">{formatAmount(ex.amount, ex.currency)}</p>
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2 text-sm">
+                          <span>{fromFlag}</span>
+                          <span className="font-medium">{ex.fromCountryCode}</span>
+                          <ArrowLeftRight className="h-3 w-3 text-muted-foreground" />
+                          <span>{toFlag}</span>
+                          <span className="font-medium">{ex.toCountryCode}</span>
+                        </div>
                         <p className="text-xs text-muted-foreground">{formatDate(ex.createdAt)}</p>
+                        {(ex as any).adminNote && (
+                          <p className="text-xs text-muted-foreground italic">Note : {(ex as any).adminNote}</p>
+                        )}
+                      </div>
+                      <div className="text-right flex flex-col items-end gap-1">
+                        <p className="font-semibold text-sm">{formatAmount(ex.amount, ex.currency)}</p>
+                        <StatusBadge status={status} />
                       </div>
                     </div>
                   );
@@ -388,7 +431,7 @@ export default function WalletsPage() {
                 <p className="font-medium text-foreground">Zones monétaires et échanges</p>
                 <p><strong>Zone UEMOA (XOF)</strong> : Sénégal, Mali, Côte d'Ivoire, Burkina Faso, Bénin, Togo, Niger, Guinée-Bissau</p>
                 <p><strong>Zone CEMAC (XAF)</strong> : Cameroun, Congo, Gabon, Centrafrique, Tchad, Guinée Équatoriale</p>
-                <p>Les échanges entre portefeuilles sont uniquement possibles au sein de la même zone monétaire, au taux 1:1.</p>
+                <p>Les échanges entre portefeuilles sont uniquement possibles au sein de la même zone monétaire, au taux 1:1. Chaque demande est validée manuellement sous 24h maximum.</p>
               </div>
             </div>
           </CardContent>

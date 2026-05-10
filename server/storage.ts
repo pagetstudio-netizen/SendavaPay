@@ -1258,7 +1258,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createWalletExchange(data: { userId: number; fromWalletId: number; toWalletId: number; fromCountryCode: string; toCountryCode: string; currency: string; amount: string }): Promise<WalletExchange> {
-    const [created] = await getDb().insert(walletExchanges).values(data).returning();
+    const [created] = await getDb().insert(walletExchanges).values({ ...data, status: "pending" }).returning();
     return created;
   }
 
@@ -1266,7 +1266,42 @@ export class DatabaseStorage implements IStorage {
     return getDb().select().from(walletExchanges)
       .where(eq(walletExchanges.userId, userId))
       .orderBy(desc(walletExchanges.createdAt))
-      .limit(20);
+      .limit(50);
+  }
+
+  async getAllWalletExchanges(filters?: { status?: string }): Promise<(WalletExchange & { user?: User })[]> {
+    const rows = await getDb().select().from(walletExchanges)
+      .leftJoin(users, eq(walletExchanges.userId, users.id))
+      .orderBy(desc(walletExchanges.createdAt));
+    const results = rows.map(r => ({ ...r.wallet_exchanges, user: r.users || undefined }));
+    if (filters?.status && filters.status !== "all") {
+      return results.filter(r => r.status === filters.status);
+    }
+    return results;
+  }
+
+  async getWalletExchangeById(id: number): Promise<(WalletExchange & { user?: User }) | undefined> {
+    const [row] = await getDb().select().from(walletExchanges)
+      .leftJoin(users, eq(walletExchanges.userId, users.id))
+      .where(eq(walletExchanges.id, id));
+    if (!row) return undefined;
+    return { ...row.wallet_exchanges, user: row.users || undefined };
+  }
+
+  async approveWalletExchange(id: number, adminId: number, adminNote?: string): Promise<WalletExchange> {
+    const [updated] = await getDb().update(walletExchanges)
+      .set({ status: "approved", reviewedBy: adminId, reviewedAt: new Date(), adminNote: adminNote || null })
+      .where(eq(walletExchanges.id, id))
+      .returning();
+    return updated;
+  }
+
+  async rejectWalletExchange(id: number, adminId: number, adminNote?: string): Promise<WalletExchange> {
+    const [updated] = await getDb().update(walletExchanges)
+      .set({ status: "rejected", reviewedBy: adminId, reviewedAt: new Date(), adminNote: adminNote || null })
+      .where(eq(walletExchanges.id, id))
+      .returning();
+    return updated;
   }
 
   async getPartnerWallets(partnerId: number): Promise<PartnerWallet[]> {

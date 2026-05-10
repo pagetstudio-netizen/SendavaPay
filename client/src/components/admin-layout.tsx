@@ -40,6 +40,7 @@ import {
   User,
   Key,
   Handshake,
+  RefreshCw,
 } from "lucide-react";
 import type { AdminNotification as AdminNotificationType, User as UserType } from "@shared/schema";
 
@@ -59,6 +60,7 @@ const navItems: NavItem[] = [
   { title: "KYC", href: "/admin/kyc", icon: FileCheck },
   { title: "Transactions", href: "/admin/transactions", icon: ArrowRightLeft },
   { title: "Retraits", href: "/admin/withdrawals", icon: Wallet },
+  { title: "Échanges Wallets", href: "/admin/wallet-exchanges", icon: RefreshCw },
   { title: "Frais", href: "/admin/commissions", icon: Percent },
   { title: "Numéros de retrait", href: "/admin/withdrawal-numbers", icon: Phone },
   { title: "Pays & Opérateurs", href: "/admin/countries", icon: Globe },

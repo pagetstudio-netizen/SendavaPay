@@ -91,6 +91,7 @@ import type {
   GlobalMessage, 
   AuditLog,
   PaymentLink,
+  WalletExchange,
 } from "@shared/schema";
 
 interface AdminStats {
@@ -4690,6 +4691,279 @@ function LogsContent() {
   );
 }
 
+function WalletExchangesContent() {
+  const { toast } = useToast();
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [rejectDialog, setRejectDialog] = useState<{ open: boolean; id: number | null }>({ open: false, id: null });
+  const [rejectNote, setRejectNote] = useState("");
+  const [approveNote, setApproveNote] = useState("");
+  const [approveDialog, setApproveDialog] = useState<{ open: boolean; id: number | null }>({ open: false, id: null });
+
+  const { data: exchanges, isLoading } = useQuery<(WalletExchange & { user?: UserType })[]>({
+    queryKey: ["/api/admin/wallet-exchanges", statusFilter],
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/wallet-exchanges?status=${statusFilter}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Erreur serveur");
+      return res.json();
+    },
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async ({ id, adminNote }: { id: number; adminNote: string }) => {
+      await apiRequest("POST", `/api/admin/wallet-exchanges/${id}/approve`, { adminNote });
+    },
+    onSuccess: () => {
+      toast({ title: "Approuvé", description: "L'échange a été approuvé et les fonds crédités." });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/wallet-exchanges"] });
+      setApproveDialog({ open: false, id: null });
+      setApproveNote("");
+    },
+    onError: (e: Error) => toast({ variant: "destructive", title: "Erreur", description: e.message }),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async ({ id, adminNote }: { id: number; adminNote: string }) => {
+      await apiRequest("POST", `/api/admin/wallet-exchanges/${id}/reject`, { adminNote });
+    },
+    onSuccess: () => {
+      toast({ title: "Rejeté", description: "L'échange a été rejeté et les fonds recrédités à l'utilisateur." });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/wallet-exchanges"] });
+      setRejectDialog({ open: false, id: null });
+      setRejectNote("");
+    },
+    onError: (e: Error) => toast({ variant: "destructive", title: "Erreur", description: e.message }),
+  });
+
+  const FLAG_MAP: Record<string, string> = {
+    CI: "🇨🇮", BJ: "🇧🇯", TG: "🇹🇬", BF: "🇧🇫", SN: "🇸🇳",
+    CM: "🇨🇲", ML: "🇲🇱", GN: "🇬🇳", COG: "🇨🇬", COD: "🇨🇩",
+    NE: "🇳🇪", TD: "🇹🇩", CF: "🇨🇫", GA: "🇬🇦", GQ: "🇬🇶",
+    GW: "🇬🇼", MR: "🇲🇷", RW: "🇷🇼", BI: "🇧🇮",
+  };
+
+  const filtered = useMemo(() => {
+    if (!exchanges) return [];
+    const q = searchQuery.toLowerCase();
+    return exchanges.filter(ex =>
+      !q ||
+      ex.user?.fullName?.toLowerCase().includes(q) ||
+      ex.fromCountryCode.toLowerCase().includes(q) ||
+      ex.toCountryCode.toLowerCase().includes(q) ||
+      ex.currency.toLowerCase().includes(q)
+    );
+  }, [exchanges, searchQuery]);
+
+  const pendingCount = exchanges?.filter(e => e.status === "pending").length ?? 0;
+
+  const statusBadge = (status: string) => {
+    if (status === "pending") return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300 border-0 gap-1"><Clock className="h-3 w-3" />En attente</Badge>;
+    if (status === "approved") return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300 border-0 gap-1"><CheckCircle className="h-3 w-3" />Approuvé</Badge>;
+    return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 border-0 gap-1"><XCircle className="h-3 w-3" />Rejeté</Badge>;
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            Échanges Wallets
+            {pendingCount > 0 && (
+              <Badge variant="destructive" className="ml-1">{pendingCount} en attente</Badge>
+            )}
+          </h1>
+          <p className="text-muted-foreground">Validez ou rejetez les demandes d'échange entre portefeuilles utilisateurs</p>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Rechercher par utilisateur, pays, devise..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="pl-10"
+                data-testid="input-search-exchanges"
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-44" data-testid="select-filter-status">
+                <SelectValue placeholder="Filtrer par statut" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les statuts</SelectItem>
+                <SelectItem value="pending">En attente</SelectItem>
+                <SelectItem value="approved">Approuvés</SelectItem>
+                <SelectItem value="rejected">Rejetés</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-auto">
+            <Table className="min-w-[800px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="whitespace-nowrap">ID</TableHead>
+                  <TableHead className="whitespace-nowrap">Utilisateur</TableHead>
+                  <TableHead className="whitespace-nowrap">De → Vers</TableHead>
+                  <TableHead className="whitespace-nowrap">Montant</TableHead>
+                  <TableHead className="whitespace-nowrap">Statut</TableHead>
+                  <TableHead className="whitespace-nowrap">Date</TableHead>
+                  <TableHead className="whitespace-nowrap">Note</TableHead>
+                  <TableHead className="whitespace-nowrap text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  [1, 2, 3].map(i => (
+                    <TableRow key={i}>
+                      <TableCell colSpan={8}><Skeleton className="h-10 w-full" /></TableCell>
+                    </TableRow>
+                  ))
+                ) : filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                      Aucun échange trouvé
+                    </TableCell>
+                  </TableRow>
+                ) : filtered.map(ex => (
+                  <TableRow key={ex.id} data-testid={`exchange-row-${ex.id}`}>
+                    <TableCell className="text-xs text-muted-foreground font-mono">#{ex.id}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <div>
+                        <p className="font-medium text-sm">{ex.user?.fullName || "—"}</p>
+                        <p className="text-xs text-muted-foreground">#{ex.userId}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <div className="flex items-center gap-1.5 text-sm">
+                        <span>{FLAG_MAP[ex.fromCountryCode] || "🌍"}</span>
+                        <span className="font-medium">{ex.fromCountryCode}</span>
+                        <span className="text-muted-foreground">→</span>
+                        <span>{FLAG_MAP[ex.toCountryCode] || "🌍"}</span>
+                        <span className="font-medium">{ex.toCountryCode}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{ex.currency}</p>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap font-semibold">
+                      {new Intl.NumberFormat("fr-FR").format(parseFloat(ex.amount))} {ex.currency}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">{statusBadge(ex.status)}</TableCell>
+                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                      {formatDate(ex.createdAt)}
+                    </TableCell>
+                    <TableCell className="max-w-[180px]">
+                      <p className="text-xs text-muted-foreground truncate">{ex.adminNote || "—"}</p>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-right">
+                      {ex.status === "pending" && (
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-green-600 border-green-300 hover:bg-green-50 dark:hover:bg-green-950/30 gap-1"
+                            onClick={() => setApproveDialog({ open: true, id: ex.id })}
+                            data-testid={`button-approve-${ex.id}`}
+                          >
+                            <CheckCircle className="h-3.5 w-3.5" /> Approuver
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-red-600 border-red-300 hover:bg-red-50 dark:hover:bg-red-950/30 gap-1"
+                            onClick={() => setRejectDialog({ open: true, id: ex.id })}
+                            data-testid={`button-reject-${ex.id}`}
+                          >
+                            <XCircle className="h-3.5 w-3.5" /> Rejeter
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Dialog Approbation */}
+      <Dialog open={approveDialog.open} onOpenChange={open => { setApproveDialog({ open, id: approveDialog.id }); if (!open) setApproveNote(""); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-600">
+              <CheckCircle className="h-5 w-5" /> Approuver l'échange
+            </DialogTitle>
+            <DialogDescription>
+              Les fonds seront crédités dans le portefeuille destination. Une notification Telegram sera envoyée.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Label>Note administrative (optionnel)</Label>
+            <Input
+              placeholder="Ex: Échange validé après vérification..."
+              value={approveNote}
+              onChange={e => setApproveNote(e.target.value)}
+              data-testid="input-approve-note"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApproveDialog({ open: false, id: null })}>Annuler</Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white"
+              onClick={() => approveDialog.id && approveMutation.mutate({ id: approveDialog.id, adminNote: approveNote })}
+              disabled={approveMutation.isPending}
+              data-testid="button-confirm-approve"
+            >
+              {approveMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+              Confirmer l'approbation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Rejet */}
+      <Dialog open={rejectDialog.open} onOpenChange={open => { setRejectDialog({ open, id: rejectDialog.id }); if (!open) setRejectNote(""); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <XCircle className="h-5 w-5" /> Rejeter l'échange
+            </DialogTitle>
+            <DialogDescription>
+              Les fonds seront recrédités dans le portefeuille source. Une notification Telegram sera envoyée.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Label>Raison du rejet (optionnel)</Label>
+            <Input
+              placeholder="Ex: Solde insuffisant, vérification requise..."
+              value={rejectNote}
+              onChange={e => setRejectNote(e.target.value)}
+              data-testid="input-reject-note"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialog({ open: false, id: null })}>Annuler</Button>
+            <Button
+              variant="destructive"
+              onClick={() => rejectDialog.id && rejectMutation.mutate({ id: rejectDialog.id, adminNote: rejectNote })}
+              disabled={rejectMutation.isPending}
+              data-testid="button-confirm-reject"
+            >
+              {rejectMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <XCircle className="h-4 w-4 mr-2" />}
+              Confirmer le rejet
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 export default function AdminDashboardPage() {
   const [location] = useLocation();
 
@@ -4708,6 +4982,7 @@ export default function AdminDashboardPage() {
     if (location === "/admin/countries") return <CountriesContent />;
     if (location === "/admin/payment-links") return <AdminPaymentLinksContent />;
     if (location === "/admin/partners") return <PartnersContent />;
+    if (location === "/admin/wallet-exchanges") return <WalletExchangesContent />;
     if (location === "/admin/logs") return <LogsContent />;
     return <DashboardContent />;
   };
