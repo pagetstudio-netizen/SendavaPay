@@ -24,16 +24,15 @@ import waveLogo from "@assets/images_(16)_1772485816419.jpeg";
 
 const COUNTRY_PREFIXES: Record<string, string> = {
   CI: "+225", BJ: "+229", TG: "+228", BF: "+226",
-  SN: "+221", CM: "+237", ML: "+223", GN: "+224",
-  COG: "+242", COD: "+243",
+  SN: "+221", CM: "+237", ML: "+223", NE: "+227",
+  GW: "+245", COG: "+242", COD: "+243",
 };
 
 // Map currency → country codes that credit that currency
 const CURRENCY_COUNTRY_CODES: Record<string, string[]> = {
   XOF: ["SN", "ML", "CI", "BF", "BJ", "TG", "NE", "GW"],
-  XAF: ["CM", "CG", "GA", "CF", "TD", "GQ"],
+  XAF: ["CM", "COG"],
   CDF: ["COD"],
-  GNF: ["GN"],
 };
 
 const TIMEOUT_SECONDS = 120;
@@ -73,7 +72,6 @@ function getMbiyoUssdCode(countryCode: string, amount?: number): string {
   const codes: Record<string, string> = {
     BF: amount ? `*144*4*6*${amount}#` : "*144*4*6*MONTANT#",
     CI: "#144*82#",
-    GN: "#144#",
     ML: "#144#77#",
     SN: "#144#391#",
   };
@@ -81,7 +79,7 @@ function getMbiyoUssdCode(countryCode: string, amount?: number): string {
 }
 
 function isMbiyoOrangeCountry(countryCode: string): boolean {
-  return ["BF", "CI", "GN", "ML", "SN"].includes(countryCode.toUpperCase());
+  return ["BF", "CI", "ML", "SN"].includes(countryCode.toUpperCase());
 }
 
 function isMbiyoOrangeOperator(operator: string): boolean {
