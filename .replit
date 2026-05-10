@@ -14,10 +14,6 @@ run = ["node", "./dist/index.cjs"]
 localPort = 5000
 externalPort = 80
 
-[[ports]]
-localPort = 5904
-externalPort = 3000
-
 [env]
 PORT = "5000"
 
@@ -41,6 +37,9 @@ author = "agent"
 task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
 
 [agent]
 integrations = ["javascript_database:1.0.0", "javascript_object_storage:2.0.0", "javascript_auth_all_persistance:1.0.0", "resend:1.0.0"]

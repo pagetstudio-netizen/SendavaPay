@@ -4,14 +4,14 @@ import * as schema from "@shared/schema";
 
 const { Pool } = pg;
 
-const databaseUrl = process.env.SUPABASE_DATABASE_URL;
+const databaseUrl = process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL;
 
 let dbConnected = false;
 let pool: pg.Pool | null = null;
 let db: ReturnType<typeof drizzle> | null = null;
 
 if (!databaseUrl) {
-  console.error("SUPABASE_DATABASE_URL is not configured. Database features will be unavailable.");
+  console.error("DATABASE_URL is not configured. Database features will be unavailable.");
 } else {
   pool = new Pool({ 
     connectionString: databaseUrl,
