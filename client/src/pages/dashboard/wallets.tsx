@@ -94,7 +94,8 @@ export default function WalletsPage() {
     queryKey: ["/api/wallets"],
   });
 
-  const wallets = data?.wallets ?? [];
+  const HIDDEN_COUNTRIES = ["NE", "GW"];
+  const wallets = (data?.wallets ?? []).filter(w => !HIDDEN_COUNTRIES.includes(w.countryCode));
   const exchanges = data?.exchanges ?? [];
 
   const exchangeMutation = useMutation({
@@ -271,26 +272,6 @@ export default function WalletsPage() {
           )}
         </div>
 
-        {/* Résumé par zone monétaire */}
-        {totalByCurrency.length > 0 && (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {totalByCurrency.map(({ currency, total, count }) => {
-              const colors = ZONE_COLORS[currency] || ZONE_COLORS["XOF"];
-              return (
-                <div key={currency} className={`rounded-xl border p-4 ${colors.bg} ${colors.border}`}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-medium text-muted-foreground">{ZONE_LABELS[currency] || currency}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors.badge}`}>{count} pays</span>
-                  </div>
-                  <p className={`text-xl font-bold ${colors.text}`}>
-                    {formatAmount(total, currency)}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">Total de la zone</p>
-                </div>
-              );
-            })}
-          </div>
-        )}
 
         {/* Portefeuilles vides */}
         {wallets.length === 0 && (
@@ -426,7 +407,7 @@ export default function WalletsPage() {
               <Info className="h-5 w-5 text-muted-foreground flex-shrink-0 mt-0.5" />
               <div className="text-sm text-muted-foreground space-y-1">
                 <p className="font-medium text-foreground">Zones monétaires et échanges</p>
-                <p><strong>Zone UEMOA (XOF)</strong> : Sénégal, Mali, Côte d'Ivoire, Burkina Faso, Bénin, Togo, Niger, Guinée-Bissau</p>
+                <p><strong>Zone UEMOA (XOF)</strong> : Sénégal, Mali, Côte d'Ivoire, Burkina Faso, Bénin, Togo</p>
                 <p><strong>Zone CEMAC (XAF)</strong> : Cameroun, Congo</p>
                 <p><strong>Zone RDC (CDF)</strong> : République Démocratique du Congo</p>
                 <p>Les échanges entre portefeuilles sont uniquement possibles au sein de la même zone monétaire, au taux 1:1. Chaque demande est validée manuellement sous 24h maximum.</p>
