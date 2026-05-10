@@ -2529,6 +2529,16 @@ export async function registerRoutes(
 
           await storage.updateUserBalance(claimed.userId, netAmount.toString());
 
+          // Créditer le portefeuille pays
+          {
+            const _payerCc = claimed.payerCountry || (claimed.paymentMethod ? claimed.paymentMethod.trim().split(/\s+/).pop()?.toUpperCase() : null);
+            if (_payerCc) {
+              const _countries = await storage.getCountries();
+              const _cr = _countries.find((c: any) => c.code.toUpperCase() === _payerCc);
+              if (_cr) storage.creditWallet(claimed.userId, _cr.code, _cr.name, claimed.currency || _cr.currency, netAmount.toString()).catch((e: any) => console.error("MbiyoPay wallet credit error:", e));
+            }
+          }
+
           const depositUser = await storage.getUser(claimed.userId);
           if (depositUser?.email) {
             sendDepositEmail(depositUser.email, {
@@ -2686,6 +2696,16 @@ export async function registerRoutes(
           });
 
           await storage.updateUserBalance(claimed.userId, netAmount.toString());
+
+          // Créditer le portefeuille pays
+          {
+            const _payerCc = claimed.payerCountry || (claimed.paymentMethod ? claimed.paymentMethod.trim().split(/\s+/).pop()?.toUpperCase() : null);
+            if (_payerCc) {
+              const _countries = await storage.getCountries();
+              const _cr = _countries.find((c: any) => c.code.toUpperCase() === _payerCc);
+              if (_cr) storage.creditWallet(claimed.userId, _cr.code, _cr.name, claimed.currency || _cr.currency, netAmount.toString()).catch((e: any) => console.error("MaishaPay wallet credit error:", e));
+            }
+          }
 
           const depositUser = await storage.getUser(claimed.userId);
           if (depositUser?.email) {
@@ -2970,6 +2990,16 @@ export async function registerRoutes(
 
           await storage.updateUserBalance(claimed.userId, netAmount.toString());
 
+          // Créditer le portefeuille pays
+          {
+            const _payerCc = claimed.payerCountry || (claimed.paymentMethod ? claimed.paymentMethod.trim().split(/\s+/).pop()?.toUpperCase() : null);
+            if (_payerCc) {
+              const _countries = await storage.getCountries();
+              const _cr = _countries.find((c: any) => c.code.toUpperCase() === _payerCc);
+              if (_cr) storage.creditWallet(claimed.userId, _cr.code, _cr.name, claimed.currency || _cr.currency, netAmount.toString()).catch((e: any) => console.error("OmniPay wallet credit error:", e));
+            }
+          }
+
           const depositUser = await storage.getUser(claimed.userId);
           if (depositUser?.email) {
             sendDepositEmail(depositUser.email, {
@@ -3211,6 +3241,16 @@ export async function registerRoutes(
         });
 
         await storage.updateUserBalance(claimed.userId, netAmount.toString());
+
+        // Créditer le portefeuille pays
+        {
+          const _payerCc = claimed.payerCountry || (claimed.paymentMethod ? claimed.paymentMethod.trim().split(/\s+/).pop()?.toUpperCase() : null);
+          if (_payerCc) {
+            const _countries = await storage.getCountries();
+            const _cr = _countries.find((c: any) => c.code.toUpperCase() === _payerCc);
+            if (_cr) storage.creditWallet(claimed.userId, _cr.code, _cr.name, claimed.currency || _cr.currency, netAmount.toString()).catch((e: any) => console.error("Paxity wallet credit error:", e));
+          }
+        }
 
         const depositUser = await storage.getUser(claimed.userId);
         if (depositUser?.email) {
