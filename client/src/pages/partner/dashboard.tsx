@@ -96,6 +96,7 @@ import {
   Percent,
   ArrowLeftRight,
   ChevronRight,
+  Download,
 } from "lucide-react";
 import {
   Select,
@@ -2657,7 +2658,15 @@ transactions = client.get_transactions()`;
             <div className="space-y-4" data-testid="code-example-javascript">
               <div>
                 <p className="text-sm font-medium mb-2">1. Téléchargez le fichier SDK :</p>
-                <code className="bg-muted px-3 py-2 rounded-md text-sm font-mono block">sendavapay.js</code>
+                <a
+                  href="/sdk/javascript/sendavapay.js"
+                  download="sendavapay.js"
+                  className="flex items-center gap-2 bg-muted hover:bg-muted/80 px-3 py-2 rounded-md text-sm font-mono transition-colors group w-fit"
+                  data-testid="link-download-js"
+                >
+                  <Download className="h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
+                  <span>sendavapay.js</span>
+                </a>
               </div>
               <div className="relative">
                 <p className="text-sm font-medium mb-2">2. Utilisation :</p>
@@ -2672,7 +2681,15 @@ transactions = client.get_transactions()`;
             <div className="space-y-4" data-testid="code-example-php">
               <div>
                 <p className="text-sm font-medium mb-2">1. Téléchargez le fichier SDK :</p>
-                <code className="bg-muted px-3 py-2 rounded-md text-sm font-mono block">SendavaPay.php</code>
+                <a
+                  href="/sdk/php/SendavaPay.php"
+                  download="SendavaPay.php"
+                  className="flex items-center gap-2 bg-muted hover:bg-muted/80 px-3 py-2 rounded-md text-sm font-mono transition-colors group w-fit"
+                  data-testid="link-download-php"
+                >
+                  <Download className="h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
+                  <span>SendavaPay.php</span>
+                </a>
               </div>
               <div className="relative">
                 <p className="text-sm font-medium mb-2">2. Utilisation :</p>
@@ -2691,7 +2708,15 @@ transactions = client.get_transactions()`;
               </div>
               <div>
                 <p className="text-sm font-medium mb-2">2. Téléchargez le fichier SDK :</p>
-                <code className="bg-muted px-3 py-2 rounded-md text-sm font-mono block">sendavapay.py</code>
+                <a
+                  href="/sdk/python/sendavapay.py"
+                  download="sendavapay.py"
+                  className="flex items-center gap-2 bg-muted hover:bg-muted/80 px-3 py-2 rounded-md text-sm font-mono transition-colors group w-fit"
+                  data-testid="link-download-python"
+                >
+                  <Download className="h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
+                  <span>sendavapay.py</span>
+                </a>
               </div>
               <div className="relative">
                 <p className="text-sm font-medium mb-2">3. Utilisation :</p>
