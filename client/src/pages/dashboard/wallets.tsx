@@ -90,13 +90,14 @@ export default function WalletsPage() {
   const [toWalletId, setToWalletId] = useState("");
   const [exchangeAmount, setExchangeAmount] = useState("");
 
-  const { data, isLoading } = useQuery<{ wallets: WalletType[]; exchanges: WalletExchange[] }>({
+  const { data, isLoading } = useQuery<{ wallets: WalletType[]; exchanges: WalletExchange[]; userBalance: string }>({
     queryKey: ["/api/wallets"],
   });
 
   const HIDDEN_COUNTRIES = ["NE", "GW"];
   const wallets = (data?.wallets ?? []).filter(w => !HIDDEN_COUNTRIES.includes(w.countryCode));
   const exchanges = data?.exchanges ?? [];
+  const userBalance = parseFloat(data?.userBalance || "0");
 
   const exchangeMutation = useMutation({
     mutationFn: async () => {
@@ -272,6 +273,21 @@ export default function WalletsPage() {
           )}
         </div>
 
+
+        {/* Solde total */}
+        {userBalance > 0 && (
+          <Card className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div>
+                <p className="text-sm opacity-80">Solde total</p>
+                <p className="text-2xl font-bold mt-0.5" data-testid="text-wallets-total">
+                  {formatAmount(userBalance, "XOF")}
+                </p>
+              </div>
+              <Wallet className="h-8 w-8 opacity-60" />
+            </CardContent>
+          </Card>
+        )}
 
         {/* Portefeuilles vides */}
         {wallets.length === 0 && (

@@ -335,11 +335,23 @@ export async function registerRoutes(
 
   app.get("/api/wallets", requireAuth, async (req, res) => {
     try {
-      const [userWallets, exchanges] = await Promise.all([
-        storage.getUserWallets(req.session.userId!),
-        storage.getWalletExchanges(req.session.userId!),
+      const userId = req.session.userId!;
+      const [userWallets, exchanges, user] = await Promise.all([
+        storage.getUserWallets(userId),
+        storage.getWalletExchanges(userId),
+        storage.getUser(userId),
       ]);
-      res.json({ wallets: userWallets, exchanges });
+
+      // Sync wallet balances if there is a discrepancy with users.balance
+      const walletTotal = userWallets.reduce((s, w) => s + parseFloat(w.balance), 0);
+      const userBalance = parseFloat(user?.balance || "0");
+      if (userBalance > walletTotal + 1) {
+        await storage.syncWalletsFromTransactions(userId).catch((e: any) => console.error("Wallet sync error:", e));
+        const updatedWallets = await storage.getUserWallets(userId);
+        return res.json({ wallets: updatedWallets, exchanges, userBalance: user?.balance || "0" });
+      }
+
+      res.json({ wallets: userWallets, exchanges, userBalance: user?.balance || "0" });
     } catch (error) {
       console.error("Get wallets error:", error);
       res.status(500).json({ message: "Erreur serveur" });
