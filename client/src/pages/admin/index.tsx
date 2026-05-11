@@ -168,10 +168,14 @@ function DashboardContent() {
   
   const { data: stats, isLoading } = useQuery<AdminStats>({
     queryKey: ["/api/admin/stats"],
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: platformBalance } = useQuery<PlatformBalance>({
     queryKey: ["/api/admin/platform-balance"],
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: apiUsageStats } = useQuery<ApiUsageStats[]>({

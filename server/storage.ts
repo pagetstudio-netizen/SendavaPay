@@ -254,6 +254,7 @@ export interface IStorage {
   createDefaultWallets(userId: number): Promise<Wallet[]>;
   createDefaultPartnerWallets(partnerId: number): Promise<PartnerWallet[]>;
   getUserWallets(userId: number): Promise<Wallet[]>;
+  syncWalletsFromTransactions(userId: number): Promise<void>;
   getOrCreateWallet(userId: number, countryCode: string, countryName: string, currency: string): Promise<Wallet>;
   creditWallet(userId: number, countryCode: string, countryName: string, currency: string, amount: string): Promise<void>;
   debitWallet(walletId: number, amount: string): Promise<boolean>;
@@ -1276,6 +1277,44 @@ export class DatabaseStorage implements IStorage {
 
   async getUserWallets(userId: number): Promise<Wallet[]> {
     return getDb().select().from(wallets).where(eq(wallets.userId, userId)).orderBy(desc(wallets.balance));
+  }
+
+  async syncWalletsFromTransactions(userId: number): Promise<void> {
+    const user = await this.getUser(userId);
+    if (!user) return;
+
+    const userBalance = parseFloat(user.balance);
+    const userWallets = await this.getUserWallets(userId);
+    const walletTotal = userWallets.reduce((s, w) => s + parseFloat(w.balance), 0);
+    const diff = userBalance - walletTotal;
+    if (diff <= 1) return;
+
+    const allCountries = await this.getCountries();
+    const creditTxs = await getDb()
+      .select()
+      .from(transactions)
+      .where(and(
+        eq(transactions.userId, userId),
+        eq(transactions.status, "completed"),
+      ));
+
+    const countryAmounts: Record<string, { name: string; currency: string; amount: number }> = {};
+    for (const tx of creditTxs) {
+      if (tx.type !== "deposit" && tx.type !== "payment_received") continue;
+      const cc = (tx.payerCountry || (tx.paymentMethod ? tx.paymentMethod.trim().split(/\s+/).pop()?.toUpperCase() : null))?.toUpperCase();
+      if (!cc) continue;
+      const countryRec = allCountries.find((c: any) => c.code.toUpperCase() === cc);
+      if (!countryRec) continue;
+      if (!countryAmounts[cc]) countryAmounts[cc] = { name: countryRec.name, currency: countryRec.currency, amount: 0 };
+      countryAmounts[cc].amount += parseFloat(tx.netAmount);
+    }
+
+    if (Object.keys(countryAmounts).length > 0) {
+      const [topCode, topData] = Object.entries(countryAmounts).sort(([, a], [, b]) => b.amount - a.amount)[0];
+      await this.creditWallet(userId, topCode, topData.name, topData.currency, diff.toFixed(2));
+    } else {
+      await this.creditWallet(userId, "TG", "Togo", "XOF", diff.toFixed(2));
+    }
   }
 
   async getOrCreateWallet(userId: number, countryCode: string, countryName: string, currency: string): Promise<Wallet> {

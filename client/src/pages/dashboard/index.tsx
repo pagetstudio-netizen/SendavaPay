@@ -234,29 +234,21 @@ export default function DashboardPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div className="flex-1 min-w-0">
-                <p className="text-sm opacity-80">Solde total des portefeuilles</p>
-                {walletTotals ? (
-                  <>
-                    <p className="text-3xl md:text-4xl font-bold mt-1" data-testid="text-balance">
-                      {formatCurrency(walletTotals[0].total)} {walletTotals[0].currency}
-                    </p>
-                    {walletTotals.slice(1).map(({ currency, total }) => (
-                      <p key={currency} className="text-base font-semibold opacity-80 mt-0.5">
-                        + {formatCurrency(total)} {currency}
-                      </p>
-                    ))}
-                  </>
-                ) : (
-                  <p className="text-3xl md:text-4xl font-bold mt-1" data-testid="text-balance">
-                    {formatCurrency(user?.balance || 0)} XOF
+                <p className="text-sm opacity-80">Solde total</p>
+                <p className="text-3xl md:text-4xl font-bold mt-1" data-testid="text-balance">
+                  {formatCurrency(user?.balance || 0)} XOF
+                </p>
+                {walletTotals && walletTotals.filter(t => t.currency !== "XOF").map(({ currency, total }) => (
+                  <p key={currency} className="text-base font-semibold opacity-80 mt-0.5">
+                    + {formatCurrency(total)} {currency}
                   </p>
-                )}
+                ))}
               </div>
               <div className="flex flex-col items-center gap-2 ml-4">
                 <div className="h-16 w-16 rounded-full bg-white/20 flex items-center justify-center">
                   <Wallet className="h-8 w-8" />
                 </div>
-                {walletTotals && wallets.length > 0 && (
+                {wallets.length > 0 && (
                   <Link href="/dashboard/wallets">
                     <span className="text-xs opacity-70 hover:opacity-100 flex items-center gap-0.5 whitespace-nowrap cursor-pointer">
                       {wallets.length} portefeuille{wallets.length > 1 ? "s" : ""} <ChevronRight className="h-3 w-3" />
