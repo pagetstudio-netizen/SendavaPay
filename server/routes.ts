@@ -2621,6 +2621,19 @@ export async function registerRoutes(
             }).catch(err => console.error("Failed to send deposit email:", err));
           }
 
+          const { notifyDeposit: notifyDepositMbiyo } = await import("./telegram");
+          notifyDepositMbiyo({
+            userName: depositUser?.fullName || "Inconnu",
+            userId: claimed.userId,
+            amount,
+            fee: amount - netAmount,
+            netAmount,
+            currency: claimed.currency || "XOF",
+            phone: claimed.payerPhone || undefined,
+            operator: claimed.paymentMethod?.replace("mbiyopay_", "") || "MbiyoPay",
+            reference: claimId,
+          });
+
           console.log(`✅ MbiyoPay webhook: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
         } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
           const commissionRate = getCommissionRate(settings, "payment_received");
@@ -3508,7 +3521,21 @@ export async function registerRoutes(
 
         // Mettre à jour le solde
         await storage.updateUserBalance(leekpayPayment.userId, netAmount.toString());
-        
+
+        const verifyDepositUser = await storage.getUser(leekpayPayment.userId);
+        const { notifyDeposit: notifyDepositVerify } = await import("./telegram");
+        notifyDepositVerify({
+          userName: verifyDepositUser?.fullName || "Inconnu",
+          userId: leekpayPayment.userId,
+          amount,
+          fee,
+          netAmount,
+          currency: leekpayPayment.currency || "XOF",
+          phone: leekpayPayment.payerPhone || undefined,
+          operator: leekpayPayment.paymentMethod || undefined,
+          reference: paymentId,
+        });
+
         console.log(`Payment verified and credited: user ${leekpayPayment.userId}, amount: ${netAmount}`);
         return res.json({ status: "completed", message: `Dépôt de ${netAmount} ${leekpayPayment.currency} crédité avec succès!` });
       } else if (leekpayPayment.type === "payment_link" && leekpayPayment.paymentLinkId) {
@@ -3679,7 +3706,21 @@ export async function registerRoutes(
 
           await storage.updateUserBalance(leekpayPayment.userId, netAmount.toString());
           console.log(`✅ Dépôt confirmé pour utilisateur #${leekpayPayment.userId}: ${netAmount} XOF`);
-          
+
+          const refDepositUser = await storage.getUser(leekpayPayment.userId);
+          const { notifyDeposit: notifyDepositRef } = await import("./telegram");
+          notifyDepositRef({
+            userName: refDepositUser?.fullName || "Inconnu",
+            userId: leekpayPayment.userId,
+            amount,
+            fee,
+            netAmount,
+            currency: leekpayPayment.currency || "XOF",
+            phone: leekpayPayment.payerPhone || undefined,
+            operator: leekpayPayment.paymentMethod || undefined,
+            reference: paymentKey,
+          });
+
           return res.json({ 
             status: "completed", 
             message: `Paiement confirmé! ${netAmount} XOF ont été crédités sur votre compte.`,
