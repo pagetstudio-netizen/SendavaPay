@@ -380,7 +380,7 @@ function UsersContent() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
-  const [balanceForm, setBalanceForm] = useState({ amount: "", operation: "add", reason: "" });
+  const [balanceForm, setBalanceForm] = useState({ amount: "", operation: "add", reason: "", walletId: "" });
   const [editForm, setEditForm] = useState({ fullName: "", email: "", phone: "", adminNote: "", role: "" });
   const [newPassword, setNewPassword] = useState("");
 
@@ -413,6 +413,16 @@ function UsersContent() {
     },
   });
 
+  const { data: selectedUserWallets } = useQuery<{ id: number; countryCode: string; countryName: string; currency: string; balance: string }[]>({
+    queryKey: ["/api/admin/users", selectedUser?.id, "wallets"],
+    queryFn: async () => {
+      if (!selectedUser) return [];
+      const res = await fetch(`/api/admin/users/${selectedUser.id}/wallets`);
+      return res.json();
+    },
+    enabled: !!selectedUser && showBalanceDialog,
+  });
+
   const modifyBalanceMutation = useMutation({
     mutationFn: async ({ userId, data }: { userId: number; data: typeof balanceForm }) => {
       await apiRequest("POST", `/api/admin/users/${userId}/modify-balance`, data);
@@ -421,7 +431,7 @@ function UsersContent() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
       toast({ title: "Succès", description: "Solde modifié avec succès" });
       setShowBalanceDialog(false);
-      setBalanceForm({ amount: "", operation: "add", reason: "" });
+      setBalanceForm({ amount: "", operation: "add", reason: "", walletId: "" });
     },
     onError: (err: any) => {
       toast({ title: "Erreur", description: err.message || "Échec de la modification", variant: "destructive" });
@@ -480,7 +490,7 @@ function UsersContent() {
 
   const openBalanceDialog = (user: UserType) => {
     setSelectedUser(user);
-    setBalanceForm({ amount: "", operation: "add", reason: "" });
+    setBalanceForm({ amount: "", operation: "add", reason: "", walletId: "" });
     setShowBalanceDialog(true);
   };
 
@@ -667,12 +677,31 @@ function UsersContent() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Montant (XOF)</Label>
+              <Label>Portefeuille cible</Label>
+              <Select value={balanceForm.walletId} onValueChange={(v) => setBalanceForm({ ...balanceForm, walletId: v })}>
+                <SelectTrigger data-testid="select-wallet-target">
+                  <SelectValue placeholder="Sélectionner un portefeuille" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(selectedUserWallets || []).map((w) => (
+                    <SelectItem key={w.id} value={String(w.id)}>
+                      {w.countryName} ({w.currency}) — Solde: {parseFloat(w.balance).toLocaleString("fr-FR")} {w.currency}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {(!selectedUserWallets || selectedUserWallets.length === 0) && (
+                <p className="text-xs text-muted-foreground">Aucun portefeuille trouvé pour cet utilisateur.</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>Montant</Label>
               <Input
                 type="number"
                 value={balanceForm.amount}
                 onChange={(e) => setBalanceForm({ ...balanceForm, amount: e.target.value })}
                 placeholder="1000"
+                data-testid="input-balance-amount"
               />
             </div>
             <div className="space-y-2">
@@ -681,14 +710,16 @@ function UsersContent() {
                 value={balanceForm.reason}
                 onChange={(e) => setBalanceForm({ ...balanceForm, reason: e.target.value })}
                 placeholder="Ex: Remboursement suite à réclamation"
+                data-testid="input-balance-reason"
               />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowBalanceDialog(false)}>Annuler</Button>
             <Button
+              data-testid="button-confirm-balance"
               onClick={() => selectedUser && modifyBalanceMutation.mutate({ userId: selectedUser.id, data: balanceForm })}
-              disabled={!balanceForm.amount || !balanceForm.reason || modifyBalanceMutation.isPending}
+              disabled={!balanceForm.amount || !balanceForm.reason || !balanceForm.walletId || modifyBalanceMutation.isPending}
             >
               {balanceForm.operation === "add" ? "Créditer" : "Débiter"}
             </Button>
@@ -1773,10 +1804,16 @@ function WithdrawalsContent() {
                           )}
                           <Badge className={
                             request.status === "approved" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : 
-                            request.status === "pending" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" : 
+                            request.status === "pending" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" :
+                            request.status === "processing" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" :
+                            request.status === "failed" ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" :
                             "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
                           }>
-                            {request.status === "approved" ? "Approuvé" : request.status === "pending" ? "En attente" : "Rejeté"}
+                            {request.status === "approved" ? "Approuvé" : 
+                             request.status === "pending" ? "En attente" : 
+                             request.status === "processing" ? "En cours" :
+                             request.status === "failed" ? "Échoué (réessayable)" :
+                             "Rejeté"}
                           </Badge>
                           <span className="text-xl font-bold">{formatCurrency(request.amount)}</span>
                         </div>
@@ -1834,16 +1871,17 @@ function WithdrawalsContent() {
                         )}
                       </div>
                       
-                      {request.status === "pending" && (
+                      {(request.status === "pending" || request.status === "failed") && (
                         <div className="flex gap-2 flex-wrap lg:flex-col">
                           <Button 
                             size="sm" 
                             onClick={() => approveMutation.mutate(request.id)}
                             disabled={approveMutation.isPending}
                             data-testid={`button-approve-${request.id}`}
+                            title={request.status === "failed" ? "Approuver manuellement (re-débitera le solde)" : undefined}
                           >
                             <CheckCircle className="h-4 w-4 mr-1" /> 
-                            {approveMutation.isPending ? "..." : "Approuver"}
+                            {approveMutation.isPending ? "..." : request.status === "failed" ? "Approuver quand même" : "Approuver"}
                           </Button>
                           <Button 
                             size="sm" 

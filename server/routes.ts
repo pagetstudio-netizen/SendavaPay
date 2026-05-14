@@ -390,7 +390,10 @@ export async function registerRoutes(
       const fee = Math.floor(numAmount * feeRate / 100);
 
       // Debit immediately (funds held during processing, fee included)
-      await storage.debitWallet(fromWallet.id, numAmount.toString());
+      const debitOk = await storage.debitWallet(fromWallet.id, numAmount.toString());
+      if (!debitOk) {
+        return res.status(400).json({ message: "Solde insuffisant dans ce portefeuille" });
+      }
 
       const exchange = await storage.createWalletExchange({
         userId: req.session.userId!,
@@ -476,13 +479,13 @@ export async function registerRoutes(
       if (!exchange) return res.status(404).json({ message: "Échange introuvable" });
       if (exchange.status !== "pending") return res.status(400).json({ message: "Cet échange n'est plus en attente" });
 
-      // Credit the destination wallet (amount minus fee)
+      // Credit the destination wallet (amount minus fee) — use exact walletId to avoid wrong wallet
       const toWallet = await storage.getWalletById(exchange.toWalletId);
       if (!toWallet) return res.status(404).json({ message: "Portefeuille destination introuvable" });
 
       const exchangeFee = parseFloat(exchange.fee || "0");
       const netAmount = (parseFloat(exchange.amount) - exchangeFee).toString();
-      await storage.creditWallet(exchange.userId, toWallet.countryCode, toWallet.countryName, toWallet.currency, netAmount);
+      await storage.creditWalletById(exchange.toWalletId, netAmount);
       await storage.approveWalletExchange(id, req.session.userId!, adminNote);
 
       const user = exchange.user;
@@ -4560,6 +4563,7 @@ export async function registerRoutes(
   });
 
   // Admin approve: Balance was already debited when user requested withdrawal
+  // Also handles "failed" auto-payout requests (re-debits balance since it was restored on failure)
   app.post("/api/admin/withdrawal-requests/:id/approve", requireAuth, requireAdmin, async (req, res) => {
     try {
       const requestId = parseInt(req.params.id);
@@ -4569,12 +4573,28 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Demande introuvable" });
       }
       
-      // Seuls les retraits "pending" peuvent être approuvés
-      if (withdrawalRequest.status !== "pending") {
+      // Allow "pending" and "failed" (failed auto-payout, balance was restored) to be approved
+      if (withdrawalRequest.status !== "pending" && withdrawalRequest.status !== "failed") {
         return res.status(400).json({ message: "Cette demande a déjà été traitée" });
       }
+
+      // If the previous auto-payout failed, balance was already restored — re-debit now
+      if (withdrawalRequest.status === "failed") {
+        const user = await storage.getUser(withdrawalRequest.userId);
+        if (!user) return res.status(404).json({ message: "Utilisateur introuvable" });
+        const totalDeducted = parseFloat(withdrawalRequest.amount);
+        const currentBalance = parseFloat(user.balance);
+        if (currentBalance < totalDeducted) {
+          return res.status(400).json({ message: "Solde insuffisant pour traiter ce retrait" });
+        }
+        // Re-debit wallet if applicable
+        if (withdrawalRequest.walletId) {
+          const ok = await storage.debitWallet(withdrawalRequest.walletId, totalDeducted.toString());
+          if (!ok) return res.status(400).json({ message: "Solde wallet insuffisant pour traiter ce retrait" });
+        }
+        await storage.setUserBalance(withdrawalRequest.userId, (currentBalance - totalDeducted).toString());
+      }
       
-      // Le solde a déjà été débité lors de la demande de retrait
       // Créer la transaction pour l'historique
       await storage.createTransaction({
         userId: withdrawalRequest.userId,
@@ -7657,10 +7677,22 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: get wallets of a specific user (for manual credit dialog)
+  app.get("/api/admin/users/:id/wallets", requireAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const userWallets = await storage.getUserWallets(userId);
+      res.json(userWallets);
+    } catch (error) {
+      console.error("Get user wallets (admin) error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.post("/api/admin/users/:id/modify-balance", requireAdmin, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
-      const { amount, operation, reason } = req.body;
+      const { amount, operation, reason, walletId } = req.body;
       
       if (!amount || !operation || !reason) {
         return res.status(400).json({ message: "Montant, opération et raison requis" });
@@ -7675,17 +7707,38 @@ export async function registerRoutes(
       if (!user) {
         return res.status(404).json({ message: "Utilisateur non trouvé" });
       }
-      
+
+      // If a specific wallet is targeted, credit/debit it
+      if (walletId) {
+        const targetWallet = await storage.getWalletById(parseInt(walletId));
+        if (!targetWallet || targetWallet.userId !== userId) {
+          return res.status(400).json({ message: "Portefeuille invalide" });
+        }
+        if (operation === "add") {
+          await storage.creditWalletById(targetWallet.id, numericAmount.toString());
+        } else if (operation === "subtract") {
+          const walletBalance = parseFloat(targetWallet.balance);
+          if (numericAmount > walletBalance) {
+            return res.status(400).json({ message: "Solde wallet insuffisant" });
+          }
+          const ok = await storage.debitWallet(targetWallet.id, numericAmount.toString());
+          if (!ok) return res.status(400).json({ message: "Solde wallet insuffisant" });
+        } else {
+          return res.status(400).json({ message: "Opération invalide" });
+        }
+      }
+
+      // Always sync users.balance (legacy field used by some views)
       const currentBalance = parseFloat(user.balance);
       let newBalance: number;
       
       if (operation === "add") {
         newBalance = currentBalance + numericAmount;
       } else if (operation === "subtract") {
-        if (numericAmount > currentBalance) {
+        if (!walletId && numericAmount > currentBalance) {
           return res.status(400).json({ message: "Solde insuffisant" });
         }
-        newBalance = currentBalance - numericAmount;
+        newBalance = Math.max(0, currentBalance - numericAmount);
       } else {
         return res.status(400).json({ message: "Opération invalide" });
       }

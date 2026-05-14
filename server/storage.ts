@@ -706,10 +706,18 @@ export class DatabaseStorage implements IStorage {
 
   async getPlatformBalance(): Promise<{ totalBalance: string; userCount: number }> {
     const allUsers = await getDb().select().from(users);
-    const totalBalance = allUsers.reduce((sum, u) => sum + parseFloat(u.balance), 0);
+    const allWallets = await getDb().select().from(wallets);
+    // Sum all wallet balances — source of truth for user funds
+    const walletTotal = allWallets.reduce((sum, w) => sum + parseFloat(w.balance || "0"), 0);
+    // Also include user.balance for users that may not have wallets yet
+    const usersWithNoWallets = allUsers.filter(u =>
+      !allWallets.find(w => w.userId === u.id)
+    );
+    const legacyTotal = usersWithNoWallets.reduce((sum, u) => sum + parseFloat(u.balance || "0"), 0);
+    const totalBalance = walletTotal + legacyTotal;
     return {
       totalBalance: totalBalance.toFixed(2),
-      userCount: allUsers.length,
+      userCount: allUsers.filter(u => u.role !== "admin").length,
     };
   }
 
