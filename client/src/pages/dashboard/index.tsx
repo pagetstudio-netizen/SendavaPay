@@ -236,7 +236,7 @@ export default function DashboardPage() {
               <div className="flex-1 min-w-0">
                 <p className="text-sm opacity-80">Solde total</p>
                 <p className="text-3xl md:text-4xl font-bold mt-1" data-testid="text-balance">
-                  {formatCurrency(user?.balance || 0)} XOF
+                  {formatCurrency(walletTotals?.find(t => t.currency === "XOF")?.total ?? (user?.balance || 0))} XOF
                 </p>
                 {walletTotals && walletTotals.filter(t => t.currency !== "XOF").map(({ currency, total }) => (
                   <p key={currency} className="text-base font-semibold opacity-80 mt-0.5">
