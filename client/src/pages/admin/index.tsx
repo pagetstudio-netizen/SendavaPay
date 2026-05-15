@@ -1806,13 +1806,11 @@ function WithdrawalsContent() {
                             request.status === "approved" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : 
                             request.status === "pending" ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" :
                             request.status === "processing" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" :
-                            request.status === "failed" ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" :
                             "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
                           }>
                             {request.status === "approved" ? "Approuvé" : 
                              request.status === "pending" ? "En attente" : 
                              request.status === "processing" ? "En cours" :
-                             request.status === "failed" ? "Échoué (réessayable)" :
                              "Rejeté"}
                           </Badge>
                           <span className="text-xl font-bold">{formatCurrency(request.amount)}</span>
@@ -1865,23 +1863,22 @@ function WithdrawalsContent() {
                         </p>
                         
                         {request.rejectionReason && (
-                          <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded text-sm text-red-700 dark:text-red-400">
-                            <strong>Raison du rejet:</strong> {request.rejectionReason}
+                          <div className={`mt-2 p-2 rounded text-sm ${request.status === "pending" ? "bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400" : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"}`}>
+                            <strong>{request.status === "pending" ? "⚠️ Erreur paiement auto:" : "Raison du rejet:"}</strong> {request.rejectionReason}
                           </div>
                         )}
                       </div>
                       
-                      {(request.status === "pending" || request.status === "failed") && (
+                      {request.status === "pending" && (
                         <div className="flex gap-2 flex-wrap lg:flex-col">
                           <Button 
                             size="sm" 
                             onClick={() => approveMutation.mutate(request.id)}
                             disabled={approveMutation.isPending}
                             data-testid={`button-approve-${request.id}`}
-                            title={request.status === "failed" ? "Approuver manuellement (re-débitera le solde)" : undefined}
                           >
                             <CheckCircle className="h-4 w-4 mr-1" /> 
-                            {approveMutation.isPending ? "..." : request.status === "failed" ? "Approuver quand même" : "Approuver"}
+                            {approveMutation.isPending ? "..." : "Approuver"}
                           </Button>
                           <Button 
                             size="sm" 

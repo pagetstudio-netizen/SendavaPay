@@ -523,7 +523,7 @@ export async function registerRoutes(
       const fromWallet = await storage.getWalletById(exchange.fromWalletId);
       if (!fromWallet) return res.status(404).json({ message: "Portefeuille source introuvable" });
 
-      await storage.creditWallet(exchange.userId, fromWallet.countryCode, fromWallet.countryName, fromWallet.currency, exchange.amount);
+      await storage.creditWalletById(exchange.fromWalletId, exchange.amount);
       await storage.rejectWalletExchange(id, req.session.userId!, adminNote);
 
       const user = exchange.user;
@@ -2952,17 +2952,15 @@ export async function registerRoutes(
               });
 
             } else if (status === "4") {
-              // Transfer failed — reverse the transaction
+              // Transfer failed — keep pending for manual admin validation (balance stays debited)
               console.log(`❌ OmniPay TRANSFER webhook: Retrait #${withdrawalReq.id} ÉCHOUÉ ref=${reference} msg=${data.message}`);
 
               if (withdrawalReq.status === "processing" || withdrawalReq.status === "approved") {
-                // Restore user balance
-                await storage.updateUserBalance(withdrawalReq.userId, wAmount.toString());
-                console.log(`💰 OmniPay webhook: Solde restauré userId=${withdrawalReq.userId} amount=${wAmount}`);
+                console.log(`⏳ OmniPay webhook: Retrait #${withdrawalReq.id} basculé en "pending" pour validation manuelle`);
 
                 await storage.updateWithdrawalRequest(withdrawalReq.id, {
-                  status: "failed",
-                  rejectionReason: data.message || "Échec du transfert mobile money (OmniPay)",
+                  status: "pending",
+                  rejectionReason: data.message || "Échec du transfert mobile money (OmniPay) — en attente validation admin",
                 });
 
                 notifyWithdrawalAutoProcessed({
@@ -3995,9 +3993,8 @@ export async function registerRoutes(
           } else {
             const mpError = b2cResult.message || b2cResult.error || "Erreur MaishaPay inconnue";
             console.error("❌ MaishaPay B2C failed:", b2cResult);
-            await restore();
             await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-              status: "failed",
+              status: "pending",
               rejectionReason: mpError,
             });
 
@@ -4015,20 +4012,21 @@ export async function registerRoutes(
               gateway: "MaishaPay",
             });
 
-            return res.status(500).json({
-              message: `Le retrait automatique a échoué (${mpError}). Votre solde a été restauré.`,
+            return res.json({
+              message: "Le retrait automatique a échoué. La demande est en attente de validation manuelle par l'admin.",
+              request: { ...withdrawalRequest, status: "pending" },
             });
           }
         } catch (mpError) {
           console.error("❌ MaishaPay B2C exception:", mpError);
-          await restore();
           await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-            status: "failed",
+            status: "pending",
             rejectionReason: "Erreur technique lors du transfert automatique MaishaPay",
           });
 
-          return res.status(500).json({
-            message: "Erreur technique lors du retrait. Votre solde a été restauré.",
+          return res.json({
+            message: "Erreur technique lors du retrait. La demande est en attente de validation manuelle par l'admin.",
+            request: { ...withdrawalRequest, status: "pending" },
           });
         }
       }
@@ -4177,9 +4175,8 @@ export async function registerRoutes(
               });
             }
 
-            await restore();
             await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-              status: "failed",
+              status: "pending",
               rejectionReason: opError,
             });
 
@@ -4197,20 +4194,21 @@ export async function registerRoutes(
               gateway: "OmniPay",
             });
 
-            return res.status(500).json({
-              message: `Le retrait automatique a échoué (${opError}). Votre solde a été restauré.`,
+            return res.json({
+              message: "Le retrait automatique a échoué. La demande est en attente de validation manuelle par l'admin.",
+              request: { ...withdrawalRequest, status: "pending" },
             });
           }
         } catch (opErr) {
           console.error("❌ OmniPay transfer exception:", opErr);
-          await restore();
           await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-            status: "failed",
+            status: "pending",
             rejectionReason: "Erreur technique lors du transfert automatique OmniPay",
           });
 
-          return res.status(500).json({
-            message: "Erreur technique lors du retrait. Votre solde a été restauré.",
+          return res.json({
+            message: "Erreur technique lors du retrait. La demande est en attente de validation manuelle par l'admin.",
+            request: { ...withdrawalRequest, status: "pending" },
           });
         }
       }
@@ -4295,9 +4293,8 @@ export async function registerRoutes(
           } else {
             const pxError = pxResult.message || pxResult.description || pxResult.codeIntern || "Erreur Paxity inconnue";
             console.error("❌ Paxity payout failed:", pxResult);
-            await restore();
             await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-              status: "failed",
+              status: "pending",
               rejectionReason: pxError,
             });
 
@@ -4315,20 +4312,21 @@ export async function registerRoutes(
               gateway: "Paxity",
             });
 
-            return res.status(500).json({
-              message: `Le retrait automatique a échoué (${pxError}). Votre solde a été restauré.`,
+            return res.json({
+              message: "Le retrait automatique a échoué. La demande est en attente de validation manuelle par l'admin.",
+              request: { ...withdrawalRequest, status: "pending" },
             });
           }
         } catch (pxErr) {
           console.error("❌ Paxity payout exception:", pxErr);
-          await restore();
           await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-            status: "failed",
+            status: "pending",
             rejectionReason: "Erreur technique lors du payout Paxity",
           });
 
-          return res.status(500).json({
-            message: "Erreur technique lors du retrait. Votre solde a été restauré.",
+          return res.json({
+            message: "Erreur technique lors du retrait. La demande est en attente de validation manuelle par l'admin.",
+            request: { ...withdrawalRequest, status: "pending" },
           });
         }
       }
@@ -4403,9 +4401,8 @@ export async function registerRoutes(
           } else {
             const mbError = mbResult.message || "Erreur MbiyoPay inconnue";
             console.error("❌ MbiyoPay payout failed:", mbResult);
-            await restore();
             await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-              status: "failed",
+              status: "pending",
               rejectionReason: mbError,
             });
 
@@ -4422,20 +4419,21 @@ export async function registerRoutes(
               gateway: "MbiyoPay",
             });
 
-            return res.status(500).json({
-              message: `Le retrait automatique a échoué (${mbError}). Votre solde a été restauré.`,
+            return res.json({
+              message: "Le retrait automatique a échoué. La demande est en attente de validation manuelle par l'admin.",
+              request: { ...withdrawalRequest, status: "pending" },
             });
           }
         } catch (mbErr) {
           console.error("❌ MbiyoPay payout exception:", mbErr);
-          await restore();
           await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-            status: "failed",
+            status: "pending",
             rejectionReason: "Erreur technique lors du payout MbiyoPay",
           });
 
-          return res.status(500).json({
-            message: "Erreur technique lors du retrait. Votre solde a été restauré.",
+          return res.json({
+            message: "Erreur technique lors du retrait. La demande est en attente de validation manuelle par l'admin.",
+            request: { ...withdrawalRequest, status: "pending" },
           });
         }
       }
@@ -4614,26 +4612,9 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Demande introuvable" });
       }
       
-      // Allow "pending" and "failed" (failed auto-payout, balance was restored) to be approved
-      if (withdrawalRequest.status !== "pending" && withdrawalRequest.status !== "failed") {
+      // Only "pending" withdrawals can be approved (balance already debited at request time)
+      if (withdrawalRequest.status !== "pending") {
         return res.status(400).json({ message: "Cette demande a déjà été traitée" });
-      }
-
-      // If the previous auto-payout failed, balance was already restored — re-debit now
-      if (withdrawalRequest.status === "failed") {
-        const user = await storage.getUser(withdrawalRequest.userId);
-        if (!user) return res.status(404).json({ message: "Utilisateur introuvable" });
-        const totalDeducted = parseFloat(withdrawalRequest.amount);
-        const currentBalance = parseFloat(user.balance);
-        if (currentBalance < totalDeducted) {
-          return res.status(400).json({ message: "Solde insuffisant pour traiter ce retrait" });
-        }
-        // Re-debit wallet if applicable
-        if (withdrawalRequest.walletId) {
-          const ok = await storage.debitWallet(withdrawalRequest.walletId, totalDeducted.toString());
-          if (!ok) return res.status(400).json({ message: "Solde wallet insuffisant pour traiter ce retrait" });
-        }
-        await storage.setUserBalance(withdrawalRequest.userId, (currentBalance - totalDeducted).toString());
       }
       
       // Créer la transaction pour l'historique
