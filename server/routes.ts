@@ -408,6 +408,9 @@ export async function registerRoutes(
 
       const user = await storage.getUser(req.session.userId!);
       if (user) {
+        // Sync users.balance with wallet debit so dashboard stays accurate
+        const newUserBal = Math.max(0, parseFloat(user.balance) - numAmount);
+        await storage.setUserBalance(user.id, newUserBal.toFixed(4));
         notifyWalletExchangeRequest({
           userName: user.fullName,
           userId: user.id,
@@ -486,6 +489,14 @@ export async function registerRoutes(
       const exchangeFee = parseFloat(exchange.fee || "0");
       const netAmount = (parseFloat(exchange.amount) - exchangeFee).toString();
       await storage.creditWalletById(exchange.toWalletId, netAmount);
+
+      // Sync users.balance: add net_amount back (source was already debited on creation)
+      const exchangeUser = await storage.getUser(exchange.userId);
+      if (exchangeUser) {
+        const newBal = parseFloat(exchangeUser.balance) + parseFloat(netAmount);
+        await storage.setUserBalance(exchangeUser.id, newBal.toFixed(4));
+      }
+
       await storage.approveWalletExchange(id, req.session.userId!, adminNote);
 
       const user = exchange.user;
@@ -524,6 +535,14 @@ export async function registerRoutes(
       if (!fromWallet) return res.status(404).json({ message: "Portefeuille source introuvable" });
 
       await storage.creditWalletById(exchange.fromWalletId, exchange.amount);
+
+      // Sync users.balance: refund full amount (was debited on creation)
+      const rejectedExchangeUser = await storage.getUser(exchange.userId);
+      if (rejectedExchangeUser) {
+        const newBal = parseFloat(rejectedExchangeUser.balance) + parseFloat(exchange.amount);
+        await storage.setUserBalance(rejectedExchangeUser.id, newBal.toFixed(4));
+      }
+
       await storage.rejectWalletExchange(id, req.session.userId!, adminNote);
 
       const user = exchange.user;
@@ -6305,6 +6324,9 @@ export async function registerRoutes(
             } else {
               const wAmount = parseFloat(wr.amount as string || "0");
               await storage.updateUserBalance(wr.userId, wAmount.toString());
+              if (wr.walletId) {
+                await storage.creditWalletById(wr.walletId, wAmount.toString());
+              }
               await storage.updateWithdrawalRequest(wr.id, { status: "failed", rejectionReason: errMsg });
             }
             failed++;
