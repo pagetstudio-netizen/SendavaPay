@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useContext, useState, useEffect } from "react";
+import { createContext, ReactNode, useContext } from "react";
 import {
   useQuery,
   useMutation,
@@ -21,11 +21,13 @@ type RegisterData = {
   confirmPassword: string;
 };
 
+export type LoginResponse = User & { requireOtp?: boolean; tempToken?: string; message?: string };
+
 type AuthContextType = {
   user: User | null;
   isLoading: boolean;
   error: Error | null;
-  loginMutation: UseMutationResult<User, Error, LoginData>;
+  loginMutation: UseMutationResult<LoginResponse, Error, LoginData>;
   logoutMutation: UseMutationResult<void, Error, void>;
   registerMutation: UseMutationResult<User, Error, RegisterData>;
 };
@@ -45,15 +47,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const loginMutation = useMutation({
-    mutationFn: async (credentials: LoginData) => {
+    mutationFn: async (credentials: LoginData): Promise<LoginResponse> => {
       const res = await apiRequest("POST", "/api/auth/login", credentials);
       return await res.json();
     },
-    onSuccess: (user: User) => {
-      queryClient.setQueryData(["/api/user"], user);
+    onSuccess: (data: LoginResponse) => {
+      if (data.requireOtp) return;
+      queryClient.setQueryData(["/api/user"], data);
       toast({
         title: "Connexion réussie",
-        description: `Bienvenue, ${user.fullName}!`,
+        description: `Bienvenue, ${data.fullName}!`,
       });
     },
     onError: (error: Error) => {

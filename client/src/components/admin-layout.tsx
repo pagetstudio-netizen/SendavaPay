@@ -69,6 +69,7 @@ const navItems: NavItem[] = [
   { title: "Message global", href: "/admin/messaging", icon: MessageSquare },
   { title: "Partenaires", href: "/admin/partners", icon: Handshake },
   { title: "Logs & Sécurité", href: "/admin/logs", icon: Shield },
+  { title: "Sécurité avancée", href: "/admin/security", icon: Shield },
   { title: "Paramètres", href: "/admin/settings", icon: Settings },
 ];
 

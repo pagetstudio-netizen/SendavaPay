@@ -8,10 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import CountrySelect from "@/components/ui/country-select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Loader2, Info, ArrowLeft, Shield, Clock, CheckCircle, XCircle, BadgeCheck, Check } from "lucide-react";
+import { Loader2, Info, ArrowLeft, Shield, Clock, CheckCircle, XCircle, BadgeCheck, Check, Mail, ShieldCheck } from "lucide-react";
 import { Link } from "wouter";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
 import moovLogo from "@assets/moov_(1)_1763835082986-GKkwwfPK_1769443204522.png";
@@ -91,6 +92,9 @@ export default function WithdrawPage() {
   const [paymentMethod, setPaymentMethod] = useState("");
   const [mobileNumber, setMobileNumber] = useState("");
   const [coverFees, setCoverFees] = useState(false);
+  const [otpModalOpen, setOtpModalOpen] = useState(false);
+  const [otpToken, setOtpToken] = useState("");
+  const [otpCode, setOtpCode] = useState("");
 
   const { data: walletsData } = useQuery<{ wallets: WalletType[] }>({
     queryKey: ["/api/wallets"],
@@ -152,48 +156,59 @@ export default function WithdrawPage() {
   const totalDeducted = coverFees ? numericAmount + fee : numericAmount;
   const minWithdrawal = 200;
 
-  const withdrawMutation = useMutation({
+  const sendOtpMutation = useMutation({
     mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string; country: string; coverFees: boolean; walletId?: number }) => {
+      const res = await apiRequest("POST", "/api/withdraw/send-otp", data);
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      if (data.otpToken) {
+        setOtpToken(data.otpToken);
+        setOtpCode("");
+        setOtpModalOpen(true);
+        toast({ title: "Code envoyé", description: "Un code de confirmation a été envoyé à votre email. Vérifiez vos spams." });
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const withdrawMutation = useMutation({
+    mutationFn: async (data: { amount: number; paymentMethod: string; mobileNumber: string; country: string; coverFees: boolean; walletId?: number; otpToken: string; otpCode: string }) => {
       const res = await apiRequest("POST", "/api/withdraw", data);
       return await res.json();
     },
     onSuccess: (data) => {
       toast({
         title: data.autoProcessed ? "Retrait effectué" : "Retrait en cours",
-        description: data.message || "Votre retrait a été traité instantanément.",
+        description: data.message || "Votre retrait a été traité avec succès.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/withdrawal-requests"] });
       queryClient.invalidateQueries({ queryKey: ["/api/user"] });
       queryClient.invalidateQueries({ queryKey: ["/api/wallets"] });
       setAmount("");
+      setOtpModalOpen(false);
+      setOtpToken(""); setOtpCode("");
     },
     onError: (error: Error) => {
-      toast({
-        title: "Erreur",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Erreur", description: error.message, variant: "destructive" });
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const validateForm = () => {
     if (!user?.isVerified) {
       toast({ title: "Compte non vérifié", description: "Veuillez vérifier votre compte pour effectuer des retraits.", variant: "destructive" });
-      return;
+      return false;
     }
-
     if (!selectedWalletId) {
       toast({ title: "Portefeuille requis", description: "Veuillez sélectionner un portefeuille.", variant: "destructive" });
-      return;
+      return false;
     }
-
     if (numericAmount < minWithdrawal) {
       toast({ title: "Montant insuffisant", description: `Le montant minimum de retrait est de ${minWithdrawal} ${currency}.`, variant: "destructive" });
-      return;
+      return false;
     }
-
     if (totalDeducted > balance) {
       toast({
         title: "Solde insuffisant",
@@ -202,19 +217,35 @@ export default function WithdrawPage() {
           : "Vous n'avez pas assez de fonds dans ce portefeuille.",
         variant: "destructive",
       });
-      return;
+      return false;
     }
-
     if (!country) {
       toast({ title: "Pays requis", description: "Veuillez sélectionner un pays.", variant: "destructive" });
-      return;
+      return false;
     }
-
     if (!paymentMethod) {
       toast({ title: "Moyen de paiement requis", description: "Veuillez sélectionner un moyen de paiement.", variant: "destructive" });
-      return;
+      return false;
     }
+    return true;
+  };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+    sendOtpMutation.mutate({
+      amount: numericAmount,
+      paymentMethod,
+      mobileNumber: (phonePrefix + mobileNumber).replace(/\s/g, ""),
+      country,
+      coverFees,
+      walletId: selectedWalletId ?? undefined,
+    });
+  };
+
+  const handleOtpConfirm = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otpCode.trim() || otpCode.length !== 6) return;
     withdrawMutation.mutate({
       amount: numericAmount,
       paymentMethod,
@@ -222,6 +253,8 @@ export default function WithdrawPage() {
       country,
       coverFees,
       walletId: selectedWalletId ?? undefined,
+      otpToken,
+      otpCode: otpCode.trim(),
     });
   };
 
@@ -519,6 +552,49 @@ export default function WithdrawPage() {
           </Card>
         )}
       </div>
+      {/* ── OTP Confirmation Modal ─────────────────────────────────────────── */}
+      <Dialog open={otpModalOpen} onOpenChange={(open) => { if (!withdrawMutation.isPending) setOtpModalOpen(open); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-primary" />
+              Confirmation par code
+            </DialogTitle>
+            <DialogDescription>
+              Un code à 6 chiffres a été envoyé à votre adresse email. Saisissez-le pour confirmer le retrait.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3 text-sm text-blue-700 dark:text-blue-300">
+            <Mail className="h-4 w-4 shrink-0" />
+            <span>Vérifiez vos spams si vous ne recevez pas l'email.</span>
+          </div>
+          <form onSubmit={handleOtpConfirm} className="space-y-4">
+            <div>
+              <Label>Code de confirmation</Label>
+              <Input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                placeholder="123456"
+                className="text-center text-3xl h-16 font-mono tracking-widest mt-1"
+                value={otpCode}
+                onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                autoFocus
+                data-testid="input-withdraw-otp"
+              />
+            </div>
+            <div className="flex gap-3">
+              <Button type="button" variant="outline" className="flex-1" onClick={() => { setOtpModalOpen(false); setOtpCode(""); }} disabled={withdrawMutation.isPending}>
+                Annuler
+              </Button>
+              <Button type="submit" className="flex-1" disabled={withdrawMutation.isPending || otpCode.length !== 6} data-testid="button-withdraw-otp-submit">
+                {withdrawMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Traitement...</> : "Confirmer le retrait"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

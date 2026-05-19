@@ -2,6 +2,14 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import express from "express";
 import { storage } from "./storage";
+import {
+  securityHeaders, ipBlockMiddleware, getClientIp, logSecurityEvent,
+  recordLoginAttempt, countRecentFailedAttempts,
+  invalidateAllOtherAdminSessions, africaOnlyAdmin,
+  blockIp, unblockIp, loginRateLimit, withdrawRateLimit,
+  registerRateLimit, otpRateLimit, apiRateLimit,
+} from "./security";
+import { createOtp, verifyOtp, sendWithdrawalOtp, sendAdminLoginOtp } from "./otp";
 import { getCredential, setCachedCredential, loadCredentialsFromDb, CREDENTIAL_KEYS } from "./credentials";
 import bcrypt from "bcrypt";
 import session from "express-session";
@@ -195,11 +203,15 @@ export async function registerRoutes(
       cookie: {
         secure: process.env.NODE_ENV === "production",
         httpOnly: true,
-        maxAge: 30 * 24 * 60 * 60 * 1000,
-        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+        maxAge: 24 * 60 * 60 * 1000,
+        sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
       },
     })
   );
+
+  // ── Security middleware ──────────────────────────────────────────────────────
+  app.use(securityHeaders);
+  app.use(ipBlockMiddleware);
 
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567";
   app.use(`/object-storage/${bucketId}`, express.static(`/${bucketId}`));
@@ -222,7 +234,7 @@ export async function registerRoutes(
   // Mount Public API (v1 endpoints)
   app.use("/api", merchantApi);
 
-  app.post("/api/auth/register", async (req, res) => {
+  app.post("/api/auth/register", registerRateLimit, async (req, res) => {
     try {
       const result = registerSchema.safeParse(req.body);
       if (!result.success) {
@@ -276,7 +288,8 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/auth/login", async (req, res) => {
+  app.post("/api/auth/login", loginRateLimit, async (req, res) => {
+    const ip = getClientIp(req);
     try {
       const result = loginSchema.safeParse(req.body);
       if (!result.success) {
@@ -284,41 +297,101 @@ export async function registerRoutes(
       }
 
       const { emailOrPhone, password } = result.data;
+
+      // Brute-force check
+      const failedCount = await countRecentFailedAttempts(emailOrPhone);
+      if (failedCount >= 5) {
+        await logSecurityEvent({ type: "brute_force", details: `Compte verrouillé: ${emailOrPhone}`, ipAddress: ip, userAgent: req.headers["user-agent"] });
+        return res.status(429).json({ message: "Compte temporairement verrouillé après trop de tentatives. Réessayez dans 15 minutes." });
+      }
+
       const user = await storage.getUserByEmailOrPhone(emailOrPhone);
 
       if (!user) {
+        await recordLoginAttempt(emailOrPhone, ip, false);
         return res.status(401).json({ message: "Identifiants invalides" });
       }
 
       if (user.isBlocked) {
-        return res.status(403).json({ message: "Votre compte a été bloqué" });
+        await recordLoginAttempt(emailOrPhone, ip, false);
+        return res.status(403).json({ message: "Votre compte a été bloqué. Contactez le support." });
       }
 
       const isValidPassword = await bcrypt.compare(password, user.password);
       if (!isValidPassword) {
+        await recordLoginAttempt(emailOrPhone, ip, false);
+        await logSecurityEvent({ userId: user.id, type: "failed_login", details: `Mot de passe incorrect pour ${emailOrPhone}`, ipAddress: ip, userAgent: req.headers["user-agent"] });
         return res.status(401).json({ message: "Identifiants invalides" });
       }
 
-      req.session.userId = user.id;
+      await recordLoginAttempt(emailOrPhone, ip, true);
 
+      // ── ADMIN : 2FA via email ────────────────────────────────────────────────
       if (user.role === "admin") {
-        notifyAdminLogin({
-          userName: user.fullName,
-          userId: user.id,
-          ip: req.ip || req.socket?.remoteAddress || "inconnu",
-        });
+        if (!user.email) {
+          return res.status(500).json({ message: "Aucun email associé au compte admin." });
+        }
+        try {
+          const { token, code } = await createOtp(user.id, "admin_login", ip);
+          await sendAdminLoginOtp(user.email, user.fullName, code, ip);
+          await logSecurityEvent({ userId: user.id, type: "admin_login_otp_sent", details: `OTP envoyé à ${user.email}`, ipAddress: ip });
+          return res.json({ requireOtp: true, tempToken: token, message: "Code de vérification envoyé par email." });
+        } catch (emailErr) {
+          console.error("Admin OTP email error:", emailErr);
+          return res.status(500).json({ message: "Impossible d'envoyer le code de vérification. Vérifiez la configuration email." });
+        }
       }
 
-      // Ensure all default wallets exist for this user (non-blocking, idempotent)
-      storage.createDefaultWallets(user.id).catch(err =>
-        console.error("Failed to ensure default wallets on login:", err)
-      );
+      // ── USER normal ──────────────────────────────────────────────────────────
+      req.session.userId = user.id;
+      storage.createDefaultWallets(user.id).catch(err => console.error("Failed to ensure default wallets on login:", err));
 
       const { password: _, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
     } catch (error) {
       console.error("Login error:", error);
       res.status(500).json({ message: "Erreur lors de la connexion" });
+    }
+  });
+
+  // ── Admin OTP verification (2FA) ─────────────────────────────────────────────
+  app.post("/api/auth/admin-verify-otp", otpRateLimit, async (req, res) => {
+    const ip = getClientIp(req);
+    try {
+      const { tempToken, code } = req.body;
+      if (!tempToken || !code) {
+        return res.status(400).json({ message: "Token et code requis" });
+      }
+
+      const result = await verifyOtp(tempToken, code.trim(), "admin_login");
+      if (!result.valid) {
+        await logSecurityEvent({ type: "admin_otp_failed", details: result.errorMsg, ipAddress: ip });
+        return res.status(401).json({ message: result.errorMsg || "Code invalide" });
+      }
+
+      const user = await storage.getUser(result.userId!);
+      if (!user || user.role !== "admin") {
+        return res.status(403).json({ message: "Accès refusé" });
+      }
+
+      // Set session first, then invalidate all other admin sessions
+      req.session.userId = user.id;
+      req.session.save(async (err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).json({ message: "Erreur de session" });
+        }
+        // Invalidate all other sessions for this admin
+        await invalidateAllOtherAdminSessions(user.id, (req.session as any).id || "");
+        await logSecurityEvent({ userId: user.id, type: "admin_login_success", details: `Login admin réussi`, ipAddress: ip });
+        notifyAdminLogin({ userName: user.fullName, userId: user.id, ip });
+        storage.createDefaultWallets(user.id).catch(() => {});
+        const { password: _, ...userWithoutPassword } = user;
+        res.json(userWithoutPassword);
+      });
+    } catch (error) {
+      console.error("Admin OTP verify error:", error);
+      res.status(500).json({ message: "Erreur de vérification" });
     }
   });
 
@@ -3800,8 +3873,50 @@ export async function registerRoutes(
   });
 
   // All withdrawals require admin approval - balance is debited immediately
-  app.post("/api/withdraw", requireAuth, async (req, res) => {
+  // ── Withdrawal : envoyer OTP avant de soumettre ────────────────────────────
+  app.post("/api/withdraw/send-otp", requireAuth, withdrawRateLimit, async (req, res) => {
+    const ip = getClientIp(req);
     try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user?.isVerified) return res.status(403).json({ message: "Compte non vérifié." });
+      if (!user.email) return res.status(400).json({ message: "Aucun email associé à votre compte." });
+
+      const { amount, paymentMethod, mobileNumber, country, walletId, coverFees } = req.body;
+      if (!amount || !paymentMethod || !mobileNumber || !country) {
+        return res.status(400).json({ message: "Paramètres manquants." });
+      }
+
+      const { token, code } = await createOtp(user.id, "withdrawal", ip, {
+        amount, paymentMethod, mobileNumber, country, walletId, coverFees,
+      });
+      await sendWithdrawalOtp(user.email, user.fullName, code, amount, "FCFA");
+      await logSecurityEvent({ userId: user.id, type: "withdrawal_otp_sent", ipAddress: ip, details: `Montant: ${amount}` });
+
+      res.json({ requireOtp: true, otpToken: token, message: "Code de confirmation envoyé par email." });
+    } catch (error: any) {
+      console.error("Withdrawal OTP error:", error);
+      res.status(500).json({ message: "Impossible d'envoyer le code de confirmation." });
+    }
+  });
+
+  app.post("/api/withdraw", requireAuth, async (req, res) => {
+    const ip = getClientIp(req);
+    try {
+      // ── OTP verification ─────────────────────────────────────────────────
+      const { otpToken, otpCode } = req.body;
+      if (!otpToken || !otpCode) {
+        return res.status(403).json({ message: "Code de confirmation requis. Veuillez demander un code OTP.", requireOtp: true });
+      }
+      const otpResult = await verifyOtp(otpToken, String(otpCode).trim(), "withdrawal");
+      if (!otpResult.valid) {
+        await logSecurityEvent({ userId: req.session.userId, type: "withdrawal_otp_failed", ipAddress: ip, details: otpResult.errorMsg });
+        return res.status(401).json({ message: otpResult.errorMsg || "Code invalide" });
+      }
+      if (otpResult.userId !== req.session.userId) {
+        return res.status(403).json({ message: "Code invalide pour cet utilisateur." });
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       const user = await storage.getUser(req.session.userId!);
       if (!user?.isVerified) {
         return res.status(403).json({ message: "Compte non vérifié. Veuillez compléter la vérification KYC." });
@@ -7979,11 +8094,63 @@ export async function registerRoutes(
           await sendBotReply(chatId, "❌ Impossible de récupérer l'IP du serveur.");
         }
 
+      } else if (command === "/bloquer_ip") {
+        const ip = text.split(" ")[1]?.trim();
+        if (!ip) {
+          await sendBotReply(chatId, "❌ Usage: /bloquer_ip 192.168.1.1");
+        } else {
+          try {
+            await blockIp(ip, "Bloqué via Telegram", undefined);
+            await sendBotReply(chatId, `✅ IP <code>${ip}</code> bloquée avec succès.`);
+            await logSecurityEvent({ type: "ip_blocked_telegram", details: `IP ${ip} bloquée via Telegram`, ipAddress: ip });
+          } catch {
+            await sendBotReply(chatId, "❌ Erreur lors du blocage de l'IP.");
+          }
+        }
+
+      } else if (command === "/debloquer_ip") {
+        const ip = text.split(" ")[1]?.trim();
+        if (!ip) {
+          await sendBotReply(chatId, "❌ Usage: /debloquer_ip 192.168.1.1");
+        } else {
+          try {
+            await unblockIp(ip);
+            await sendBotReply(chatId, `✅ IP <code>${ip}</code> débloquée.`);
+          } catch {
+            await sendBotReply(chatId, "❌ Erreur lors du déblocage de l'IP.");
+          }
+        }
+
+      } else if (command === "/securite") {
+        try {
+          const { pool: dbPool } = await import("./db");
+          if (!dbPool) throw new Error("DB not ready");
+          const client = await dbPool.connect();
+          const eventsRes = await client.query(`SELECT COUNT(*) cnt FROM security_events WHERE type='failed_login' AND created_at > NOW() - INTERVAL '24 hours'`);
+          const bruteRes = await client.query(`SELECT COUNT(*) cnt FROM security_events WHERE type='brute_force' AND created_at > NOW() - INTERVAL '24 hours'`);
+          const blockedRes = await client.query(`SELECT COUNT(*) cnt FROM blocked_ips WHERE (expires_at IS NULL OR expires_at > NOW())`);
+          const attemptsRes = await client.query(`SELECT COUNT(*) cnt FROM login_attempts WHERE created_at > NOW() - INTERVAL '1 hour'`);
+          client.release();
+          const reply =
+            `<b>🔐 SÉCURITÉ SENDAVAPAY</b>\n\n` +
+            `<b>❌ Connexions échouées (24h):</b> ${eventsRes.rows[0].cnt}\n` +
+            `<b>🔨 Force brute (24h):</b> ${bruteRes.rows[0].cnt}\n` +
+            `<b>🚫 IPs bloquées:</b> ${blockedRes.rows[0].cnt}\n` +
+            `<b>🔑 Tentatives login (1h):</b> ${attemptsRes.rows[0].cnt}\n\n` +
+            `Commandes:\n/bloquer_ip &lt;ip&gt;\n/debloquer_ip &lt;ip&gt;`;
+          await sendBotReply(chatId, reply);
+        } catch {
+          await sendBotReply(chatId, "❌ Impossible de récupérer les statistiques de sécurité.");
+        }
+
       } else if (command === "/help") {
         const help =
           `<b>🤖 Commandes SendavaPay Bot</b>\n\n` +
           `/stats — Statistiques en temps réel\n` +
           `/ip — IP actuelle du serveur\n` +
+          `/securite — Rapport de sécurité\n` +
+          `/bloquer_ip &lt;ip&gt; — Bloquer une IP\n` +
+          `/debloquer_ip &lt;ip&gt; — Débloquer une IP\n` +
           `/help — Liste des commandes\n\n` +
           `Alertes automatiques actives:\n` +
           `• Nouveaux utilisateurs\n` +
@@ -8004,6 +8171,60 @@ export async function registerRoutes(
       console.error("Telegram webhook error:", error);
       res.json({ ok: true });
     }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ADMIN SECURITY ROUTES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
+    if (!req.session.userId) return res.status(401).json({ message: "Non authentifié" });
+    const u = await storage.getUser(req.session.userId);
+    if (!u || u.role !== "admin") return res.status(403).json({ message: "Accès refusé" });
+    next();
+  };
+
+  app.get("/api/admin/security/blocked-ips", requireAdmin, async (req, res) => {
+    const { pool: dbPool } = await import("./db");
+    if (!dbPool) return res.json([]);
+    const client = await dbPool.connect();
+    const result = await client.query(`SELECT * FROM blocked_ips WHERE (expires_at IS NULL OR expires_at > NOW()) ORDER BY created_at DESC`);
+    client.release();
+    res.json(result.rows);
+  });
+
+  app.post("/api/admin/security/block-ip", requireAdmin, async (req, res) => {
+    const { ip, reason, expiresAt } = req.body;
+    if (!ip?.trim()) return res.status(400).json({ message: "IP requise" });
+    const userId = req.session.userId!;
+    await blockIp(ip.trim(), reason?.trim() || "Bloqué manuellement", userId, expiresAt ? new Date(expiresAt) : undefined);
+    await logSecurityEvent({ userId, type: "ip_blocked_admin", details: `IP ${ip} bloquée par admin`, ipAddress: getClientIp(req) });
+    res.json({ message: "IP bloquée", ip: ip.trim() });
+  });
+
+  app.delete("/api/admin/security/block-ip/:ip", requireAdmin, async (req, res) => {
+    const ip = decodeURIComponent(req.params.ip);
+    await unblockIp(ip);
+    await logSecurityEvent({ userId: req.session.userId, type: "ip_unblocked_admin", details: `IP ${ip} débloquée`, ipAddress: getClientIp(req) });
+    res.json({ message: "IP débloquée" });
+  });
+
+  app.get("/api/admin/security/events", requireAdmin, async (req, res) => {
+    const { pool: dbPool } = await import("./db");
+    if (!dbPool) return res.json([]);
+    const client = await dbPool.connect();
+    const result = await client.query(`SELECT * FROM security_events ORDER BY created_at DESC LIMIT 100`);
+    client.release();
+    res.json(result.rows);
+  });
+
+  app.get("/api/admin/security/login-attempts", requireAdmin, async (req, res) => {
+    const { pool: dbPool } = await import("./db");
+    if (!dbPool) return res.json([]);
+    const client = await dbPool.connect();
+    const result = await client.query(`SELECT * FROM login_attempts ORDER BY created_at DESC LIMIT 200`);
+    client.release();
+    res.json(result.rows);
   });
 
   return httpServer;
