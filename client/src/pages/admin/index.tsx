@@ -50,6 +50,7 @@ import {
   XCircle,
   Clock,
   Eye,
+  EyeOff,
   Ban,
   Unlock,
   Trash2,
@@ -3747,6 +3748,10 @@ function CredentialsCard() {
   const { toast } = useToast();
   const [editing, setEditing] = useState<Record<string, boolean>>({});
   const [values, setValues] = useState<Record<string, string>>({});
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+
+  const toggleReveal = (key: string) =>
+    setRevealed((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const { data: creds, isLoading, refetch } = useQuery<Record<string, CredentialInfo>>({
     queryKey: ["/api/admin/credentials"],
@@ -3827,8 +3832,20 @@ function CredentialsCard() {
                                 className="text-xs font-mono text-muted-foreground"
                                 data-testid={`text-cred-masked-${key}`}
                               >
-                                {info.masked}
+                                {revealed[key] ? info.masked : "••••••••••••"}
                               </span>
+                            )}
+                            {info?.hasValue && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7"
+                                onClick={() => toggleReveal(key)}
+                                title={revealed[key] ? "Masquer" : "Afficher"}
+                                data-testid={`button-reveal-cred-${key}`}
+                              >
+                                {revealed[key] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                              </Button>
                             )}
                             <Button
                               size="sm"
