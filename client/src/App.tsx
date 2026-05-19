@@ -27,6 +27,7 @@ import PayApiPage from "@/pages/pay-api";
 import SuccessPage from "@/pages/success";
 import PaymentSuccessPage from "@/pages/payment-success";
 import AdminDashboardPage from "@/pages/admin/index";
+import AdminSecurityPage from "@/pages/admin/security";
 import TermsPage from "@/pages/terms";
 import AboutPage from "@/pages/about";
 import HelpPage from "@/pages/help";
@@ -90,6 +91,7 @@ function Router() {
       <AdminRoute path="/admin/partners" component={AdminDashboardPage} />
       <AdminRoute path="/admin/wallet-exchanges" component={AdminDashboardPage} />
       <AdminRoute path="/admin/settings" component={AdminDashboardPage} />
+      <AdminRoute path="/admin/security" component={AdminSecurityPage} />
       
       <Route component={NotFound} />
     </Switch>

@@ -807,3 +807,50 @@ export type PartnerLog = typeof partnerLogs.$inferSelect;
 export type InsertPartnerLog = z.infer<typeof insertPartnerLogSchema>;
 export type PartnerTransaction = typeof partnerTransactions.$inferSelect;
 export type InsertPartnerTransaction = z.infer<typeof insertPartnerTransactionSchema>;
+
+// ─── SÉCURITÉ ────────────────────────────────────────────────────────────────
+
+export const otpCodes = pgTable("otp_codes", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  code: text("code").notNull(),
+  type: text("type").notNull(), // "admin_login" | "withdrawal"
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  ipAddress: text("ip_address"),
+  metadata: text("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const blockedIps = pgTable("blocked_ips", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  ipAddress: text("ip_address").notNull().unique(),
+  reason: text("reason"),
+  blockedBy: integer("blocked_by").references(() => users.id),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const loginAttempts = pgTable("login_attempts", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  emailOrPhone: text("email_or_phone").notNull(),
+  ipAddress: text("ip_address"),
+  success: boolean("success").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const securityEvents = pgTable("security_events", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  userId: integer("user_id").references(() => users.id),
+  type: text("type").notNull(),
+  details: text("details"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type OtpCode = typeof otpCodes.$inferSelect;
+export type BlockedIp = typeof blockedIps.$inferSelect;
+export type LoginAttempt = typeof loginAttempts.$inferSelect;
+export type SecurityEvent = typeof securityEvents.$inferSelect;

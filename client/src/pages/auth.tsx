@@ -1,16 +1,17 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation, Redirect, Link } from "wouter";
 import { useAuth } from "@/lib/auth-context";
+import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Eye, EyeOff, ArrowLeft } from "lucide-react";
-import logoPath from "@assets/20251211_105226_1765450558306.png";
+import { Loader2, Eye, EyeOff, ShieldCheck, Mail } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import heroImage from "@assets/IMG-20251205-WA0058(1)_1765450585004.jpg";
 
 const loginSchema = z.object({
@@ -40,33 +41,53 @@ export default function AuthPage() {
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [adminOtpStep, setAdminOtpStep] = useState(false);
+  const [adminTempToken, setAdminTempToken] = useState("");
+  const [adminOtpCode, setAdminOtpCode] = useState("");
   
   const { user, loginMutation, registerMutation } = useAuth();
+  const { toast } = useToast();
 
   const loginForm = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-    },
+    defaultValues: { email: "", password: "" },
   });
 
   const registerForm = useForm<RegisterFormData>({
     resolver: zodResolver(registerSchema),
-    defaultValues: {
-      fullName: "",
-      email: "",
-      phone: "",
-      password: "",
-      confirmPassword: "",
+    defaultValues: { fullName: "", email: "", phone: "", password: "", confirmPassword: "" },
+  });
+
+  const adminOtpMutation = useMutation({
+    mutationFn: async ({ tempToken, code }: { tempToken: string; code: string }) => {
+      const res = await apiRequest("POST", "/api/auth/admin-verify-otp", { tempToken, code });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["/api/user"], data);
+      toast({ title: "Connexion admin réussie", description: `Bienvenue, ${data.fullName}!` });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Code invalide", description: e.message, variant: "destructive" });
     },
   });
 
   const onLogin = (data: LoginFormData) => {
-    loginMutation.mutate({
-      emailOrPhone: data.email,
-      password: data.password
+    loginMutation.mutate({ emailOrPhone: data.email, password: data.password }, {
+      onSuccess: (res: any) => {
+        if (res?.requireOtp && res?.tempToken) {
+          setAdminTempToken(res.tempToken);
+          setAdminOtpStep(true);
+          toast({ title: "Code envoyé", description: res.message || "Vérifiez votre email." });
+        }
+      }
     });
+  };
+
+  const onAdminOtpSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminOtpCode.trim()) return;
+    adminOtpMutation.mutate({ tempToken: adminTempToken, code: adminOtpCode.trim() });
   };
 
   const onRegister = (data: RegisterFormData) => {
@@ -91,6 +112,61 @@ export default function AuthPage() {
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsContent value="login" className="mt-6">
+
+              {/* ── Admin 2FA OTP Step ────────────────────────────── */}
+              {adminOtpStep ? (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-950/50 mb-4">
+                      <ShieldCheck className="h-8 w-8 text-blue-600" />
+                    </div>
+                    <h2 className="text-xl font-bold">Vérification administrateur</h2>
+                    <p className="text-muted-foreground mt-2 text-sm">
+                      Un code à 6 chiffres a été envoyé à votre adresse email.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/30 rounded-xl p-3 text-sm text-blue-700 dark:text-blue-300">
+                    <Mail className="h-4 w-4 shrink-0" />
+                    <span>Vérifiez vos spams si vous ne recevez pas l'email.</span>
+                  </div>
+                  <form onSubmit={onAdminOtpSubmit} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="adminOtpCode">Code de vérification</Label>
+                      <Input
+                        id="adminOtpCode"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={6}
+                        placeholder="123456"
+                        className="text-center text-3xl h-16 font-mono tracking-widest rounded-xl"
+                        value={adminOtpCode}
+                        onChange={e => setAdminOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        autoFocus
+                        data-testid="input-admin-otp"
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      className="w-full h-14 rounded-xl text-lg font-bold"
+                      disabled={adminOtpMutation.isPending || adminOtpCode.length !== 6}
+                      data-testid="button-admin-otp-submit"
+                    >
+                      {adminOtpMutation.isPending ? (
+                        <><Loader2 className="h-5 w-5 mr-2 animate-spin" />Vérification...</>
+                      ) : "Confirmer"}
+                    </Button>
+                    <button
+                      type="button"
+                      className="w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => { setAdminOtpStep(false); setAdminOtpCode(""); setAdminTempToken(""); }}
+                    >
+                      ← Retour à la connexion
+                    </button>
+                  </form>
+                </div>
+              ) : (
+              <>
               <div className="text-center mb-8">
                 <p className="text-muted-foreground">
                   Veuillez utiliser vos identifiants Sendava pour accéder à votre compte SendavaPay.
@@ -186,6 +262,7 @@ export default function AuthPage() {
                   </p>
                 </div>
               </div>
+              </>)}
             </TabsContent>
 
             <TabsContent value="register" className="mt-6">
