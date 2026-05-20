@@ -4802,6 +4802,15 @@ export async function registerRoutes(
             status: "pending",
             rejectionReason: "Erreur technique lors du payout PayDunya",
           });
+          notifyWithdrawalAutoProcessed({
+            userName: user.fullName, userId: req.session.userId!,
+            amount: numericAmount.toString(), netAmount: netAmount.toString(),
+            paymentMethod: selectedOperator.name, mobileNumber,
+            payoutUuid: pdRef || "N/A",
+            status: "failed",
+            errorDetail: pdErr?.message || "Exception technique PayDunya",
+            gateway: "PayDunya",
+          });
           return res.json({
             message: "Erreur technique lors du retrait. La demande est en attente de validation manuelle par l'admin.",
             request: { ...withdrawalRequest, status: "pending" },
