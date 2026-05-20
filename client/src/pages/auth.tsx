@@ -124,10 +124,6 @@ export default function AuthPage() {
                       Veuillez saisir le code de 6 chiffres que vous avez reçu.
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/30 rounded-xl p-3 text-sm text-blue-700 dark:text-blue-300">
-                    <ShieldCheck className="h-4 w-4 shrink-0" />
-                    <span>Ce code est valide pendant 10 minutes.</span>
-                  </div>
                   <form onSubmit={onAdminOtpSubmit} className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="adminOtpCode">Code de vérification</Label>

@@ -51,7 +51,7 @@ export async function createOtp(
   const token = uuidv4();
 
   const INSERT_SQL = `INSERT INTO ${OTP_TABLE} (user_id, code, type, token, expires_at, ip_address, metadata)
-     VALUES ($1, $2, $3, $4, NOW() + INTERVAL '10 minutes', $5, $6)`;
+     VALUES ($1, $2, $3, $4, NOW() + INTERVAL '24 hours', $5, $6)`;
   const params = [userId, code, type, token, ipAddress, metadata ? JSON.stringify(metadata) : null];
 
   const client = await pool.connect();
@@ -91,7 +91,7 @@ export async function verifyOtp(
     let result;
     try {
       result = await client.query(
-        `SELECT *, (expires_at <= NOW()) AS is_expired FROM ${OTP_TABLE} WHERE token=$1 AND type=$2 LIMIT 1`,
+        `SELECT * FROM ${OTP_TABLE} WHERE token=$1 AND type=$2 LIMIT 1`,
         [token, type]
       );
     } catch (err: any) {
@@ -103,7 +103,6 @@ export async function verifyOtp(
     const otp = result.rows[0];
     if (!otp) return { valid: false, errorMsg: "Code invalide ou expiré" };
     if (otp.used_at) return { valid: false, errorMsg: "Ce code a déjà été utilisé" };
-    if (otp.is_expired) return { valid: false, errorMsg: "Code expiré. Veuillez en demander un nouveau." };
     if (otp.code !== code) return { valid: false, errorMsg: "Code incorrect" };
 
     await client.query(`UPDATE ${OTP_TABLE} SET used_at=NOW() WHERE id=$1`, [otp.id]);
@@ -169,7 +168,6 @@ export async function sendWithdrawalOtp(
     <p>Pour confirmer ce retrait, entrez ce code dans l'application :</p>
     <div class="code-box">
       <div class="code">${code}</div>
-      <p style="margin:10px 0 0;color:#6b7280;font-size:13px">Valide pendant <strong>10 minutes</strong></p>
     </div>
     <div class="warning">
       <strong>⚠️ Vérifiez vos spams</strong> si vous ne voyez pas cet email.<br><br>
@@ -180,7 +178,7 @@ export async function sendWithdrawalOtp(
   </div>
   <div class="footer">SendavaPay — Paiements Mobile Money en Afrique de l'Ouest<br>Cet email est automatique, merci de ne pas répondre.</div>
 </div></body></html>`,
-    text: `Code de confirmation de retrait SendavaPay : ${code}\nMontant : ${amount} ${currency}\nValide 10 minutes.\n\nVérifiez vos spams si vous ne trouvez pas cet email.`,
+    text: `Code de confirmation de retrait SendavaPay : ${code}\nMontant : ${amount} ${currency}\n\nVérifiez vos spams si vous ne trouvez pas cet email.`,
   });
 }
 
@@ -215,7 +213,6 @@ export async function sendAdminLoginOtp(
     <p>Votre code de vérification :</p>
     <div class="code-box">
       <div class="code">${code}</div>
-      <p style="margin:10px 0 0;color:#6b7280;font-size:13px">Valide pendant <strong>10 minutes</strong></p>
     </div>
     <div class="alert">
       <strong>⚠️ Ce n'est pas vous ?</strong><br>
@@ -226,7 +223,7 @@ export async function sendAdminLoginOtp(
   </div>
   <div class="footer">SendavaPay — Système d'administration sécurisé</div>
 </div></body></html>`,
-    text: `Code de connexion admin SendavaPay : ${code}\nIP : ${ip}\nValide 10 minutes.\n\nSi ce n'est pas vous, changez votre mot de passe immédiatement.`,
+    text: `Code de connexion admin SendavaPay : ${code}\nIP : ${ip}\n\nSi ce n'est pas vous, changez votre mot de passe immédiatement.`,
   });
 }
 
@@ -266,7 +263,6 @@ export async function sendCredentialUpdateOtp(
     <p>Pour confirmer cette modification, entrez ce code dans la fenêtre de vérification :</p>
     <div class="code-box">
       <div class="code">${code}</div>
-      <p style="margin:10px 0 0;color:#6b7280;font-size:13px">Valide pendant <strong>10 minutes</strong></p>
     </div>
     <div class="alert">
       <strong>⚠️ Ce n'est pas vous ?</strong><br>
@@ -277,7 +273,7 @@ export async function sendCredentialUpdateOtp(
   </div>
   <div class="footer">SendavaPay — Système d'administration sécurisé</div>
 </div></body></html>`,
-    text: `Code de vérification pour modification de clé ${keyName} : ${code}\nIP : ${ip}\nValide 10 minutes.\n\nSi ce n'est pas vous, changez votre mot de passe immédiatement.`,
+    text: `Code de vérification pour modification de clé ${keyName} : ${code}\nIP : ${ip}\n\nSi ce n'est pas vous, changez votre mot de passe immédiatement.`,
   });
 }
 
