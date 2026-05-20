@@ -3495,6 +3495,27 @@ function SettingsContent() {
     queryKey: ['/api/admin/maintenance'],
   });
 
+  const { data: withdrawalsData, refetch: refetchWithdrawals } = useQuery<{ enabled: boolean }>({
+    queryKey: ['/api/admin/withdrawals-status'],
+  });
+
+  const withdrawalsMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("PUT", "/api/admin/withdrawals-status", { enabled });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      refetchWithdrawals();
+      toast({
+        title: data.enabled ? "Retraits activés" : "Retraits désactivés",
+        description: data.enabled ? "Les utilisateurs peuvent effectuer des retraits" : "Les retraits sont temporairement indisponibles",
+      });
+    },
+    onError: () => {
+      toast({ title: "Erreur", description: "Impossible de modifier le statut des retraits", variant: "destructive" });
+    }
+  });
+
   const updateSocialMutation = useMutation({
     mutationFn: async ({ platform, url, isActive }: { platform: string; url: string; isActive: boolean }) => {
       const res = await apiRequest("PUT", `/api/admin/social-links/${platform}`, { url, isActive });
@@ -3637,6 +3658,27 @@ function SettingsContent() {
                 onCheckedChange={(checked) => maintenanceMutation.mutate(checked)}
                 disabled={maintenanceMutation.isPending}
                 data-testid="switch-maintenance-mode"
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
+            <div>
+              <p className="font-medium">Retraits</p>
+              <p className="text-sm text-muted-foreground">
+                {withdrawalsData?.enabled === false
+                  ? "Les retraits sont désactivés — les utilisateurs voient « Retrait indisponible »"
+                  : "Les utilisateurs peuvent effectuer des retraits normalement"}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Badge variant={withdrawalsData?.enabled === false ? "destructive" : "secondary"}>
+                {withdrawalsData?.enabled === false ? "Désactivé" : "Activé"}
+              </Badge>
+              <Switch
+                checked={withdrawalsData?.enabled !== false}
+                onCheckedChange={(checked) => withdrawalsMutation.mutate(checked)}
+                disabled={withdrawalsMutation.isPending}
+                data-testid="switch-withdrawals-enabled"
               />
             </div>
           </div>

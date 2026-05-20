@@ -4038,6 +4038,11 @@ export async function registerRoutes(
   app.post("/api/withdraw", requireAuth, async (req, res) => {
     const ip = getClientIp(req);
     try {
+      const withdrawalsEnabled = await storage.getSetting("withdrawals_enabled");
+      if (withdrawalsEnabled === "false") {
+        return res.status(503).json({ message: "Retrait indisponible pour le moment. Veuillez réessayer plus tard.", withdrawalsDisabled: true });
+      }
+
       const user = await storage.getUser(req.session.userId!);
       if (!user?.isVerified) {
         return res.status(403).json({ message: "Compte non vérifié. Veuillez compléter la vérification KYC." });
@@ -7221,6 +7226,41 @@ export async function registerRoutes(
     }
   });
 
+  // ========== WITHDRAWALS ON/OFF ==========
+  app.get("/api/public/withdrawals-status", async (req, res) => {
+    try {
+      const value = await storage.getSetting("withdrawals_enabled");
+      res.json({ enabled: value !== "false" });
+    } catch {
+      res.json({ enabled: true });
+    }
+  });
+
+  app.get("/api/admin/withdrawals-status", requireAdmin, async (req, res) => {
+    try {
+      const value = await storage.getSetting("withdrawals_enabled");
+      res.json({ enabled: value !== "false" });
+    } catch (error) {
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.put("/api/admin/withdrawals-status", requireAdmin, async (req, res) => {
+    try {
+      const { enabled } = req.body;
+      await storage.setSetting("withdrawals_enabled", enabled ? "true" : "false");
+      await storage.createAuditLog({
+        userId: req.session.userId,
+        action: enabled ? "withdrawals_enabled" : "withdrawals_disabled",
+        details: `Retraits ${enabled ? "activés" : "désactivés"} par l'administrateur`,
+        ipAddress: req.ip,
+      });
+      res.json({ enabled, message: `Retraits ${enabled ? "activés" : "désactivés"}` });
+    } catch (error) {
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   // ========== API & DOCS MAINTENANCE ==========
   app.get("/api/admin/api-maintenance", requireAdmin, async (req, res) => {
     try {
@@ -8684,6 +8724,31 @@ export async function registerRoutes(
           await sendBotReply(chatId, "❌ Impossible de récupérer les statistiques de sécurité.");
         }
 
+      } else if (command === "/desactiver_retraits") {
+        try {
+          await storage.setSetting("withdrawals_enabled", "false");
+          await sendBotReply(chatId, `🔴 <b>Retraits désactivés</b>\n\nLes utilisateurs ne peuvent plus effectuer de retraits.\nUtilisez /activer_retraits pour les réactiver.`);
+        } catch {
+          await sendBotReply(chatId, "❌ Erreur lors de la désactivation des retraits.");
+        }
+
+      } else if (command === "/activer_retraits") {
+        try {
+          await storage.setSetting("withdrawals_enabled", "true");
+          await sendBotReply(chatId, `🟢 <b>Retraits activés</b>\n\nLes utilisateurs peuvent à nouveau effectuer des retraits.`);
+        } catch {
+          await sendBotReply(chatId, "❌ Erreur lors de l'activation des retraits.");
+        }
+
+      } else if (command === "/statut_retraits") {
+        try {
+          const value = await storage.getSetting("withdrawals_enabled");
+          const isEnabled = value !== "false";
+          await sendBotReply(chatId, `${isEnabled ? "🟢" : "🔴"} <b>Retraits :</b> ${isEnabled ? "Activés" : "Désactivés"}\n\n${isEnabled ? "Utilisez /desactiver_retraits pour les couper." : "Utilisez /activer_retraits pour les réactiver."}`);
+        } catch {
+          await sendBotReply(chatId, "❌ Erreur lors de la vérification du statut des retraits.");
+        }
+
       } else if (command === "/help") {
         const help =
           `<b>🤖 Commandes SendavaPay Bot</b>\n\n` +
@@ -8692,6 +8757,9 @@ export async function registerRoutes(
           `/securite — Rapport de sécurité\n` +
           `/bloquer_ip &lt;ip&gt; — Bloquer une IP\n` +
           `/debloquer_ip &lt;ip&gt; — Débloquer une IP\n` +
+          `/statut_retraits — Statut des retraits\n` +
+          `/desactiver_retraits — Désactiver les retraits\n` +
+          `/activer_retraits — Réactiver les retraits\n` +
           `/help — Liste des commandes\n\n` +
           `Alertes automatiques actives:\n` +
           `• Nouveaux utilisateurs\n` +
