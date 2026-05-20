@@ -49,11 +49,10 @@ export async function createOtp(
 
   const code = generateOtpCode();
   const token = uuidv4();
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
   const INSERT_SQL = `INSERT INTO ${OTP_TABLE} (user_id, code, type, token, expires_at, ip_address, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`;
-  const params = [userId, code, type, token, expiresAt.toISOString(), ipAddress, metadata ? JSON.stringify(metadata) : null];
+     VALUES ($1, $2, $3, $4, NOW() + INTERVAL '10 minutes', $5, $6)`;
+  const params = [userId, code, type, token, ipAddress, metadata ? JSON.stringify(metadata) : null];
 
   const client = await pool.connect();
   try {
@@ -92,7 +91,7 @@ export async function verifyOtp(
     let result;
     try {
       result = await client.query(
-        `SELECT * FROM ${OTP_TABLE} WHERE token=$1 AND type=$2 LIMIT 1`,
+        `SELECT *, (expires_at <= NOW()) AS is_expired FROM ${OTP_TABLE} WHERE token=$1 AND type=$2 LIMIT 1`,
         [token, type]
       );
     } catch (err: any) {
@@ -104,7 +103,7 @@ export async function verifyOtp(
     const otp = result.rows[0];
     if (!otp) return { valid: false, errorMsg: "Code invalide ou expiré" };
     if (otp.used_at) return { valid: false, errorMsg: "Ce code a déjà été utilisé" };
-    if (new Date(otp.expires_at) < new Date()) return { valid: false, errorMsg: "Code expiré. Veuillez en demander un nouveau." };
+    if (otp.is_expired) return { valid: false, errorMsg: "Code expiré. Veuillez en demander un nouveau." };
     if (otp.code !== code) return { valid: false, errorMsg: "Code incorrect" };
 
     await client.query(`UPDATE ${OTP_TABLE} SET used_at=NOW() WHERE id=$1`, [otp.id]);
