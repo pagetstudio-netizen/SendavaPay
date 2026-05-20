@@ -4068,7 +4068,6 @@ function CredentialsCard() {
                 data-testid="input-otp-credential"
                 onKeyDown={(e) => { if (e.key === "Enter" && otpCode.length === 6) confirmMutation.mutate(); }}
               />
-              <p className="text-xs text-muted-foreground">Ce code expire dans 10 minutes.</p>
             </div>
           </div>
           <DialogFooter className="gap-2">
