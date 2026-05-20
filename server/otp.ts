@@ -6,6 +6,21 @@ export function generateOtpCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
+const CREATE_OTP_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS otp_codes (
+    id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    code TEXT NOT NULL,
+    type TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    expires_at TIMESTAMP NOT NULL,
+    used_at TIMESTAMP,
+    ip_address TEXT,
+    metadata TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )
+`;
+
 export async function createOtp(
   userId: number,
   type: "admin_login" | "withdrawal" | "credential_update",
@@ -18,13 +33,23 @@ export async function createOtp(
   const token = uuidv4();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
+  const INSERT_SQL = `INSERT INTO otp_codes (user_id, code, type, token, expires_at, ip_address, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`;
+  const params = [userId, code, type, token, expiresAt.toISOString(), ipAddress, metadata ? JSON.stringify(metadata) : null];
+
   const client = await pool.connect();
   try {
-    await client.query(
-      `INSERT INTO otp_codes (user_id, code, type, token, expires_at, ip_address, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [userId, code, type, token, expiresAt.toISOString(), ipAddress, metadata ? JSON.stringify(metadata) : null]
-    );
+    try {
+      await client.query(INSERT_SQL, params);
+    } catch (err: any) {
+      // Table doesn't exist yet — create it and retry once
+      if (err.code === "42P01") {
+        await client.query(CREATE_OTP_TABLE_SQL);
+        await client.query(INSERT_SQL, params);
+      } else {
+        throw err;
+      }
+    }
   } finally {
     client.release();
   }
@@ -72,6 +97,13 @@ export async function cleanExpiredOtps(): Promise<void> {
   }
 }
 
+async function sendEmailOrThrow(data: Parameters<typeof sendEmail>[0]): Promise<void> {
+  const result = await sendEmail(data);
+  if (!result.success) {
+    throw new Error(result.error || "Échec de l'envoi de l'email");
+  }
+}
+
 export async function sendWithdrawalOtp(
   email: string,
   fullName: string,
@@ -79,7 +111,7 @@ export async function sendWithdrawalOtp(
   amount: string,
   currency: string
 ): Promise<void> {
-  await sendEmail({
+  await sendEmailOrThrow({
     to: email,
     subject: "Code de confirmation de retrait - SendavaPay",
     html: `
@@ -126,7 +158,7 @@ export async function sendAdminLoginOtp(
   code: string,
   ip: string
 ): Promise<void> {
-  await sendEmail({
+  await sendEmailOrThrow({
     to: email,
     subject: "🔐 Code de connexion administrateur - SendavaPay",
     html: `
@@ -173,7 +205,7 @@ export async function sendCredentialUpdateOtp(
   keyName: string,
   ip: string
 ): Promise<void> {
-  await sendEmail({
+  await sendEmailOrThrow({
     to: email,
     subject: "🔑 Modification de clé API — Vérification requise — SendavaPay",
     html: `
