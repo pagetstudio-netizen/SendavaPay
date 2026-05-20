@@ -76,8 +76,11 @@ class SendavaPay {
    * @param {string} [params.callbackUrl] - Webhook URL for payment status updates
    * @param {string} [params.redirectUrl] - Redirect URL after payment
    * @param {Object} [params.metadata] - Additional metadata
-   * @param {string} [params.provider] - Payment provider: "soleaspay" (default, USSD) or "winipayer" (checkout redirect)
-   * @returns {Promise<Object>} Payment result — includes otpRequired:true for Orange Money operators
+   * @param {string} [params.otp] - OTP code for operators that require it (Orange CI, Orange BF)
+   * @param {string} [params.provider] - Payment provider:
+   *   "soleaspay" (default, USSD push) | "winipayer" (checkout redirect) | "paydunya" (SoftPay direct USSD/redirect)
+   *   With "paydunya", Wave operators return a redirectUrl, Orange CI/BF require an OTP.
+   * @returns {Promise<Object>} Payment result — includes otpRequired:true for OTP operators, redirectUrl for Wave/Orange SN
    */
   async createPayment({ amount, phoneNumber, operator, country, currency, customerName, customerEmail, description, callbackUrl, redirectUrl, metadata, provider }) {
     return this.request("POST", "/api/sdk/payment", {

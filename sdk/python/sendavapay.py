@@ -86,7 +86,9 @@ class SendavaPay:
             callback_url: Webhook URL for status updates (optional)
             redirect_url: Redirect URL after payment (optional)
             metadata: Additional data dict (optional)
-            provider: "soleaspay" (default, USSD push) or "winipayer" (checkout redirect)
+            provider: "soleaspay" (default, USSD push) | "winipayer" (checkout redirect) |
+                      "paydunya" (SoftPay direct — USSD/redirect per operator)
+            otp: OTP code for operators that require it with PayDunya (Orange CI, Orange BF)
 
         Returns:
             dict: Payment result with reference for verification.
