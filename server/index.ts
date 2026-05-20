@@ -112,6 +112,62 @@ async function initializePartnerTables() {
   }
 }
 
+async function initializeSecurityTables() {
+  if (!pool) return;
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS blocked_ips (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        ip_address TEXT NOT NULL UNIQUE,
+        reason TEXT,
+        blocked_by INTEGER,
+        expires_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS login_attempts (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        email_or_phone TEXT NOT NULL,
+        ip_address TEXT,
+        success BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS security_events (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id INTEGER,
+        type TEXT NOT NULL,
+        details TEXT,
+        ip_address TEXT,
+        user_agent TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS otp_codes (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        code TEXT NOT NULL,
+        type TEXT NOT NULL,
+        token TEXT NOT NULL UNIQUE,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP,
+        ip_address TEXT,
+        metadata TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    log("Security tables initialized successfully", "init");
+  } catch (error) {
+    log(`Security tables initialization error: ${(error as Error).message}`, "init");
+  } finally {
+    client.release();
+  }
+}
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -214,6 +270,12 @@ async function initializeWithTimeout<T>(
         loadCredentialsFromDb((key) => storage.getSetting(key)),
         10000,
         "Credentials"
+      );
+
+      await initializeWithTimeout(
+        initializeSecurityTables(),
+        20000,
+        "Security tables"
       );
 
       await initializeWithTimeout(

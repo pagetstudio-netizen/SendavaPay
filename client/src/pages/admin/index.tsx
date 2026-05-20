@@ -3745,6 +3745,13 @@ const CREDENTIAL_GROUPS = [
       { key: "SUPABASE_SERVICE_ROLE_KEY", label: "Service Role Key" },
     ],
   },
+  {
+    label: "Email (Resend)",
+    keys: [
+      { key: "RESEND_API_KEY", label: "Clé API Resend (re_...)" },
+      { key: "RESEND_FROM_EMAIL", label: "Email expéditeur (ex: noreply@sendavapay.com)" },
+    ],
+  },
 ];
 
 type CredentialInfo = {
