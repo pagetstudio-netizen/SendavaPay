@@ -1,0 +1,154 @@
+Le système Payin et SoftPay PayDunya retournent maintenant :
+
+Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+
+Cela signifie que certaines requêtes API PayDunya reçoivent une page HTML (probablement page login, erreur nginx, endpoint web ou route invalide) au lieu d’une réponse JSON.
+
+IMPORTANT :
+Le système ne doit plus jamais parser du HTML avec response.json().
+
+OBJECTIF :
+Analyser et corriger COMPLÈTEMENT toute l’intégration PayDunya sur DrimPay :
+
+- Payin
+- SoftPay
+- Prompt Mobile Money
+- Vérification transaction
+- Webhooks
+
+sans casser l’architecture actuelle.
+
+CORRECTIONS OBLIGATOIRES :
+
+1. Vérifier TOUS les endpoints PayDunya utilisés actuellement.
+
+Analyser chaque URL :
+
+- checkout invoice
+- softpay
+- verify
+- status
+- webhook
+- payout si utilisé
+
+Vérifier qu’aucune URL frontend/web/login n’est utilisée.
+
+2. Vérifier tous les endpoints officiels selon :
+   https://developers.paydunya.com/doc/FR/introduction
+   https://developers.paydunya.com/doc/FR/softpay
+   https://developers.paydunya.com/doc/FR/api_softpay_index
+
+3. Logger TOUJOURS :
+
+- URL appelée
+- méthode HTTP
+- headers envoyés
+- payload envoyé
+- status HTTP
+- content-type reçu
+- body brut reçu
+
+4. Ajouter validation AVANT response.json() :
+
+const contentType = response.headers.get("content-type")
+
+Si content-type ne contient PAS :
+application/json
+
+ALORS :
+
+- ne jamais faire response.json()
+- utiliser response.text()
+- logger la réponse HTML complète
+- sauvegarder l’erreur
+- retourner une erreur JSON propre
+
+5. Retourner automatiquement :
+
+{
+"success": false,
+"error": "PAYDUNYA_INVALID_RESPONSE",
+"message": "PayDunya returned HTML instead of JSON"
+}
+
+6. Vérifier tous les headers obligatoires :
+
+PAYDUNYA-MASTER-KEY
+PAYDUNYA-PRIVATE-KEY
+PAYDUNYA-PUBLIC-KEY
+PAYDUNYA-TOKEN
+Content-Type: application/json
+Accept: application/json
+
+7. Vérifier que les clés LIVE et SANDBOX ne sont jamais mélangées.
+
+8. Vérifier que le système utilise le bon environnement :
+
+LIVE :
+https://app.paydunya.com/api/v1/
+
+et non une URL dashboard/login.
+
+9. Vérifier tous les slugs opérateurs SoftPay.
+
+10. Vérifier que le token utilisé provient bien de :
+    /checkout-invoice/create
+
+11. Ajouter protection anti-crash globale :
+
+Même si PayDunya retourne :
+
+- HTML
+- page vide
+- erreur serveur
+- timeout
+- Cloudflare HTML
+- nginx HTML
+- login HTML
+
+Le backend DrimPay ne doit jamais crash.
+
+12. Ajouter timeout sécurisé.
+
+13. Ajouter retry intelligent uniquement pour :
+
+- timeout
+- 502
+- 503
+- 504
+
+14. Ne jamais laisser une transaction bloquée en pending si PayDunya échoue.
+
+15. Ajouter logs database :
+    paydunya_error_logs
+
+avec :
+
+- endpoint
+- status
+- content_type
+- raw_response
+- payload
+- timestamp
+
+16. Vérifier également :
+
+- fetch wrappers
+- axios wrappers
+- reverse proxy Plesk
+- Passenger
+- middleware JSON parsing
+
+17. Tester complètement :
+
+- Payin
+- SoftPay
+- TMoney
+- Moov
+- Sandbox
+- Production
+
+OBJECTIF FINAL :
+Toute l’intégration PayDunya doit fonctionner de manière stable sur DrimPay avec uniquement des réponses JSON valides et sans aucune erreur :
+
+Unexpected token '<'
