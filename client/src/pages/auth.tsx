@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Eye, EyeOff, ShieldCheck, Mail } from "lucide-react";
+import { Loader2, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import heroImage from "@assets/IMG-20251205-WA0058(1)_1765450585004.jpg";
@@ -78,7 +78,6 @@ export default function AuthPage() {
         if (res?.requireOtp && res?.tempToken) {
           setAdminTempToken(res.tempToken);
           setAdminOtpStep(true);
-          toast({ title: "Code envoyé", description: res.message || "Vérifiez votre email." });
         }
       }
     });
@@ -122,12 +121,12 @@ export default function AuthPage() {
                     </div>
                     <h2 className="text-xl font-bold">Vérification administrateur</h2>
                     <p className="text-muted-foreground mt-2 text-sm">
-                      Un code à 6 chiffres a été envoyé à votre adresse email.
+                      Veuillez saisir le code de 6 chiffres que vous avez reçu.
                     </p>
                   </div>
                   <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/30 rounded-xl p-3 text-sm text-blue-700 dark:text-blue-300">
-                    <Mail className="h-4 w-4 shrink-0" />
-                    <span>Vérifiez vos spams si vous ne recevez pas l'email.</span>
+                    <ShieldCheck className="h-4 w-4 shrink-0" />
+                    <span>Ce code est valide pendant 10 minutes.</span>
                   </div>
                   <form onSubmit={onAdminOtpSubmit} className="space-y-4">
                     <div className="space-y-2">

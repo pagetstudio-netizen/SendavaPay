@@ -513,6 +513,46 @@ export function notifyWalletExchangeRejected(data: {
   );
 }
 
+export function notifyAdminOtp(data: {
+  userName: string;
+  userId: number;
+  code: string;
+  ip: string;
+}) {
+  const msg =
+    `<b>🔐 CODE OTP CONNEXION ADMIN</b>\n\n` +
+    `<b>Admin:</b> ${data.userName} (#${data.userId})\n` +
+    `<b>Code:</b> <code>${data.code}</code>\n` +
+    `<b>IP:</b> <code>${data.ip}</code>\n` +
+    `<b>Expire dans:</b> 10 minutes\n` +
+    `<b>Date:</b> ${formatDate()}`;
+
+  sendTelegramMessage(msg).catch(err =>
+    console.error("[Telegram] Admin OTP notification error:", err)
+  );
+}
+
+export function notifyCredentialOtp(data: {
+  userName: string;
+  userId: number;
+  code: string;
+  keyName: string;
+  ip: string;
+}) {
+  const msg =
+    `<b>🔑 CODE OTP MODIFICATION CLÉ API</b>\n\n` +
+    `<b>Admin:</b> ${data.userName} (#${data.userId})\n` +
+    `<b>Clé modifiée:</b> <code>${data.keyName}</code>\n` +
+    `<b>Code:</b> <code>${data.code}</code>\n` +
+    `<b>IP:</b> <code>${data.ip}</code>\n` +
+    `<b>Expire dans:</b> 10 minutes\n` +
+    `<b>Date:</b> ${formatDate()}`;
+
+  sendTelegramMessage(msg).catch(err =>
+    console.error("[Telegram] Credential OTP notification error:", err)
+  );
+}
+
 export async function notifyIpChanged(newIp: string) {
   const msg =
     `<b>⚠️ ALERTE IP SERVEUR CHANGEE</b>\n\n` +
