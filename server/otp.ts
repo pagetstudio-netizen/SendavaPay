@@ -8,7 +8,7 @@ export function generateOtpCode(): string {
 
 export async function createOtp(
   userId: number,
-  type: "admin_login" | "withdrawal",
+  type: "admin_login" | "withdrawal" | "credential_update",
   ipAddress: string,
   metadata?: Record<string, unknown>
 ): Promise<{ token: string; code: string }> {
@@ -34,7 +34,7 @@ export async function createOtp(
 export async function verifyOtp(
   token: string,
   code: string,
-  type: "admin_login" | "withdrawal"
+  type: "admin_login" | "withdrawal" | "credential_update"
 ): Promise<{ valid: boolean; userId?: number; metadata?: Record<string, unknown>; errorMsg?: string }> {
   if (!pool) return { valid: false, errorMsg: "Base de données non disponible" };
 
@@ -163,6 +163,57 @@ export async function sendAdminLoginOtp(
   <div class="footer">SendavaPay — Système d'administration sécurisé</div>
 </div></body></html>`,
     text: `Code de connexion admin SendavaPay : ${code}\nIP : ${ip}\nValide 10 minutes.\n\nSi ce n'est pas vous, changez votre mot de passe immédiatement.`,
+  });
+}
+
+export async function sendCredentialUpdateOtp(
+  email: string,
+  fullName: string,
+  code: string,
+  keyName: string,
+  ip: string
+): Promise<void> {
+  await sendEmail({
+    to: email,
+    subject: "🔑 Modification de clé API — Vérification requise — SendavaPay",
+    html: `
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<style>
+  body{font-family:Arial,sans-serif;background:#f5f5f5;margin:0;padding:0}
+  .container{max-width:600px;margin:0 auto;background:#fff}
+  .header{background:linear-gradient(135deg,#7c3aed,#a855f7);padding:30px;text-align:center}
+  .header h1{color:#fff;margin:0;font-size:24px}
+  .content{padding:40px 30px}
+  .code-box{background:#faf5ff;border:2px dashed #a855f7;border-radius:12px;padding:25px;text-align:center;margin:25px 0}
+  .code{font-size:44px;font-weight:900;letter-spacing:10px;color:#7c3aed;font-family:monospace}
+  .key-badge{display:inline-block;background:#f3e8ff;color:#7c3aed;padding:6px 14px;border-radius:6px;font-family:monospace;font-size:14px;font-weight:600;margin:8px 0}
+  .alert{background:#fef2f2;border-left:4px solid #dc2626;padding:15px;border-radius:0 8px 8px 0;margin:20px 0;font-size:13px}
+  .footer{background:#f9fafb;padding:20px 30px;text-align:center;color:#6b7280;font-size:12px}
+</style></head>
+<body><div class="container">
+  <div class="header"><h1>🔑 Vérification — Modification de clé API</h1></div>
+  <div class="content">
+    <h2>Bonjour ${fullName},</h2>
+    <p>Une modification de clé API a été demandée depuis votre panneau d'administration :</p>
+    <div style="text-align:center;margin:16px 0">
+      <span class="key-badge">${keyName}</span>
+    </div>
+    <p><strong>Adresse IP :</strong> <code>${ip}</code></p>
+    <p>Pour confirmer cette modification, entrez ce code dans la fenêtre de vérification :</p>
+    <div class="code-box">
+      <div class="code">${code}</div>
+      <p style="margin:10px 0 0;color:#6b7280;font-size:13px">Valide pendant <strong>10 minutes</strong></p>
+    </div>
+    <div class="alert">
+      <strong>⚠️ Ce n'est pas vous ?</strong><br>
+      Si vous n'avez pas demandé cette modification, changez immédiatement votre mot de passe et vérifiez vos accès admin.
+    </div>
+    <p>⚠️ <em>Vérifiez vos spams si vous ne voyez pas cet email.</em></p>
+    <p>L'équipe SendavaPay</p>
+  </div>
+  <div class="footer">SendavaPay — Système d'administration sécurisé</div>
+</div></body></html>`,
+    text: `Code de vérification pour modification de clé ${keyName} : ${code}\nIP : ${ip}\nValide 10 minutes.\n\nSi ce n'est pas vous, changez votre mot de passe immédiatement.`,
   });
 }
 
