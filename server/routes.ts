@@ -337,15 +337,22 @@ export async function registerRoutes(
         if (!user.email) {
           return res.status(500).json({ message: "Aucun email associé au compte admin." });
         }
+        let token: string;
+        let code: string;
         try {
-          const { token, code } = await createOtp(user.id, "admin_login", ip);
-          await sendAdminLoginOtp(user.email, user.fullName, code, ip);
-          await logSecurityEvent({ userId: user.id, type: "admin_login_otp_sent", details: `OTP envoyé à ${user.email}`, ipAddress: ip });
-          return res.json({ requireOtp: true, tempToken: token, message: "Code de vérification envoyé par email." });
-        } catch (emailErr) {
-          console.error("Admin OTP email error:", emailErr);
-          return res.status(500).json({ message: "Impossible d'envoyer le code de vérification. Vérifiez la configuration email." });
+          ({ token, code } = await createOtp(user.id, "admin_login", ip));
+        } catch (otpErr: any) {
+          console.error("Admin OTP create error:", otpErr);
+          return res.status(500).json({ message: "Erreur serveur lors de la génération du code OTP. Contactez l'administrateur système." });
         }
+        try {
+          await sendAdminLoginOtp(user.email, user.fullName, code, ip);
+        } catch (emailErr: any) {
+          console.error("Admin OTP email error:", emailErr);
+          return res.status(500).json({ message: "Code généré mais impossible d'envoyer l'email. Vérifiez la configuration Resend (RESEND_API_KEY)." });
+        }
+        await logSecurityEvent({ userId: user.id, type: "admin_login_otp_sent", details: `OTP envoyé à ${user.email}`, ipAddress: ip });
+        return res.json({ requireOtp: true, tempToken: token, message: "Code de vérification envoyé par email." });
       }
 
       // ── USER normal ──────────────────────────────────────────────────────────
