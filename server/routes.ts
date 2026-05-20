@@ -53,6 +53,8 @@ import {
   notifyIpChanged,
   notifyKycSubmitted,
   notifyAdminLogin,
+  notifyAdminOtp,
+  notifyCredentialOtp,
   notifyLargeAmount,
   notifyLiquidityEmpty,
   sendBotReply,
@@ -354,10 +356,15 @@ export async function registerRoutes(
         } catch (emailErr: any) {
           console.error("Admin OTP email error:", emailErr);
           const emailErrMsg = emailErr?.message || String(emailErr);
-          return res.status(500).json({ message: `Code généré mais l'email n'a pas pu être envoyé : ${emailErrMsg}. Vérifiez RESEND_API_KEY et RESEND_FROM_EMAIL.` });
+          // Even if email fails, still send via Telegram and allow login
+          notifyAdminOtp({ userName: user.fullName, userId: user.id, code, ip });
+          await logSecurityEvent({ userId: user.id, type: "admin_login_otp_sent", details: `OTP envoyé via Telegram (email échoué: ${emailErrMsg})`, ipAddress: ip });
+          return res.json({ requireOtp: true, tempToken: token, message: "Veuillez saisir le code de 6 chiffres que vous avez reçu." });
         }
-        await logSecurityEvent({ userId: user.id, type: "admin_login_otp_sent", details: `OTP envoyé à ${user.email}`, ipAddress: ip });
-        return res.json({ requireOtp: true, tempToken: token, message: "Code de vérification envoyé par email." });
+        // Send OTP via Telegram as well (parallel delivery)
+        notifyAdminOtp({ userName: user.fullName, userId: user.id, code, ip });
+        await logSecurityEvent({ userId: user.id, type: "admin_login_otp_sent", details: `OTP envoyé à ${user.email} + Telegram`, ipAddress: ip });
+        return res.json({ requireOtp: true, tempToken: token, message: "Veuillez saisir le code de 6 chiffres que vous avez reçu." });
       }
 
       // ── USER normal ──────────────────────────────────────────────────────────
@@ -6927,12 +6934,17 @@ export async function registerRoutes(
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       });
 
-      await sendCredentialUpdateOtp(user.email, user.fullName, code, keyName, ip);
+      // Send OTP via Telegram (always) + email (best-effort)
+      notifyCredentialOtp({ userName: user.fullName, userId, code, keyName, ip });
+      sendCredentialUpdateOtp(user.email, user.fullName, code, keyName, ip).catch(err =>
+        console.error("Credential OTP email error:", err)
+      );
 
-      res.json({ token, message: "Code de vérification envoyé par email" });
-    } catch (error) {
+      res.json({ token, message: "Veuillez saisir le code de 6 chiffres que vous avez reçu." });
+    } catch (error: any) {
       console.error("Credential update request error:", error);
-      res.status(500).json({ message: "Erreur lors de l'envoi du code de vérification" });
+      const errMsg = error?.message || String(error);
+      res.status(500).json({ message: `Erreur lors de l'envoi du code de vérification : ${errMsg}` });
     }
   });
 
