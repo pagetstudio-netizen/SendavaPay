@@ -160,6 +160,9 @@ async function initializeSecurityTables() {
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
     `);
+    await client.query(`ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS code TEXT;`);
+    await client.query(`ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS metadata TEXT;`);
+    await client.query(`ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS ip_address TEXT;`);
     log("Security tables initialized successfully", "init");
   } catch (error) {
     log(`Security tables initialization error: ${(error as Error).message}`, "init");
