@@ -347,9 +347,9 @@ export async function registerRoutes(
           console.error("Admin OTP create error:", otpErr);
           const errMsg = otpErr?.message || String(otpErr);
           if (errMsg.includes("non disponible") || errMsg.includes("pool") || errMsg.includes("connect")) {
-            return res.status(500).json({ message: "Erreur de connexion à la base de données. Vérifiez que SUPABASE_DATABASE_URL est configuré." });
+            return res.status(500).json({ message: "Base de données non disponible. Vérifiez la configuration." });
           }
-          return res.status(500).json({ message: `Erreur OTP : ${errMsg}` });
+          return res.status(500).json({ message: "Échec de la génération du code. Veuillez réessayer." });
         }
         try {
           await sendAdminLoginOtp(user.email, user.fullName, code, ip);
