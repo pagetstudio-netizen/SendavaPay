@@ -218,7 +218,14 @@ class MbiyoPayClient {
       body: JSON.stringify(body),
     });
 
-    const data = await response.json();
+    const rawText = await response.text();
+    let data: any;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      console.error("[MbiyoPay] payin: réponse non-JSON (HTTP", response.status, "):", rawText.slice(0, 300));
+      throw new Error(`MbiyoPay a retourné une réponse invalide (HTTP ${response.status})`);
+    }
     return data as MbiyoPayinResponse;
   }
 
@@ -243,7 +250,14 @@ class MbiyoPayClient {
       body: JSON.stringify(body),
     });
 
-    const data = await response.json();
+    const rawText = await response.text();
+    let data: any;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      console.error("[MbiyoPay] payout: réponse non-JSON (HTTP", response.status, "):", rawText.slice(0, 300));
+      throw new Error(`MbiyoPay a retourné une réponse invalide (HTTP ${response.status})`);
+    }
     return data as MbiyoPayoutResponse;
   }
 }
