@@ -9,7 +9,7 @@ import {
   blockIp, unblockIp, loginRateLimit, withdrawRateLimit,
   registerRateLimit, otpRateLimit, apiRateLimit,
 } from "./security";
-import { createOtp, verifyOtp, sendWithdrawalOtp, sendAdminLoginOtp, sendCredentialUpdateOtp } from "./otp";
+import { createOtp, verifyOtp, sendAdminLoginOtp, sendCredentialUpdateOtp } from "./otp";
 import {
   createPayDunyaCheckout, payDunyaDisburse, verifyPayDunyaWebhook,
   getPayDunyaWithdrawMode, formatPhoneForPayDunya,
@@ -4035,57 +4035,9 @@ export async function registerRoutes(
   });
 
   // All withdrawals require admin approval - balance is debited immediately
-  // ── Withdrawal : envoyer OTP avant de soumettre ────────────────────────────
-  app.post("/api/withdraw/send-otp", requireAuth, withdrawRateLimit, async (req, res) => {
-    const ip = getClientIp(req);
-    try {
-      const user = await storage.getUser(req.session.userId!);
-      if (!user?.isVerified) return res.status(403).json({ message: "Compte non vérifié." });
-      if (!user.email) return res.status(400).json({ message: "Aucun email associé à votre compte." });
-
-      const { amount, paymentMethod, mobileNumber, country, walletId, coverFees } = req.body;
-      if (!amount || !paymentMethod || !mobileNumber || !country) {
-        return res.status(400).json({ message: "Paramètres manquants." });
-      }
-
-      const { token, code } = await createOtp(user.id, "withdrawal", ip, {
-        amount, paymentMethod, mobileNumber, country, walletId, coverFees,
-      });
-      await sendWithdrawalOtp(user.email, user.fullName, code, amount, "FCFA");
-      await logSecurityEvent({ userId: user.id, type: "withdrawal_otp_sent", ipAddress: ip, details: `Montant: ${amount}` });
-
-      res.json({ requireOtp: true, otpToken: token, message: "Code de confirmation envoyé par email." });
-    } catch (error: any) {
-      console.error("Withdrawal OTP error:", error);
-      const errMsg = error?.message || String(error);
-      if (errMsg.includes("non disponible") || errMsg.includes("pool") || errMsg.includes("connect")) {
-        return res.status(500).json({ message: "Erreur de connexion à la base de données. Vérifiez SUPABASE_DATABASE_URL." });
-      }
-      if (errMsg.includes("RESEND") || errMsg.includes("email") || errMsg.includes("Email")) {
-        return res.status(500).json({ message: `Impossible d'envoyer le code par email : ${errMsg}. Vérifiez RESEND_API_KEY.` });
-      }
-      res.status(500).json({ message: `Impossible d'envoyer le code de confirmation : ${errMsg}` });
-    }
-  });
-
   app.post("/api/withdraw", requireAuth, async (req, res) => {
     const ip = getClientIp(req);
     try {
-      // ── OTP verification ─────────────────────────────────────────────────
-      const { otpToken, otpCode } = req.body;
-      if (!otpToken || !otpCode) {
-        return res.status(403).json({ message: "Code de confirmation requis. Veuillez demander un code OTP.", requireOtp: true });
-      }
-      const otpResult = await verifyOtp(otpToken, String(otpCode).trim(), "withdrawal");
-      if (!otpResult.valid) {
-        await logSecurityEvent({ userId: req.session.userId, type: "withdrawal_otp_failed", ipAddress: ip, details: otpResult.errorMsg });
-        return res.status(401).json({ message: otpResult.errorMsg || "Code invalide" });
-      }
-      if (otpResult.userId !== req.session.userId) {
-        return res.status(403).json({ message: "Code invalide pour cet utilisateur." });
-      }
-      // ─────────────────────────────────────────────────────────────────────
-
       const user = await storage.getUser(req.session.userId!);
       if (!user?.isVerified) {
         return res.status(403).json({ message: "Compte non vérifié. Veuillez compléter la vérification KYC." });
