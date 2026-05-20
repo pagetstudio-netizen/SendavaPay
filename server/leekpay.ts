@@ -126,7 +126,14 @@ export class LeekPayService {
         },
       });
 
-      const data = await response.json();
+      const statusText = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(statusText);
+      } catch {
+        console.error("[LeekPay] getPaymentStatus: réponse non-JSON (HTTP", response.status, "):", statusText.slice(0, 300));
+        return { success: false, error: "Réponse invalide de LeekPay" };
+      }
 
       if (!response.ok) {
         return {
