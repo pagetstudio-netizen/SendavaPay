@@ -7,7 +7,7 @@ import { partnerLoginSchema } from "@shared/schema";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { notifyPartnerWithdrawal, notifyPartnerWalletExchange } from "./telegram";
+import { notifyPartnerWithdrawal, notifyPartnerWalletExchange, notifyWithdrawalAutoProcessed } from "./telegram";
 
 declare module "express-session" {
   interface SessionData {
@@ -2588,11 +2588,27 @@ export function registerPartnerRoutes(app: Express) {
 
           const pdError = pdResult.error || "Erreur PayDunya inconnue";
           console.error("❌ PayDunya partner payout failed:", pdError);
+          notifyWithdrawalAutoProcessed({
+            userName: `Partenaire: ${partner.name}`, userId: 0,
+            amount: numericAmount.toString(), netAmount: netAmount.toString(),
+            paymentMethod: selectedOperator.name, mobileNumber: cleanPhone,
+            payoutUuid: pdRef || "N/A",
+            status: "failed", errorDetail: pdError, gateway: "PayDunya",
+          });
           await restore();
           await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "failed", rejectionReason: pdError });
           return res.status(500).json({ message: `Le retrait automatique a échoué (${pdError}). Votre solde a été restauré.` });
-        } catch (pdErr) {
+        } catch (pdErr: any) {
           console.error("Partner PayDunya payout error:", pdErr);
+          notifyWithdrawalAutoProcessed({
+            userName: `Partenaire: ${partner.name}`, userId: 0,
+            amount: numericAmount.toString(), netAmount: netAmount.toString(),
+            paymentMethod: selectedOperator.name, mobileNumber: cleanPhone,
+            payoutUuid: pdRef || "N/A",
+            status: "failed",
+            errorDetail: pdErr?.message || "Exception technique PayDunya",
+            gateway: "PayDunya",
+          });
           await restore();
           await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "failed", rejectionReason: "Erreur technique PayDunya" });
           return res.status(500).json({ message: "Erreur technique lors du retrait. Votre solde a été restauré." });
