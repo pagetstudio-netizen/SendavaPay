@@ -343,13 +343,18 @@ export async function registerRoutes(
           ({ token, code } = await createOtp(user.id, "admin_login", ip));
         } catch (otpErr: any) {
           console.error("Admin OTP create error:", otpErr);
-          return res.status(500).json({ message: "Erreur serveur lors de la génération du code OTP. Contactez l'administrateur système." });
+          const errMsg = otpErr?.message || String(otpErr);
+          if (errMsg.includes("non disponible") || errMsg.includes("pool") || errMsg.includes("connect")) {
+            return res.status(500).json({ message: "Erreur de connexion à la base de données. Vérifiez que SUPABASE_DATABASE_URL est configuré." });
+          }
+          return res.status(500).json({ message: `Erreur OTP : ${errMsg}` });
         }
         try {
           await sendAdminLoginOtp(user.email, user.fullName, code, ip);
         } catch (emailErr: any) {
           console.error("Admin OTP email error:", emailErr);
-          return res.status(500).json({ message: "Code généré mais impossible d'envoyer l'email. Vérifiez la configuration Resend (RESEND_API_KEY)." });
+          const emailErrMsg = emailErr?.message || String(emailErr);
+          return res.status(500).json({ message: `Code généré mais l'email n'a pas pu être envoyé : ${emailErrMsg}. Vérifiez RESEND_API_KEY et RESEND_FROM_EMAIL.` });
         }
         await logSecurityEvent({ userId: user.id, type: "admin_login_otp_sent", details: `OTP envoyé à ${user.email}`, ipAddress: ip });
         return res.json({ requireOtp: true, tempToken: token, message: "Code de vérification envoyé par email." });
@@ -667,9 +672,8 @@ export async function registerRoutes(
 
       await storage.createPasswordResetToken(user.id, token, code, expiresAt);
 
-      const baseUrl = process.env.NODE_ENV === "production"
-        ? "https://sendavapay.com"
-        : `https://${process.env.REPL_SLUG || "localhost"}.${process.env.REPL_OWNER || "repl"}.repl.co`;
+      const baseUrl = process.env.APP_URL
+        || (process.env.NODE_ENV === "production" ? "https://sendavapay.com" : `https://${process.env.REPLIT_DEV_DOMAIN || "localhost:5000"}`);
 
       const resetUrl = `${baseUrl}/forgot-password?token=${token}`;
 
@@ -677,6 +681,10 @@ export async function registerRoutes(
         fullName: user.fullName,
         code,
         resetUrl,
+      }).then(result => {
+        if (!result.success) {
+          console.error("Password reset email failed:", result.error);
+        }
       }).catch(err => console.error("Failed to send password reset email:", err));
 
       res.json({ message: "Si cet email existe, un code a été envoyé." });
@@ -4042,7 +4050,14 @@ export async function registerRoutes(
       res.json({ requireOtp: true, otpToken: token, message: "Code de confirmation envoyé par email." });
     } catch (error: any) {
       console.error("Withdrawal OTP error:", error);
-      res.status(500).json({ message: "Impossible d'envoyer le code de confirmation." });
+      const errMsg = error?.message || String(error);
+      if (errMsg.includes("non disponible") || errMsg.includes("pool") || errMsg.includes("connect")) {
+        return res.status(500).json({ message: "Erreur de connexion à la base de données. Vérifiez SUPABASE_DATABASE_URL." });
+      }
+      if (errMsg.includes("RESEND") || errMsg.includes("email") || errMsg.includes("Email")) {
+        return res.status(500).json({ message: `Impossible d'envoyer le code par email : ${errMsg}. Vérifiez RESEND_API_KEY.` });
+      }
+      res.status(500).json({ message: `Impossible d'envoyer le code de confirmation : ${errMsg}` });
     }
   });
 

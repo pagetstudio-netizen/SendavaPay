@@ -23,32 +23,41 @@ async function getCredentials() {
 
   // Priorité 3 : connecteur Replit (environnement Replit uniquement)
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  const xReplitToken = process.env.REPL_IDENTITY 
-    ? 'repl ' + process.env.REPL_IDENTITY 
-    : process.env.WEB_REPL_RENEWAL 
-    ? 'depl ' + process.env.WEB_REPL_RENEWAL 
+  const xReplitToken = process.env.REPL_IDENTITY
+    ? 'repl ' + process.env.REPL_IDENTITY
+    : process.env.WEB_REPL_RENEWAL
+    ? 'depl ' + process.env.WEB_REPL_RENEWAL
     : null;
 
   if (!xReplitToken || !hostname) {
-    throw new Error('Email non configuré: définissez RESEND_API_KEY dans vos variables d\'environnement');
+    throw new Error(
+      'Email non configuré : définissez la variable d\'environnement RESEND_API_KEY (clé Resend) ' +
+      'et RESEND_FROM_EMAIL (ex: noreply@sendavapay.com) sur votre serveur Plesk.'
+    );
   }
 
-  connectionSettings = await fetch(
-    'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=resend',
-    {
-      headers: {
-        'Accept': 'application/json',
-        'X_REPLIT_TOKEN': xReplitToken
+  try {
+    connectionSettings = await fetch(
+      'https://' + hostname + '/api/v2/connection?include_secrets=true&connector_names=resend',
+      {
+        headers: {
+          'Accept': 'application/json',
+          'X_REPLIT_TOKEN': xReplitToken
+        }
       }
-    }
-  ).then(res => res.json()).then(data => data.items?.[0]);
+    ).then(res => res.json()).then(data => data.items?.[0]);
+  } catch (fetchErr: any) {
+    throw new Error('Impossible de joindre le service email Replit : ' + fetchErr.message);
+  }
 
-  if (!connectionSettings || (!connectionSettings.settings.api_key)) {
-    throw new Error('Resend non connecté');
+  if (!connectionSettings || !connectionSettings.settings?.api_key) {
+    throw new Error(
+      'Resend non configuré. Définissez RESEND_API_KEY dans les variables d\'environnement de votre serveur.'
+    );
   }
   return {
-    apiKey: connectionSettings.settings.api_key, 
-    fromEmail: connectionSettings.settings.from_email || 'onboarding@resend.dev'
+    apiKey: connectionSettings.settings.api_key,
+    fromEmail: connectionSettings.settings.from_email || 'noreply@sendavapay.com'
   };
 }
 
