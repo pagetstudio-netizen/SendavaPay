@@ -4629,7 +4629,7 @@ export async function registerRoutes(
             phoneNumber: formattedPhone,
             countryCode: selectedCountry.code.toUpperCase(),
             orderId: mbRef,
-            callbackUrl: "https://sendavapay.com/api/webhook/mbiyopay",
+            callbackUrl: `${process.env.APP_URL || "https://sendavapay.com"}/api/webhook/mbiyopay`,
             beneficiary: walletName || user.fullName || "Client",
           });
 
@@ -5164,6 +5164,186 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Cancel OmniPay withdrawal error:", error);
       res.status(500).json({ message: "Erreur lors de l'annulation" });
+    }
+  });
+
+  // Admin: relancer un retrait automatique via PayDunya ou MbiyoPay
+  app.post("/api/admin/withdrawal-requests/:id/retry-api", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const requestId = parseInt(req.params.id);
+      const withdrawalRequest = await storage.getWithdrawalRequest(requestId);
+
+      if (!withdrawalRequest) {
+        return res.status(404).json({ message: "Demande introuvable" });
+      }
+      if (withdrawalRequest.status !== "pending") {
+        return res.status(400).json({ message: "Seuls les retraits en attente peuvent être relancés via API" });
+      }
+
+      const countries  = await storage.getCountries();
+      const operators  = await storage.getOperators();
+
+      const selectedCountry = countries.find(
+        c => c.code.toLowerCase() === (withdrawalRequest.country || "").toLowerCase()
+      );
+      if (!selectedCountry) {
+        return res.status(400).json({ message: "Pays introuvable dans la base" });
+      }
+
+      const countryOps = operators.filter(op => op.countryId === selectedCountry.id);
+      const selectedOperator = countryOps.find(
+        op =>
+          op.name.toLowerCase() === (withdrawalRequest.paymentMethod || "").toLowerCase() ||
+          op.code === withdrawalRequest.paymentMethod
+      );
+      if (!selectedOperator) {
+        return res.status(400).json({ message: "Opérateur introuvable dans la base" });
+      }
+
+      const netAmount    = parseFloat(withdrawalRequest.netAmount);
+      const mobileNumber = withdrawalRequest.mobileNumber;
+      const user         = await storage.getUser(withdrawalRequest.userId);
+      const userName     = user?.fullName || `User #${withdrawalRequest.userId}`;
+      const appUrl       = process.env.APP_URL || "https://sendavapay.com";
+
+      // ── PayDunya ────────────────────────────────────────────────────────────
+      if (selectedOperator.paymentGateway === "paydunya") {
+        const withdrawMode = getPayDunyaWithdrawMode(selectedOperator.name, selectedCountry.code);
+        if (!withdrawMode) {
+          return res.status(400).json({ message: "Mode de retrait PayDunya non trouvé pour cet opérateur" });
+        }
+
+        const cleanPhone = formatPhoneForPayDunya(mobileNumber, selectedCountry.code);
+        const pdRef      = `PD-WD-RETRY-${requestId}-${Date.now()}`;
+
+        console.log(`🔄 Admin relance PayDunya: req#${requestId} mode=${withdrawMode} phone=${cleanPhone} montant=${netAmount}`);
+        await storage.updateWithdrawalRequest(requestId, { status: "processing" });
+
+        const pdResult = await payDunyaDisburse({
+          accountAlias: cleanPhone,
+          amount:       netAmount,
+          withdrawMode,
+          callbackUrl:  `${appUrl}/api/webhook/paydunya-disburse`,
+          disburseId:   pdRef,
+        });
+
+        await storage.updateWithdrawalRequest(requestId, {
+          externalReference:    pdRef,
+          transactionReference: pdResult.transactionId || null,
+        });
+
+        if (pdResult.success) {
+          const finalStatus = pdResult.status === "success" ? "approved" : "processing";
+          await storage.updateWithdrawalRequest(requestId, {
+            status:     finalStatus,
+            reviewedBy: req.session.userId,
+            ...(finalStatus === "approved" ? { processedAt: new Date() } : {}),
+          });
+          if (finalStatus === "approved") {
+            await storage.createTransaction({
+              userId:        withdrawalRequest.userId,
+              type:          "withdrawal",
+              amount:        withdrawalRequest.amount,
+              fee:           withdrawalRequest.fee,
+              netAmount:     withdrawalRequest.netAmount,
+              status:        "completed",
+              description:   `Retrait admin relancé ${selectedOperator.name} - ${mobileNumber}`,
+              mobileNumber,
+              paymentMethod: selectedOperator.name,
+            });
+          }
+          notifyWithdrawalAutoProcessed({
+            userName, userId: withdrawalRequest.userId,
+            amount: withdrawalRequest.amount, netAmount: withdrawalRequest.netAmount,
+            paymentMethod: selectedOperator.name, mobileNumber,
+            payoutUuid: pdRef, status: "success", gateway: "PayDunya (Relance admin)",
+          });
+          return res.json({
+            message: finalStatus === "approved"
+              ? "Retrait traité avec succès via PayDunya."
+              : "Retrait soumis à PayDunya. En attente de confirmation webhook.",
+            status: finalStatus,
+          });
+        }
+
+        await storage.updateWithdrawalRequest(requestId, {
+          status: "pending",
+          rejectionReason: pdResult.error || "Échec relance PayDunya",
+        });
+        notifyWithdrawalAutoProcessed({
+          userName, userId: withdrawalRequest.userId,
+          amount: withdrawalRequest.amount, netAmount: withdrawalRequest.netAmount,
+          paymentMethod: selectedOperator.name, mobileNumber,
+          payoutUuid: pdRef, status: "failed", errorDetail: pdResult.error, gateway: "PayDunya (Relance admin)",
+        });
+        return res.status(400).json({ message: pdResult.error || "Échec de la relance PayDunya" });
+      }
+
+      // ── MbiyoPay ────────────────────────────────────────────────────────────
+      if (selectedOperator.paymentGateway === "mbiyopay") {
+        const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo } = await import("./mbiyopay");
+
+        const network = getMbiyoNetwork(selectedOperator.name, selectedCountry.code);
+        if (!network) {
+          return res.status(400).json({ message: "Réseau MbiyoPay non trouvé pour cet opérateur" });
+        }
+
+        const currency       = getMbiyoCurrency(selectedCountry.code);
+        const formattedPhone = formatPhoneForMbiyo(mobileNumber, selectedCountry.code);
+        const mbRef          = `mbiyopay_retry_${requestId}_${Date.now()}`;
+
+        console.log(`🔄 Admin relance MbiyoPay: req#${requestId} network=${network} phone=${formattedPhone} montant=${netAmount}`);
+        await storage.updateWithdrawalRequest(requestId, { status: "processing" });
+
+        const mbResult = await mbClient.payout({
+          amount:       netAmount,
+          currency,
+          network,
+          phoneNumber:  formattedPhone,
+          countryCode:  selectedCountry.code.toUpperCase(),
+          orderId:      mbRef,
+          callbackUrl:  `${appUrl}/api/webhook/mbiyopay`,
+          beneficiary:  withdrawalRequest.walletName || userName,
+        });
+
+        if (mbResult.status === "success" && mbResult.data) {
+          await storage.updateWithdrawalRequest(requestId, {
+            externalReference:    mbRef,
+            transactionReference: mbResult.data.transaction_id || null,
+            reviewedBy:           req.session.userId,
+          });
+          notifyWithdrawalAutoProcessed({
+            userName, userId: withdrawalRequest.userId,
+            amount: withdrawalRequest.amount, netAmount: withdrawalRequest.netAmount,
+            paymentMethod: selectedOperator.name, mobileNumber,
+            payoutUuid: mbRef, status: "success", gateway: "MbiyoPay (Relance admin)",
+          });
+          return res.json({
+            message: "Retrait soumis à MbiyoPay. En attente de confirmation webhook.",
+            status:  "processing",
+          });
+        }
+
+        const mbError = mbResult.message || "Erreur MbiyoPay inconnue";
+        await storage.updateWithdrawalRequest(requestId, {
+          status:          "pending",
+          rejectionReason: mbError,
+        });
+        notifyWithdrawalAutoProcessed({
+          userName, userId: withdrawalRequest.userId,
+          amount: withdrawalRequest.amount, netAmount: withdrawalRequest.netAmount,
+          paymentMethod: selectedOperator.name, mobileNumber,
+          payoutUuid: "N/A", status: "failed", errorDetail: mbError, gateway: "MbiyoPay (Relance admin)",
+        });
+        return res.status(400).json({ message: mbError });
+      }
+
+      return res.status(400).json({
+        message: `La passerelle "${selectedOperator.paymentGateway}" ne supporte pas la relance automatique. Utilisez "Approuver" pour valider manuellement.`,
+      });
+    } catch (error) {
+      console.error("Retry API withdrawal error:", error);
+      res.status(500).json({ message: "Erreur lors de la relance" });
     }
   });
 

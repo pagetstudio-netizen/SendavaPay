@@ -1694,6 +1694,25 @@ function WithdrawalsContent() {
     },
   });
 
+  const retryApiMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/admin/withdrawal-requests/${id}/retry-api`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Erreur inconnue" }));
+        throw new Error(err.message || "Erreur lors de la relance");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/withdrawal-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/stats"] });
+      toast({ title: "Relance effectuée", description: data.message || "Retrait relancé via API" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Échec de la relance", description: error.message, variant: "destructive" });
+    },
+  });
+
   const cancelOmnipayMutation = useMutation({
     mutationFn: async (id: number) => {
       const res = await apiRequest("POST", `/api/admin/withdrawal-requests/${id}/cancel-omnipay`);
@@ -1870,44 +1889,91 @@ function WithdrawalsContent() {
                         )}
                       </div>
                       
-                      {request.status === "pending" && (
-                        <div className="flex gap-2 flex-wrap lg:flex-col">
-                          <Button 
-                            size="sm" 
-                            onClick={() => approveMutation.mutate(request.id)}
-                            disabled={approveMutation.isPending}
-                            data-testid={`button-approve-${request.id}`}
-                          >
-                            <CheckCircle className="h-4 w-4 mr-1" /> 
-                            {approveMutation.isPending ? "..." : "Approuver"}
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            variant="destructive" 
-                            onClick={() => setRejectingId(request.id)}
-                            data-testid={`button-reject-${request.id}`}
-                          >
-                            <XCircle className="h-4 w-4 mr-1" /> Rejeter
-                          </Button>
-                          {request.externalReference && (
+                      {request.status === "pending" && (() => {
+                        const rr = request.rejectionReason || "";
+                        const ref = request.externalReference || "";
+                        const isPayDunya =
+                          ref.startsWith("PD-WD-") ||
+                          rr.toLowerCase().includes("paydunya") ||
+                          rr.toLowerCase().includes("pay dunya");
+                        const isMbiyoPay =
+                          ref.startsWith("mbiyopay_payout_") ||
+                          rr.toLowerCase().includes("mbiyopay") ||
+                          rr.toLowerCase().includes("mbiyo");
+                        const canRetry =
+                          rr.length > 0 &&
+                          !rr.startsWith("LIQUIDITY_HOLD") &&
+                          (isPayDunya || isMbiyoPay);
+                        const retryLabel = isPayDunya
+                          ? "Relancer PayDunya"
+                          : isMbiyoPay
+                          ? "Relancer MbiyoPay"
+                          : "Relancer via API";
+
+                        return (
+                          <div className="flex gap-2 flex-wrap lg:flex-col">
                             <Button
                               size="sm"
-                              variant="outline"
-                              className="border-orange-400 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20"
-                              onClick={() => {
-                                if (confirm(`Annuler via OmniPay et rembourser ${formatCurrency(request.amount)} à l'utilisateur ?`)) {
-                                  cancelOmnipayMutation.mutate(request.id);
-                                }
-                              }}
-                              disabled={cancelOmnipayMutation.isPending}
-                              data-testid={`button-cancel-omnipay-${request.id}`}
+                              onClick={() => approveMutation.mutate(request.id)}
+                              disabled={approveMutation.isPending}
+                              data-testid={`button-approve-${request.id}`}
                             >
-                              <XCircle className="h-4 w-4 mr-1" />
-                              {cancelOmnipayMutation.isPending ? "..." : "Annuler OmniPay"}
+                              <CheckCircle className="h-4 w-4 mr-1" />
+                              {approveMutation.isPending ? "..." : "Approuver"}
                             </Button>
-                          )}
-                        </div>
-                      )}
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => setRejectingId(request.id)}
+                              data-testid={`button-reject-${request.id}`}
+                            >
+                              <XCircle className="h-4 w-4 mr-1" /> Rejeter
+                            </Button>
+                            {canRetry && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="border-blue-500 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                                disabled={retryApiMutation.isPending}
+                                onClick={() => {
+                                  if (
+                                    confirm(
+                                      `Relancer automatiquement ce retrait de ${formatCurrency(request.netAmount)} via ${isPayDunya ? "PayDunya" : "MbiyoPay"} ?`
+                                    )
+                                  ) {
+                                    retryApiMutation.mutate(request.id);
+                                  }
+                                }}
+                                data-testid={`button-retry-api-${request.id}`}
+                              >
+                                <RotateCcw className="h-4 w-4 mr-1" />
+                                {retryApiMutation.isPending ? "..." : retryLabel}
+                              </Button>
+                            )}
+                            {ref && !ref.startsWith("PD-WD-") && !ref.startsWith("mbiyopay_") && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="border-orange-400 text-orange-600 hover:bg-orange-50 dark:hover:bg-orange-900/20"
+                                onClick={() => {
+                                  if (
+                                    confirm(
+                                      `Annuler via OmniPay et rembourser ${formatCurrency(request.amount)} à l'utilisateur ?`
+                                    )
+                                  ) {
+                                    cancelOmnipayMutation.mutate(request.id);
+                                  }
+                                }}
+                                disabled={cancelOmnipayMutation.isPending}
+                                data-testid={`button-cancel-omnipay-${request.id}`}
+                              >
+                                <XCircle className="h-4 w-4 mr-1" />
+                                {cancelOmnipayMutation.isPending ? "..." : "Annuler OmniPay"}
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </CardContent>
                 </Card>
