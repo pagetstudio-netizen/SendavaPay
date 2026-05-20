@@ -3723,6 +3723,15 @@ const CREDENTIAL_GROUPS = [
     ],
   },
   {
+    label: "PayDunya",
+    keys: [
+      { key: "PAYDUNYA_MASTER_KEY", label: "Master Key" },
+      { key: "PAYDUNYA_PRIVATE_KEY", label: "Clé privée (live_private_...)" },
+      { key: "PAYDUNYA_TOKEN", label: "Token public" },
+      { key: "PAYDUNYA_BASE_URL", label: "URL de base (défaut: https://app.paydunya.com)" },
+    ],
+  },
+  {
     label: "Telegram",
     keys: [
       { key: "TELEGRAM_BOT_TOKEN", label: "Bot Token" },
