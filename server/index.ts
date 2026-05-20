@@ -146,26 +146,9 @@ async function initializeSecurityTables() {
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
     `);
-    // ── otp_codes : vérification et correction automatique de la structure ──
-    const REQUIRED_OTP_COLS = ["user_id", "code", "type", "token", "expires_at"];
-    let existingCols: string[] = [];
-    try {
-      const colRes = await client.query(
-        `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'otp_codes'`
-      );
-      existingCols = colRes.rows.map((r: any) => r.column_name as string);
-    } catch { /* table n'existe pas encore */ }
-
-    const missingCritical = REQUIRED_OTP_COLS.filter(c => !existingCols.includes(c));
-
-    if (missingCritical.length > 0) {
-      // Les codes OTP expirent en 10 min — recréation sans risque de perte de données utiles
-      log(`otp_codes: colonnes manquantes [${missingCritical.join(", ")}] — recréation de la table`, "init");
-      await client.query(`DROP TABLE IF EXISTS otp_codes CASCADE`);
-    }
-
+    // ── otp_codes_v2 : table OTP avec schéma correct, créée proprement ──
     await client.query(`
-      CREATE TABLE IF NOT EXISTS otp_codes (
+      CREATE TABLE IF NOT EXISTS otp_codes_v2 (
         id         INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         user_id    INTEGER NOT NULL,
         code       TEXT    NOT NULL,
@@ -178,14 +161,12 @@ async function initializeSecurityTables() {
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
     `);
-
-    // Ajout défensif des colonnes optionnelles sur tables existantes correctes
-    await client.query(`ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS used_at    TIMESTAMP;`);
-    await client.query(`ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS ip_address TEXT;`);
-    await client.query(`ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS metadata   TEXT;`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_otp_token ON otp_codes(token);`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_otp_expires ON otp_codes(expires_at);`);
-    log("Security tables initialized successfully", "init");
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_otpv2_token   ON otp_codes_v2(token);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_otpv2_expires ON otp_codes_v2(expires_at);`);
+    await client.query(`ALTER TABLE otp_codes_v2 ADD COLUMN IF NOT EXISTS used_at    TIMESTAMP;`);
+    await client.query(`ALTER TABLE otp_codes_v2 ADD COLUMN IF NOT EXISTS ip_address TEXT;`);
+    await client.query(`ALTER TABLE otp_codes_v2 ADD COLUMN IF NOT EXISTS metadata   TEXT;`);
+    log("Security tables initialized successfully (otp_codes_v2)", "init");
   } catch (error) {
     log(`Security tables initialization error: ${(error as Error).message}`, "init");
   } finally {

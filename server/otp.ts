@@ -6,8 +6,10 @@ export function generateOtpCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
+const OTP_TABLE = "otp_codes_v2";
+
 const CREATE_OTP_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS otp_codes (
+  CREATE TABLE IF NOT EXISTS ${OTP_TABLE} (
     id         INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     user_id    INTEGER NOT NULL,
     code       TEXT    NOT NULL,
@@ -21,26 +23,19 @@ const CREATE_OTP_TABLE_SQL = `
   )
 `;
 
-async function repairOtpTable(client: any): Promise<void> {
-  // Check which columns actually exist
-  const colRes = await client.query(
-    `SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='otp_codes'`
-  );
-  const cols: string[] = colRes.rows.map((r: any) => r.column_name as string);
-  const required = ["user_id", "code", "type", "token", "expires_at"];
-  const missing = required.filter(c => !cols.includes(c));
-
-  if (missing.length > 0) {
-    // OTP codes expire in 10 min — safe to drop and recreate
-    console.log(`[otp] Colonnes manquantes [${missing.join(", ")}] — recréation de otp_codes`);
-    await client.query(`DROP TABLE IF EXISTS otp_codes CASCADE`);
+export async function ensureOtpTable(): Promise<void> {
+  if (!pool) return;
+  const client = await pool.connect();
+  try {
     await client.query(CREATE_OTP_TABLE_SQL);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_otp_token ON otp_codes(token)`);
-  } else {
-    // Table OK — just add optional columns defensively
-    await client.query(`ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS used_at    TIMESTAMP`);
-    await client.query(`ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS ip_address TEXT`);
-    await client.query(`ALTER TABLE otp_codes ADD COLUMN IF NOT EXISTS metadata   TEXT`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_otpv2_token   ON ${OTP_TABLE}(token)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_otpv2_expires ON ${OTP_TABLE}(expires_at)`);
+    // Add optional columns defensively in case table already exists without them
+    await client.query(`ALTER TABLE ${OTP_TABLE} ADD COLUMN IF NOT EXISTS used_at    TIMESTAMP`);
+    await client.query(`ALTER TABLE ${OTP_TABLE} ADD COLUMN IF NOT EXISTS ip_address TEXT`);
+    await client.query(`ALTER TABLE ${OTP_TABLE} ADD COLUMN IF NOT EXISTS metadata   TEXT`);
+  } finally {
+    client.release();
   }
 }
 
@@ -56,7 +51,7 @@ export async function createOtp(
   const token = uuidv4();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-  const INSERT_SQL = `INSERT INTO otp_codes (user_id, code, type, token, expires_at, ip_address, metadata)
+  const INSERT_SQL = `INSERT INTO ${OTP_TABLE} (user_id, code, type, token, expires_at, ip_address, metadata)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`;
   const params = [userId, code, type, token, expiresAt.toISOString(), ipAddress, metadata ? JSON.stringify(metadata) : null];
 
@@ -65,16 +60,22 @@ export async function createOtp(
     try {
       await client.query(INSERT_SQL, params);
     } catch (err: any) {
-      // 42P01 = table doesn't exist, 42703 = column doesn't exist
-      if (err.code === "42P01" || err.code === "42703") {
-        await repairOtpTable(client);
-        await client.query(INSERT_SQL, params);
-      } else {
-        throw err;
+      // Table doesn't exist yet (42P01) — create it and retry once
+      if (err.code === "42P01") {
+        client.release();
+        await ensureOtpTable();
+        const client2 = await pool.connect();
+        try {
+          await client2.query(INSERT_SQL, params);
+        } finally {
+          client2.release();
+        }
+        return { token, code };
       }
+      throw err;
     }
   } finally {
-    client.release();
+    try { client.release(); } catch { /* already released */ }
   }
   return { token, code };
 }
@@ -91,13 +92,11 @@ export async function verifyOtp(
     let result;
     try {
       result = await client.query(
-        `SELECT * FROM otp_codes WHERE token=$1 AND type=$2 LIMIT 1`,
+        `SELECT * FROM ${OTP_TABLE} WHERE token=$1 AND type=$2 LIMIT 1`,
         [token, type]
       );
     } catch (err: any) {
-      if (err.code === "42P01" || err.code === "42703") {
-        // Table or column broken — repair and return as invalid (code was lost)
-        await repairOtpTable(client);
+      if (err.code === "42P01") {
         return { valid: false, errorMsg: "Code invalide ou expiré" };
       }
       throw err;
@@ -108,7 +107,7 @@ export async function verifyOtp(
     if (new Date(otp.expires_at) < new Date()) return { valid: false, errorMsg: "Code expiré. Veuillez en demander un nouveau." };
     if (otp.code !== code) return { valid: false, errorMsg: "Code incorrect" };
 
-    await client.query(`UPDATE otp_codes SET used_at=NOW() WHERE id=$1`, [otp.id]);
+    await client.query(`UPDATE ${OTP_TABLE} SET used_at=NOW() WHERE id=$1`, [otp.id]);
 
     let metadata: Record<string, unknown> | undefined;
     if (otp.metadata) {
@@ -124,8 +123,9 @@ export async function cleanExpiredOtps(): Promise<void> {
   if (!pool) return;
   const client = await pool.connect();
   try {
-    await client.query(`DELETE FROM otp_codes WHERE expires_at < NOW() - INTERVAL '1 hour'`);
-  } finally {
+    await client.query(`DELETE FROM ${OTP_TABLE} WHERE expires_at < NOW() - INTERVAL '1 hour'`);
+  } catch { /* ignore if table doesn't exist yet */ }
+  finally {
     client.release();
   }
 }
