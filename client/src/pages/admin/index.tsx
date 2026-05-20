@@ -3775,8 +3775,26 @@ function CredentialsCard() {
   const toggleReveal = (key: string) =>
     setRevealed((prev) => ({ ...prev, [key]: !prev[key] }));
 
+  const [testEmailAddr, setTestEmailAddr] = useState("");
+  const [showTestEmail, setShowTestEmail] = useState(false);
+
   const { data: creds, isLoading, refetch } = useQuery<Record<string, CredentialInfo>>({
     queryKey: ["/api/admin/credentials"],
+  });
+
+  const testEmailMutation = useMutation({
+    mutationFn: async (email: string) => {
+      const res = await apiRequest("POST", "/api/admin/test-email", { email });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Erreur");
+      return data;
+    },
+    onSuccess: () => {
+      toast({ title: "✅ Email envoyé", description: `Email de test envoyé à ${testEmailAddr}. Vérifiez votre boîte de réception (et spams).` });
+    },
+    onError: (err: Error) => {
+      toast({ title: "❌ Échec envoi email", description: err.message, variant: "destructive" });
+    },
   });
 
   // Step 1 — request OTP, opens verification dialog
@@ -3797,7 +3815,6 @@ function CredentialsCard() {
       setPendingKey(variables.key);
       setOtpCode("");
       setOtpDialogOpen(true);
-      toast({ title: "Code envoyé", description: "Vérifiez votre email administrateur pour le code." });
     },
     onError: (err: Error) => {
       toast({ title: "Erreur", description: err.message, variant: "destructive" });
@@ -3949,6 +3966,31 @@ function CredentialsCard() {
                       </div>
                     );
                   })}
+                  {group.label === "Email (Resend)" && (
+                    <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+                      <p className="text-sm font-medium mb-2">Tester l'envoi d'email</p>
+                      <div className="flex gap-2 flex-wrap">
+                        <Input
+                          type="email"
+                          placeholder="votre@email.com"
+                          value={testEmailAddr}
+                          onChange={(e) => setTestEmailAddr(e.target.value)}
+                          className="flex-1 min-w-48 text-sm"
+                          data-testid="input-test-email"
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => testEmailMutation.mutate(testEmailAddr)}
+                          disabled={!testEmailAddr || testEmailMutation.isPending}
+                          data-testid="button-send-test-email"
+                        >
+                          {testEmailMutation.isPending ? "Envoi..." : "Envoyer un test"}
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">Si l'envoi échoue, le message d'erreur exact de Resend s'affichera.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             ))
@@ -3962,7 +4004,7 @@ function CredentialsCard() {
           <DialogHeader>
             <DialogTitle>Vérification requise</DialogTitle>
             <DialogDescription>
-              Un code de vérification à 6 chiffres a été envoyé à votre adresse email administrateur.
+              Veuillez saisir le code de 6 chiffres que vous avez reçu.
               {pendingKey && (
                 <span className="block mt-2 font-mono text-xs bg-muted px-2 py-1 rounded">
                   Clé : {pendingKey}
@@ -3984,7 +4026,7 @@ function CredentialsCard() {
                 data-testid="input-otp-credential"
                 onKeyDown={(e) => { if (e.key === "Enter" && otpCode.length === 6) confirmMutation.mutate(); }}
               />
-              <p className="text-xs text-muted-foreground">Vérifiez vos spams si vous ne voyez pas l'email. Ce code expire dans 10 minutes.</p>
+              <p className="text-xs text-muted-foreground">Ce code expire dans 10 minutes.</p>
             </div>
           </div>
           <DialogFooter className="gap-2">
