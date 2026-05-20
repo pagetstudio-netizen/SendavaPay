@@ -13,7 +13,9 @@ import { createOtp, verifyOtp, sendWithdrawalOtp, sendAdminLoginOtp } from "./ot
 import {
   createPayDunyaCheckout, payDunyaDisburse, verifyPayDunyaWebhook,
   getPayDunyaWithdrawMode, formatPhoneForPayDunya,
+  initiatePayDunySoftPay,
 } from "./paydunya";
+import { getSoftPayOperator } from "./paydunya-softpay-map";
 import { getCredential, setCachedCredential, loadCredentialsFromDb, CREDENTIAL_KEYS } from "./credentials";
 import bcrypt from "bcrypt";
 import session from "express-session";
@@ -1299,15 +1301,104 @@ export async function registerRoutes(
       if (paymentGateway === "paydunya") {
         console.log(`📤 PayDunya: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
 
-        const pdResult = await createPayDunyaCheckout({
+        const pdInvoiceParams = {
           totalAmount: numericAmount,
           description: `Dépôt SendavaPay - ${user.fullName} (${service.operator} ${service.country})`,
           storeName: "SendavaPay",
           callbackUrl: `${baseUrl}/api/webhook/paydunya`,
           returnUrl: `${baseUrl}/success`,
           cancelUrl: `${baseUrl}/deposit`,
-          customData: { reference: orderId, userId: req.session.userId! },
-        });
+          customData: { reference: orderId, userId: String(req.session.userId!) },
+        };
+
+        // Si un numéro de téléphone est fourni ET l'opérateur a un mapping SoftPay → paiement direct
+        const pdSoftPayOp = phoneNumber
+          ? getSoftPayOperator(service.operator || "", service.countryCode || service.country || "")
+          : null;
+
+        if (pdSoftPayOp) {
+          // SoftPay requis OTP mais pas fourni → demander le code
+          if (pdSoftPayOp.requiresOtp && !otp) {
+            return res.json({
+              success: false,
+              requiresOtp: true,
+              provider: "paydunya",
+              message: `Veuillez générer votre code OTP ${service.operator} (USSD) et le saisir pour confirmer.`,
+            });
+          }
+
+          const cleanPhone = formatPhoneForPayDunya(phoneNumber!, service.countryCode || "");
+          console.log(`📤 PayDunya SoftPay: opérateur=${pdSoftPayOp.slug} téléphone=${cleanPhone}`);
+
+          const spResult = await initiatePayDunySoftPay({
+            operatorName: service.operator || "",
+            countryCode: service.countryCode || service.country || "",
+            phone: cleanPhone,
+            name: user.fullName || "Client",
+            email: user.email || "noreply@sendavapay.com",
+            otp: otp || undefined,
+            invoiceParams: pdInvoiceParams,
+          });
+
+          if (!spResult.success) {
+            console.error("❌ PayDunya SoftPay error:", spResult.error);
+            if (spResult.requiresOtp) {
+              return res.json({
+                success: false,
+                requiresOtp: true,
+                provider: "paydunya",
+                message: spResult.error || "Code OTP requis.",
+              });
+            }
+            return res.status(500).json({ message: spResult.error || "Erreur PayDunya SoftPay" });
+          }
+
+          const invoiceToken = spResult.invoiceToken!;
+
+          // Enregistrer le paiement en attente
+          await storage.createLeekpayPayment({
+            leekpayPaymentId: invoiceToken,
+            userId: req.session.userId!,
+            amount: numericAmount.toString(),
+            currency: service.currency,
+            type: "deposit",
+            status: "pending",
+            description: `Dépôt via ${service.operator} (${service.country}) - PayDunya SoftPay`,
+            customerEmail: user.email,
+            paymentMethod: `paydunya_${service.name}`,
+            returnUrl: `${baseUrl}/success`,
+            payerPhone: cleanPhone,
+          });
+
+          console.log(`✅ PayDunya SoftPay: initié token=${invoiceToken} type=${spResult.responseType}`);
+
+          // Wave et Orange SN → retourner l'URL de redirection
+          if (spResult.responseType === "redirect" || spResult.responseType === "qr") {
+            return res.json({
+              success: true,
+              payId: invoiceToken,
+              orderId,
+              status: "PENDING",
+              provider: "paydunya",
+              redirectUrl: spResult.redirectUrl,
+              omUrl: spResult.omUrl,
+              message: spResult.message || "Veuillez compléter le paiement en suivant le lien.",
+            });
+          }
+
+          // Opérateurs USSD direct (T-Money, MTN, Moov…)
+          return res.json({
+            success: true,
+            payId: invoiceToken,
+            orderId,
+            status: "PENDING",
+            provider: "paydunya",
+            message: spResult.message || "Paiement initié. Veuillez confirmer sur votre téléphone.",
+          });
+        }
+
+        // Pas de numéro ou opérateur sans SoftPay → fallback checkout (redirection page PayDunya)
+        const pdResult = await createPayDunyaCheckout(pdInvoiceParams);
 
         if (!pdResult.success || !pdResult.checkoutUrl || !pdResult.token) {
           console.error("❌ PayDunya checkout error:", pdResult.error);
