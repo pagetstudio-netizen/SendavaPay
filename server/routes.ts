@@ -8177,13 +8177,6 @@ export async function registerRoutes(
   // ADMIN SECURITY ROUTES
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const requireAdmin = async (req: Request, res: Response, next: NextFunction) => {
-    if (!req.session.userId) return res.status(401).json({ message: "Non authentifié" });
-    const u = await storage.getUser(req.session.userId);
-    if (!u || u.role !== "admin") return res.status(403).json({ message: "Accès refusé" });
-    next();
-  };
-
   app.get("/api/admin/security/blocked-ips", requireAdmin, async (req, res) => {
     const { pool: dbPool } = await import("./db");
     if (!dbPool) return res.json([]);
