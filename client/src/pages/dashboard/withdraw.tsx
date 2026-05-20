@@ -105,6 +105,11 @@ export default function WithdrawPage() {
     queryKey: ["/api/withdrawal-requests"],
   });
 
+  const { data: withdrawalsStatus } = useQuery<{ enabled: boolean }>({
+    queryKey: ["/api/public/withdrawals-status"],
+  });
+  const withdrawalsDisabled = withdrawalsStatus?.enabled === false;
+
   // Auto-select first wallet and matching country
   useEffect(() => {
     if (wallets.length > 0 && !selectedWalletId) {
@@ -253,6 +258,31 @@ export default function WithdrawPage() {
                 Votre compte n'est pas encore vérifié. Veuillez vérifier votre compte afin d'utiliser nos services de paiement sécurisés.
               </p>
               <Link href="/dashboard/kyc"><Button data-testid="button-verify-now">Vérifier mon compte</Button></Link>
+            </CardContent>
+          </Card>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (withdrawalsDisabled) {
+    return (
+      <DashboardLayout>
+        <div className="max-w-2xl mx-auto space-y-6">
+          <div className="flex items-center gap-4">
+            <Link href="/dashboard"><Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button></Link>
+            <div>
+              <h1 className="text-2xl font-bold">Retrait</h1>
+              <p className="text-muted-foreground">Retrait vers votre Mobile Money</p>
+            </div>
+          </div>
+          <Card className="border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950/30">
+            <CardContent className="p-8 text-center">
+              <Clock className="h-16 w-16 mx-auto mb-4 text-orange-500" />
+              <h2 className="text-xl font-semibold text-orange-800 dark:text-orange-200 mb-2">Retrait indisponible pour le moment</h2>
+              <p className="text-orange-600 dark:text-orange-300 max-w-md mx-auto">
+                Les retraits sont temporairement suspendus. Veuillez réessayer plus tard ou contacter le support.
+              </p>
             </CardContent>
           </Card>
         </div>
