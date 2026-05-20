@@ -1037,6 +1037,84 @@ export function registerPartnerRoutes(app: Express) {
         });
       }
 
+      if (paymentGateway === "paydunya") {
+        const { initiatePayDunySoftPay, createPayDunyaCheckout, formatPhoneForPayDunya } = await import("./paydunya");
+        const { getSoftPayOperator } = await import("./paydunya-softpay-map");
+        const baseUrl = process.env.BASE_URL || "https://sendavapay.com";
+        const cc = (service.countryCode || countryUpper || "").toUpperCase();
+        const cleanPhone = formatPhoneForPayDunya(phone, cc);
+        const pdSoftPayOp = getSoftPayOperator(service.operator || "", cc);
+        const invoiceParams = {
+          totalAmount: numericAmount,
+          description: description || `Paiement ${partner.name} - ${service.operator}`,
+          storeName: partner.name || "SendavaPay",
+          callbackUrl: `${baseUrl}/api/webhook/paydunya`,
+          returnUrl: redirectUrl || `${baseUrl}/`,
+          cancelUrl: redirectUrl || `${baseUrl}/`,
+          customData: { reference, userId: "0", partnerId: String(partner.id) },
+        };
+
+        if (pdSoftPayOp?.requiresOtp && !req.body.otp) {
+          return res.json({ success: false, requiresOtp: true, reference, provider: "paydunya", message: `Code OTP requis pour ${service.operator}.` });
+        }
+
+        await storage.createPartnerTransaction({
+          partnerId: partner.id,
+          reference,
+          amount: numericAmount.toString(),
+          fee,
+          currency: txCurrency,
+          customerName: customerName || null,
+          customerEmail: customerEmail || null,
+          customerPhone: cleanPhone,
+          description: description || null,
+          callbackUrl: callbackUrl || partner.callbackUrl || null,
+          redirectUrl: redirectUrl || null,
+          metadata: JSON.stringify({ ...(metadata || {}), provider: "paydunya", operator: service.operator, country: countryUpper, serviceId: service.id }),
+        });
+
+        const { db } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+
+        if (pdSoftPayOp) {
+          const spResult = await initiatePayDunySoftPay({
+            operatorName: service.operator || "",
+            countryCode: cc,
+            phone: cleanPhone,
+            name: customerName || "Client",
+            email: customerEmail || `${phone}@sendavapay.com`,
+            otp: req.body.otp || undefined,
+            invoiceParams,
+          });
+
+          if (!spResult.success) {
+            await db.execute(sql`UPDATE partner_transactions SET status = 'failed', metadata = ${JSON.stringify({ provider: "paydunya", error: spResult.error })} WHERE reference = ${reference}`);
+            if (spResult.requiresOtp) {
+              return res.json({ success: false, requiresOtp: true, reference, provider: "paydunya", message: spResult.error || "Code OTP requis." });
+            }
+            return res.status(400).json({ success: false, status: "FAILED", reference, provider: "paydunya", message: spResult.error || "Échec PayDunya SoftPay" });
+          }
+
+          await db.execute(sql`UPDATE partner_transactions SET status = 'processing', metadata = ${JSON.stringify({ provider: "paydunya", operator: service.operator, country: countryUpper, serviceId: service.id, invoiceToken: spResult.invoiceToken })} WHERE reference = ${reference}`);
+          await storage.createPartnerLog({ partnerId: partner.id, action: "api_call", details: `SDK Paiement PayDunya SoftPay initié: ${reference} - ${numericAmount} ${txCurrency} via ${service.operator} au ${cleanPhone}`, ipAddress: req.ip || req.socket.remoteAddress });
+
+          if (spResult.responseType === "redirect" || spResult.responseType === "qr") {
+            return res.json({ success: true, status: "PROCESSING", txid: reference, reference, provider: "paydunya", amount: numericAmount.toString(), fee, currency: txCurrency, operator: service.operator, country: countryUpper, redirectUrl: spResult.redirectUrl, omUrl: spResult.omUrl, message: spResult.message || "Redirigez le client vers l'URL de paiement." });
+          }
+          return res.json({ success: true, status: "PROCESSING", txid: reference, reference, provider: "paydunya", amount: numericAmount.toString(), fee, currency: txCurrency, operator: service.operator, country: countryUpper, message: spResult.message || "Notification envoyée au client. Vérifiez le statut avec /api/sdk/verify" });
+        }
+
+        // Fallback checkout redirect
+        const pdResult = await createPayDunyaCheckout(invoiceParams);
+        if (!pdResult.success || !pdResult.checkoutUrl) {
+          await db.execute(sql`UPDATE partner_transactions SET status = 'failed', metadata = ${JSON.stringify({ provider: "paydunya", error: pdResult.error })} WHERE reference = ${reference}`);
+          return res.status(400).json({ success: false, status: "FAILED", reference, provider: "paydunya", message: pdResult.error || "Erreur PayDunya checkout" });
+        }
+        await db.execute(sql`UPDATE partner_transactions SET status = 'processing', metadata = ${JSON.stringify({ provider: "paydunya", operator: service.operator, country: countryUpper, serviceId: service.id, invoiceToken: pdResult.token })} WHERE reference = ${reference}`);
+        await storage.createPartnerLog({ partnerId: partner.id, action: "api_call", details: `SDK Paiement PayDunya checkout initié: ${reference} - ${numericAmount} ${txCurrency}`, ipAddress: req.ip || req.socket.remoteAddress });
+        return res.json({ success: true, status: "PROCESSING", txid: reference, reference, provider: "paydunya", amount: numericAmount.toString(), fee, currency: txCurrency, checkoutUrl: pdResult.checkoutUrl, message: "Redirigez le client vers l'URL de paiement PayDunya." });
+      }
+
       const cleanPhone = formatPhoneForSoleasPay(phone, countryUpper);
       console.log(`📡 SDK SoleasPay: numéro normalisé ${phone} → ${cleanPhone} (pays ${countryUpper})`);
 
@@ -1869,6 +1947,59 @@ export function registerPartnerRoutes(app: Express) {
         return res.json({ success: true, payId: mbResult.data.transaction_id, orderId, status: "PENDING", provider: "mbiyopay", authMode: mbResult.data.auth_mode || null, instructions: mbResult.data.instructions || null, message: "Veuillez confirmer le paiement sur votre téléphone." });
       }
 
+      if (paymentGateway === "paydunya") {
+        const { initiatePayDunySoftPay, createPayDunyaCheckout, formatPhoneForPayDunya } = await import("./paydunya");
+        const { getSoftPayOperator } = await import("./paydunya-softpay-map");
+        const cc = (service.countryCode || "").toUpperCase();
+        const cleanPhone = formatPhoneForPayDunya(phoneNumber, cc);
+        const pdSoftPayOp = getSoftPayOperator(service.operator || "", cc);
+        const orderId = `PDEP-PD-${Date.now()}-P${req.session.partnerId}`;
+        const invoiceParams = {
+          totalAmount: numericAmount,
+          description: `Dépôt Partenaire PayDunya - ${partner.name}`,
+          storeName: partner.name || "SendavaPay",
+          callbackUrl: `${baseUrl}/api/webhook/paydunya`,
+          returnUrl: `${baseUrl}/partner/dashboard`,
+          cancelUrl: `${baseUrl}/partner/dashboard`,
+          customData: { reference: orderId, partnerId: String(req.session.partnerId!) },
+        };
+
+        if (pdSoftPayOp?.requiresOtp && !req.body.otp) {
+          return res.json({ success: false, requiresOtp: true, provider: "paydunya", message: `Code OTP requis pour ${service.operator}.` });
+        }
+
+        if (pdSoftPayOp) {
+          const spResult = await initiatePayDunySoftPay({
+            operatorName: service.operator || "",
+            countryCode: cc,
+            phone: cleanPhone,
+            name: partner.name || "Partenaire",
+            email: partner.email || "partner@sendavapay.com",
+            otp: req.body.otp || undefined,
+            invoiceParams,
+          });
+          if (!spResult.success) {
+            if (spResult.requiresOtp) {
+              return res.json({ success: false, requiresOtp: true, provider: "paydunya", message: spResult.error || "Code OTP requis." });
+            }
+            return res.status(500).json({ message: spResult.error || "Erreur PayDunya SoftPay" });
+          }
+          await storage.createPartnerLog({ partnerId: req.session.partnerId!, action: "api_call", details: `Dépôt PayDunya SoftPay initié: ${numericAmount} ${service.currency} via ${service.operator} au ${cleanPhone}`, ipAddress: req.ip || req.socket.remoteAddress });
+          if (spResult.responseType === "redirect" || spResult.responseType === "qr") {
+            return res.json({ success: true, payId: spResult.invoiceToken, orderId, status: "PENDING", provider: "paydunya", redirectUrl: spResult.redirectUrl, omUrl: spResult.omUrl, message: spResult.message || "Redirigez vers l'URL de paiement." });
+          }
+          return res.json({ success: true, payId: spResult.invoiceToken, orderId, status: "PENDING", provider: "paydunya", message: spResult.message || "Veuillez confirmer sur votre téléphone." });
+        }
+
+        // Fallback checkout redirect
+        const pdResult = await createPayDunyaCheckout(invoiceParams);
+        if (!pdResult.success || !pdResult.checkoutUrl) {
+          return res.status(500).json({ message: pdResult.error || "Erreur PayDunya checkout" });
+        }
+        await storage.createPartnerLog({ partnerId: req.session.partnerId!, action: "api_call", details: `Dépôt PayDunya checkout initié: ${numericAmount} ${service.currency}`, ipAddress: req.ip || req.socket.remoteAddress });
+        return res.json({ success: true, payId: pdResult.token, orderId, status: "PENDING", provider: "paydunya", checkoutUrl: pdResult.checkoutUrl, message: "Redirigez vers la page de paiement PayDunya." });
+      }
+
       if (paymentGateway === "paxity") {
         const { paxity: paxityClient, getPaxityMethodCode, getPaxityPhonePrefix, getPaxityCurrency, formatPhoneForPaxity, isPaxityQRMethod, isPaxityOTPMethod } = await import("./paxity");
         const svcCountry = service.countryCode || "";
@@ -1968,6 +2099,10 @@ export function registerPartnerRoutes(app: Express) {
       }
       if (orderId.includes("PDEP-MB-")) {
         res.json({ status: "pending", message: "En attente de confirmation MbiyoPay..." });
+        return;
+      }
+      if (orderId.includes("PDEP-PD-")) {
+        res.json({ status: "pending", message: "En attente de confirmation PayDunya..." });
         return;
       }
 
@@ -2401,6 +2536,65 @@ export function registerPartnerRoutes(app: Express) {
           console.error("Partner Paxity payout error:", pxErr);
           await restore();
           await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "failed", rejectionReason: "Erreur technique Paxity" });
+          return res.status(500).json({ message: "Erreur technique lors du retrait. Votre solde a été restauré." });
+        }
+      }
+
+      if (selectedOperator.paymentGateway === "paydunya") {
+        const { payDunyaDisburse, getPayDunyaWithdrawMode, formatPhoneForPayDunya } = await import("./paydunya");
+        const withdrawMode = getPayDunyaWithdrawMode(selectedOperator.name, selectedCountry.code);
+        if (!withdrawMode) {
+          await restore();
+          return res.status(400).json({ message: "Opérateur non supporté pour le retrait automatique PayDunya" });
+        }
+
+        const currency = selectedCountry.currency || "XOF";
+        const cleanPhone = formatPhoneForPayDunya(mobileNumber, selectedCountry.code);
+        const withdrawalRequest = await storage.createWithdrawalRequest({
+          userId: 0,
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          paymentMethod: selectedOperator.name,
+          mobileNumber: cleanPhone,
+          country,
+          walletName: `PARTENAIRE:${partner.name}` + (walletName ? ` - ${walletName}` : ""),
+        });
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
+        notifyPartnerWithdrawal({ partnerName: partner.name, partnerId: req.session.partnerId!, amount: numericAmount.toString(), fee: fee.toString(), netAmount: netAmount.toString(), paymentMethod: selectedOperator.name, mobileNumber: cleanPhone, country });
+
+        const pdRef = `PWD-PD-${withdrawalRequest.id}-${Date.now()}`;
+        console.log(`💸 PayDunya partner payout: mode=${withdrawMode} amount=${netAmount} ${currency} phone=${cleanPhone} ref=${pdRef}`);
+
+        try {
+          const pdResult = await payDunyaDisburse({
+            accountAlias: cleanPhone,
+            amount: netAmount,
+            withdrawMode,
+            callbackUrl: "https://sendavapay.com/api/webhook/paydunya-disburse",
+            disburseId: pdRef,
+          });
+
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, { externalReference: pdRef, transactionReference: pdResult.transactionId || null });
+
+          if (pdResult.success) {
+            if (pdResult.status === "success") {
+              await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "approved", processedAt: new Date() });
+              return res.json({ message: "Retrait effectué avec succès!", request: { ...withdrawalRequest, status: "approved" }, autoProcessed: true });
+            }
+            console.log(`✅ PayDunya partner payout accepted: ref=${pdRef} — statut=${pdResult.status}, en attente webhook`);
+            return res.json({ message: "Retrait en cours de traitement. Vous recevrez l'argent dans quelques instants.", request: { ...withdrawalRequest, status: "processing" }, autoProcessed: true });
+          }
+
+          const pdError = pdResult.error || "Erreur PayDunya inconnue";
+          console.error("❌ PayDunya partner payout failed:", pdError);
+          await restore();
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "failed", rejectionReason: pdError });
+          return res.status(500).json({ message: `Le retrait automatique a échoué (${pdError}). Votre solde a été restauré.` });
+        } catch (pdErr) {
+          console.error("Partner PayDunya payout error:", pdErr);
+          await restore();
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "failed", rejectionReason: "Erreur technique PayDunya" });
           return res.status(500).json({ message: "Erreur technique lors du retrait. Votre solde a été restauré." });
         }
       }

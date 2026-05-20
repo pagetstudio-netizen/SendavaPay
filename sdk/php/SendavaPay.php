@@ -92,7 +92,8 @@ class SendavaPay {
      *   - callbackUrl: string (optionnel) - Webhook de notification de statut
      *   - redirectUrl: string (optionnel) - Redirection après paiement
      *   - metadata: array (optionnel)
-     *   - provider: string (optionnel) - "soleaspay" (défaut, USSD) ou "winipayer" (checkout)
+     *   - otp: string (optionnel) - Code OTP pour Orange CI / Orange BF avec PayDunya
+     *   - provider: string (optionnel) - "soleaspay" (défaut, USSD) | "winipayer" (checkout) | "paydunya" (SoftPay direct USSD/redirect)
      * @return array Résultat du paiement — inclut otpRequired:true pour les opérateurs Orange Money
      */
     public function createPayment($data) {
