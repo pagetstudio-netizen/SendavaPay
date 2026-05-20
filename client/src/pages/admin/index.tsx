@@ -3759,6 +3759,12 @@ function CredentialsCard() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
+  // OTP verification dialog state
+  const [otpDialogOpen, setOtpDialogOpen] = useState(false);
+  const [otpToken, setOtpToken] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [pendingKey, setPendingKey] = useState("");
+
   const toggleReveal = (key: string) =>
     setRevealed((prev) => ({ ...prev, [key]: !prev[key] }));
 
@@ -3766,19 +3772,56 @@ function CredentialsCard() {
     queryKey: ["/api/admin/credentials"],
   });
 
-  const saveMutation = useMutation({
-    mutationFn: async (updates: Record<string, string>) => {
-      const res = await apiRequest("POST", "/api/admin/credentials", updates);
+  // Step 1 — request OTP, opens verification dialog
+  const requestMutation = useMutation({
+    mutationFn: async ({ key, value }: { key: string; value: string }) => {
+      const res = await apiRequest("POST", "/api/admin/credentials/request", {
+        updates: { [key]: value },
+        keyName: key,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Erreur");
+      }
+      return res.json() as Promise<{ token: string; message: string }>;
+    },
+    onSuccess: (data, variables) => {
+      setOtpToken(data.token);
+      setPendingKey(variables.key);
+      setOtpCode("");
+      setOtpDialogOpen(true);
+      toast({ title: "Code envoyé", description: "Vérifiez votre email administrateur pour le code." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Erreur", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Step 2 — confirm with OTP code, applies the change
+  const confirmMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/credentials/confirm", {
+        token: otpToken,
+        code: otpCode.trim(),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Code invalide");
+      }
       return res.json();
     },
     onSuccess: () => {
       refetch();
       setEditing({});
       setValues({});
-      toast({ title: "Clés enregistrées", description: "Les clés API ont été mises à jour avec succès" });
+      setOtpDialogOpen(false);
+      setOtpToken("");
+      setOtpCode("");
+      setPendingKey("");
+      toast({ title: "Clé enregistrée", description: "La clé API a été modifiée avec succès." });
     },
-    onError: () => {
-      toast({ title: "Erreur", description: "Impossible de sauvegarder les clés", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({ title: "Code incorrect", description: err.message, variant: "destructive" });
     },
   });
 
@@ -3794,116 +3837,168 @@ function CredentialsCard() {
 
   const handleSave = (key: string) => {
     const val = values[key] ?? "";
-    saveMutation.mutate({ [key]: val });
+    requestMutation.mutate({ key, value: val });
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Clés API des passerelles</CardTitle>
-        <CardDescription>
-          Ces clés sont stockées en base de données et survivent aux déplacements de projet. Seul <code>SUPABASE_DATABASE_URL</code> doit rester dans les secrets Replit.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {isLoading ? (
-          <p className="text-muted-foreground text-sm">Chargement...</p>
-        ) : (
-          CREDENTIAL_GROUPS.map((group) => (
-            <div key={group.label}>
-              <p className="text-sm font-semibold text-muted-foreground mb-2 uppercase tracking-wide">{group.label}</p>
-              <div className="space-y-3">
-                {group.keys.map(({ key, label }) => {
-                  const info = creds?.[key];
-                  const isEdit = !!editing[key];
-                  return (
-                    <div key={key} className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 bg-muted/30 rounded-lg">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{label}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{key}</p>
-                      </div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {!isEdit ? (
-                          <>
-                            <Badge
-                              variant={info?.hasValue ? "secondary" : "outline"}
-                              className={info?.hasValue ? "text-green-600" : "text-muted-foreground"}
-                              data-testid={`badge-cred-status-${key}`}
-                            >
-                              {info?.hasValue
-                                ? info.source === "db"
-                                  ? "✓ DB"
-                                  : "✓ Env"
-                                : "Non configuré"}
-                            </Badge>
-                            {info?.hasValue && (
-                              <span
-                                className="text-xs font-mono text-muted-foreground"
-                                data-testid={`text-cred-masked-${key}`}
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Clés API des passerelles</CardTitle>
+          <CardDescription>
+            Ces clés sont stockées en base de données. Toute modification nécessite une vérification par email.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {isLoading ? (
+            <p className="text-muted-foreground text-sm">Chargement...</p>
+          ) : (
+            CREDENTIAL_GROUPS.map((group) => (
+              <div key={group.label}>
+                <p className="text-sm font-semibold text-muted-foreground mb-2 uppercase tracking-wide">{group.label}</p>
+                <div className="space-y-3">
+                  {group.keys.map(({ key, label }) => {
+                    const info = creds?.[key];
+                    const isEdit = !!editing[key];
+                    return (
+                      <div key={key} className="flex flex-col sm:flex-row sm:items-center gap-2 p-3 bg-muted/30 rounded-lg">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{label}</p>
+                          <p className="text-xs text-muted-foreground font-mono">{key}</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {!isEdit ? (
+                            <>
+                              <Badge
+                                variant={info?.hasValue ? "secondary" : "outline"}
+                                className={info?.hasValue ? "text-green-600" : "text-muted-foreground"}
+                                data-testid={`badge-cred-status-${key}`}
                               >
-                                {revealed[key] ? info.masked : "••••••••••••"}
-                              </span>
-                            )}
-                            {info?.hasValue && (
+                                {info?.hasValue
+                                  ? info.source === "db"
+                                    ? "✓ DB"
+                                    : "✓ Env"
+                                  : "Non configuré"}
+                              </Badge>
+                              {info?.hasValue && (
+                                <span
+                                  className="text-xs font-mono text-muted-foreground"
+                                  data-testid={`text-cred-masked-${key}`}
+                                >
+                                  {revealed[key] ? info.masked : "••••••••••••"}
+                                </span>
+                              )}
+                              {info?.hasValue && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7"
+                                  onClick={() => toggleReveal(key)}
+                                  title={revealed[key] ? "Masquer" : "Afficher"}
+                                  data-testid={`button-reveal-cred-${key}`}
+                                >
+                                  {revealed[key] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                </Button>
+                              )}
                               <Button
-                                size="icon"
-                                variant="ghost"
-                                className="h-7 w-7"
-                                onClick={() => toggleReveal(key)}
-                                title={revealed[key] ? "Masquer" : "Afficher"}
-                                data-testid={`button-reveal-cred-${key}`}
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleEdit(key)}
+                                data-testid={`button-edit-cred-${key}`}
                               >
-                                {revealed[key] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                {info?.hasValue ? "Modifier" : "Configurer"}
                               </Button>
-                            )}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleEdit(key)}
-                              data-testid={`button-edit-cred-${key}`}
-                            >
-                              {info?.hasValue ? "Modifier" : "Configurer"}
-                            </Button>
-                          </>
-                        ) : (
-                          <>
-                            <Input
-                              type="password"
-                              placeholder="Nouvelle valeur..."
-                              value={values[key] ?? ""}
-                              onChange={(e) => setValues((p) => ({ ...p, [key]: e.target.value }))}
-                              className="w-64 text-sm font-mono"
-                              data-testid={`input-cred-${key}`}
-                              autoFocus
-                            />
-                            <Button
-                              size="sm"
-                              onClick={() => handleSave(key)}
-                              disabled={saveMutation.isPending}
-                              data-testid={`button-save-cred-${key}`}
-                            >
-                              {saveMutation.isPending ? "..." : "Enregistrer"}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleCancel(key)}
-                              data-testid={`button-cancel-cred-${key}`}
-                            >
-                              Annuler
-                            </Button>
-                          </>
-                        )}
+                            </>
+                          ) : (
+                            <>
+                              <Input
+                                type="password"
+                                placeholder="Nouvelle valeur..."
+                                value={values[key] ?? ""}
+                                onChange={(e) => setValues((p) => ({ ...p, [key]: e.target.value }))}
+                                className="w-64 text-sm font-mono"
+                                data-testid={`input-cred-${key}`}
+                                autoFocus
+                              />
+                              <Button
+                                size="sm"
+                                onClick={() => handleSave(key)}
+                                disabled={requestMutation.isPending}
+                                data-testid={`button-save-cred-${key}`}
+                              >
+                                {requestMutation.isPending ? "Envoi..." : "Enregistrer"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleCancel(key)}
+                                data-testid={`button-cancel-cred-${key}`}
+                              >
+                                Annuler
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      {/* OTP Verification Dialog */}
+      <Dialog open={otpDialogOpen} onOpenChange={(open) => { if (!open) { setOtpDialogOpen(false); setOtpCode(""); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Vérification requise</DialogTitle>
+            <DialogDescription>
+              Un code de vérification à 6 chiffres a été envoyé à votre adresse email administrateur.
+              {pendingKey && (
+                <span className="block mt-2 font-mono text-xs bg-muted px-2 py-1 rounded">
+                  Clé : {pendingKey}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="otp-code-cred">Code de vérification</Label>
+              <Input
+                id="otp-code-cred"
+                placeholder="123456"
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                className="text-center text-2xl font-mono tracking-widest"
+                maxLength={6}
+                autoFocus
+                data-testid="input-otp-credential"
+                onKeyDown={(e) => { if (e.key === "Enter" && otpCode.length === 6) confirmMutation.mutate(); }}
+              />
+              <p className="text-xs text-muted-foreground">Vérifiez vos spams si vous ne voyez pas l'email. Ce code expire dans 10 minutes.</p>
             </div>
-          ))
-        )}
-      </CardContent>
-    </Card>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => { setOtpDialogOpen(false); setOtpCode(""); }}
+              data-testid="button-cancel-otp-credential"
+            >
+              Annuler
+            </Button>
+            <Button
+              onClick={() => confirmMutation.mutate()}
+              disabled={otpCode.length !== 6 || confirmMutation.isPending}
+              data-testid="button-confirm-otp-credential"
+            >
+              {confirmMutation.isPending ? "Vérification..." : "Confirmer"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
