@@ -17,6 +17,8 @@ export const CREDENTIAL_KEYS = [
   "TELEGRAM_CHAT_ID",
   "SUPABASE_URL",
   "SUPABASE_SERVICE_ROLE_KEY",
+  "RESEND_API_KEY",
+  "RESEND_FROM_EMAIL",
 ] as const;
 
 export type CredentialKey = (typeof CREDENTIAL_KEYS)[number];

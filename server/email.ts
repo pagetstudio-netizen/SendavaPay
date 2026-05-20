@@ -11,7 +11,17 @@ async function getCredentials() {
     };
   }
 
-  // Priorité 2 : connecteur Replit (environnement Replit uniquement)
+  // Priorité 2 : clé stockée en base de données via le panneau admin
+  const { getCredential } = await import('./credentials');
+  const dbApiKey = getCredential('RESEND_API_KEY');
+  if (dbApiKey) {
+    return {
+      apiKey: dbApiKey,
+      fromEmail: getCredential('RESEND_FROM_EMAIL') || 'noreply@sendavapay.com'
+    };
+  }
+
+  // Priorité 3 : connecteur Replit (environnement Replit uniquement)
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY 
     ? 'repl ' + process.env.REPL_IDENTITY 
