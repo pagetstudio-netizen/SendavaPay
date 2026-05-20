@@ -8,6 +8,7 @@ import { testDatabaseConnection, isDatabaseConnected, startBackgroundReconnectio
 import { notifySystemError, notifyDailyReport } from "./telegram";
 import { storage } from "./storage";
 import { loadCredentialsFromDb, getCredential } from "./credentials";
+import { invalidateAllSessionsOnStartup } from "./security";
 
 const app = express();
 const httpServer = createServer(app);
@@ -201,6 +202,13 @@ async function initializeWithTimeout<T>(
     
     if (dbConnected) {
       log("Database connection successful", "init");
+
+      // Déconnecte tous les utilisateurs connectés à chaque redémarrage/déploiement
+      await initializeWithTimeout(
+        invalidateAllSessionsOnStartup(),
+        10000,
+        "Session invalidation"
+      );
 
       await initializeWithTimeout(
         loadCredentialsFromDb((key) => storage.getSetting(key)),

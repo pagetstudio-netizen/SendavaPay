@@ -333,6 +333,50 @@ export async function invalidateAllOtherAdminSessions(userId: number, currentSid
   }
 }
 
+// ─── INVALIDATE ALL SESSIONS ON STARTUP ───────────────────────────────────────
+// Called on server startup so every deploy forces all users to reconnect.
+// Uses a short retry loop because the session table may not exist yet
+// (connect-pg-simple creates it lazily on first request).
+export async function invalidateAllSessionsOnStartup(): Promise<void> {
+  if (!pool) return;
+
+  const attemptDelete = async (): Promise<boolean> => {
+    try {
+      const client = await pool!.connect();
+      // Check if the table exists first
+      const check = await client.query(
+        `SELECT to_regclass('public.session') AS tbl`
+      );
+      const exists = check.rows[0]?.tbl !== null;
+      if (!exists) {
+        client.release();
+        return false; // table not ready yet
+      }
+      const result = await client.query(`DELETE FROM session`);
+      client.release();
+      const count = result.rowCount ?? 0;
+      console.log(
+        `[security] ${count} session(s) invalidée(s) au démarrage — tous les utilisateurs doivent se reconnecter.`
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // Try immediately; if the table isn't there yet, retry a few times
+  if (await attemptDelete()) return;
+
+  let attempts = 0;
+  const maxAttempts = 10;
+  const interval = setInterval(async () => {
+    attempts++;
+    if (await attemptDelete() || attempts >= maxAttempts) {
+      clearInterval(interval);
+    }
+  }, 2000);
+}
+
 // Initialize cache on startup
 loadBlockedIps().catch(() => {});
 setInterval(() => loadBlockedIps().catch(() => {}), CACHE_TTL);
