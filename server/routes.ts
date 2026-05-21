@@ -2344,6 +2344,41 @@ export async function registerRoutes(
       const payment = await storage.getLeekpayPaymentById(reference);
       
       if (!payment) {
+        // Vérifier si c'est une transaction partenaire API
+        if (success && status === "SUCCESS") {
+          const partnerTx = await storage.getPartnerTransactionByReference(reference);
+          if (partnerTx && partnerTx.status !== "completed") {
+            const { db: _spDb } = await import("./db");
+            const { sql: _spSql } = await import("drizzle-orm");
+            const updateResult = await _spDb.execute(_spSql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${reference} AND status IN ('processing', 'pending')`);
+            const rowsAffected = (updateResult as any)?.rowCount || 0;
+            if (rowsAffected > 0) {
+              const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
+              await _spDb.execute(_spSql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partnerTx.partnerId}`);
+              try {
+                let metadata: any = {};
+                try { metadata = JSON.parse(partnerTx.metadata as string || "{}"); } catch {}
+                const countryCode = metadata.country;
+                if (countryCode) {
+                  const allCountries = await storage.getCountries();
+                  const countryRec = allCountries.find((c: any) => c.code.toUpperCase() === countryCode.toUpperCase());
+                  if (countryRec) {
+                    await storage.creditPartnerWallet(partnerTx.partnerId as number, countryRec.code, countryRec.name, partnerTx.currency || countryRec.currency, netAmount.toString());
+                  }
+                }
+              } catch (wErr) { console.error("SoleasPay webhook: partner wallet credit error:", wErr); }
+              console.log(`✅ SoleasPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${reference} net=${netAmount}`);
+              if (partnerTx.callbackUrl) {
+                fetch(partnerTx.callbackUrl, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ reference, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: netAmount.toString(), currency: partnerTx.currency, provider: "soleaspay" }),
+                }).catch(() => {});
+              }
+            }
+            return res.json({ received: true });
+          }
+        }
         console.log("⚠️ SoleasPay webhook: Paiement non trouvé");
         return res.json({ received: true });
       }
@@ -3167,7 +3202,83 @@ export async function registerRoutes(
         }
       } else if (txStatus === "failed" || txStatus === "cancelled") {
         await storage.updateLeekpayPayment(payment.leekpayPaymentId, { status: "failed" });
+        // Si c'est un retrait qui a échoué, remettre en pending pour validation admin
+        const withdrawalReq = await storage.getWithdrawalRequestByExternalRef(payment.leekpayPaymentId);
+        if (withdrawalReq && withdrawalReq.status === "processing") {
+          await storage.updateWithdrawalRequest(withdrawalReq.id, {
+            status: "pending",
+            rejectionReason: `Échec MbiyoPay (${txStatus}) — en attente validation admin`,
+          });
+          console.log(`⏳ MbiyoPay webhook: Retrait #${withdrawalReq.id} remis en pending`);
+        }
         console.log(`❌ MbiyoPay webhook: Paiement échoué/annulé ref=${lookupId} status=${txStatus}`);
+      }
+
+      // Gestion callback retrait MbiyoPay (type payout)
+      const mbWdRef = data?.order_id || data?.transaction_id || lookupId;
+      if (mbWdRef) {
+        const withdrawalReq = await storage.getWithdrawalRequestByExternalRef(mbWdRef);
+        if (withdrawalReq && withdrawalReq.status === "processing") {
+          const wAmount = parseFloat(withdrawalReq.amount as string);
+          const wFee = parseFloat(withdrawalReq.fee as string || "0");
+          const wNet = parseFloat(withdrawalReq.netAmount as string || (wAmount - wFee).toString());
+          const wUser = await storage.getUser(withdrawalReq.userId);
+
+          if (txStatus === "successful" || txStatus === "success") {
+            await storage.updateWithdrawalRequest(withdrawalReq.id, { status: "approved", processedAt: new Date() });
+            await storage.createTransaction({
+              userId: withdrawalReq.userId,
+              type: "withdrawal",
+              amount: wAmount.toString(),
+              fee: wFee.toString(),
+              netAmount: wNet.toString(),
+              status: "completed",
+              description: `Retrait automatique ${withdrawalReq.paymentMethod} - ${withdrawalReq.mobileNumber}`,
+              mobileNumber: withdrawalReq.mobileNumber,
+              paymentMethod: withdrawalReq.paymentMethod,
+            });
+            if (wUser?.email) {
+              sendWithdrawalEmail(wUser.email, {
+                userName: wUser.fullName,
+                amount: wNet,
+                currency: withdrawalReq.currency || "XOF",
+                transactionId: withdrawalReq.id.toString(),
+                phone: withdrawalReq.mobileNumber || "",
+                operator: withdrawalReq.paymentMethod || "MbiyoPay",
+              }).catch(() => {});
+            }
+            notifyWithdrawalAutoProcessed({
+              userName: wUser?.fullName || "Client",
+              userId: withdrawalReq.userId,
+              amount: wAmount.toString(),
+              netAmount: wNet.toString(),
+              paymentMethod: withdrawalReq.paymentMethod || "MbiyoPay",
+              mobileNumber: withdrawalReq.mobileNumber || "",
+              payoutUuid: mbWdRef,
+              status: "success",
+              gateway: "MbiyoPay",
+            });
+            console.log(`✅ MbiyoPay webhook: Retrait #${withdrawalReq.id} confirmé ref=${mbWdRef}`);
+          } else if (txStatus === "failed" || txStatus === "cancelled") {
+            await storage.updateWithdrawalRequest(withdrawalReq.id, {
+              status: "pending",
+              rejectionReason: `Échec MbiyoPay (${txStatus}) — en attente validation admin`,
+            });
+            notifyWithdrawalAutoProcessed({
+              userName: wUser?.fullName || "Client",
+              userId: withdrawalReq.userId,
+              amount: wAmount.toString(),
+              netAmount: wNet.toString(),
+              paymentMethod: withdrawalReq.paymentMethod || "MbiyoPay",
+              mobileNumber: withdrawalReq.mobileNumber || "",
+              payoutUuid: mbWdRef,
+              status: "failed",
+              errorDetail: `Transaction MbiyoPay échouée (${txStatus})`,
+              gateway: "MbiyoPay",
+            });
+            console.log(`❌ MbiyoPay webhook: Retrait #${withdrawalReq.id} ÉCHOUÉ ref=${mbWdRef}`);
+          }
+        }
       }
     } catch (error) {
       console.error("❌ MbiyoPay webhook error:", error);
@@ -7933,15 +8044,141 @@ export async function registerRoutes(
   // PAYDUNYA WEBHOOKS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  // Webhook PayDunya — Dépôts (SoftPay checkout)
+  // Webhook PayDunya — Dépôts, Liens de paiement, Partenaires ET Retraits (URL unique)
   app.post("/api/webhook/paydunya", async (req, res) => {
     try {
       const data = req.body;
-      console.log("📥 === PayDunya Webhook dépôt reçu ===");
+      console.log("📥 === PayDunya Webhook reçu ===");
       console.log("📥 Data:", JSON.stringify(data));
 
       res.status(200).json({ received: true });
 
+      // ─── Cas 1 : Retrait (disbursement) — PayDunya envoie disburse_id ───
+      const disburseId = data?.disburse_id;
+      if (disburseId) {
+        console.log(`📥 PayDunya webhook: type=RETRAIT disburse_id=${disburseId}`);
+        const disburseStatus = (data?.status || "").toLowerCase();
+        const transactionId = data?.transaction_id;
+
+        const allRequests = await storage.getAllWithdrawalRequests();
+        const withdrawalReq = allRequests.find((r: any) =>
+          r.externalReference === disburseId || r.transactionReference === transactionId
+        );
+
+        if (!withdrawalReq) {
+          // Vérifier les retraits partenaires
+          const { db: _pdDb } = await import("./db");
+          const { sql: _pdSql } = await import("drizzle-orm");
+          const partnerWdRows = await _pdDb.execute(_pdSql`
+            SELECT pw.*, p.id as partner_id FROM partner_withdrawal_requests pw
+            JOIN partners p ON pw.partner_id = p.id
+            WHERE pw.external_reference = ${disburseId}
+            LIMIT 1
+          `).catch(() => ({ rows: [] }));
+          const partnerWd = (partnerWdRows as any)?.rows?.[0];
+          if (partnerWd) {
+            if (disburseStatus === "success") {
+              await _pdDb.execute(_pdSql`UPDATE partner_withdrawal_requests SET status = 'approved', processed_at = NOW() WHERE external_reference = ${disburseId}`);
+              console.log(`✅ PayDunya webhook: retrait partenaire ${disburseId} approuvé`);
+            } else if (disburseStatus === "failed") {
+              await _pdDb.execute(_pdSql`UPDATE partner_withdrawal_requests SET status = 'rejected', rejection_reason = ${"PayDunya: échec disbursement"} WHERE external_reference = ${disburseId}`);
+              const wdAmount = parseFloat(partnerWd.amount || "0") + parseFloat(partnerWd.fee || "0");
+              await _pdDb.execute(_pdSql`UPDATE partners SET balance = balance + ${wdAmount.toString()} WHERE id = ${partnerWd.partner_id}`);
+              console.log(`❌ PayDunya webhook: retrait partenaire ${disburseId} échoué — solde restauré`);
+            }
+          } else {
+            console.log(`⚠️ PayDunya disburse webhook: demande non trouvée pour disburse_id=${disburseId}`);
+          }
+          return;
+        }
+
+        if (withdrawalReq.status === "approved" || withdrawalReq.status === "rejected") {
+          console.log(`⚠️ PayDunya disburse webhook: demande déjà traitée id=${withdrawalReq.id}`);
+          return;
+        }
+
+        if (disburseStatus === "success") {
+          await storage.updateWithdrawalRequest(withdrawalReq.id, {
+            status: "approved",
+            processedAt: new Date(),
+            transactionReference: transactionId || withdrawalReq.transactionReference,
+          });
+
+          const txAmount = parseFloat(withdrawalReq.amount);
+          const txFee = parseFloat(withdrawalReq.fee || "0");
+          const txNet = parseFloat(withdrawalReq.netAmount || withdrawalReq.amount);
+
+          await storage.createTransaction({
+            userId: withdrawalReq.userId,
+            type: "withdrawal",
+            amount: txAmount.toString(),
+            fee: txFee.toString(),
+            netAmount: txNet.toString(),
+            status: "completed",
+            description: `Retrait automatique PayDunya - ${withdrawalReq.mobileNumber}`,
+            mobileNumber: withdrawalReq.mobileNumber,
+            paymentMethod: withdrawalReq.paymentMethod,
+          });
+
+          const withdrawUser = await storage.getUser(withdrawalReq.userId);
+          if (withdrawUser?.email) {
+            sendWithdrawalEmail(withdrawUser.email, {
+              userName: withdrawUser.fullName,
+              amount: txNet,
+              currency: withdrawalReq.currency || "XOF",
+              transactionId: withdrawalReq.id.toString(),
+              phone: withdrawalReq.mobileNumber,
+              operator: withdrawalReq.paymentMethod || "PayDunya",
+            }).catch(e => console.error("PayDunya disburse email error:", e));
+          }
+
+          notifyWithdrawalAutoProcessed({
+            userName: withdrawUser?.fullName || "Client",
+            userId: withdrawalReq.userId,
+            amount: txAmount.toString(),
+            netAmount: txNet.toString(),
+            paymentMethod: withdrawalReq.paymentMethod || "PayDunya",
+            mobileNumber: withdrawalReq.mobileNumber || "",
+            payoutUuid: disburseId,
+            status: "success",
+            gateway: "PayDunya",
+          });
+
+          console.log(`✅ PayDunya webhook: retrait #${withdrawalReq.id} approuvé`);
+
+        } else if (disburseStatus === "failed") {
+          const txAmount = parseFloat(withdrawalReq.amount);
+          const txFee = parseFloat(withdrawalReq.fee || "0");
+          const totalDeducted = txAmount + txFee;
+          const failedUser = await storage.getUser(withdrawalReq.userId);
+          if (failedUser) {
+            const restored = parseFloat(failedUser.balance) + totalDeducted;
+            await storage.setUserBalance(withdrawalReq.userId, restored.toString());
+          }
+          await storage.updateWithdrawalRequest(withdrawalReq.id, {
+            status: "rejected",
+            rejectionReason: `PayDunya: transaction échouée (${transactionId || "N/A"})`,
+          });
+
+          notifyWithdrawalAutoProcessed({
+            userName: failedUser?.fullName || "Client",
+            userId: withdrawalReq.userId,
+            amount: txAmount.toString(),
+            netAmount: (txAmount - txFee).toString(),
+            paymentMethod: withdrawalReq.paymentMethod || "PayDunya",
+            mobileNumber: withdrawalReq.mobileNumber || "",
+            payoutUuid: disburseId,
+            status: "failed",
+            errorDetail: `Disbursement PayDunya échoué (${transactionId || "N/A"})`,
+            gateway: "PayDunya",
+          });
+
+          console.log(`❌ PayDunya webhook: retrait #${withdrawalReq.id} échoué — solde restauré`);
+        }
+        return;
+      }
+
+      // ─── Cas 2 : Dépôt / Lien de paiement / Partenaire ───
       const invoiceData = data?.data || data;
       const hash = invoiceData?.hash;
       const status = (invoiceData?.status || "").toLowerCase();
