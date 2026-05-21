@@ -8,6 +8,7 @@ import {
   invalidateAllOtherAdminSessions, africaOnlyAdmin,
   blockIp, unblockIp, loginRateLimit, withdrawRateLimit,
   registerRateLimit, otpRateLimit, apiRateLimit,
+  geoAndVpnBlockMiddleware,
 } from "./security";
 import { createOtp, verifyOtp } from "./otp";
 import { isAdminWhitelisted } from "./init-admin";
@@ -63,6 +64,8 @@ import {
   notifyWalletExchangeRequest,
   notifyWalletExchangeApproved,
   notifyWalletExchangeRejected,
+  answerCallbackQuery,
+  editMessageRemoveButton,
 } from "./telegram";
 
 function getCommissionRate(settings: any, transactionType: string, countryOverride?: string | number | null): number {
@@ -222,6 +225,7 @@ export async function registerRoutes(
   // ── Security middleware ──────────────────────────────────────────────────────
   app.use(securityHeaders);
   app.use(ipBlockMiddleware);
+  app.use(geoAndVpnBlockMiddleware);
 
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567";
   app.use(`/object-storage/${bucketId}`, express.static(`/${bucketId}`));
@@ -8832,6 +8836,33 @@ export async function registerRoutes(
   app.post("/api/webhook/telegram", async (req, res) => {
     try {
       const update = req.body;
+
+      // ── Handle inline button clicks (callback_query) ──────────────────────
+      if (update?.callback_query) {
+        const cbq = update.callback_query;
+        const callbackData: string = cbq.data || "";
+        const chatId = cbq.message?.chat?.id;
+        const messageId = cbq.message?.message_id;
+        const originalText: string = cbq.message?.text || "";
+
+        if (callbackData.startsWith("block_ip:")) {
+          const ip = callbackData.slice("block_ip:".length).trim();
+          if (ip) {
+            try {
+              await blockIp(ip, "Bloqué via bouton Telegram", undefined);
+              await logSecurityEvent({ type: "ip_blocked_button", details: `IP ${ip} bloquée via bouton Telegram`, ipAddress: ip });
+              await answerCallbackQuery(cbq.id, `✅ IP ${ip} bloquée définitivement.`, true);
+              if (chatId && messageId) {
+                await editMessageRemoveButton(chatId, messageId, originalText + `\n\n<b>🚫 IP <code>${ip}</code> BLOQUÉE par admin Telegram</b>`);
+              }
+            } catch {
+              await answerCallbackQuery(cbq.id, "❌ Erreur lors du blocage.", true);
+            }
+          }
+        }
+        return res.json({ ok: true });
+      }
+
       const message = update?.message || update?.edited_message;
       if (!message || !message.text) return res.json({ ok: true });
 

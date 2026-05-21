@@ -425,7 +425,7 @@ async function initializeWithTimeout<T>(
       const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: webhookUrl, allowed_updates: ["message"] }),
+        body: JSON.stringify({ url: webhookUrl, allowed_updates: ["message", "callback_query"] }),
       });
       const data = await res.json() as { ok: boolean; description?: string };
       if (data.ok) {

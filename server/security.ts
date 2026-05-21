@@ -10,6 +10,58 @@ const AFRICAN_COUNTRY_CODES = new Set([
   "ZM","ZW"
 ]);
 
+// Paths that bypass geo/VPN check (Telegram servers, health check)
+const GEO_BYPASS_PATHS = new Set([
+  "/api/webhook/telegram",
+  "/api/health",
+]);
+
+// ─── IP INFO CACHE ────────────────────────────────────────────────────────────
+interface IpInfo {
+  countryCode: string | null;
+  isProxy: boolean;
+  isHosting: boolean;
+  isAfrica: boolean;
+  checkedAt: number;
+}
+
+const ipInfoCache = new Map<string, IpInfo>();
+const IP_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+async function getIpInfo(ip: string): Promise<IpInfo | null> {
+  const cached = ipInfoCache.get(ip);
+  if (cached && Date.now() - cached.checkedAt < IP_CACHE_TTL) return cached;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(
+      `http://ip-api.com/json/${ip}?fields=status,countryCode,proxy,hosting`,
+      { signal: controller.signal }
+    );
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+    const data = await res.json() as {
+      status: string;
+      countryCode?: string;
+      proxy?: boolean;
+      hosting?: boolean;
+    };
+    if (data.status !== "success") return null;
+    const info: IpInfo = {
+      countryCode: data.countryCode || null,
+      isProxy: !!data.proxy,
+      isHosting: !!data.hosting,
+      isAfrica: data.countryCode ? AFRICAN_COUNTRY_CODES.has(data.countryCode) : false,
+      checkedAt: Date.now(),
+    };
+    ipInfoCache.set(ip, info);
+    return info;
+  } catch {
+    return null;
+  }
+}
+
 // ─── IN-MEMORY RATE LIMITER ───────────────────────────────────────────────────
 interface RateLimitEntry { count: number; windowStart: number; blocked: boolean; blockedUntil: number }
 const rateLimitStore = new Map<string, RateLimitEntry>();
@@ -134,7 +186,7 @@ export function getClientIp(req: Request): string {
   return req.ip || req.socket?.remoteAddress || "0.0.0.0";
 }
 
-function isPrivateIp(ip: string): boolean {
+export function isPrivateIp(ip: string): boolean {
   return (
     ip === "127.0.0.1" ||
     ip === "::1" ||
@@ -146,24 +198,6 @@ function isPrivateIp(ip: string): boolean {
     ip.startsWith("::ffff:10.") ||
     ip.startsWith("::ffff:192.168.")
   );
-}
-
-// ─── IP GEO CHECK (Africa-only for admin) ────────────────────────────────────
-async function getIpCountry(ip: string): Promise<string | null> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch(`http://ip-api.com/json/${ip}?fields=countryCode,status`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    if (!res.ok) return null;
-    const data = await res.json() as { status: string; countryCode?: string };
-    if (data.status === "success" && data.countryCode) return data.countryCode;
-    return null;
-  } catch {
-    return null;
-  }
 }
 
 // ─── BLOCKED IPs CACHE ────────────────────────────────────────────────────────
@@ -209,6 +243,8 @@ export async function blockIp(ip: string, reason: string, blockedBy?: number, ex
     );
     client.release();
     blockedIpCache.add(ip);
+    // Remove from geo cache so it doesn't bypass block check
+    ipInfoCache.delete(ip);
   } catch (err) {
     console.error("[security] blockIp error:", err);
   }
@@ -221,6 +257,7 @@ export async function unblockIp(ip: string): Promise<void> {
     await client.query(`DELETE FROM blocked_ips WHERE ip_address = $1`, [ip]);
     client.release();
     blockedIpCache.delete(ip);
+    ipInfoCache.delete(ip);
   } catch (err) {
     console.error("[security] unblockIp error:", err);
   }
@@ -230,32 +267,73 @@ export async function unblockIp(ip: string): Promise<void> {
 export function ipBlockMiddleware(req: Request, res: Response, next: NextFunction) {
   const ip = getClientIp(req);
   if (isIpBlocked(ip)) {
-    return res.status(403).json({ message: "Accès refusé. Votre adresse IP est bloquée." });
+    return res.status(403).json({ message: "Accès refusé." });
   }
   next();
 }
 
-// ─── AFRICA-ONLY MIDDLEWARE (pour routes admin) ───────────────────────────────
-export function africaOnlyAdmin(req: Request, res: Response, next: NextFunction) {
+// ─── GLOBAL GEO + VPN BLOCK MIDDLEWARE ───────────────────────────────────────
+// Blocks all IPs from outside Africa AND all VPN/proxy/hosting IPs.
+// Auto-blocks them permanently in the DB and sends a Telegram alert.
+export function geoAndVpnBlockMiddleware(req: Request, res: Response, next: NextFunction) {
+  // Skip bypass paths (Telegram webhook, health check)
+  if (GEO_BYPASS_PATHS.has(req.path)) return next();
+
   const ip = getClientIp(req);
+
+  // Always allow private/local IPs
   if (isPrivateIp(ip)) return next();
 
-  getIpCountry(ip).then((countryCode) => {
-    if (!countryCode) return next();
-    if (!AFRICAN_COUNTRY_CODES.has(countryCode)) {
-      logSecurityEvent({
-        type: "non_africa_admin_access",
-        details: `IP ${ip} (${countryCode}) a tenté d'accéder à la route admin`,
-        ipAddress: ip,
-        userAgent: req.headers["user-agent"],
-      }).catch(() => {});
-      return res.status(403).json({
-        message: "Accès refusé. Accès admin limité à l'Afrique.",
-        code: "GEO_BLOCKED",
-      });
-    }
-    next();
-  }).catch(() => next());
+  // Already blocked — let the ipBlockMiddleware handle it
+  if (isIpBlocked(ip)) return next();
+
+  getIpInfo(ip)
+    .then(async (info) => {
+      if (!info) {
+        // Cannot determine — allow to avoid false positives
+        return next();
+      }
+
+      const isVpn = info.isProxy || info.isHosting;
+
+      if (!info.isAfrica || isVpn) {
+        const reason = isVpn
+          ? `VPN/Proxy détecté automatiquement (${info.countryCode || "inconnu"})`
+          : `Pays non-africain: ${info.countryCode || "inconnu"}`;
+
+        // Auto-block permanently in DB
+        await blockIp(ip, reason);
+
+        // Log security event
+        await logSecurityEvent({
+          type: isVpn ? "vpn_blocked" : "geo_blocked",
+          details: reason,
+          ipAddress: ip,
+          userAgent: req.headers["user-agent"],
+        }).catch(() => {});
+
+        // Real-time Telegram alert with block button (fire-and-forget)
+        try {
+          const { notifyGeoBlocked } = await import("./telegram");
+          notifyGeoBlocked({
+            ip,
+            countryCode: info.countryCode || "inconnu",
+            isVpn,
+            path: req.path,
+          });
+        } catch {}
+
+        return res.status(403).json({ message: "Accès refusé." });
+      }
+
+      next();
+    })
+    .catch(() => next());
+}
+
+// ─── AFRICA-ONLY MIDDLEWARE (pour routes admin — legacy, remplacé par geoAndVpnBlockMiddleware) ─
+export function africaOnlyAdmin(req: Request, res: Response, next: NextFunction) {
+  next(); // handled globally now
 }
 
 // ─── SECURITY EVENT LOGGER ────────────────────────────────────────────────────
@@ -334,23 +412,19 @@ export async function invalidateAllOtherAdminSessions(userId: number, currentSid
 }
 
 // ─── INVALIDATE ALL SESSIONS ON STARTUP ───────────────────────────────────────
-// Called on server startup so every deploy forces all users to reconnect.
-// Uses a short retry loop because the session table may not exist yet
-// (connect-pg-simple creates it lazily on first request).
 export async function invalidateAllSessionsOnStartup(): Promise<void> {
   if (!pool) return;
 
   const attemptDelete = async (): Promise<boolean> => {
     try {
       const client = await pool!.connect();
-      // Check if the table exists first
       const check = await client.query(
         `SELECT to_regclass('public.session') AS tbl`
       );
       const exists = check.rows[0]?.tbl !== null;
       if (!exists) {
         client.release();
-        return false; // table not ready yet
+        return false;
       }
       const result = await client.query(`DELETE FROM session`);
       client.release();
@@ -364,7 +438,6 @@ export async function invalidateAllSessionsOnStartup(): Promise<void> {
     }
   };
 
-  // Try immediately; if the table isn't there yet, retry a few times
   if (await attemptDelete()) return;
 
   let attempts = 0;

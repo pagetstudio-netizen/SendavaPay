@@ -7,7 +7,6 @@ async function sendTelegramMessage(text: string): Promise<boolean> {
     console.log("[Telegram] Bot token or chat ID not configured, skipping notification");
     return false;
   }
-
   try {
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
     const response = await fetch(url, {
@@ -20,18 +19,77 @@ async function sendTelegramMessage(text: string): Promise<boolean> {
         disable_web_page_preview: true,
       }),
     });
-
     if (!response.ok) {
       const errorData = await response.text();
       console.error("[Telegram] Failed to send message:", errorData);
       return false;
     }
-
     return true;
   } catch (error) {
     console.error("[Telegram] Error sending message:", error);
     return false;
   }
+}
+
+// Send a message with an inline "Bloquer IP" button
+async function sendTelegramAlert(text: string, ip?: string): Promise<boolean> {
+  const TELEGRAM_BOT_TOKEN = getCredential("TELEGRAM_BOT_TOKEN");
+  const TELEGRAM_CHAT_ID = getCredential("TELEGRAM_CHAT_ID");
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return false;
+  try {
+    const body: Record<string, any> = {
+      chat_id: TELEGRAM_CHAT_ID,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    };
+    if (ip) {
+      body.reply_markup = {
+        inline_keyboard: [[
+          { text: "🚫 Bloquer cette IP", callback_data: `block_ip:${ip}` },
+        ]],
+      };
+    }
+    const response = await fetch(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    );
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Answer a Telegram callback_query (button press acknowledgment)
+export async function answerCallbackQuery(callbackQueryId: string, text: string, showAlert = false): Promise<void> {
+  const TELEGRAM_BOT_TOKEN = getCredential("TELEGRAM_BOT_TOKEN");
+  if (!TELEGRAM_BOT_TOKEN) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callback_query_id: callbackQueryId, text, show_alert: showAlert }),
+    });
+  } catch {}
+}
+
+// Edit message to remove inline button after action is taken
+export async function editMessageRemoveButton(chatId: number | string, messageId: number, newText: string): Promise<void> {
+  const TELEGRAM_BOT_TOKEN = getCredential("TELEGRAM_BOT_TOKEN");
+  if (!TELEGRAM_BOT_TOKEN) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/editMessageText`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        text: newText,
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: [] },
+      }),
+    });
+  } catch {}
 }
 
 function formatAmount(amount: string | number): string {
@@ -287,12 +345,12 @@ export function notifyAdminLogin(data: {
   ip: string;
 }) {
   const msg =
-    `<b>🔐 CONNEXION ADMINISTRATEUR</b>\n\n` +
+    `<b>✅ CONNEXION ADMINISTRATEUR RÉUSSIE</b>\n\n` +
     `<b>Admin:</b> ${data.userName} (#${data.userId})\n` +
     `<b>IP:</b> <code>${data.ip}</code>\n` +
     `<b>Date:</b> ${formatDate()}`;
 
-  sendTelegramMessage(msg).catch(err =>
+  sendTelegramAlert(msg, data.ip).catch(err =>
     console.error("[Telegram] Admin login notification error:", err)
   );
 }
@@ -521,15 +579,36 @@ export function notifyAdminLoginAttempt(data: {
   adminId?: number;
 }) {
   const emoji = data.success ? "⚠️" : "🚨";
-  const label = data.success ? "TENTATIVE CONNEXION ADMIN (MDP OK)" : "TENTATIVE CONNEXION ADMIN ECHOUEE";
+  const label = data.success ? "TENTATIVE CONNEXION ADMIN (MDP CORRECT)" : "TENTATIVE CONNEXION ADMIN ECHOUEE";
   const msg =
     `<b>${emoji} ${label}</b>\n\n` +
     (data.adminName ? `<b>Compte:</b> ${data.adminName}\n` : `<b>Identifiant:</b> <code>${data.emailOrPhone}</code>\n`) +
     `<b>IP:</b> <code>${data.ip}</code>\n` +
     `<b>Date:</b> ${formatDate()}`;
 
-  sendTelegramMessage(msg).catch(err =>
+  sendTelegramAlert(msg, data.ip).catch(err =>
     console.error("[Telegram] Admin login attempt notification error:", err)
+  );
+}
+
+export function notifyGeoBlocked(data: {
+  ip: string;
+  countryCode: string;
+  isVpn: boolean;
+  path: string;
+}) {
+  const label = data.isVpn ? "🔍 VPN/PROXY BLOQUÉ AUTOMATIQUEMENT" : "🌍 IP HORS-AFRIQUE BLOQUÉE AUTOMATIQUEMENT";
+  const msg =
+    `<b>${label}</b>\n\n` +
+    `<b>IP:</b> <code>${data.ip}</code>\n` +
+    `<b>Pays:</b> ${data.countryCode}\n` +
+    `<b>Type:</b> ${data.isVpn ? "VPN / Proxy / Hébergeur" : "Hors Afrique"}\n` +
+    `<b>Chemin:</b> ${data.path}\n` +
+    `<b>Date:</b> ${formatDate()}\n\n` +
+    `L'IP a été bloquée définitivement en base de données.`;
+
+  sendTelegramAlert(msg, data.ip).catch(err =>
+    console.error("[Telegram] Geo blocked notification error:", err)
   );
 }
 
@@ -547,7 +626,7 @@ export function notifyAdminOtp(data: {
     `<b>Expire dans:</b> 10 minutes\n` +
     `<b>Date:</b> ${formatDate()}`;
 
-  sendTelegramMessage(msg).catch(err =>
+  sendTelegramAlert(msg, data.ip).catch(err =>
     console.error("[Telegram] Admin OTP notification error:", err)
   );
 }
@@ -568,7 +647,7 @@ export function notifyCredentialOtp(data: {
     `<b>Expire dans:</b> 10 minutes\n` +
     `<b>Date:</b> ${formatDate()}`;
 
-  sendTelegramMessage(msg).catch(err =>
+  sendTelegramAlert(msg, data.ip).catch(err =>
     console.error("[Telegram] Credential OTP notification error:", err)
   );
 }
