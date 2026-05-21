@@ -381,12 +381,11 @@ async function initializeWithTimeout<T>(
       pool.end().catch((err: Error) => log(`Erreur fermeture pool DB: ${err.message}`, "init"));
     }
 
-    // Force l'arrêt après 10 secondes si quelque chose bloque
-    const forceExit = setTimeout(() => {
-      log("Timeout arrêt gracieux — sortie forcée", "init");
+    // Force l'arrêt après 5 secondes — sans .unref() pour que ça s'exécute vraiment
+    setTimeout(() => {
+      log("Arrêt forcé après timeout", "init");
       process.exit(0);
-    }, 10000);
-    forceExit.unref();
+    }, 5000);
   }
 
   process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
@@ -447,7 +446,8 @@ async function initializeWithTimeout<T>(
     const token = getCredential("TELEGRAM_BOT_TOKEN");
     if (!token) return;
     try {
-      const webhookUrl = "https://sendavapay.com/api/webhook/telegram";
+      const siteUrl = (process.env.SITE_URL || process.env.APP_URL || "https://sendavapay.com").replace(/\/$/, "");
+      const webhookUrl = `${siteUrl}/api/webhook/telegram`;
       const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
