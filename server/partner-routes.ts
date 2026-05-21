@@ -2218,19 +2218,21 @@ export function registerPartnerRoutes(app: Express) {
         if (partner?.allowedOperators) allowedOperatorsList = JSON.parse(partner.allowedOperators);
       } catch {}
 
-      let countryOperators = countries.map((country: any) => {
-        let countryOps = operators
-          .filter((op: any) => op.countryId === country.id)
-          .map((op: any) => ({ id: op.code || op.id.toString(), name: op.name, inMaintenance: op.inMaintenance ?? false }));
+      let countryOperators = countries
+        .filter((country: any) => country.isActive !== false)
+        .map((country: any) => {
+          let countryOps = operators
+            .filter((op: any) => op.countryId === country.id && op.isActive !== false)
+            .map((op: any) => ({ id: op.code || op.id.toString(), name: op.name, inMaintenance: op.inMaintenance ?? false }));
 
-        if (allowedOperatorsList.length > 0) {
-          countryOps = countryOps.filter((op: any) =>
-            allowedOperatorsList.some(o => o.toLowerCase() === op.name.toLowerCase() || o.toLowerCase() === (op.id || "").toLowerCase())
-          );
-        }
+          if (allowedOperatorsList.length > 0) {
+            countryOps = countryOps.filter((op: any) =>
+              allowedOperatorsList.some(o => o.toLowerCase() === op.name.toLowerCase() || o.toLowerCase() === (op.id || "").toLowerCase())
+            );
+          }
 
-        return { id: country.code.toLowerCase(), name: country.name, currency: country.currency, methods: countryOps };
-      }).filter((c: any) => c.methods.length > 0);
+          return { id: country.code.toLowerCase(), name: country.name, currency: country.currency, methods: countryOps };
+        }).filter((c: any) => c.methods.length > 0);
 
       if (allowedCountries.length > 0) {
         countryOperators = countryOperators.filter((c: any) =>
