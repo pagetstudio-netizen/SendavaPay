@@ -10,11 +10,25 @@ const AFRICAN_COUNTRY_CODES = new Set([
   "ZM","ZW"
 ]);
 
-// Paths that bypass geo/VPN check (Telegram servers, health check, uptime monitors)
+// Paths that bypass geo/VPN check
+// (Telegram servers, health check, uptime monitors, payment gateway webhooks)
 const GEO_BYPASS_PATHS = new Set([
-  "/api/webhook/telegram",
+  // Health & monitoring
   "/api/health",
   "/api/health/",
+  // Telegram
+  "/api/webhook/telegram",
+  // Payment gateway webhooks — leurs serveurs sont des datacenters hors-Afrique
+  "/api/webhook/paydunya",
+  "/api/webhook/paydunya-disburse",
+  "/api/webhook/soleaspay",
+  "/api/webhook/maishapay",
+  "/api/webhook/omnipay",
+  "/api/webhook/mbiyopay",
+  "/api/webhook/paxity",
+  "/api/webhook/leekpay",
+  // Public payment pages (clients externes)
+  "/pay",
 ]);
 
 // User-agents used by uptime monitoring services
@@ -297,9 +311,15 @@ export function ipBlockMiddleware(req: Request, res: Response, next: NextFunctio
 // ─── GLOBAL GEO + VPN BLOCK MIDDLEWARE ───────────────────────────────────────
 // Blocks all IPs from outside Africa AND all VPN/proxy/hosting IPs.
 // Auto-blocks them permanently in the DB and sends a Telegram alert.
+// Prefixes that bypass geo/VPN check (e.g. /pay matches /pay/abc123)
+const GEO_BYPASS_PREFIXES = ["/pay"];
+
 export function geoAndVpnBlockMiddleware(req: Request, res: Response, next: NextFunction) {
-  // Skip bypass paths (Telegram webhook, health check)
+  // Skip exact bypass paths
   if (GEO_BYPASS_PATHS.has(req.path)) return next();
+
+  // Skip prefix-matched paths (e.g. /pay/code123)
+  if (GEO_BYPASS_PREFIXES.some(prefix => req.path.startsWith(prefix + "/") || req.path === prefix)) return next();
 
   // Skip known uptime monitoring services
   const ua = (req.headers["user-agent"] || "").toLowerCase();
