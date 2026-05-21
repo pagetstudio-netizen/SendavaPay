@@ -371,17 +371,34 @@ async function initializeWithTimeout<T>(
     await setupVite(httpServer, app);
   }
 
-  // ===== System error alerts (T007) =====
+  // ===== System error alerts — serveur ne doit JAMAIS s'arrêter (T007) =====
   process.on("uncaughtException", (err) => {
-    log(`Uncaught exception: ${err.message}`, "error");
-    notifySystemError("uncaughtException", err.message || String(err));
+    try {
+      log(`Uncaught exception: ${err.message}`, "error");
+      notifySystemError("uncaughtException", err.message || String(err));
+    } catch (_) {}
+    // Ne pas appeler process.exit() — le serveur continue de tourner
   });
 
   process.on("unhandledRejection", (reason) => {
-    const msg = reason instanceof Error ? reason.message : String(reason);
-    log(`Unhandled rejection: ${msg}`, "error");
-    notifySystemError("unhandledRejection", msg);
+    try {
+      const msg = reason instanceof Error ? reason.message : String(reason);
+      log(`Unhandled rejection: ${msg}`, "error");
+      notifySystemError("unhandledRejection", msg);
+    } catch (_) {}
+    // Ne pas appeler process.exit() — le serveur continue de tourner
   });
+
+  // Keepalive interne — ping DB toutes les 2 minutes pour éviter idle timeout
+  setInterval(async () => {
+    try {
+      if (pool) {
+        const client = await pool.connect();
+        await client.query("SELECT 1");
+        client.release();
+      }
+    } catch (_) {}
+  }, 120000);
 
   // ===== Daily report scheduler (T006) =====
   function scheduleDailyReport() {
