@@ -32,6 +32,9 @@ export function getCredential(key: string): string {
 }
 
 export function setCachedCredential(key: string, value: string): void {
+  // Si une variable d'environnement existe, elle garde toujours la priorité
+  // L'admin panel ne peut pas l'écraser
+  if (process.env[key]) return;
   if (value === "") {
     delete cache[key];
   } else {
@@ -42,16 +45,31 @@ export function setCachedCredential(key: string, value: string): void {
 export async function loadCredentialsFromDb(
   getSetting: (key: string) => Promise<string | null>
 ): Promise<void> {
+  let fromEnv = 0;
+  let fromDb = 0;
+
   for (const key of CREDENTIAL_KEYS) {
     try {
+      // Les variables d'environnement (Plesk/système) ont TOUJOURS la priorité
+      // sur les valeurs stockées en base via le panneau admin.
+      // Cela évite qu'une modification accidentelle dans l'admin n'écrase les vraies clés.
+      if (process.env[key]) {
+        cache[key] = process.env[key]!;
+        fromEnv++;
+        continue;
+      }
+
       const val = await getSetting(`cred_${key}`);
       if (val !== null && val !== "") {
         cache[key] = val;
+        fromDb++;
       } else {
         delete cache[key];
       }
     } catch {
-      // If DB not available yet, skip silently
+      // DB pas encore disponible — on continue sans crasher
     }
   }
+
+  console.log(`[credentials] Chargement: ${fromEnv} depuis variables env, ${fromDb} depuis base de données`);
 }
