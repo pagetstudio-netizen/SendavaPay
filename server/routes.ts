@@ -3930,6 +3930,16 @@ export async function registerRoutes(
         }
         return fallback;
       }
+
+      if (pm.startsWith("paydunya_") || pm === "paydunya") {
+        const { confirmPayDunyaInvoice } = await import("./paydunya");
+        const result = await confirmPayDunyaInvoice(reference);
+        const pdStatus = (result.status || "").toLowerCase();
+        if (pdStatus === "completed" || pdStatus === "success" || pdStatus === "paid") return { isSuccess: true, isPending: false, isFailed: false, amount: storedAmount };
+        if (pdStatus === "cancelled" || pdStatus === "failed" || pdStatus === "expired") return { isSuccess: false, isPending: false, isFailed: true, amount: storedAmount };
+        return fallback;
+      }
+
     } catch (err) {
       console.error(`❌ verifyPaymentWithGateway error (${pm}):`, err);
     }
@@ -8044,6 +8054,82 @@ export async function registerRoutes(
         });
 
         console.log(`✅ PayDunya webhook: dépôt userId=${claimed.userId} montant=${netAmount} crédité`);
+
+      } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
+        const commissionRate = getCommissionRate(settings, "payment_received");
+        const fee = Math.round(amount * (commissionRate / 100));
+        const netAmount = amount - fee;
+
+        const link = await storage.getPaymentLink(claimed.paymentLinkId);
+        if (link) {
+          await storage.updatePaymentLink(link.id, {
+            paidAt: new Date(),
+            paidAmount: amount.toString(),
+            payerName: claimed.payerName,
+            payerEmail: claimed.customerEmail || null,
+            payerPhone: claimed.payerPhone,
+            payerCountry: claimed.payerCountry,
+          });
+
+          await storage.createTransaction({
+            userId: link.userId,
+            type: "payment_received",
+            amount: amount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: `Paiement reçu - ${link.title}`,
+            externalRef: token,
+            paymentMethod: claimed.paymentMethod || "paydunya",
+            mobileNumber: claimed.payerPhone,
+            payerName: claimed.payerName,
+            payerEmail: claimed.customerEmail,
+            payerCountry: claimed.payerCountry,
+            paymentLinkId: link.id,
+          });
+
+          await storage.updateUserBalance(link.userId, netAmount.toString());
+
+          // Créditer le portefeuille partenaire si applicable
+          try {
+            if (link.partnerId) {
+              const { db: _dbPD } = await import("./db");
+              const { sql: _sqlPD } = await import("drizzle-orm");
+              const allCPD = await storage.getCountries();
+              const payerCPD = claimed.payerCountry || "";
+              const currPD = claimed.currency || "";
+              const cRecPD = allCPD.find((c: any) =>
+                (payerCPD && c.code.toUpperCase() === payerCPD.toUpperCase()) || (!payerCPD && c.currency === currPD)
+              );
+              if (cRecPD) {
+                await _dbPD.execute(_sqlPD`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${link.partnerId}`);
+                await storage.creditPartnerWallet(link.partnerId, cRecPD.code, cRecPD.name, currPD || cRecPD.currency, netAmount.toString());
+              }
+            }
+          } catch (pwErr) { console.error("Partner wallet (PayDunya webhook lien) error:", pwErr); }
+
+          // Notification Telegram
+          try {
+            const { notifyPaymentReceived: npr } = await import("./telegram");
+            if (typeof npr === "function") {
+              npr({
+                vendeurId: link.userId,
+                payerName: claimed.payerName || "Inconnu",
+                amount,
+                fee,
+                netAmount,
+                currency: claimed.currency || "XOF",
+                linkTitle: link.title,
+                operator: claimed.paymentMethod?.replace("paydunya_", "") || "PayDunya",
+                reference: token,
+              });
+            }
+          } catch (_) {}
+
+          console.log(`✅ PayDunya webhook: paiement lien confirmé vendeur #${link.userId} montant=${netAmount} lien="${link.title}"`);
+        } else {
+          console.error(`❌ PayDunya webhook: lien de paiement #${claimed.paymentLinkId} introuvable`);
+        }
       }
     } catch (err) {
       console.error("❌ PayDunya webhook error:", err);
