@@ -8,7 +8,6 @@ import { testDatabaseConnection, isDatabaseConnected, startBackgroundReconnectio
 import { notifySystemError, notifyDailyReport } from "./telegram";
 import { storage } from "./storage";
 import { loadCredentialsFromDb, getCredential } from "./credentials";
-import { invalidateAllSessionsOnStartup } from "./security";
 
 const app = express();
 const httpServer = createServer(app);
@@ -265,13 +264,6 @@ async function initializeWithTimeout<T>(
     if (dbConnected) {
       log("Database connection successful", "init");
 
-      // Déconnecte tous les utilisateurs connectés à chaque redémarrage/déploiement
-      await initializeWithTimeout(
-        invalidateAllSessionsOnStartup(),
-        10000,
-        "Session invalidation"
-      );
-
       await initializeWithTimeout(
         loadCredentialsFromDb((key) => storage.getSetting(key)),
         10000,
@@ -371,23 +363,41 @@ async function initializeWithTimeout<T>(
     await setupVite(httpServer, app);
   }
 
-  // ===== Gestionnaires de signaux OS — le processus ne doit JAMAIS mourir =====
-  // Plesk/PM2 envoient SIGTERM pour redémarrer — on l'ignore pour éviter l'arrêt brutal
-  // PM2 gère les redémarrages proprement via ecosystem.config.js
-  process.on("SIGTERM", () => {
-    log("SIGTERM reçu — le serveur continue (PM2 gère les redémarrages)", "init");
-  });
-  process.on("SIGINT", () => {
-    log("SIGINT reçu — le serveur continue (utilisez PM2 stop pour arrêter)", "init");
-  });
+  // ===== Arrêt gracieux — permet à Plesk/PM2 de redémarrer proprement =====
+  let isShuttingDown = false;
 
-  // ===== System error alerts — serveur ne doit JAMAIS s'arrêter (T007) =====
+  async function gracefulShutdown(signal: string) {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    log(`${signal} reçu — arrêt gracieux en cours...`, "init");
+
+    // Stoppe les nouvelles connexions HTTP
+    httpServer.close(() => {
+      log("Serveur HTTP fermé proprement", "init");
+    });
+
+    // Ferme le pool de connexions DB
+    if (pool) {
+      pool.end().catch((err: Error) => log(`Erreur fermeture pool DB: ${err.message}`, "init"));
+    }
+
+    // Force l'arrêt après 10 secondes si quelque chose bloque
+    const forceExit = setTimeout(() => {
+      log("Timeout arrêt gracieux — sortie forcée", "init");
+      process.exit(0);
+    }, 10000);
+    forceExit.unref();
+  }
+
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT",  () => gracefulShutdown("SIGINT"));
+
+  // ===== Alertes erreurs système — ne pas crasher sur exceptions non gérées =====
   process.on("uncaughtException", (err) => {
     try {
       log(`Uncaught exception: ${err.message}`, "error");
       notifySystemError("uncaughtException", err.message || String(err));
     } catch (_) {}
-    // Ne pas appeler process.exit() — le serveur continue de tourner
   });
 
   process.on("unhandledRejection", (reason) => {
@@ -396,7 +406,6 @@ async function initializeWithTimeout<T>(
       log(`Unhandled rejection: ${msg}`, "error");
       notifySystemError("unhandledRejection", msg);
     } catch (_) {}
-    // Ne pas appeler process.exit() — le serveur continue de tourner
   });
   // Note: le keepalive DB est déjà géré dans db.ts (ping toutes les 30s) — pas besoin d'un second ici
 
