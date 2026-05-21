@@ -81,7 +81,7 @@ export async function sendEmail(data: EmailData): Promise<{ success: boolean; er
     const { client, fromEmail } = await getResendClient();
     
     const result = await client.emails.send({
-      from: fromEmail,
+      from: `SendavaPay <${fromEmail}>`,
       to: data.to,
       subject: data.subject,
       html: data.html,
@@ -480,6 +480,42 @@ export async function sendTransferReceivedEmail(to: string, data: Parameters<typ
 export async function sendDepositEmail(to: string, data: Parameters<typeof emailTemplates.depositCompleted>[0]): Promise<{ success: boolean; error?: string }> {
   const template = emailTemplates.depositCompleted(data);
   return sendEmail({ to, ...template });
+}
+
+export async function sendBroadcastEmail(
+  to: string,
+  data: {
+    subject: string;
+    bodyHtml: string;
+    buttonText?: string;
+    buttonUrl?: string;
+    userName?: string;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  const greeting = data.userName ? `<p>Bonjour ${data.userName},</p>` : `<p>Bonjour,</p>`;
+  const button = data.buttonText && data.buttonUrl
+    ? `<p style="text-align:center;margin-top:24px;"><a href="${data.buttonUrl}" class="button">${data.buttonText}</a></p>`
+    : '';
+
+  const bodyHtml = data.bodyHtml
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => (line.startsWith('<') ? line : `<p>${line}</p>`))
+    .join('\n');
+
+  const content = `
+    ${greeting}
+    ${bodyHtml}
+    ${button}
+    <p style="margin-top:32px;">À bientôt,<br>L'équipe SendavaPay</p>
+  `;
+  return sendEmail({
+    to,
+    subject: data.subject,
+    html: getBaseTemplate(content, data.subject),
+    text: data.bodyHtml.replace(/<[^>]*>/g, ''),
+  });
 }
 
 export async function sendPasswordResetEmail(to: string, data: { fullName: string; code: string; resetUrl: string }): Promise<{ success: boolean; error?: string }> {

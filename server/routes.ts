@@ -42,7 +42,8 @@ import {
   sendKycRejectedEmail,
   sendTransferReceivedEmail,
   sendDepositEmail,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  sendBroadcastEmail,
 } from "./email";
 import {
   notifyDeposit,
@@ -6785,6 +6786,102 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Get admin users error:", error);
       res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // ─── Email Broadcast : génération IA ─────────────────────────────────────────
+  app.post("/api/admin/generate-email-content", requireAdmin, async (req, res) => {
+    try {
+      const { prompt } = req.body;
+      if (!prompt?.trim()) return res.status(400).json({ message: "Prompt requis" });
+
+      const { getCredential } = await import("./credentials");
+      const openaiKey = process.env.OPENAI_API_KEY || getCredential("OPENAI_API_KEY");
+      if (!openaiKey) {
+        return res.status(503).json({
+          message: "Clé OPENAI_API_KEY non configurée. Ajoutez-la dans les paramètres ou en variable d'environnement."
+        });
+      }
+
+      const systemPrompt = `Tu es un rédacteur d'emails professionnels pour SendavaPay, une plateforme de paiement Mobile Money en Afrique de l'Ouest et Centrale. 
+Génère un email en français, professionnel et chaleureux.
+Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de blocs de code) :
+{
+  "subject": "Sujet de l'email",
+  "bodyHtml": "Corps de l'email en HTML simple (balises <p>, <strong>, <ul>, <li> uniquement). NE PAS inclure de balise html, head, body ou style. Pas de bonjour (il sera ajouté automatiquement).",
+  "buttonText": "Texte du bouton CTA ou null",
+  "buttonUrl": "URL du bouton ou null"
+}`;
+
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${openaiKey}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: prompt },
+          ],
+          temperature: 0.7,
+          max_tokens: 800,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        console.error("OpenAI error:", err);
+        return res.status(502).json({ message: "Erreur OpenAI : " + response.statusText });
+      }
+
+      const aiData = await response.json() as any;
+      const raw = aiData.choices?.[0]?.message?.content?.trim() || "";
+      const cleaned = raw.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim();
+      const generated = JSON.parse(cleaned);
+      res.json(generated);
+    } catch (error: any) {
+      console.error("Generate email content error:", error);
+      res.status(500).json({ message: error.message || "Erreur serveur" });
+    }
+  });
+
+  // ─── Email Broadcast : envoi à tous les utilisateurs ─────────────────────────
+  app.post("/api/admin/broadcast-email", requireAdmin, async (req, res) => {
+    try {
+      const { subject, bodyHtml, buttonText, buttonUrl } = req.body;
+      if (!subject?.trim() || !bodyHtml?.trim()) {
+        return res.status(400).json({ message: "Sujet et corps requis" });
+      }
+
+      const allUsers = await storage.getAllUsers();
+      const targets = allUsers.filter((u: any) => u.email && u.email.includes("@"));
+
+      res.json({ queued: targets.length, message: `Envoi en cours vers ${targets.length} utilisateurs...` });
+
+      // Envoi asynchrone après la réponse
+      let sent = 0, failed = 0;
+      for (const user of targets) {
+        try {
+          const result = await sendBroadcastEmail(user.email, {
+            subject,
+            bodyHtml,
+            buttonText: buttonText || undefined,
+            buttonUrl: buttonUrl || undefined,
+            userName: user.fullName?.split(" ")?.[0] || undefined,
+          });
+          if (result.success) sent++; else failed++;
+        } catch {
+          failed++;
+        }
+        // Pause de 50ms pour éviter le rate-limit Resend
+        await new Promise(r => setTimeout(r, 50));
+      }
+      console.log(`📧 Broadcast terminé : ${sent} envoyés, ${failed} échecs sur ${targets.length}`);
+    } catch (error: any) {
+      console.error("Broadcast email error:", error);
+      res.status(500).json({ message: error.message || "Erreur serveur" });
     }
   });
 
