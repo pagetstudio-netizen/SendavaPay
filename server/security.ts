@@ -28,6 +28,21 @@ interface IpInfo {
 const ipInfoCache = new Map<string, IpInfo>();
 const IP_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
+// Nettoyage périodique des Maps pour éviter les fuites mémoire
+setInterval(() => {
+  const now = Date.now();
+  // Supprimer les entrées IP expirées
+  for (const [key, val] of ipInfoCache) {
+    if (now - val.checkedAt > IP_CACHE_TTL) ipInfoCache.delete(key);
+  }
+  // Supprimer les entrées rate-limit expirées (fenêtre fermée ET plus bloquée)
+  for (const [key, val] of rateLimitStore) {
+    if (now > val.blockedUntil && now - val.windowStart > 24 * 60 * 60 * 1000) {
+      rateLimitStore.delete(key);
+    }
+  }
+}, 15 * 60 * 1000); // toutes les 15 minutes
+
 async function getIpInfo(ip: string): Promise<IpInfo | null> {
   const cached = ipInfoCache.get(ip);
   if (cached && Date.now() - cached.checkedAt < IP_CACHE_TTL) return cached;

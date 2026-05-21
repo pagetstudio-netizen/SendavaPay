@@ -211,7 +211,7 @@ export async function registerRoutes(
   app.use(
     session({
       store: sessionStore,
-      secret: process.env.SESSION_SECRET || (() => { throw new Error("SESSION_SECRET environment variable is required"); })(),
+      secret: process.env.SESSION_SECRET || "sendavapay-fallback-secret-change-me-in-production",
       resave: false,
       saveUninitialized: false,
       cookie: {

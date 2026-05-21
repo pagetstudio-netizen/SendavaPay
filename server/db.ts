@@ -15,10 +15,10 @@ if (!databaseUrl) {
 } else {
   pool = new Pool({ 
     connectionString: databaseUrl,
-    max: 15,
-    min: 2,
-    idleTimeoutMillis: 120000,
-    connectionTimeoutMillis: 30000,
+    max: 8,
+    min: 1,
+    idleTimeoutMillis: 60000,
+    connectionTimeoutMillis: 15000,
     keepAlive: true,
     keepAliveInitialDelayMillis: 5000,
     statement_timeout: 30000,

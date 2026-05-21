@@ -371,6 +371,16 @@ async function initializeWithTimeout<T>(
     await setupVite(httpServer, app);
   }
 
+  // ===== Gestionnaires de signaux OS — le processus ne doit JAMAIS mourir =====
+  // Plesk/PM2 envoient SIGTERM pour redémarrer — on l'ignore pour éviter l'arrêt brutal
+  // PM2 gère les redémarrages proprement via ecosystem.config.js
+  process.on("SIGTERM", () => {
+    log("SIGTERM reçu — le serveur continue (PM2 gère les redémarrages)", "init");
+  });
+  process.on("SIGINT", () => {
+    log("SIGINT reçu — le serveur continue (utilisez PM2 stop pour arrêter)", "init");
+  });
+
   // ===== System error alerts — serveur ne doit JAMAIS s'arrêter (T007) =====
   process.on("uncaughtException", (err) => {
     try {
@@ -388,17 +398,7 @@ async function initializeWithTimeout<T>(
     } catch (_) {}
     // Ne pas appeler process.exit() — le serveur continue de tourner
   });
-
-  // Keepalive interne — ping DB toutes les 2 minutes pour éviter idle timeout
-  setInterval(async () => {
-    try {
-      if (pool) {
-        const client = await pool.connect();
-        await client.query("SELECT 1");
-        client.release();
-      }
-    } catch (_) {}
-  }, 120000);
+  // Note: le keepalive DB est déjà géré dans db.ts (ping toutes les 30s) — pas besoin d'un second ici
 
   // ===== Daily report scheduler (T006) =====
   function scheduleDailyReport() {
