@@ -513,6 +513,26 @@ export function notifyWalletExchangeRejected(data: {
   );
 }
 
+export function notifyAdminLoginAttempt(data: {
+  emailOrPhone: string;
+  ip: string;
+  success: boolean;
+  adminName?: string;
+  adminId?: number;
+}) {
+  const emoji = data.success ? "⚠️" : "🚨";
+  const label = data.success ? "TENTATIVE CONNEXION ADMIN (MDP OK)" : "TENTATIVE CONNEXION ADMIN ECHOUEE";
+  const msg =
+    `<b>${emoji} ${label}</b>\n\n` +
+    (data.adminName ? `<b>Compte:</b> ${data.adminName}\n` : `<b>Identifiant:</b> <code>${data.emailOrPhone}</code>\n`) +
+    `<b>IP:</b> <code>${data.ip}</code>\n` +
+    `<b>Date:</b> ${formatDate()}`;
+
+  sendTelegramMessage(msg).catch(err =>
+    console.error("[Telegram] Admin login attempt notification error:", err)
+  );
+}
+
 export function notifyAdminOtp(data: {
   userName: string;
   userId: number;

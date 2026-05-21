@@ -9,7 +9,8 @@ import {
   blockIp, unblockIp, loginRateLimit, withdrawRateLimit,
   registerRateLimit, otpRateLimit, apiRateLimit,
 } from "./security";
-import { createOtp, verifyOtp, sendAdminLoginOtp, sendCredentialUpdateOtp } from "./otp";
+import { createOtp, verifyOtp } from "./otp";
+import { isAdminWhitelisted } from "./init-admin";
 import {
   createPayDunyaCheckout, payDunyaDisburse, verifyPayDunyaWebhook,
   getPayDunyaWithdrawMode, formatPhoneForPayDunya,
@@ -54,6 +55,7 @@ import {
   notifyKycSubmitted,
   notifyAdminLogin,
   notifyAdminOtp,
+  notifyAdminLoginAttempt,
   notifyCredentialOtp,
   notifyLargeAmount,
   notifyLiquidityEmpty,
@@ -329,16 +331,20 @@ export async function registerRoutes(
       if (!isValidPassword) {
         await recordLoginAttempt(emailOrPhone, ip, false);
         await logSecurityEvent({ userId: user.id, type: "failed_login", details: `Mot de passe incorrect pour ${emailOrPhone}`, ipAddress: ip, userAgent: req.headers["user-agent"] });
+        // Alert Telegram on any failed admin login attempt
+        if (user.role === "admin") {
+          notifyAdminLoginAttempt({ emailOrPhone, ip, success: false, adminName: user.fullName, adminId: user.id });
+        }
         return res.status(401).json({ message: "Identifiants invalides" });
       }
 
       await recordLoginAttempt(emailOrPhone, ip, true);
 
-      // ── ADMIN : 2FA via email ────────────────────────────────────────────────
+      // ── ADMIN : 2FA via Telegram uniquement ─────────────────────────────────
       if (user.role === "admin") {
-        if (!user.email) {
-          return res.status(500).json({ message: "Aucun email associé au compte admin." });
-        }
+        // Alert Telegram immediately on successful password entry
+        notifyAdminLoginAttempt({ emailOrPhone, ip, success: true, adminName: user.fullName, adminId: user.id });
+
         let token: string;
         let code: string;
         try {
@@ -351,19 +357,9 @@ export async function registerRoutes(
           }
           return res.status(500).json({ message: "Échec de la génération du code. Veuillez réessayer." });
         }
-        try {
-          await sendAdminLoginOtp(user.email, user.fullName, code, ip);
-        } catch (emailErr: any) {
-          console.error("Admin OTP email error:", emailErr);
-          const emailErrMsg = emailErr?.message || String(emailErr);
-          // Even if email fails, still send via Telegram and allow login
-          notifyAdminOtp({ userName: user.fullName, userId: user.id, code, ip });
-          await logSecurityEvent({ userId: user.id, type: "admin_login_otp_sent", details: `OTP envoyé via Telegram (email échoué: ${emailErrMsg})`, ipAddress: ip });
-          return res.json({ requireOtp: true, tempToken: token, message: "Veuillez saisir le code de 6 chiffres que vous avez reçu." });
-        }
-        // Send OTP via Telegram as well (parallel delivery)
+        // OTP uniquement via Telegram (pas d'email)
         notifyAdminOtp({ userName: user.fullName, userId: user.id, code, ip });
-        await logSecurityEvent({ userId: user.id, type: "admin_login_otp_sent", details: `OTP envoyé à ${user.email} + Telegram`, ipAddress: ip });
+        await logSecurityEvent({ userId: user.id, type: "admin_login_otp_sent", details: `OTP envoyé via Telegram uniquement`, ipAddress: ip });
         return res.json({ requireOtp: true, tempToken: token, message: "Veuillez saisir le code de 6 chiffres que vous avez reçu." });
       }
 
@@ -7080,11 +7076,8 @@ export async function registerRoutes(
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       });
 
-      // Send OTP via Telegram (always) + email (best-effort)
+      // OTP uniquement via Telegram (pas d'email)
       notifyCredentialOtp({ userName: user.fullName, userId, code, keyName, ip });
-      sendCredentialUpdateOtp(user.email, user.fullName, code, keyName, ip).catch(err =>
-        console.error("Credential OTP email error:", err)
-      );
 
       res.json({ token, message: "Veuillez saisir le code de 6 chiffres que vous avez reçu." });
     } catch (error: any) {
@@ -8555,7 +8548,15 @@ export async function registerRoutes(
     try {
       const userId = parseInt(req.params.id);
       const { fullName, email, phone, adminNote, role, isVerified } = req.body;
-      
+
+      // Bloquer toute tentative de promotion au rôle admin hors liste blanche
+      if (role === "admin") {
+        const targetUser = await storage.getUser(userId);
+        if (!targetUser || !isAdminWhitelisted(targetUser.email)) {
+          return res.status(403).json({ message: "Impossible d'attribuer le rôle administrateur à ce compte." });
+        }
+      }
+
       const updates: any = {};
       if (fullName !== undefined) updates.fullName = fullName;
       if (email !== undefined) updates.email = email;
