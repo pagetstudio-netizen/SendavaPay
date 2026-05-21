@@ -10,11 +10,18 @@ const AFRICAN_COUNTRY_CODES = new Set([
   "ZM","ZW"
 ]);
 
-// Paths that bypass geo/VPN check (Telegram servers, health check)
+// Paths that bypass geo/VPN check (Telegram servers, health check, uptime monitors)
 const GEO_BYPASS_PATHS = new Set([
   "/api/webhook/telegram",
   "/api/health",
+  "/api/health/",
 ]);
+
+// User-agents used by uptime monitoring services
+const UPTIME_MONITOR_AGENTS = [
+  "uptimerobot", "pingdom", "statuscake", "freshping", "hetrixtools",
+  "better uptime", "updown.io", "hyperping", "pulsetic", "monitis",
+];
 
 // ─── IP INFO CACHE ────────────────────────────────────────────────────────────
 interface IpInfo {
@@ -293,6 +300,10 @@ export function ipBlockMiddleware(req: Request, res: Response, next: NextFunctio
 export function geoAndVpnBlockMiddleware(req: Request, res: Response, next: NextFunction) {
   // Skip bypass paths (Telegram webhook, health check)
   if (GEO_BYPASS_PATHS.has(req.path)) return next();
+
+  // Skip known uptime monitoring services
+  const ua = (req.headers["user-agent"] || "").toLowerCase();
+  if (UPTIME_MONITOR_AGENTS.some(agent => ua.includes(agent))) return next();
 
   const ip = getClientIp(req);
 
