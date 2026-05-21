@@ -3833,10 +3833,11 @@ const CREDENTIAL_GROUPS = [
   {
     label: "PayDunya",
     keys: [
-      { key: "PAYDUNYA_MASTER_KEY", label: "Master Key" },
+      { key: "PAYDUNYA_MASTER_KEY", label: "Master Key (live_master_...)" },
       { key: "PAYDUNYA_PRIVATE_KEY", label: "Clé privée (live_private_...)" },
-      { key: "PAYDUNYA_TOKEN", label: "Token public" },
-      { key: "PAYDUNYA_BASE_URL", label: "URL de base (défaut: https://app.paydunya.com)" },
+      { key: "PAYDUNYA_TOKEN", label: "Token (live_token_... ou App Token)" },
+      { key: "PAYDUNYA_PUBLIC_KEY", label: "Clé publique (optionnel, si différente du Token)" },
+      { key: "PAYDUNYA_BASE_URL", label: "URL de base — UNIQUEMENT le domaine: https://app.paydunya.com (sans /api/v1/)" },
     ],
   },
   {

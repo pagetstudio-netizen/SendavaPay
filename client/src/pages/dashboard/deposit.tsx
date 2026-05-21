@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
-import { Info, ArrowLeft, Loader2, CheckCircle, XCircle, Clock, AlertCircle } from "lucide-react";
+import { Info, ArrowLeft, Loader2, CheckCircle, XCircle, Clock, AlertCircle, ExternalLink } from "lucide-react";
 import { Link } from "wouter";
 import { queryClient } from "@/lib/queryClient";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -100,11 +100,12 @@ export default function DepositPage() {
   const [currentPayId, setCurrentPayId] = useState("");
   const [currentOrderId, setCurrentOrderId] = useState("");
   const [otp, setOtp] = useState("");
-  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "maishapay" | "omnipay" | "paxity" | "mbiyopay">("soleaspay");
+  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "maishapay" | "omnipay" | "paxity" | "mbiyopay" | "paydunya">("soleaspay");
   const [timeLeft, setTimeLeft] = useState(TIMEOUT_SECONDS);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [depositAmount, setDepositAmount] = useState(0);
   const [depositOperator, setDepositOperator] = useState("");
+  const [paydunyaActionUrl, setPaydunyaActionUrl] = useState<string | null>(null);
 
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
@@ -197,6 +198,7 @@ export default function DepositPage() {
       setVerificationMessage("");
       setCurrentOrderId("");
       setCurrentPayId("");
+      setPaydunyaActionUrl(null);
       setTimeLeft(TIMEOUT_SECONDS);
       timeLeftRef.current = TIMEOUT_SECONDS;
       localStorage.removeItem("soleaspay_payment");
@@ -214,6 +216,8 @@ export default function DepositPage() {
         ? `/api/verify-paxity/${currentPayId}`
         : currentProvider === "mbiyopay"
         ? `/api/verify-mbiyopay/${currentPayId}`
+        : currentProvider === "paydunya"
+        ? `/api/verify-paydunya/${currentPayId}`
         : `/api/verify-soleaspay/${currentOrderId}/${currentPayId}`;
 
       const response = await fetch(verifyUrl, { credentials: "include" });
@@ -320,8 +324,14 @@ export default function DepositPage() {
         } else if (data.isWave && data.waveUrl) {
           window.open(data.waveUrl, "_blank");
           setVerificationMessage("Confirmez le paiement dans l'application Wave, puis revenez ici.");
+        } else if (provider === "paydunya" && data.redirectUrl) {
+          setPaydunyaActionUrl(data.redirectUrl);
+          setVerificationMessage(data.message || "Cliquez sur le bouton ci-dessous pour compléter le paiement.");
+        } else if (provider === "paydunya" && data.checkoutUrl) {
+          setPaydunyaActionUrl(data.checkoutUrl);
+          setVerificationMessage("Cliquez sur le bouton ci-dessous pour payer via PayDunya.");
         } else {
-          setVerificationMessage("Veuillez confirmer le paiement sur votre téléphone.");
+          setVerificationMessage(data.message || "Veuillez confirmer le paiement sur votre téléphone.");
         }
       } else {
         toast({ title: "Erreur", description: data.message || "Erreur lors du paiement", variant: "destructive" });
@@ -596,6 +606,16 @@ export default function DepositPage() {
                         />
                       ))}
                     </div>
+
+                    {/* Bouton d'action PayDunya (Wave, Orange SN, checkout) */}
+                    {paydunyaActionUrl && (
+                      <a href={paydunyaActionUrl} target="_blank" rel="noopener noreferrer" className="w-full">
+                        <Button variant="outline" className="w-full border-blue-400 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950" data-testid="button-paydunya-action">
+                          <ExternalLink className="mr-2 h-4 w-4" />
+                          Ouvrir la page de paiement
+                        </Button>
+                      </a>
+                    )}
 
                     {/* Countdown bar */}
                     <div className="space-y-1">
