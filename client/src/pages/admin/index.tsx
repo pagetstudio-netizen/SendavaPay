@@ -4470,6 +4470,21 @@ function CountriesContent() {
     },
   });
 
+  const toggleCountryMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: number; isActive: boolean }) =>
+      apiRequest("PUT", `/api/admin/countries/${id}`, { isActive }),
+    onSuccess: (_, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/countries"] });
+      toast({
+        title: vars.isActive ? "Pays activé" : "Pays désactivé",
+        description: vars.isActive
+          ? "Le pays est maintenant visible pour les utilisateurs."
+          : "Le pays est masqué — dépôts, retraits et liens de paiement désactivés.",
+      });
+    },
+    onError: () => toast({ title: "Erreur", description: "Impossible de modifier le statut du pays", variant: "destructive" }),
+  });
+
   const createOperatorMutation = useMutation({
     mutationFn: (data: typeof operatorForm) => apiRequest("POST", "/api/admin/operators", data),
     onSuccess: () => {
@@ -4572,13 +4587,29 @@ function CountriesContent() {
           {countries?.map((country) => {
             const countryOperators = operatorsByCountry[country.id] || [];
             return (
-              <Card key={country.id}>
+              <Card key={country.id} className={country.isActive === false ? "opacity-60 border-destructive/40" : ""}>
                 <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
                   <div className="flex items-center gap-2">
                     <span className="text-xl">{({ BJ: "🇧🇯", BF: "🇧🇫", TG: "🇹🇬", CM: "🇨🇲", CI: "🇨🇮", CD: "🇨🇩", CG: "🇨🇬", SN: "🇸🇳", ML: "🇲🇱", GN: "🇬🇳", GA: "🇬🇦", MG: "🇲🇬" } as Record<string,string>)[country.code] || "🌍"}</span>
                     <CardTitle className="text-lg">{country.name}</CardTitle>
+                    {country.isActive === false && (
+                      <Badge variant="destructive" className="text-xs">Désactivé</Badge>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 border rounded-lg px-3 py-1.5 bg-muted/30">
+                      <Switch
+                        checked={country.isActive !== false}
+                        onCheckedChange={(checked) =>
+                          toggleCountryMutation.mutate({ id: country.id, isActive: checked })
+                        }
+                        disabled={toggleCountryMutation.isPending}
+                        data-testid={`switch-country-active-${country.id}`}
+                      />
+                      <Label className="text-sm cursor-pointer select-none">
+                        {country.isActive !== false ? "Actif" : "Inactif"}
+                      </Label>
+                    </div>
                     <Button size="sm" variant="outline" onClick={() => toggleAllOperators(country.id, true)} data-testid={`button-activate-all-${country.id}`}>
                       Tout activer
                     </Button>

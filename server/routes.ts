@@ -918,13 +918,35 @@ export async function registerRoutes(
   // ========== SOLEASPAY ROUTES ==========
   
   // Obtenir les pays et opérateurs disponibles
-  app.get("/api/soleaspay/countries", (req, res) => {
-    res.json(SOLEASPAY_COUNTRIES);
+  app.get("/api/soleaspay/countries", async (req, res) => {
+    try {
+      const dbCountries = await storage.getCountries();
+      const activeCountryCodes = new Set(
+        dbCountries.filter(c => c.isActive !== false).map(c => c.code.toUpperCase())
+      );
+      // Si aucun pays n'est en base, on retourne tout (compatibilité)
+      const filtered = dbCountries.length === 0
+        ? SOLEASPAY_COUNTRIES
+        : SOLEASPAY_COUNTRIES.filter(c => activeCountryCodes.has(c.code.toUpperCase()));
+      res.json(filtered);
+    } catch {
+      res.json(SOLEASPAY_COUNTRIES);
+    }
   });
 
   app.get("/api/soleaspay/services/:countryCode", async (req, res) => {
     try {
       const { countryCode } = req.params;
+
+      // Vérifier si le pays est actif en base
+      const dbCountries = await storage.getCountries();
+      if (dbCountries.length > 0) {
+        const dbCountry = dbCountries.find(c => c.code.toUpperCase() === countryCode.toUpperCase());
+        if (dbCountry && dbCountry.isActive === false) {
+          return res.json([]); // pays désactivé → aucun service
+        }
+      }
+
       const services = getServicesByCountry(countryCode);
       
       // Get operators from database to check maintenance status
@@ -964,23 +986,24 @@ export async function registerRoutes(
       const operators = await storage.getOperators();
       const countries = await storage.getCountries();
       
-      // Build country list with same operators as deposit
-      const countryOperators = countries.map(country => {
-        const countryOps = operators
-          .filter(op => op.countryId === country.id)
-          .map(op => ({
-            id: op.code || op.id.toString(),
-            name: op.name,
-            inMaintenance: (op.inMaintenance || op.maintenanceWithdraw) ?? false,
-          }));
-        
-        return {
-          id: country.code.toLowerCase(),
-          name: country.name,
-          currency: country.currency,
-          methods: countryOps,
-        };
-      }).filter(c => c.methods.length > 0);
+      // Build country list with same operators as deposit (pays actifs uniquement)
+      const countryOperators = countries
+        .filter(country => country.isActive !== false)
+        .map(country => {
+          const countryOps = operators
+            .filter(op => op.countryId === country.id && op.isActive !== false)
+            .map(op => ({
+              id: op.code || op.id.toString(),
+              name: op.name,
+              inMaintenance: (op.inMaintenance || op.maintenanceWithdraw) ?? false,
+            }));
+          return {
+            id: country.code.toLowerCase(),
+            name: country.name,
+            currency: country.currency,
+            methods: countryOps,
+          };
+        }).filter(c => c.methods.length > 0);
       
       res.json(countryOperators);
     } catch (error) {
