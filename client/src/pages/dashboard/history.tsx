@@ -60,6 +60,8 @@ interface CombinedHistoryItem {
   fromCountryCode?: string | null;
   toCountryCode?: string | null;
   currency?: string | null;
+  externalRef?: string | null;
+  transactionReference?: string | null;
 }
 
 function formatCurrency(amount: string | number, currency = "XOF") {
@@ -123,6 +125,11 @@ function formatPaymentMethod(method: string): string {
   let cleaned = method
     .replace(/^soleaspay[_-]/i, "")
     .replace(/^leekpay[_-]/i, "")
+    .replace(/^paydunya[_-]/i, "")
+    .replace(/^mbiyopay[_-]/i, "")
+    .replace(/^omnipay[_-]/i, "")
+    .replace(/^paxity[_-]/i, "")
+    .replace(/^maishapay[_-]/i, "")
     .replace(/_/g, " ")
     .replace(/\s+(TG|BJ|BF|CI|CM|COD|COG|SN|ML)$/i, "");
   
@@ -135,8 +142,18 @@ function formatPaymentMethod(method: string): string {
   if (lowerCleaned.includes("wave")) return "Wave";
   if (lowerCleaned.includes("vodacom")) return "Vodacom";
   if (lowerCleaned.includes("airtel")) return "Airtel Money";
+  if (lowerCleaned.includes("free")) return "Free Money";
   
   return paymentMethodNames[method] || cleaned;
+}
+
+// Supprime les noms de fournisseurs de paiement des descriptions
+function cleanDescription(desc: string | undefined): string {
+  if (!desc) return "";
+  return desc
+    .replace(/\b(via\s+)?(PayDunya|SoftPay|SoleasPay|LeekPay|MbiyoPay|OmniPay|Paxity|MaishaPay|soleaspay|paydunya|leekpay|mbiyopay|omnipay|paxity|maishapay)\b[\s\-:]*/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 const transactionTypeLabels: Record<string, { label: string; icon: typeof ArrowDownLeft; incoming: boolean }> = {
@@ -199,6 +216,7 @@ export default function HistoryPage() {
         payerEmail: tx.payerEmail,
         payerCountry: tx.payerCountry,
         isWithdrawalRequest: false,
+        externalRef: tx.externalRef,
       });
     });
 
@@ -213,7 +231,7 @@ export default function HistoryPage() {
           fee: wr.fee,
           netAmount: wr.netAmount,
           status: wr.status,
-          description: `Retrait ${wr.paymentMethod} - ${wr.mobileNumber}`,
+          description: `Retrait ${formatPaymentMethod(wr.paymentMethod)} - ${wr.mobileNumber}`,
           mobileNumber: wr.mobileNumber,
           paymentMethod: wr.paymentMethod,
           createdAt: wr.createdAt,
@@ -221,6 +239,7 @@ export default function HistoryPage() {
           country: wr.country,
           walletName: wr.walletName,
           rejectionReason: wr.rejectionReason,
+          transactionReference: wr.transactionReference || wr.externalReference,
         });
       }
     });
@@ -538,22 +557,51 @@ export default function HistoryPage() {
                 </div>
               )}
 
+              {/* Opérateur + numéro — dépôts, retraits, demandes de retrait */}
               {selectedItem.mobileNumber && selectedItem.type !== "payment_received" && (
-                <div className="flex items-center gap-3 pt-2 border-t">
-                  <Phone className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Numéro Mobile Money</p>
-                    <p className="font-medium">{selectedItem.mobileNumber}</p>
+                <div className="space-y-3 pt-2 border-t">
+                  {selectedItem.paymentMethod && (
+                    <div className="flex items-center gap-3">
+                      <CreditCard className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="text-xs text-muted-foreground">Opérateur</p>
+                        <p className="font-medium">{formatPaymentMethod(selectedItem.paymentMethod)}</p>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-3">
+                    <Phone className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-xs text-muted-foreground">Numéro Mobile Money</p>
+                      <p className="font-medium">{selectedItem.mobileNumber}</p>
+                    </div>
                   </div>
                 </div>
               )}
 
-              {selectedItem.isWithdrawalRequest && selectedItem.country && (
+              {/* Pays — dépôts (payerCountry) et retraits (country) */}
+              {(selectedItem.payerCountry || selectedItem.country) && selectedItem.type !== "payment_received" && (
                 <div className="flex items-center gap-3 pt-2 border-t">
                   <MapPin className="h-4 w-4 text-muted-foreground" />
                   <div>
                     <p className="text-xs text-muted-foreground">Pays</p>
-                    <p className="font-medium">{countryNames[selectedItem.country.toUpperCase()] || selectedItem.country}</p>
+                    <p className="font-medium">
+                      {(() => {
+                        const code = (selectedItem.payerCountry || selectedItem.country || "").toUpperCase();
+                        return countryNames[code] || code;
+                      })()}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Référence de transaction */}
+              {(selectedItem.externalRef || selectedItem.transactionReference) && (
+                <div className="flex items-center gap-3 pt-2 border-t">
+                  <Hash className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Référence de transaction</p>
+                    <p className="font-mono text-sm break-all">{selectedItem.externalRef || selectedItem.transactionReference}</p>
                   </div>
                 </div>
               )}
@@ -566,11 +614,17 @@ export default function HistoryPage() {
                 </div>
               </div>
 
-              {selectedItem.description && !selectedItem.isWithdrawalRequest && (
-                <div className="pt-2 border-t">
-                  <p className="text-xs text-muted-foreground mb-1">Description</p>
-                  <p className="text-sm">{selectedItem.description}</p>
-                </div>
+              {/* Description nettoyée (sans nom de fournisseur) */}
+              {selectedItem.description && !selectedItem.isWithdrawalRequest && selectedItem.type !== "payment_received" && (
+                (() => {
+                  const cleaned = cleanDescription(selectedItem.description);
+                  return cleaned ? (
+                    <div className="pt-2 border-t">
+                      <p className="text-xs text-muted-foreground mb-1">Description</p>
+                      <p className="text-sm">{cleaned}</p>
+                    </div>
+                  ) : null;
+                })()
               )}
             </div>
           )}
