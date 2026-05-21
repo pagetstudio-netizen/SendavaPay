@@ -8044,6 +8044,14 @@ export async function registerRoutes(
   // PAYDUNYA WEBHOOKS
   // ═══════════════════════════════════════════════════════════════════════════
 
+  // Vérification d'accessibilité — PayDunya ping le callback avec GET/HEAD avant d'envoyer
+  app.all("/api/webhook/paydunya", (req, res, next) => {
+    if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+      return res.status(200).json({ status: "ok" });
+    }
+    next();
+  });
+
   // Webhook PayDunya — Dépôts, Liens de paiement, Partenaires ET Retraits (URL unique)
   app.post("/api/webhook/paydunya", async (req, res) => {
     try {
@@ -8371,6 +8379,14 @@ export async function registerRoutes(
     } catch (err) {
       console.error("❌ PayDunya webhook error:", err);
     }
+  });
+
+  // Vérification d'accessibilité — PayDunya ping le callback avec GET/HEAD avant le retrait
+  app.all("/api/webhook/paydunya-disburse", (req, res, next) => {
+    if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+      return res.status(200).json({ status: "ok" });
+    }
+    next();
   });
 
   // Webhook PayDunya — Retraits (PUSH disbursement callback)
