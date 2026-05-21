@@ -5084,7 +5084,7 @@ export async function registerRoutes(
             accountAlias: cleanPhone,
             amount: netAmount,
             withdrawMode,
-            callbackUrl: `${process.env.APP_URL || "https://sendavapay.com"}/api/webhook/paydunya-disburse`,
+            callbackUrl: `${process.env.APP_URL || "https://sendavapay.com"}/api/webhook/paydunya`,
             disburseId: pdRef,
           });
 
@@ -5576,7 +5576,7 @@ export async function registerRoutes(
           accountAlias: cleanPhone,
           amount:       netAmount,
           withdrawMode,
-          callbackUrl:  `${appUrl}/api/webhook/paydunya-disburse`,
+          callbackUrl:  `${appUrl}/api/webhook/paydunya`,
           disburseId:   pdRef,
         });
 
