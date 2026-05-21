@@ -1986,6 +1986,133 @@ export async function registerRoutes(
         });
       }
 
+      if (paymentGateway === "paydunya") {
+        const { initiatePayDunySoftPay, formatPhoneForPayDunya, createPayDunyaCheckout } = await import("./paydunya");
+
+        const pdInvoiceParams = {
+          totalAmount: numericAmount,
+          description: `Paiement ${link.title} - ${payerName} (${service.operator} ${service.country})`,
+          storeName: "SendavaPay",
+          callbackUrl: `${baseUrl}/api/webhook/paydunya`,
+          returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}`,
+          cancelUrl: `${baseUrl}/pay/${linkCode}`,
+          customData: { reference: orderId, paymentLinkId: String(link.id), vendeurId: String(link.userId) },
+        };
+
+        const pdSoftPayOp = phoneNumber
+          ? getSoftPayOperator(service.operator || "", service.countryCode || service.country || "")
+          : null;
+
+        if (pdSoftPayOp) {
+          if (pdSoftPayOp.requiresOtp && !otp) {
+            return res.json({
+              success: false,
+              requiresOtp: true,
+              provider: "paydunya",
+              message: `Veuillez générer votre code OTP ${service.operator} et le saisir.`,
+            });
+          }
+
+          const cleanPhone = formatPhoneForPayDunya(phoneNumber!, service.countryCode || "");
+          console.log(`📤 PayDunya SoftPay (pay-link): opérateur=${pdSoftPayOp.slug} téléphone=${cleanPhone}`);
+
+          const spResult = await initiatePayDunySoftPay({
+            operatorName: service.operator || "",
+            countryCode: service.countryCode || service.country || "",
+            phone: cleanPhone,
+            name: payerName,
+            email: payerEmail || "noreply@sendavapay.com",
+            otp: otp || undefined,
+            invoiceParams: pdInvoiceParams,
+          });
+
+          if (!spResult.success) {
+            if (spResult.requiresOtp) {
+              return res.json({ success: false, requiresOtp: true, provider: "paydunya", message: spResult.error || "Code OTP requis." });
+            }
+            return res.status(500).json({ message: spResult.error || "Erreur PayDunya SoftPay" });
+          }
+
+          const invoiceToken = spResult.invoiceToken!;
+
+          await storage.createLeekpayPayment({
+            leekpayPaymentId: invoiceToken,
+            userId: null,
+            paymentLinkId: link.id,
+            amount: numericAmount.toString(),
+            currency: service.currency,
+            type: "payment_link",
+            status: "pending",
+            description: `Paiement ${link.title} - PayDunya SoftPay`,
+            customerEmail: payerEmail,
+            payerName,
+            payerCountry: service.countryCode,
+            paymentMethod: `paydunya_${service.name}`,
+            returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}`,
+          });
+
+          console.log(`✅ PayDunya SoftPay (pay-link): initié token=${invoiceToken} type=${spResult.responseType}`);
+
+          if (spResult.responseType === "redirect" || spResult.responseType === "qr") {
+            return res.json({
+              success: true,
+              payId: invoiceToken,
+              orderId,
+              status: "PENDING",
+              provider: "paydunya",
+              redirectUrl: spResult.redirectUrl,
+              omUrl: spResult.omUrl,
+              message: spResult.message || "Veuillez compléter le paiement.",
+            });
+          }
+
+          return res.json({
+            success: true,
+            payId: invoiceToken,
+            orderId,
+            status: "PENDING",
+            provider: "paydunya",
+            message: spResult.message || "Paiement initié. Veuillez confirmer sur votre téléphone.",
+          });
+        }
+
+        // Pas de SoftPay disponible → checkout PayDunya
+        const pdResult = await createPayDunyaCheckout(pdInvoiceParams);
+        if (!pdResult.success || !pdResult.checkoutUrl || !pdResult.token) {
+          console.error("❌ PayDunya checkout pay-link error:", pdResult.error);
+          return res.status(500).json({ message: pdResult.error || "Erreur lors de la création du paiement PayDunya" });
+        }
+
+        await storage.createLeekpayPayment({
+          leekpayPaymentId: pdResult.token,
+          userId: null,
+          paymentLinkId: link.id,
+          amount: numericAmount.toString(),
+          currency: service.currency,
+          type: "payment_link",
+          status: "pending",
+          description: `Paiement ${link.title} - PayDunya`,
+          customerEmail: payerEmail,
+          payerName,
+          payerCountry: service.countryCode,
+          paymentMethod: `paydunya_${service.name}`,
+          returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}`,
+          paymentUrl: pdResult.checkoutUrl,
+        });
+
+        console.log(`📤 PayDunya (pay-link): Checkout créé token=${pdResult.token}`);
+
+        return res.json({
+          success: true,
+          payId: pdResult.token,
+          orderId,
+          status: "PENDING",
+          provider: "paydunya",
+          checkoutUrl: pdResult.checkoutUrl,
+          message: "Cliquez sur le bouton pour compléter votre paiement.",
+        });
+      }
+
       if (!phoneNumber) {
         return res.status(400).json({ message: "Numéro de téléphone requis" });
       }
@@ -2750,6 +2877,110 @@ export async function registerRoutes(
       return res.json({ status: "PENDING", message: "Paiement en attente de confirmation" });
     } catch (error) {
       console.error("MbiyoPay verify error:", error);
+      return res.json({ status: "PENDING", message: "Vérification en cours..." });
+    }
+  });
+
+  // Vérification d'un paiement PayDunya (dépôt ou lien de paiement)
+  app.get("/api/verify-paydunya/:token", async (req, res) => {
+    try {
+      const { token } = req.params;
+      console.log(`🔍 PayDunya: Vérification token=${token}`);
+
+      const existingPayment = await storage.getLeekpayPaymentById(token);
+      if (existingPayment?.status === "completed") {
+        return res.json({ status: "SUCCESS", message: "Paiement confirmé avec succès!", amount: existingPayment.amount });
+      }
+
+      if (!existingPayment) {
+        return res.json({ status: "PENDING", message: "Paiement en attente..." });
+      }
+
+      const { confirmPayDunyaInvoice } = await import("./paydunya");
+      const result = await confirmPayDunyaInvoice(token);
+      const pdStatus = (result.status || "").toLowerCase();
+
+      if (pdStatus === "completed" || pdStatus === "success" || pdStatus === "paid") {
+        const claimed = await storage.claimLeekpayPayment(token);
+        if (!claimed) {
+          return res.json({ status: "SUCCESS", message: "Paiement déjà traité", amount: existingPayment.amount });
+        }
+
+        const amount = parseFloat(claimed.amount);
+        const settings = await storage.getCommissionSettings();
+
+        if (claimed.type === "deposit" && claimed.userId) {
+          const commissionRate = await getEffectiveFeeRate(claimed.userId, "deposit", settings);
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
+
+          await storage.createTransaction({
+            userId: claimed.userId,
+            type: "deposit",
+            amount: amount.toString(),
+            fee: fee.toString(),
+            netAmount: netAmount.toString(),
+            status: "completed",
+            description: claimed.description || "Dépôt via PayDunya",
+            externalRef: token,
+            paymentMethod: claimed.paymentMethod || "paydunya",
+          });
+
+          await storage.updateUserBalance(claimed.userId, netAmount.toString());
+
+          const depositUser = await storage.getUser(claimed.userId);
+          if (depositUser?.email) {
+            sendDepositEmail(depositUser.email, {
+              userName: depositUser.fullName,
+              amount: netAmount,
+              currency: claimed.currency || "XOF",
+              transactionId: token,
+              phone: claimed.payerPhone || "",
+              operator: claimed.paymentMethod?.replace("paydunya_", "") || "PayDunya",
+            }).catch(err => console.error("Failed to send deposit email:", err));
+          }
+
+          console.log(`✅ PayDunya verify: Dépôt confirmé utilisateur #${claimed.userId}: ${netAmount}`);
+          return res.json({ status: "SUCCESS", message: "Paiement confirmé avec succès!", amount: netAmount });
+
+        } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
+          const commissionRate = getCommissionRate(settings, "payment_received");
+          const fee = Math.round(amount * (commissionRate / 100));
+          const netAmount = amount - fee;
+
+          const link = await storage.getPaymentLink(claimed.paymentLinkId);
+          if (link) {
+            await storage.updatePaymentLink(link.id, { paidAt: new Date(), paidAmount: amount.toString() });
+            await storage.createTransaction({
+              userId: link.userId,
+              type: "payment_received",
+              amount: amount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: `Paiement reçu - ${link.title}`,
+              externalRef: token,
+              paymentMethod: claimed.paymentMethod || "paydunya",
+              payerName: claimed.payerName,
+              payerEmail: claimed.customerEmail,
+              payerCountry: claimed.payerCountry,
+              paymentLinkId: link.id,
+            });
+            await storage.updateUserBalance(link.userId, netAmount.toString());
+          }
+          return res.json({ status: "SUCCESS", message: "Paiement confirmé!", amount: netAmount });
+        }
+
+        return res.json({ status: "SUCCESS", message: "Paiement confirmé!", amount });
+
+      } else if (pdStatus === "cancelled" || pdStatus === "failed" || pdStatus === "expired") {
+        await storage.updateLeekpayPayment(token, { status: "failed" });
+        return res.json({ status: "FAILURE", message: "Le paiement a échoué ou été annulé." });
+      }
+
+      return res.json({ status: "PENDING", message: "Paiement en attente de confirmation..." });
+    } catch (error) {
+      console.error("PayDunya verify error:", error);
       return res.json({ status: "PENDING", message: "Vérification en cours..." });
     }
   });
@@ -6380,6 +6611,17 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Get platform balance error:", error);
       res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // PayDunya connectivity test — returns URL + credential status + HTTP test
+  app.get("/api/admin/paydunya-test", requireAdmin, async (req, res) => {
+    try {
+      const { testPayDunyaConnectivity } = await import("./paydunya");
+      const result = await testPayDunyaConnectivity();
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ ok: false, error: error.message || "Erreur interne" });
     }
   });
 

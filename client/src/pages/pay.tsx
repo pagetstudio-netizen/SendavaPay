@@ -31,6 +31,7 @@ import {
   Info,
   Phone,
   KeyRound,
+  ExternalLink,
 } from "lucide-react";
 const COUNTRY_PREFIXES: Record<string, string> = {
   CI: "+225", BJ: "+229", TG: "+228", BF: "+226",
@@ -121,7 +122,8 @@ export default function PaymentPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
   const [currentOrderId, setCurrentOrderId] = useState("");
-  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "maishapay" | "omnipay" | "paxity" | "mbiyopay">("soleaspay");
+  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "maishapay" | "omnipay" | "paxity" | "mbiyopay" | "paydunya">("soleaspay");
+  const [paydunyaActionUrl, setPaydunyaActionUrl] = useState<string | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
   const maxPollingAttempts = 40;
@@ -184,6 +186,8 @@ export default function PaymentPage() {
         ? `/api/verify-paxity/${currentPayId}`
         : currentProvider === "mbiyopay"
         ? `/api/verify-mbiyopay/${currentPayId}`
+        : currentProvider === "paydunya"
+        ? `/api/verify-paydunya/${currentPayId}`
         : `/api/verify-link-soleaspay/${currentOrderId}/${currentPayId}`;
       const response = await fetch(verifyUrl);
       const data = await response.json();
@@ -292,23 +296,25 @@ export default function PaymentPage() {
         setCurrentProvider(provider);
         
         if ((provider === "omnipay" || provider === "paxity") && data.checkoutUrl) {
-          toast({
-            title: "Redirection en cours",
-            description: "Vous allez être redirigé vers la page de paiement.",
-          });
           window.open(data.checkoutUrl, "_blank");
           setStep("processing");
           pollingAttemptsRef.current = 0;
           setVerificationMessage("Complétez le paiement sur la page de paiement, puis revenez ici.");
         } else if (data.isWave && data.waveUrl) {
-          toast({
-            title: "Redirection vers Wave",
-            description: "Vous allez être redirigé vers l'application Wave pour confirmer le paiement.",
-          });
           window.open(data.waveUrl, "_blank");
           setStep("processing");
           pollingAttemptsRef.current = 0;
           setVerificationMessage("Confirmez le paiement dans l'application Wave, puis revenez ici.");
+        } else if (provider === "paydunya" && data.redirectUrl) {
+          setPaydunyaActionUrl(data.redirectUrl);
+          setStep("processing");
+          pollingAttemptsRef.current = 0;
+          setVerificationMessage(data.message || "Cliquez sur le bouton ci-dessous pour compléter le paiement.");
+        } else if (provider === "paydunya" && data.checkoutUrl) {
+          setPaydunyaActionUrl(data.checkoutUrl);
+          setStep("processing");
+          pollingAttemptsRef.current = 0;
+          setVerificationMessage("Cliquez sur le bouton ci-dessous pour payer via PayDunya.");
         } else {
           setStep("processing");
           pollingAttemptsRef.current = 0;
@@ -419,6 +425,7 @@ export default function PaymentPage() {
     setVerificationMessage("");
     setCurrentOrderId("");
     setCurrentPayId("");
+    setPaydunyaActionUrl(null);
     localStorage.removeItem("soleaspay_link_payment");
     pollingAttemptsRef.current = 0;
     if (pollingRef.current) {
@@ -520,6 +527,14 @@ export default function PaymentPage() {
                   {verificationMessage || "Veuillez confirmer le paiement sur votre téléphone."}
                 </p>
               </div>
+              {paydunyaActionUrl && (
+                <a href={paydunyaActionUrl} target="_blank" rel="noopener noreferrer" className="w-full block">
+                  <Button variant="outline" className="w-full border-blue-400 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950" data-testid="button-paydunya-action">
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    Ouvrir la page de paiement
+                  </Button>
+                </a>
+              )}
               <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
                 <Clock className="h-4 w-4" />
                 <span>Vérification automatique toutes les 3 secondes</span>
