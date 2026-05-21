@@ -66,6 +66,7 @@ import {
   notifyWalletExchangeRejected,
   answerCallbackQuery,
   editMessageRemoveButton,
+  notifyAdminBalanceAdjustment,
 } from "./telegram";
 
 function getCommissionRate(settings: any, transactionType: string, countryOverride?: string | number | null): number {
@@ -8705,7 +8706,24 @@ export async function registerRoutes(
           relatedId: userId,
         });
       }
-      
+
+      // Telegram notification with undo button
+      const adminUser = await storage.getUser(req.session.userId!).catch(() => null);
+      const walletCurrency = walletId
+        ? (await storage.getWalletById(parseInt(walletId)).catch(() => null))?.currency
+        : undefined;
+      notifyAdminBalanceAdjustment({
+        adminName: adminUser?.fullName || `Admin #${req.session.userId}`,
+        targetName: user.fullName,
+        targetId: userId,
+        targetType: "user",
+        walletId: walletId ? parseInt(walletId) : undefined,
+        amount: numericAmount,
+        currency: walletCurrency ?? undefined,
+        operation: operation as "add" | "subtract",
+        reason,
+      });
+
       res.json({ message: "Solde modifié avec succès", newBalance });
     } catch (error) {
       console.error("Modify balance error:", error);
@@ -8752,6 +8770,18 @@ export async function registerRoutes(
 
       const newBalance = currentBalance + delta;
       console.log(`✅ Admin: Solde partenaire #${partnerId} ${operation === "add" ? "crédité" : "débité"} de ${numericAmount} → ${newBalance}`);
+
+      // Telegram notification with undo button
+      const adminUserP = await storage.getUser(req.session.userId!).catch(() => null);
+      notifyAdminBalanceAdjustment({
+        adminName: adminUserP?.fullName || `Admin #${req.session.userId}`,
+        targetName: partner.name,
+        targetId: partnerId,
+        targetType: "partner",
+        amount: numericAmount,
+        operation: operation as "add" | "subtract",
+        reason,
+      });
 
       res.json({ message: "Solde modifié avec succès", newBalance });
     } catch (error) {
@@ -8858,6 +8888,73 @@ export async function registerRoutes(
             } catch {
               await answerCallbackQuery(cbq.id, "❌ Erreur lors du blocage.", true);
             }
+          }
+        } else if (callbackData.startsWith("uua:")) {
+          // Undo user balance adjustment: uua:userId:walletId:amount:originalOp
+          const parts = callbackData.split(":");
+          const targetUserId = parseInt(parts[1]);
+          const targetWalletId = parseInt(parts[2]);
+          const adjAmount = parts[3];
+          const originalOp = parts[4]; // "add" or "subtract"
+          const reverseOp = originalOp === "add" ? "subtract" : "add";
+          const numAmount = parseFloat(adjAmount);
+          try {
+            if (targetWalletId && targetWalletId !== 0) {
+              if (reverseOp === "add") {
+                await storage.creditWalletById(targetWalletId, adjAmount);
+              } else {
+                await storage.debitWallet(targetWalletId, adjAmount);
+              }
+            }
+            const targetUser = await storage.getUser(targetUserId);
+            if (targetUser) {
+              const curBal = parseFloat(targetUser.balance);
+              const newBal = reverseOp === "add" ? curBal + numAmount : Math.max(0, curBal - numAmount);
+              await storage.setUserBalance(targetUserId, newBal.toString());
+              await storage.createTransaction({
+                userId: targetUserId,
+                type: reverseOp === "add" ? "deposit" : "withdrawal",
+                amount: adjAmount,
+                fee: "0",
+                netAmount: adjAmount,
+                status: "completed",
+                description: "Annulation ajustement admin (via Telegram)",
+              });
+            }
+            const actionLbl = reverseOp === "add" ? "Crédit" : "Débit";
+            await answerCallbackQuery(cbq.id, `✅ ${actionLbl} de ${numAmount.toLocaleString("fr-FR")} appliqué.`, true);
+            if (chatId && messageId) {
+              await editMessageRemoveButton(chatId, messageId, originalText + `\n\n<b>↩️ OPÉRATION ANNULÉE via Telegram (${actionLbl} de ${numAmount.toLocaleString("fr-FR")} FCFA)</b>`);
+            }
+          } catch {
+            await answerCallbackQuery(cbq.id, "❌ Erreur lors de l'annulation.", true);
+          }
+        } else if (callbackData.startsWith("upa:")) {
+          // Undo partner balance adjustment: upa:partnerId:amount:originalOp
+          const parts = callbackData.split(":");
+          const targetPartnerId = parseInt(parts[1]);
+          const adjAmount = parts[2];
+          const originalOp = parts[3]; // "add" or "subtract"
+          const reverseOp = originalOp === "add" ? "subtract" : "add";
+          const numAmount = parseFloat(adjAmount);
+          try {
+            const delta = reverseOp === "add" ? numAmount : -numAmount;
+            const { db: dbP } = await import("./db");
+            const { sql: sqlP } = await import("drizzle-orm");
+            await dbP.execute(sqlP`UPDATE partners SET balance = balance + ${delta.toString()} WHERE id = ${targetPartnerId}`);
+            await storage.createPartnerLog({
+              partnerId: targetPartnerId,
+              action: "system",
+              details: `Annulation ajustement admin via Telegram: ${reverseOp === "add" ? "Crédit" : "Débit"} de ${numAmount.toLocaleString("fr-FR")} FCFA`,
+              ipAddress: "telegram",
+            });
+            const actionLbl = reverseOp === "add" ? "Crédit" : "Débit";
+            await answerCallbackQuery(cbq.id, `✅ ${actionLbl} de ${numAmount.toLocaleString("fr-FR")} FCFA appliqué.`, true);
+            if (chatId && messageId) {
+              await editMessageRemoveButton(chatId, messageId, originalText + `\n\n<b>↩️ OPÉRATION ANNULÉE via Telegram (${actionLbl} de ${numAmount.toLocaleString("fr-FR")} FCFA)</b>`);
+            }
+          } catch {
+            await answerCallbackQuery(cbq.id, "❌ Erreur lors de l'annulation.", true);
           }
         }
         return res.json({ ok: true });

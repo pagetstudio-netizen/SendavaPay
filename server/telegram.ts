@@ -31,8 +31,12 @@ async function sendTelegramMessage(text: string): Promise<boolean> {
   }
 }
 
-// Send a message with an inline "Bloquer IP" button
-async function sendTelegramAlert(text: string, ip?: string): Promise<boolean> {
+// Send a message with optional inline buttons (IP block + custom buttons)
+async function sendTelegramAlert(
+  text: string,
+  ip?: string,
+  extraButtons?: Array<{ text: string; callback_data: string }>
+): Promise<boolean> {
   const TELEGRAM_BOT_TOKEN = getCredential("TELEGRAM_BOT_TOKEN");
   const TELEGRAM_CHAT_ID = getCredential("TELEGRAM_CHAT_ID");
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return false;
@@ -43,13 +47,12 @@ async function sendTelegramAlert(text: string, ip?: string): Promise<boolean> {
       parse_mode: "HTML",
       disable_web_page_preview: true,
     };
-    if (ip) {
-      body.reply_markup = {
-        inline_keyboard: [[
-          { text: "🚫 Bloquer cette IP", callback_data: `block_ip:${ip}` },
-        ]],
-      };
-    }
+
+    const rows: Array<Array<{ text: string; callback_data: string }>> = [];
+    if (extraButtons && extraButtons.length > 0) rows.push(extraButtons);
+    if (ip) rows.push([{ text: "🚫 Bloquer cette IP", callback_data: `block_ip:${ip}` }]);
+    if (rows.length > 0) body.reply_markup = { inline_keyboard: rows };
+
     const response = await fetch(
       `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
@@ -588,6 +591,44 @@ export function notifyAdminLoginAttempt(data: {
 
   sendTelegramAlert(msg, data.ip).catch(err =>
     console.error("[Telegram] Admin login attempt notification error:", err)
+  );
+}
+
+// Admin balance adjustment notification with undo button
+export function notifyAdminBalanceAdjustment(data: {
+  adminName: string;
+  targetName: string;
+  targetId: number;
+  targetType: "user" | "partner";
+  walletId?: number;
+  amount: number;
+  currency?: string;
+  operation: "add" | "subtract";
+  reason: string;
+}) {
+  const isCredit = data.operation === "add";
+  const emoji = isCredit ? "💰" : "💸";
+  const label = isCredit ? "CRÉDIT ADMIN" : "DÉBIT ADMIN";
+  const undoLabel = isCredit ? "↩️ Annuler (débiter)" : "↩️ Annuler (recréditer)";
+
+  // Compact callback_data (Telegram limit: 64 bytes)
+  // uua = undo user adjustment, upa = undo partner adjustment
+  const undoCallback =
+    data.targetType === "user"
+      ? `uua:${data.targetId}:${data.walletId ?? 0}:${data.amount}:${data.operation}`
+      : `upa:${data.targetId}:${data.amount}:${data.operation}`;
+
+  const msg =
+    `<b>${emoji} ${label}</b>\n\n` +
+    `<b>Admin:</b> ${data.adminName}\n` +
+    `<b>${data.targetType === "user" ? "Utilisateur" : "Partenaire"}:</b> ${data.targetName} (#${data.targetId})\n` +
+    `<b>Montant:</b> ${data.amount.toLocaleString("fr-FR")}${data.currency ? " " + data.currency : " FCFA"}\n` +
+    (data.walletId ? `<b>Portefeuille:</b> #${data.walletId}\n` : "") +
+    `<b>Raison:</b> ${data.reason}\n` +
+    `<b>Date:</b> ${formatDate()}`;
+
+  sendTelegramAlert(msg, undefined, [{ text: undoLabel, callback_data: undoCallback }]).catch(err =>
+    console.error("[Telegram] Admin balance adjustment notification error:", err)
   );
 }
 
