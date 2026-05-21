@@ -49,8 +49,6 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  Eye,
-  EyeOff,
   Ban,
   Unlock,
   Trash2,
@@ -80,6 +78,10 @@ import {
   Activity,
   Loader2,
   CheckCircle2,
+  Sparkles,
+  Send,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { PartnersContent } from "@/pages/admin/partners";
 import type { 
@@ -5372,6 +5374,238 @@ function WalletExchangesContent() {
   );
 }
 
+function EmailBroadcastContent() {
+  const { toast } = useToast();
+  const [subject, setSubject] = useState("");
+  const [bodyHtml, setBodyHtml] = useState("");
+  const [buttonText, setButtonText] = useState("");
+  const [buttonUrl, setButtonUrl] = useState("");
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [preview, setPreview] = useState(false);
+  const [sent, setSent] = useState<number | null>(null);
+
+  const { data: users } = useQuery<UserType[]>({ queryKey: ["/api/admin/users"] });
+  const userCount = (users || []).filter((u: any) => u.email?.includes("@")).length;
+
+  const generateMutation = useMutation({
+    mutationFn: async (prompt: string) => {
+      const res = await apiRequest("POST", "/api/admin/generate-email-content", { prompt });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      if (data.subject) setSubject(data.subject);
+      if (data.bodyHtml) setBodyHtml(data.bodyHtml);
+      if (data.buttonText && data.buttonText !== "null") setButtonText(data.buttonText);
+      if (data.buttonUrl && data.buttonUrl !== "null") setButtonUrl(data.buttonUrl);
+      toast({ title: "✅ Contenu généré", description: "Vérifiez et modifiez si nécessaire." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur IA", description: err.message || "Échec de la génération", variant: "destructive" });
+    },
+  });
+
+  const broadcastMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/broadcast-email", {
+        subject,
+        bodyHtml,
+        buttonText: buttonText.trim() || undefined,
+        buttonUrl: buttonUrl.trim() || undefined,
+      });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setSent(data.queued);
+      toast({ title: "📧 Envoi lancé", description: data.message });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur d'envoi", description: err.message || "Échec", variant: "destructive" });
+    },
+  });
+
+  const previewHtml = `
+    <div style="font-family:Segoe UI,sans-serif;max-width:560px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+      <div style="background:linear-gradient(135deg,#059669,#10b981);padding:24px;text-align:center;">
+        <h1 style="color:#fff;margin:0;font-size:22px;">SendavaPay</h1>
+      </div>
+      <div style="padding:32px 28px;">
+        <p style="margin-top:0;">Bonjour [Prénom],</p>
+        ${bodyHtml.split('\n').filter(Boolean).map(l => l.trim().startsWith('<') ? l : `<p>${l}</p>`).join('')}
+        ${buttonText && buttonUrl ? `<p style="text-align:center;"><a href="${buttonUrl}" style="display:inline-block;background:#059669;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">${buttonText}</a></p>` : ''}
+        <p style="margin-bottom:0;">À bientôt,<br/>L'équipe SendavaPay</p>
+      </div>
+      <div style="background:#f9fafb;padding:16px;text-align:center;color:#6b7280;font-size:12px;">
+        <p style="margin:0;">SendavaPay · noreply@sendavapay.com</p>
+      </div>
+    </div>
+  `;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Email Broadcast</h1>
+        <p className="text-muted-foreground">Envoyez un email à tous les utilisateurs inscrits</p>
+      </div>
+
+      {/* Génération IA */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-violet-500" />
+            Générer avec l'IA
+          </CardTitle>
+          <CardDescription>Décrivez le contenu voulu, l'IA rédige l'email complet</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            placeholder="Ex : Annonce de nouvelles fonctionnalités de retrait instantané, encourager les utilisateurs à faire un retrait cette semaine avec un lien vers le dashboard..."
+            value={aiPrompt}
+            onChange={(e) => setAiPrompt(e.target.value)}
+            rows={3}
+            data-testid="textarea-ai-prompt"
+          />
+          <Button
+            onClick={() => generateMutation.mutate(aiPrompt)}
+            disabled={!aiPrompt.trim() || generateMutation.isPending}
+            data-testid="button-generate-ai"
+            className="bg-violet-600 hover:bg-violet-700"
+          >
+            {generateMutation.isPending ? (
+              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Génération...</>
+            ) : (
+              <><Sparkles className="h-4 w-4 mr-2" /> Générer l'email</>
+            )}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Composition */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="h-5 w-5" />
+            Composer l'email
+          </CardTitle>
+          <CardDescription>Remplissez manuellement ou modifiez le contenu généré par l'IA</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="email-subject">Sujet</Label>
+            <Input
+              id="email-subject"
+              placeholder="Objet de l'email..."
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              data-testid="input-email-subject"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="email-body">Corps du message</Label>
+            <p className="text-xs text-muted-foreground">Texte simple ou HTML (balises &lt;p&gt;, &lt;strong&gt;, &lt;ul&gt;, &lt;li&gt;). Le bonjour et la signature sont ajoutés automatiquement.</p>
+            <Textarea
+              id="email-body"
+              placeholder="Contenu de l'email..."
+              value={bodyHtml}
+              onChange={(e) => setBodyHtml(e.target.value)}
+              rows={8}
+              className="font-mono text-sm"
+              data-testid="textarea-email-body"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="cta-text">Texte du bouton (optionnel)</Label>
+              <Input
+                id="cta-text"
+                placeholder="Ex : Accéder à mon compte"
+                value={buttonText}
+                onChange={(e) => setButtonText(e.target.value)}
+                data-testid="input-button-text"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cta-url">URL du bouton</Label>
+              <Input
+                id="cta-url"
+                placeholder="https://sendavapay.com/..."
+                value={buttonUrl}
+                onChange={(e) => setButtonUrl(e.target.value)}
+                data-testid="input-button-url"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Prévisualisation */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Eye className="h-5 w-5" />
+              Prévisualisation
+            </CardTitle>
+            <Button variant="outline" size="sm" onClick={() => setPreview(!preview)} data-testid="button-toggle-preview">
+              {preview ? <><EyeOff className="h-4 w-4 mr-1" /> Masquer</> : <><Eye className="h-4 w-4 mr-1" /> Afficher</>}
+            </Button>
+          </div>
+        </CardHeader>
+        {preview && (
+          <CardContent>
+            <div
+              className="border rounded-lg p-4 bg-gray-50"
+              dangerouslySetInnerHTML={{ __html: previewHtml }}
+            />
+          </CardContent>
+        )}
+      </Card>
+
+      {/* Envoi */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Send className="h-5 w-5" />
+            Envoyer
+          </CardTitle>
+          <CardDescription>
+            {userCount > 0
+              ? `${userCount} utilisateur${userCount > 1 ? 's' : ''} avec une adresse email valide`
+              : "Chargement des utilisateurs..."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {sent !== null ? (
+            <div className="flex items-center gap-2 text-emerald-600 font-medium">
+              <CheckCircle2 className="h-5 w-5" />
+              Envoi lancé vers {sent} destinataire{sent > 1 ? 's' : ''}. Vérifiez les logs serveur pour le détail.
+            </div>
+          ) : (
+            <Button
+              onClick={() => broadcastMutation.mutate()}
+              disabled={!subject.trim() || !bodyHtml.trim() || broadcastMutation.isPending || userCount === 0}
+              data-testid="button-send-broadcast"
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {broadcastMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Envoi en cours...</>
+              ) : (
+                <><Send className="h-4 w-4 mr-2" /> Envoyer à {userCount} utilisateur{userCount > 1 ? 's' : ''}</>
+              )}
+            </Button>
+          )}
+        </CardContent>
+        {sent !== null && (
+          <CardFooter>
+            <Button variant="outline" size="sm" onClick={() => { setSent(null); setSubject(""); setBodyHtml(""); setButtonText(""); setButtonUrl(""); setAiPrompt(""); }}>
+              Nouveau broadcast
+            </Button>
+          </CardFooter>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 export default function AdminDashboardPage() {
   const [location] = useLocation();
 
@@ -5384,6 +5618,7 @@ export default function AdminDashboardPage() {
     if (location === "/admin/api-keys") return <ApiKeysContent />;
     if (location === "/admin/commissions") return <CommissionsContent />;
     if (location === "/admin/messaging") return <MessagingContent />;
+    if (location === "/admin/email-broadcast") return <EmailBroadcastContent />;
     if (location === "/admin/reports") return <ReportsContent />;
     if (location === "/admin/settings") return <SettingsContent />;
     if (location === "/admin/withdrawal-numbers") return <WithdrawalNumbersContent />;

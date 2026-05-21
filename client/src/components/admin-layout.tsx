@@ -41,6 +41,7 @@ import {
   Key,
   Handshake,
   RefreshCw,
+  Mail,
 } from "lucide-react";
 import type { AdminNotification as AdminNotificationType, User as UserType } from "@shared/schema";
 
@@ -67,6 +68,7 @@ const navItems: NavItem[] = [
   { title: "Liens de paiement", href: "/admin/payment-links", icon: LinkIcon },
   { title: "Clés API", href: "/admin/api-keys", icon: Key },
   { title: "Message global", href: "/admin/messaging", icon: MessageSquare },
+  { title: "Email Broadcast", href: "/admin/email-broadcast", icon: Mail },
   { title: "Partenaires", href: "/admin/partners", icon: Handshake },
   { title: "Logs & Sécurité", href: "/admin/logs", icon: Shield },
   { title: "Sécurité avancée", href: "/admin/security", icon: Shield },
