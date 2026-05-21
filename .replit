@@ -54,4 +54,3 @@ defaultBucketID = "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567"
 [userenv.shared]
 PUBLIC_OBJECT_SEARCH_PATHS = "public"
 PRIVATE_OBJECT_DIR = ".private"
-SUPABASE_URL = "https://vxucwodistvnlrieqmmq.supabase.co"
