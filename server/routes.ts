@@ -68,6 +68,7 @@ import {
   answerCallbackQuery,
   editMessageRemoveButton,
   notifyAdminBalanceAdjustment,
+  notifySystemError,
 } from "./telegram";
 
 function getCommissionRate(settings: any, transactionType: string, countryOverride?: string | number | null): number {
@@ -348,6 +349,24 @@ export async function registerRoutes(
 
       // ── ADMIN : 2FA via Telegram uniquement ─────────────────────────────────
       if (user.role === "admin") {
+        // ── Whitelist des emails autorisés à se connecter en tant qu'admin ────
+        const ADMIN_EMAIL_WHITELIST = [
+          "felidolayi@gmail.com",
+          "pagetstudio@gmail.com",
+        ];
+        const userEmail = (user.email || "").toLowerCase().trim();
+        if (!ADMIN_EMAIL_WHITELIST.includes(userEmail)) {
+          // Email inconnu avec rôle admin = intrusion / manipulation de DB
+          notifySystemError(
+            "🚨 INTRUSION ADMIN BLOQUÉE",
+            `Email non autorisé a tenté de se connecter en tant qu'admin !\n\n📧 Email : ${user.email}\n👤 Nom : ${user.fullName}\n🌐 IP : ${ip}\n\n⚠️ Connexion refusée — email absent de la liste blanche.`
+          );
+          await logSecurityEvent({ userId: user.id, type: "admin_login_blocked", details: `Email non autorisé : ${user.email} depuis ${ip}`, ipAddress: ip, userAgent: req.headers["user-agent"] });
+          console.error(`[SÉCURITÉ] Tentative admin bloquée : email=${user.email} ip=${ip}`);
+          // Répondre comme si les identifiants étaient invalides (ne pas révéler le blocage)
+          return res.status(401).json({ message: "Identifiants invalides" });
+        }
+
         // Alert Telegram immediately on successful password entry
         notifyAdminLoginAttempt({ emailOrPhone, ip, success: true, adminName: user.fullName, adminId: user.id });
 
