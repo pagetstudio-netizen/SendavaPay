@@ -163,7 +163,7 @@ export default function SecurityDashboard() {
             </CardHeader>
             <CardContent>
               {eventsLoading ? <div className="text-center py-8 text-muted-foreground">Chargement...</div> : (
-                <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
                   {securityEvents.length === 0 && <div className="text-center py-8 text-muted-foreground">Aucun événement</div>}
                   {securityEvents.map(e => {
                     const config = EVENT_LABELS[e.type] || { label: e.type, color: "text-gray-600 bg-gray-50" };
@@ -238,7 +238,7 @@ export default function SecurityDashboard() {
             </CardHeader>
             <CardContent>
               {attemptsLoading ? <div className="text-center py-8 text-muted-foreground">Chargement...</div> : (
-                <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
                   {loginAttempts.length === 0 && <div className="text-center py-8 text-muted-foreground">Aucune tentative</div>}
                   {loginAttempts.map(a => (
                     <div key={a.id} className="flex items-center gap-3 p-3 rounded-lg border text-sm">
