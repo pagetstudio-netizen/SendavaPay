@@ -13,7 +13,7 @@ let db: ReturnType<typeof drizzle> | null = null;
 if (!databaseUrl) {
   console.error("DATABASE_URL is not configured. Database features will be unavailable.");
 } else {
-  const isSupabase = databaseUrl.includes("supabase");
+  const needsSsl = databaseUrl.includes("supabase") || databaseUrl.includes("sslmode");
 
   pool = new Pool({ 
     connectionString: databaseUrl,
@@ -25,7 +25,7 @@ if (!databaseUrl) {
     keepAliveInitialDelayMillis: 5000,
     statement_timeout: 30000,
     query_timeout: 30000,
-    ssl: isSupabase ? { rejectUnauthorized: false } : false,
+    ssl: needsSsl ? { rejectUnauthorized: false } : false,
   });
 
   pool.on('error', (err) => {
