@@ -5,97 +5,111 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/lib/auth-context";
 import { ProtectedRoute, AdminRoute } from "@/lib/protected-route";
-import NotFound from "@/pages/not-found";
-import HomePage from "@/pages/home";
-import AuthPage from "@/pages/auth";
-import PartnerLoginPage from "@/pages/partner/login";
-import PartnerDashboardPage from "@/pages/partner/dashboard";
-import PartnerPublicPage from "@/pages/partner-public";
-import DashboardPage from "@/pages/dashboard/index";
-import DepositPage from "@/pages/dashboard/deposit";
-import WithdrawPage from "@/pages/dashboard/withdraw";
-import PaymentLinksPage from "@/pages/dashboard/payment-links";
-import CreatePaymentLinkPage from "@/pages/dashboard/create-payment-link";
-import EditPaymentLinkPage from "@/pages/dashboard/edit-payment-link";
-import HistoryPage from "@/pages/dashboard/history";
-import KycPage from "@/pages/dashboard/kyc";
-import ApiKeysPage from "@/pages/dashboard/api-keys";
-import SettingsPage from "@/pages/dashboard/settings";
-import DashboardHelpPage from "@/pages/dashboard/help";
-import PaymentPage from "@/pages/pay";
-import PayApiPage from "@/pages/pay-api";
-import SuccessPage from "@/pages/success";
-import PaymentSuccessPage from "@/pages/payment-success";
-import AdminDashboardPage from "@/pages/admin/index";
-import AdminSecurityPage from "@/pages/admin/security";
-import TermsPage from "@/pages/terms";
-import AboutPage from "@/pages/about";
-import HelpPage from "@/pages/help";
-import DocsPage from "@/pages/docs";
-import StatistiquesPage from "@/pages/statistiques";
-import LiensPaiementPage from "@/pages/liens-paiement";
-import AssistancePage from "@/pages/assistance";
-import ApiPaiementPage from "@/pages/api-paiement";
-import ForgotPasswordPage from "@/pages/forgot-password";
-import WalletsPage from "@/pages/dashboard/wallets";
+import { lazy, Suspense } from "react";
+
+const NotFound = lazy(() => import("@/pages/not-found"));
+const HomePage = lazy(() => import("@/pages/home"));
+const AuthPage = lazy(() => import("@/pages/auth"));
+const PartnerLoginPage = lazy(() => import("@/pages/partner/login"));
+const PartnerDashboardPage = lazy(() => import("@/pages/partner/dashboard"));
+const PartnerPublicPage = lazy(() => import("@/pages/partner-public"));
+const DashboardPage = lazy(() => import("@/pages/dashboard/index"));
+const DepositPage = lazy(() => import("@/pages/dashboard/deposit"));
+const WithdrawPage = lazy(() => import("@/pages/dashboard/withdraw"));
+const PaymentLinksPage = lazy(() => import("@/pages/dashboard/payment-links"));
+const CreatePaymentLinkPage = lazy(() => import("@/pages/dashboard/create-payment-link"));
+const EditPaymentLinkPage = lazy(() => import("@/pages/dashboard/edit-payment-link"));
+const HistoryPage = lazy(() => import("@/pages/dashboard/history"));
+const KycPage = lazy(() => import("@/pages/dashboard/kyc"));
+const ApiKeysPage = lazy(() => import("@/pages/dashboard/api-keys"));
+const SettingsPage = lazy(() => import("@/pages/dashboard/settings"));
+const DashboardHelpPage = lazy(() => import("@/pages/dashboard/help"));
+const WalletsPage = lazy(() => import("@/pages/dashboard/wallets"));
+const PaymentPage = lazy(() => import("@/pages/pay"));
+const PayApiPage = lazy(() => import("@/pages/pay-api"));
+const SuccessPage = lazy(() => import("@/pages/success"));
+const PaymentSuccessPage = lazy(() => import("@/pages/payment-success"));
+const AdminDashboardPage = lazy(() => import("@/pages/admin/index"));
+const AdminSecurityPage = lazy(() => import("@/pages/admin/security"));
+const TermsPage = lazy(() => import("@/pages/terms"));
+const AboutPage = lazy(() => import("@/pages/about"));
+const HelpPage = lazy(() => import("@/pages/help"));
+const DocsPage = lazy(() => import("@/pages/docs"));
+const StatistiquesPage = lazy(() => import("@/pages/statistiques"));
+const LiensPaiementPage = lazy(() => import("@/pages/liens-paiement"));
+const AssistancePage = lazy(() => import("@/pages/assistance"));
+const ApiPaiementPage = lazy(() => import("@/pages/api-paiement"));
+const ForgotPasswordPage = lazy(() => import("@/pages/forgot-password"));
+
+function PageLoader() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    </div>
+  );
+}
 
 function Router() {
   return (
-    <Switch>
-      <Route path="/" component={HomePage} />
-      <Route path="/auth" component={AuthPage} />
-      <Route path="/partner/login" component={PartnerLoginPage} />
-      <Route path="/partner/dashboard" component={PartnerDashboardPage} />
-      <Route path="/partner.by_:slug" component={PartnerPublicPage} />
-      <Route path="/pay/:code" component={PaymentPage} />
-      <Route path="/pay/api/:reference" component={PayApiPage} />
-      <Route path="/success" component={SuccessPage} />
-      <Route path="/payment-success" component={PaymentSuccessPage} />
-      <Route path="/terms" component={TermsPage} />
-      <Route path="/about" component={AboutPage} />
-      <Route path="/help" component={HelpPage} />
-      <Route path="/docs" component={DocsPage} />
-      <Route path="/statistiques" component={StatistiquesPage} />
-      <Route path="/liens-de-paiement" component={LiensPaiementPage} />
-      <Route path="/assistance" component={AssistancePage} />
-      <Route path="/api-de-paiement" component={ApiPaiementPage} />
-      <Route path="/forgot-password" component={ForgotPasswordPage} />
-      
-      <ProtectedRoute path="/dashboard" component={DashboardPage} />
-      <ProtectedRoute path="/dashboard/deposit" component={DepositPage} />
-      <ProtectedRoute path="/dashboard/withdraw" component={WithdrawPage} />
-            <ProtectedRoute path="/dashboard/payment-links" component={PaymentLinksPage} />
-      <ProtectedRoute path="/dashboard/payment-links/create" component={CreatePaymentLinkPage} />
-      <ProtectedRoute path="/dashboard/payment-links/edit/:id" component={EditPaymentLinkPage} />
-      <ProtectedRoute path="/dashboard/history" component={HistoryPage} />
-      <ProtectedRoute path="/dashboard/kyc" component={KycPage} />
-      <ProtectedRoute path="/dashboard/api-keys" component={ApiKeysPage} />
-      <ProtectedRoute path="/dashboard/help" component={DashboardHelpPage} />
-      <ProtectedRoute path="/dashboard/settings" component={SettingsPage} />
-      <ProtectedRoute path="/dashboard/wallets" component={WalletsPage} />
-      
-      <AdminRoute path="/admin" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/users" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/transactions" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/withdrawals" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/kyc" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/api-keys" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/commissions" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/withdrawal-numbers" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/countries" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/operators" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/payment-links" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/messaging" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/email-broadcast" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/logs" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/reports" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/partners" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/wallet-exchanges" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/settings" component={AdminDashboardPage} />
-      <AdminRoute path="/admin/security" component={AdminSecurityPage} />
-      
-      <Route component={NotFound} />
-    </Switch>
+    <Suspense fallback={<PageLoader />}>
+      <Switch>
+        <Route path="/" component={HomePage} />
+        <Route path="/auth" component={AuthPage} />
+        <Route path="/partner/login" component={PartnerLoginPage} />
+        <Route path="/partner/dashboard" component={PartnerDashboardPage} />
+        <Route path="/partner.by_:slug" component={PartnerPublicPage} />
+        <Route path="/pay/:code" component={PaymentPage} />
+        <Route path="/pay/api/:reference" component={PayApiPage} />
+        <Route path="/success" component={SuccessPage} />
+        <Route path="/payment-success" component={PaymentSuccessPage} />
+        <Route path="/terms" component={TermsPage} />
+        <Route path="/about" component={AboutPage} />
+        <Route path="/help" component={HelpPage} />
+        <Route path="/docs" component={DocsPage} />
+        <Route path="/statistiques" component={StatistiquesPage} />
+        <Route path="/liens-de-paiement" component={LiensPaiementPage} />
+        <Route path="/assistance" component={AssistancePage} />
+        <Route path="/api-de-paiement" component={ApiPaiementPage} />
+        <Route path="/forgot-password" component={ForgotPasswordPage} />
+
+        <ProtectedRoute path="/dashboard" component={DashboardPage} />
+        <ProtectedRoute path="/dashboard/deposit" component={DepositPage} />
+        <ProtectedRoute path="/dashboard/withdraw" component={WithdrawPage} />
+        <ProtectedRoute path="/dashboard/payment-links" component={PaymentLinksPage} />
+        <ProtectedRoute path="/dashboard/payment-links/create" component={CreatePaymentLinkPage} />
+        <ProtectedRoute path="/dashboard/payment-links/edit/:id" component={EditPaymentLinkPage} />
+        <ProtectedRoute path="/dashboard/history" component={HistoryPage} />
+        <ProtectedRoute path="/dashboard/kyc" component={KycPage} />
+        <ProtectedRoute path="/dashboard/api-keys" component={ApiKeysPage} />
+        <ProtectedRoute path="/dashboard/help" component={DashboardHelpPage} />
+        <ProtectedRoute path="/dashboard/settings" component={SettingsPage} />
+        <ProtectedRoute path="/dashboard/wallets" component={WalletsPage} />
+
+        <AdminRoute path="/admin" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/users" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/transactions" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/withdrawals" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/kyc" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/api-keys" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/commissions" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/withdrawal-numbers" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/countries" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/operators" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/payment-links" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/messaging" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/email-broadcast" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/logs" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/reports" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/partners" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/wallet-exchanges" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/settings" component={AdminDashboardPage} />
+        <AdminRoute path="/admin/security" component={AdminSecurityPage} />
+
+        <Route component={NotFound} />
+      </Switch>
+    </Suspense>
   );
 }
 
