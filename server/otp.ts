@@ -39,6 +39,13 @@ export async function ensureOtpTable(): Promise<void> {
   }
 }
 
+// Durée de validité selon le type d'OTP
+const OTP_EXPIRY: Record<string, string> = {
+  admin_login:       "10 minutes",  // Login admin : 10 min (sécurité maximale)
+  credential_update: "15 minutes",  // Modification de clé : 15 min
+  withdrawal:        "30 minutes",  // Retrait : 30 min
+};
+
 export async function createOtp(
   userId: number,
   type: "admin_login" | "withdrawal" | "credential_update",
@@ -49,9 +56,10 @@ export async function createOtp(
 
   const code = generateOtpCode();
   const token = uuidv4();
+  const expiry = OTP_EXPIRY[type] || "10 minutes";
 
   const INSERT_SQL = `INSERT INTO ${OTP_TABLE} (user_id, code, type, token, expires_at, ip_address, metadata)
-     VALUES ($1, $2, $3, $4, NOW() + INTERVAL '24 hours', $5, $6)`;
+     VALUES ($1, $2, $3, $4, NOW() + INTERVAL '${expiry}', $5, $6)`;
   const params = [userId, code, type, token, ipAddress, metadata ? JSON.stringify(metadata) : null];
 
   const client = await pool.connect();
@@ -82,7 +90,8 @@ export async function createOtp(
 export async function verifyOtp(
   token: string,
   code: string,
-  type: "admin_login" | "withdrawal" | "credential_update"
+  type: "admin_login" | "withdrawal" | "credential_update",
+  callerIp?: string
 ): Promise<{ valid: boolean; userId?: number; metadata?: Record<string, unknown>; errorMsg?: string }> {
   if (!pool) return { valid: false, errorMsg: "Base de données non disponible" };
 
@@ -90,8 +99,9 @@ export async function verifyOtp(
   try {
     let result;
     try {
+      // ── Vérifie expiration directement en SQL ────────────────────────────────
       result = await client.query(
-        `SELECT * FROM ${OTP_TABLE} WHERE token=$1 AND type=$2 LIMIT 1`,
+        `SELECT * FROM ${OTP_TABLE} WHERE token=$1 AND type=$2 AND expires_at > NOW() LIMIT 1`,
         [token, type]
       );
     } catch (err: any) {
@@ -103,8 +113,16 @@ export async function verifyOtp(
     const otp = result.rows[0];
     if (!otp) return { valid: false, errorMsg: "Code invalide ou expiré" };
     if (otp.used_at) return { valid: false, errorMsg: "Ce code a déjà été utilisé" };
+
+    // ── Vérification IP pour les actions sensibles (admin_login, credential_update) ──
+    if (callerIp && type !== "withdrawal" && otp.ip_address && otp.ip_address !== callerIp) {
+      console.warn(`[OTP] Tentative depuis IP différente : attendu=${otp.ip_address} reçu=${callerIp}`);
+      return { valid: false, errorMsg: "Accès refusé : adresse IP différente de la demande initiale" };
+    }
+
     if (otp.code !== code) return { valid: false, errorMsg: "Code incorrect" };
 
+    // ── Marquer comme utilisé immédiatement (usage unique) ───────────────────
     await client.query(`UPDATE ${OTP_TABLE} SET used_at=NOW() WHERE id=$1`, [otp.id]);
 
     let metadata: Record<string, unknown> | undefined;

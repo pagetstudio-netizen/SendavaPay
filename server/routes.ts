@@ -390,7 +390,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Token et code requis" });
       }
 
-      const result = await verifyOtp(tempToken, code.trim(), "admin_login");
+      const result = await verifyOtp(tempToken, code.trim(), "admin_login", ip);
       if (!result.valid) {
         await logSecurityEvent({ type: "admin_otp_failed", details: result.errorMsg, ipAddress: ip });
         return res.status(401).json({ message: result.errorMsg || "Code invalide" });
@@ -7581,7 +7581,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
       const { token, code } = req.body as { token: string; code: string };
       if (!token || !code) return res.status(400).json({ message: "Token et code requis" });
 
-      const result = await verifyOtp(token, code.trim(), "credential_update");
+      const result = await verifyOtp(token, code.trim(), "credential_update", getClientIp(req));
       if (!result.valid) {
         return res.status(400).json({ message: result.errorMsg || "Code invalide ou expiré" });
       }
