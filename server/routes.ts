@@ -9853,7 +9853,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     const { pool: dbPool } = await import("./db");
     if (!dbPool) return res.json([]);
     const client = await dbPool.connect();
-    const result = await client.query(`SELECT * FROM security_events ORDER BY created_at DESC LIMIT 100`);
+    const result = await client.query(`SELECT * FROM security_events ORDER BY created_at DESC LIMIT 500`);
     client.release();
     res.json(result.rows);
   });
@@ -9862,7 +9862,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     const { pool: dbPool } = await import("./db");
     if (!dbPool) return res.json([]);
     const client = await dbPool.connect();
-    const result = await client.query(`SELECT * FROM login_attempts ORDER BY created_at DESC LIMIT 200`);
+    const result = await client.query(`SELECT * FROM login_attempts ORDER BY created_at DESC LIMIT 500`);
     client.release();
     res.json(result.rows);
   });
