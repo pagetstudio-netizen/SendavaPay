@@ -59,7 +59,7 @@ export async function createOtp(
   const expiry = OTP_EXPIRY[type] || "10 minutes";
 
   const INSERT_SQL = `INSERT INTO ${OTP_TABLE} (user_id, code, type, token, expires_at, ip_address, metadata)
-     VALUES ($1, $2, $3, $4, NOW() + INTERVAL '${expiry}', $5, $6)`;
+     VALUES ($1, $2, $3, $4, (NOW() AT TIME ZONE 'UTC') + INTERVAL '${expiry}', $5, $6)`;
   const params = [userId, code, type, token, ipAddress, metadata ? JSON.stringify(metadata) : null];
 
   const client = await pool.connect();
@@ -101,7 +101,7 @@ export async function verifyOtp(
     try {
       // ── Vérifie expiration directement en SQL ────────────────────────────────
       result = await client.query(
-        `SELECT * FROM ${OTP_TABLE} WHERE token=$1 AND type=$2 AND expires_at > NOW() LIMIT 1`,
+        `SELECT * FROM ${OTP_TABLE} WHERE token=$1 AND type=$2 AND expires_at > (NOW() AT TIME ZONE 'UTC') LIMIT 1`,
         [token, type]
       );
     } catch (err: any) {
@@ -139,7 +139,7 @@ export async function cleanExpiredOtps(): Promise<void> {
   if (!pool) return;
   const client = await pool.connect();
   try {
-    await client.query(`DELETE FROM ${OTP_TABLE} WHERE expires_at < NOW() - INTERVAL '1 hour'`);
+    await client.query(`DELETE FROM ${OTP_TABLE} WHERE expires_at < (NOW() AT TIME ZONE 'UTC') - INTERVAL '1 hour'`);
   } catch { /* ignore if table doesn't exist yet */ }
   finally {
     client.release();
