@@ -13,8 +13,21 @@ let db: ReturnType<typeof drizzle> | null = null;
 if (!databaseUrl) {
   console.error("DATABASE_URL is not configured. Database features will be unavailable.");
 } else {
+  // Strip ?sslmode=... from the URL so it doesn't conflict with the ssl config object.
+  // node-postgres parses sslmode from the URL and overrides the ssl object passed to Pool,
+  // which causes "self-signed certificate" errors even when rejectUnauthorized: false is set.
+  const cleanUrl = databaseUrl
+    .replace(/[?&]sslmode=[^&]*/g, '')
+    .replace(/\?&/, '?')
+    .replace(/\?$/, '');
+
+  // Use SSL with rejectUnauthorized:false only for Supabase (which uses a self-signed CA).
+  // Replit's built-in PostgreSQL does not support SSL at all.
+  const useSSL = databaseUrl.includes("supabase");
+  console.log(`[db] SSL: ${useSSL ? "enabled (rejectUnauthorized=false)" : "disabled"}`);
+
   pool = new Pool({ 
-    connectionString: databaseUrl,
+    connectionString: cleanUrl,
     max: 8,
     min: 1,
     idleTimeoutMillis: 60000,
@@ -23,7 +36,7 @@ if (!databaseUrl) {
     keepAliveInitialDelayMillis: 5000,
     statement_timeout: 30000,
     query_timeout: 30000,
-    ssl: { rejectUnauthorized: false },
+    ssl: useSSL ? { rejectUnauthorized: false } : false,
   });
 
   pool.on('error', (err) => {
