@@ -1486,7 +1486,7 @@ export class DatabaseStorage implements IStorage {
     return wallet;
   }
 
-  async createPartnerWalletExchange(data: { partnerId: number; fromWalletId: number; toWalletId: number; fromCountryCode: string; toCountryCode: string; currency: string; amount: string }): Promise<PartnerWalletExchange> {
+  async createPartnerWalletExchange(data: { partnerId: number; fromWalletId: number; toWalletId: number; fromCountryCode: string; toCountryCode: string; currency: string; amount: string; feeRate?: string; feeAmount?: string; netAmount?: string }): Promise<PartnerWalletExchange> {
     const [created] = await getDb().insert(partnerWalletExchanges).values(data).returning();
     return created;
   }

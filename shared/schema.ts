@@ -749,6 +749,9 @@ export const partnerWalletExchanges = pgTable("partner_wallet_exchanges", {
   toCountryCode: text("to_country_code").notNull(),
   currency: text("currency").notNull(),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
+  feeRate: decimal("fee_rate", { precision: 5, scale: 2 }),
+  feeAmount: decimal("fee_amount", { precision: 15, scale: 2 }),
+  netAmount: decimal("net_amount", { precision: 15, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

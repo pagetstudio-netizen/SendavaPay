@@ -2280,6 +2280,9 @@ export function registerPartnerRoutes(app: Express) {
         toCountryCode: toWallet.countryCode,
         currency: fromWallet.currency,
         amount: numAmount.toString(),
+        feeRate: feeRate.toString(),
+        feeAmount: feeAmount.toString(),
+        netAmount: netAmount.toString(),
       });
 
       // Log des frais prélevés

@@ -753,23 +753,45 @@ function PartnerWalletsSection() {
             </CardTitle>
             <CardDescription>Les 20 derniers échanges entre portefeuilles</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
+          <CardContent className="p-0">
+            <div className="divide-y">
               {exchanges.map((ex: any) => {
                 const fromFlag = FLAG_MAP[ex.fromCountryCode] || "🌍";
                 const toFlag = FLAG_MAP[ex.toCountryCode] || "🌍";
+                const hasFee = ex.feeRate != null && parseFloat(ex.feeRate) > 0;
+                const feeAmt = ex.feeAmount ? parseFloat(ex.feeAmount) : null;
+                const netAmt = ex.netAmount ? parseFloat(ex.netAmount) : parseFloat(ex.amount);
+                const grossAmt = parseFloat(ex.amount);
                 return (
-                  <div key={ex.id} className="flex items-center justify-between py-2 border-b last:border-0">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span>{fromFlag}</span>
-                      <span className="text-muted-foreground">{ex.fromCountryCode}</span>
-                      <ArrowLeftRight className="h-3 w-3 text-muted-foreground" />
-                      <span>{toFlag}</span>
-                      <span className="text-muted-foreground">{ex.toCountryCode}</span>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-sm">{formatWalletAmount(ex.amount, ex.currency)}</p>
-                      <p className="text-xs text-muted-foreground">{formatWalletDate(ex.createdAt)}</p>
+                  <div key={ex.id} className="px-6 py-4" data-testid={`row-exchange-${ex.id}`}>
+                    <div className="flex items-start justify-between gap-4">
+                      {/* Sens de l'échange */}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="flex items-center gap-1.5 text-sm font-medium">
+                          <span className="text-lg">{fromFlag}</span>
+                          <span>{ex.fromCountryCode}</span>
+                        </div>
+                        <ArrowLeftRight className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                        <div className="flex items-center gap-1.5 text-sm font-medium">
+                          <span className="text-lg">{toFlag}</span>
+                          <span>{ex.toCountryCode}</span>
+                        </div>
+                      </div>
+                      {/* Montants */}
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-xs text-muted-foreground">{formatWalletDate(ex.createdAt)}</p>
+                        <p className="font-semibold text-sm mt-0.5" data-testid={`text-exchange-amount-${ex.id}`}>
+                          {formatWalletAmount(grossAmt.toString(), ex.currency)} envoyés
+                        </p>
+                        {hasFee && feeAmt !== null && (
+                          <p className="text-xs text-destructive">
+                            − {formatWalletAmount(feeAmt.toString(), ex.currency)} frais ({ex.feeRate}%)
+                          </p>
+                        )}
+                        <p className={`text-sm font-bold ${hasFee ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`} data-testid={`text-exchange-net-${ex.id}`}>
+                          {formatWalletAmount(netAmt.toString(), ex.currency)} reçus
+                        </p>
+                      </div>
                     </div>
                   </div>
                 );
