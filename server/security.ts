@@ -312,7 +312,10 @@ export function ipBlockMiddleware(req: Request, res: Response, next: NextFunctio
 // Blocks all IPs from outside Africa AND all VPN/proxy/hosting IPs.
 // Auto-blocks them permanently in the DB and sends a Telegram alert.
 // Prefixes that bypass geo/VPN check (e.g. /pay matches /pay/abc123)
-const GEO_BYPASS_PREFIXES = ["/pay"];
+// /api/sdk  — routes marchands SDK (auth par clé API, IP datacenter légitimes)
+// /api/v1   — API marchands via merchant-api.ts (auth par clé API)
+// /api/partner-page — pages publiques partenaires (accès monde entier)
+const GEO_BYPASS_PREFIXES = ["/pay", "/api/sdk", "/api/v1", "/api/partner-page"];
 
 export function geoAndVpnBlockMiddleware(req: Request, res: Response, next: NextFunction) {
   // Skip exact bypass paths
