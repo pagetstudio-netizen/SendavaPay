@@ -119,7 +119,7 @@ export function PartnersContent() {
   const [showBalanceDialog, setShowBalanceDialog] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<Partner | null>(null);
   const [viewTab, setViewTab] = useState<"logs" | "transactions">("logs");
-  const [balanceForm, setBalanceForm] = useState({ amount: "", operation: "add", reason: "" });
+  const [balanceForm, setBalanceForm] = useState({ amount: "", operation: "add", reason: "", walletId: "" });
 
   const [createForm, setCreateForm] = useState({
     name: "",
@@ -243,19 +243,30 @@ export function PartnersContent() {
   });
 
   const adjustBalanceMutation = useMutation({
-    mutationFn: async ({ id, amount, operation, reason }: { id: number; amount: string; operation: string; reason: string }) => {
-      return await apiRequest("POST", `/api/admin/partners/${id}/adjust-balance`, { amount, operation, reason });
+    mutationFn: async ({ id, amount, operation, reason, walletId }: { id: number; amount: string; operation: string; reason: string; walletId?: string }) => {
+      return await apiRequest("POST", `/api/admin/partners/${id}/adjust-balance`, { amount, operation, reason, walletId: walletId || undefined });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/partners"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/partners", selectedPartner?.id, "wallets"] });
       toast({ title: "Succès", description: "Solde du partenaire modifié avec succès" });
       setShowBalanceDialog(false);
-      setBalanceForm({ amount: "", operation: "add", reason: "" });
+      setBalanceForm({ amount: "", operation: "add", reason: "", walletId: "" });
       setSelectedPartner(null);
     },
     onError: (err: any) => {
       toast({ title: "Erreur", description: err.message || "Échec de la modification du solde", variant: "destructive" });
     },
+  });
+
+  const { data: selectedPartnerWallets } = useQuery<any[]>({
+    queryKey: ["/api/admin/partners", selectedPartner?.id, "wallets"],
+    queryFn: async () => {
+      if (!selectedPartner) return [];
+      const res = await fetch(`/api/admin/partners/${selectedPartner.id}/wallets`, { credentials: "include" });
+      return res.json();
+    },
+    enabled: !!selectedPartner && showBalanceDialog,
   });
 
   const forceCompleteMutation = useMutation({
@@ -990,72 +1001,111 @@ export function PartnersContent() {
       </Dialog>
 
       {/* Dialog modification solde */}
-      <Dialog open={showBalanceDialog} onOpenChange={(open) => { setShowBalanceDialog(open); if (!open) setSelectedPartner(null); }}>
+      <Dialog open={showBalanceDialog} onOpenChange={(open) => { setShowBalanceDialog(open); if (!open) { setSelectedPartner(null); setBalanceForm({ amount: "", operation: "add", reason: "", walletId: "" }); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Modifier le solde — {selectedPartner?.name}</DialogTitle>
           </DialogHeader>
-          {selectedPartner && (
-            <div className="space-y-4">
-              <div className="rounded-lg bg-muted/50 p-3 text-sm">
-                <p className="text-muted-foreground">Solde actuel</p>
-                <p className="text-xl font-bold">{formatCurrency(selectedPartner.balance || 0)}</p>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Opération</Label>
-                <Select
-                  value={balanceForm.operation}
-                  onValueChange={(val) => setBalanceForm({ ...balanceForm, operation: val })}
-                >
-                  <SelectTrigger data-testid="select-balance-operation">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="add">Créditer (ajouter)</SelectItem>
-                    <SelectItem value="subtract">Débiter (soustraire)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="balance-amount">Montant</Label>
-                <Input
-                  id="balance-amount"
-                  type="number"
-                  min="1"
-                  placeholder="Ex: 5000"
-                  value={balanceForm.amount}
-                  onChange={(e) => setBalanceForm({ ...balanceForm, amount: e.target.value })}
-                  data-testid="input-balance-amount"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="balance-reason">Motif</Label>
-                <Textarea
-                  id="balance-reason"
-                  placeholder="Raison de l'ajustement..."
-                  value={balanceForm.reason}
-                  onChange={(e) => setBalanceForm({ ...balanceForm, reason: e.target.value })}
-                  data-testid="input-balance-reason"
-                  rows={2}
-                />
-              </div>
-
-              {balanceForm.amount && parseFloat(balanceForm.amount) > 0 && (
-                <div className={`rounded-lg p-3 text-sm ${balanceForm.operation === "add" ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400" : "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"}`}>
-                  Nouveau solde estimé : <strong>{formatCurrency((parseFloat(selectedPartner.balance as string || "0") + (balanceForm.operation === "add" ? 1 : -1) * parseFloat(balanceForm.amount || "0")))}</strong>
+          {selectedPartner && (() => {
+            const selectedWallet = selectedPartnerWallets?.find((w: any) => w.id.toString() === balanceForm.walletId);
+            const displayBalance = selectedWallet
+              ? parseFloat(selectedWallet.balance)
+              : parseFloat(selectedPartner.balance as string || "0");
+            const displayCurrency = selectedWallet?.currency || "XOF";
+            const delta = (balanceForm.operation === "add" ? 1 : -1) * parseFloat(balanceForm.amount || "0");
+            const newBalance = displayBalance + delta;
+            return (
+              <div className="space-y-4">
+                {/* Sélecteur de wallet */}
+                <div className="space-y-2">
+                  <Label>Portefeuille à modifier</Label>
+                  <Select
+                    value={balanceForm.walletId || "__global__"}
+                    onValueChange={(val) => setBalanceForm({ ...balanceForm, walletId: val === "__global__" ? "" : val, amount: "" })}
+                  >
+                    <SelectTrigger data-testid="select-balance-wallet">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__global__">
+                        🌐 Solde global — {formatCurrency(selectedPartner.balance || 0)}
+                      </SelectItem>
+                      {(selectedPartnerWallets ?? []).map((w: any) => (
+                        <SelectItem key={w.id} value={w.id.toString()} data-testid={`option-wallet-${w.id}`}>
+                          {w.countryCode === "SN" ? "🇸🇳" : w.countryCode === "ML" ? "🇲🇱" : w.countryCode === "CI" ? "🇨🇮" : w.countryCode === "CM" ? "🇨🇲" : w.countryCode === "GN" ? "🇬🇳" : w.countryCode === "BJ" ? "🇧🇯" : w.countryCode === "BF" ? "🇧🇫" : w.countryCode === "TG" ? "🇹🇬" : "🌍"} {w.countryName} ({w.currency}) — {parseFloat(w.balance).toLocaleString("fr-FR")} {w.currency}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedWallet && (
+                    <p className="text-xs text-muted-foreground">
+                      Wallet sélectionné : <strong>{selectedWallet.countryName}</strong> — solde actuel : <strong>{parseFloat(selectedWallet.balance).toLocaleString("fr-FR")} {selectedWallet.currency}</strong>
+                    </p>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
+
+                {/* Opération */}
+                <div className="space-y-2">
+                  <Label>Opération</Label>
+                  <Select
+                    value={balanceForm.operation}
+                    onValueChange={(val) => setBalanceForm({ ...balanceForm, operation: val })}
+                  >
+                    <SelectTrigger data-testid="select-balance-operation">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="add">Créditer (ajouter)</SelectItem>
+                      <SelectItem value="subtract">Débiter (soustraire)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Montant */}
+                <div className="space-y-2">
+                  <Label htmlFor="balance-amount">Montant {selectedWallet ? `(${selectedWallet.currency})` : ""}</Label>
+                  <Input
+                    id="balance-amount"
+                    type="number"
+                    min="1"
+                    placeholder="Ex: 5000"
+                    value={balanceForm.amount}
+                    onChange={(e) => setBalanceForm({ ...balanceForm, amount: e.target.value })}
+                    data-testid="input-balance-amount"
+                  />
+                </div>
+
+                {/* Motif */}
+                <div className="space-y-2">
+                  <Label htmlFor="balance-reason">Motif</Label>
+                  <Textarea
+                    id="balance-reason"
+                    placeholder="Raison de l'ajustement..."
+                    value={balanceForm.reason}
+                    onChange={(e) => setBalanceForm({ ...balanceForm, reason: e.target.value })}
+                    data-testid="input-balance-reason"
+                    rows={2}
+                  />
+                </div>
+
+                {/* Aperçu nouveau solde */}
+                {balanceForm.amount && parseFloat(balanceForm.amount) > 0 && (
+                  <div className={`rounded-lg p-3 text-sm ${balanceForm.operation === "add" ? "bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-400" : "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"}`}>
+                    <span>Nouveau solde {selectedWallet ? `(${selectedWallet.countryName})` : "global"} estimé : </span>
+                    <strong data-testid="text-balance-preview">
+                      {newBalance.toLocaleString("fr-FR")} {displayCurrency}
+                    </strong>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowBalanceDialog(false)}>Annuler</Button>
             <Button
               onClick={() => {
                 if (!selectedPartner || !balanceForm.amount || !balanceForm.reason) return;
-                adjustBalanceMutation.mutate({ id: selectedPartner.id, amount: balanceForm.amount, operation: balanceForm.operation, reason: balanceForm.reason });
+                adjustBalanceMutation.mutate({ id: selectedPartner.id, amount: balanceForm.amount, operation: balanceForm.operation, reason: balanceForm.reason, walletId: balanceForm.walletId || undefined });
               }}
               disabled={adjustBalanceMutation.isPending || !balanceForm.amount || !balanceForm.reason}
               className={balanceForm.operation === "add" ? "bg-green-600 hover:bg-green-700" : "bg-red-600 hover:bg-red-700"}
