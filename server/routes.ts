@@ -9496,10 +9496,21 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     }
   });
 
+  app.get("/api/admin/partners/:id/wallets", requireAdmin, async (req, res) => {
+    try {
+      const partnerId = parseInt(req.params.id);
+      const wallets = await storage.getPartnerWallets(partnerId);
+      res.json(wallets);
+    } catch (error) {
+      console.error("Get partner wallets error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.post("/api/admin/partners/:id/adjust-balance", requireAdmin, async (req, res) => {
     try {
       const partnerId = parseInt(req.params.id);
-      const { amount, operation, reason } = req.body;
+      const { amount, operation, reason, walletId } = req.body;
 
       if (!amount || !operation || !reason) {
         return res.status(400).json({ message: "Montant, opération et raison requis" });
@@ -9515,21 +9526,68 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         return res.status(404).json({ message: "Partenaire non trouvé" });
       }
 
+      const { db } = await import("./db");
+      const { sql: drizzleSql } = await import("drizzle-orm");
+      const delta = operation === "add" ? numericAmount : -numericAmount;
+
+      // Si un wallet pays est spécifié, ajuster ce wallet ET le solde global
+      if (walletId) {
+        const numericWalletId = parseInt(walletId);
+        const wallet = await storage.getPartnerWalletById(numericWalletId);
+        if (!wallet || wallet.partnerId !== partnerId) {
+          return res.status(404).json({ message: "Portefeuille introuvable" });
+        }
+        const walletBalance = parseFloat(wallet.balance);
+        if (operation === "subtract" && numericAmount > walletBalance) {
+          return res.status(400).json({ message: `Solde insuffisant dans le portefeuille ${wallet.countryName} (disponible: ${walletBalance.toFixed(0)} ${wallet.currency})` });
+        }
+        // Ajuster le wallet pays
+        if (operation === "add") {
+          await storage.creditPartnerWalletById(numericWalletId, numericAmount.toString());
+        } else {
+          await storage.debitPartnerWallet(numericWalletId, numericAmount.toString());
+        }
+        // Ajuster le solde global en parallèle
+        await db.execute(drizzleSql`UPDATE partners SET balance = balance + ${delta.toString()} WHERE id = ${partnerId}`);
+
+        await storage.createPartnerLog({
+          partnerId,
+          action: "system",
+          details: `Ajustement admin (wallet ${wallet.countryName}): ${operation === "add" ? "Crédit" : "Débit"} de ${numericAmount.toLocaleString("fr-FR")} ${wallet.currency} — ${reason}`,
+          ipAddress: req.ip,
+        });
+
+        const newWalletBalance = walletBalance + delta;
+        const newGlobalBalance = parseFloat(partner.balance as string || "0") + delta;
+        console.log(`✅ Admin: Wallet ${wallet.countryName} du partenaire #${partnerId} ${operation === "add" ? "crédité" : "débité"} de ${numericAmount} → ${newWalletBalance}`);
+
+        const adminUserP = await storage.getUser(req.session.userId!).catch(() => null);
+        notifyAdminBalanceAdjustment({
+          adminName: adminUserP?.fullName || `Admin #${req.session.userId}`,
+          targetName: `${partner.name} (wallet ${wallet.countryName})`,
+          targetId: partnerId,
+          targetType: "partner",
+          amount: numericAmount,
+          operation: operation as "add" | "subtract",
+          reason,
+        }).catch(() => {});
+
+        return res.json({ message: "Solde modifié avec succès", newBalance: newGlobalBalance, newWalletBalance, walletId: numericWalletId });
+      }
+
+      // Sinon, ajustement global uniquement (comportement précédent)
       const currentBalance = parseFloat(partner.balance as string || "0");
 
       if (operation === "subtract" && numericAmount > currentBalance) {
         return res.status(400).json({ message: "Solde insuffisant pour effectuer ce débit" });
       }
 
-      const delta = operation === "add" ? numericAmount : -numericAmount;
-      const { db } = await import("./db");
-      const { sql: drizzleSql } = await import("drizzle-orm");
       await db.execute(drizzleSql`UPDATE partners SET balance = balance + ${delta.toString()} WHERE id = ${partnerId}`);
 
       await storage.createPartnerLog({
         partnerId,
         action: "system",
-        details: `Ajustement admin: ${operation === "add" ? "Crédit" : "Débit"} de ${numericAmount.toLocaleString("fr-FR")} — ${reason}`,
+        details: `Ajustement admin (solde global): ${operation === "add" ? "Crédit" : "Débit"} de ${numericAmount.toLocaleString("fr-FR")} — ${reason}`,
         ipAddress: req.ip,
       });
 
