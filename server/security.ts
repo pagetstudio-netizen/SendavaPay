@@ -236,6 +236,75 @@ export function isPrivateIp(ip: string): boolean {
   );
 }
 
+// ─── ALLOWED IPs CACHE (whitelist) ───────────────────────────────────────────
+let allowedIpCache: Set<string> = new Set();
+let allowedCacheLoadedAt = 0;
+const ALLOWED_CACHE_TTL = 60 * 1000;
+
+async function loadAllowedIps(): Promise<void> {
+  if (!pool) return;
+  try {
+    const client = await pool.connect();
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS allowed_ips (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        ip_address TEXT NOT NULL UNIQUE,
+        label TEXT,
+        added_by INTEGER,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    const result = await client.query(`SELECT ip_address FROM allowed_ips`);
+    client.release();
+    allowedIpCache = new Set(result.rows.map((r: any) => r.ip_address));
+    allowedCacheLoadedAt = Date.now();
+  } catch {
+    // DB not ready yet
+  }
+}
+
+export async function reloadAllowedIps(): Promise<void> {
+  await loadAllowedIps();
+}
+
+export function isIpAllowed(ip: string): boolean {
+  if (Date.now() - allowedCacheLoadedAt > ALLOWED_CACHE_TTL) {
+    loadAllowedIps().catch(() => {});
+  }
+  return allowedIpCache.has(ip);
+}
+
+export async function allowIp(ip: string, label: string, addedBy?: number): Promise<void> {
+  if (!pool) return;
+  try {
+    const client = await pool.connect();
+    await client.query(
+      `INSERT INTO allowed_ips (ip_address, label, added_by)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (ip_address) DO UPDATE SET label=$2, added_by=$3`,
+      [ip, label || null, addedBy ?? null]
+    );
+    client.release();
+    allowedIpCache.add(ip);
+    // Si l'IP était bloquée, on la débloque automatiquement
+    await unblockIp(ip);
+  } catch (err) {
+    console.error("[security] allowIp error:", err);
+  }
+}
+
+export async function removeAllowedIp(ip: string): Promise<void> {
+  if (!pool) return;
+  try {
+    const client = await pool.connect();
+    await client.query(`DELETE FROM allowed_ips WHERE ip_address = $1`, [ip]);
+    client.release();
+    allowedIpCache.delete(ip);
+  } catch (err) {
+    console.error("[security] removeAllowedIp error:", err);
+  }
+}
+
 // ─── BLOCKED IPs CACHE ────────────────────────────────────────────────────────
 let blockedIpCache: Set<string> = new Set();
 let cacheLoadedAt = 0;
@@ -302,6 +371,8 @@ export async function unblockIp(ip: string): Promise<void> {
 // ─── IP BLOCK MIDDLEWARE ──────────────────────────────────────────────────────
 export function ipBlockMiddleware(req: Request, res: Response, next: NextFunction) {
   const ip = getClientIp(req);
+  // Liste blanche : jamais bloquée
+  if (isIpAllowed(ip)) return next();
   if (isIpBlocked(ip)) {
     return res.status(403).json({ message: "Accès refusé." });
   }
@@ -332,6 +403,9 @@ export function geoAndVpnBlockMiddleware(req: Request, res: Response, next: Next
 
   // Always allow private/local IPs
   if (isPrivateIp(ip)) return next();
+
+  // Liste blanche — jamais bloquée, même si hors-Afrique ou hébergeur
+  if (isIpAllowed(ip)) return next();
 
   // Already blocked — let the ipBlockMiddleware handle it
   if (isIpBlocked(ip)) return next();
@@ -499,6 +573,8 @@ export async function invalidateAllSessionsOnStartup(): Promise<void> {
   }, 2000);
 }
 
-// Initialize cache on startup
+// Initialize caches on startup
 loadBlockedIps().catch(() => {});
 setInterval(() => loadBlockedIps().catch(() => {}), CACHE_TTL);
+loadAllowedIps().catch(() => {});
+setInterval(() => loadAllowedIps().catch(() => {}), ALLOWED_CACHE_TTL);

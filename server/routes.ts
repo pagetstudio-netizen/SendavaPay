@@ -6,7 +6,7 @@ import {
   securityHeaders, ipBlockMiddleware, getClientIp, logSecurityEvent,
   recordLoginAttempt, countRecentFailedAttempts,
   invalidateAllOtherAdminSessions, africaOnlyAdmin,
-  blockIp, unblockIp, loginRateLimit, withdrawRateLimit,
+  blockIp, unblockIp, allowIp, removeAllowedIp, loginRateLimit, withdrawRateLimit,
   registerRateLimit, otpRateLimit, apiRateLimit,
   geoAndVpnBlockMiddleware,
 } from "./security";
@@ -9865,6 +9865,36 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     const result = await client.query(`SELECT * FROM login_attempts ORDER BY created_at DESC LIMIT 500`);
     client.release();
     res.json(result.rows);
+  });
+
+  // ── Whitelist (IPs toujours autorisées) ──────────────────────────────────────
+  app.get("/api/admin/security/allowed-ips", requireAdmin, async (req, res) => {
+    const { pool: dbPool } = await import("./db");
+    if (!dbPool) return res.json([]);
+    try {
+      const client = await dbPool.connect();
+      const result = await client.query(`SELECT * FROM allowed_ips ORDER BY created_at DESC`);
+      client.release();
+      res.json(result.rows);
+    } catch {
+      res.json([]);
+    }
+  });
+
+  app.post("/api/admin/security/allow-ip", requireAdmin, async (req, res) => {
+    const { ip, label } = req.body;
+    if (!ip?.trim()) return res.status(400).json({ message: "IP requise" });
+    const userId = req.session.userId!;
+    await allowIp(ip.trim(), label?.trim() || "", userId);
+    await logSecurityEvent({ userId, type: "ip_whitelisted", details: `IP ${ip} ajoutée à la liste blanche${label ? ` (${label})` : ""}`, ipAddress: getClientIp(req) });
+    res.json({ message: "IP ajoutée à la liste blanche", ip: ip.trim() });
+  });
+
+  app.delete("/api/admin/security/allow-ip/:ip", requireAdmin, async (req, res) => {
+    const ip = decodeURIComponent(req.params.ip);
+    await removeAllowedIp(ip);
+    await logSecurityEvent({ userId: req.session.userId, type: "ip_whitelist_removed", details: `IP ${ip} retirée de la liste blanche`, ipAddress: getClientIp(req) });
+    res.json({ message: "IP retirée de la liste blanche" });
   });
 
   return httpServer;
