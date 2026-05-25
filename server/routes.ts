@@ -8383,6 +8383,19 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
           if (rows > 0) {
             const net = parseFloat(partnerTx.amount as string) - parseFloat((partnerTx.fee as string) || "0");
             await _pdDb2.execute(_pdSql2`UPDATE partners SET balance = balance + ${net.toString()} WHERE id = ${partnerTx.partnerId}`);
+            // Créditer le wallet pays du partenaire
+            try {
+              let pdMeta: any = {};
+              try { pdMeta = JSON.parse((partnerTx as any).metadata || "{}"); } catch {}
+              const pdCountryCode = pdMeta.country || customData?.country || "";
+              if (pdCountryCode) {
+                const pdCountries = await storage.getCountries();
+                const pdCountryRec = pdCountries.find((c: any) => c.code.toUpperCase() === pdCountryCode.toUpperCase());
+                if (pdCountryRec) {
+                  await storage.creditPartnerWallet(partnerTx.partnerId as number, pdCountryRec.code, pdCountryRec.name, partnerTx.currency || pdCountryRec.currency, net.toString());
+                }
+              }
+            } catch (wErr) { console.error("PayDunya webhook: partner wallet credit error:", wErr); }
             console.log(`✅ PayDunya webhook: paiement partenaire confirmé ref=${finalRef} net=${net}`);
             if (partnerTx.callbackUrl) {
               fetch(partnerTx.callbackUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reference: finalRef, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: net.toString(), currency: partnerTx.currency, provider: "paydunya" }) }).catch(() => {});

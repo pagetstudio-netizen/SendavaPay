@@ -535,9 +535,23 @@ export function registerPartnerRoutes(app: Express) {
         return res.status(400).json({ message: "Impossible de mettre à jour la transaction" });
       }
 
-      // Créditer le solde du partenaire
+      // Créditer le solde global du partenaire
       const net = parseFloat(partnerTx.amount as string) - parseFloat((partnerTx.fee as string) || "0");
       await db.execute(sql`UPDATE partners SET balance = balance + ${net.toString()} WHERE id = ${partnerTx.partnerId}`);
+
+      // Créditer le wallet pays du partenaire
+      try {
+        let fcMeta: any = {};
+        try { fcMeta = JSON.parse((partnerTx as any).metadata || "{}"); } catch {}
+        const fcCountryCode = fcMeta.country || "";
+        if (fcCountryCode) {
+          const fcCountries = await storage.getCountries();
+          const fcCountryRec = fcCountries.find((c: any) => c.code.toUpperCase() === fcCountryCode.toUpperCase());
+          if (fcCountryRec) {
+            await storage.creditPartnerWallet(partnerTx.partnerId as number, fcCountryRec.code, fcCountryRec.name, partnerTx.currency || fcCountryRec.currency, net.toString());
+          }
+        }
+      } catch (wErr) { console.error("Admin force-complete: partner wallet credit error:", wErr); }
 
       // Notifier via le callback si défini
       if (partnerTx.callbackUrl) {
@@ -1305,15 +1319,34 @@ export function registerPartnerRoutes(app: Express) {
       const feeAmount = (numericAmount * withdrawalRate) / 100;
       const totalDebit = numericAmount + feeAmount;
 
+      // Vérifier le solde global
       if (parseFloat(partner.balance) < totalDebit) {
         return res.status(400).json({ success: false, status: "ERROR", message: "Solde insuffisant" });
+      }
+
+      // Vérifier le wallet pays si un pays est fourni
+      let sdkWallet: { id: number; balance: string; countryCode: string; countryName: string; currency: string } | null = null;
+      if (country) {
+        const allWallets = await storage.getPartnerWallets(partner.id);
+        const matchingWallet = allWallets.find((w: any) => w.countryCode.toUpperCase() === country.toUpperCase());
+        if (matchingWallet) {
+          if (parseFloat(matchingWallet.balance) < totalDebit) {
+            return res.status(400).json({ success: false, status: "ERROR", message: `Solde insuffisant dans le wallet ${country.toUpperCase()} (disponible: ${parseFloat(matchingWallet.balance).toFixed(0)} ${matchingWallet.currency})` });
+          }
+          sdkWallet = matchingWallet;
+        }
       }
 
       const reference = "WDR_" + uuidv4().replace(/-/g, "").substring(0, 16).toUpperCase();
 
       const { db } = await import("./db");
       const { sql } = await import("drizzle-orm");
+
+      // Débiter le solde global ET le wallet pays si applicable
       await db.execute(sql`UPDATE partners SET balance = balance - ${totalDebit.toString()} WHERE id = ${partner.id}`);
+      if (sdkWallet) {
+        await storage.debitPartnerWallet(sdkWallet.id, totalDebit.toString());
+      }
 
       const transaction = await storage.createPartnerTransaction({
         partnerId: partner.id,
