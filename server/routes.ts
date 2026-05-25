@@ -7491,7 +7491,8 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     try {
       const settings = await storage.getCommissionSettings();
       const walletExchangeRate = await storage.getSetting("wallet_exchange_rate");
-      res.json({ ...(settings || { depositRate: "7", encaissementRate: "5", withdrawalRate: "7" }), walletExchangeRate: walletExchangeRate || "4" });
+      const partnerWalletExchangeFee = await storage.getSetting("partner_wallet_exchange_fee");
+      res.json({ ...(settings || { depositRate: "7", encaissementRate: "5", withdrawalRate: "7" }), walletExchangeRate: walletExchangeRate || "4", partnerWalletExchangeFee: partnerWalletExchangeFee || "2" });
     } catch (error) {
       console.error("Get admin settings error:", error);
       res.status(500).json({ message: "Erreur serveur" });
@@ -7682,6 +7683,15 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
           return res.status(400).json({ message: "Le taux d'échange wallet doit être entre 0 et 20%" });
         }
         await storage.setSetting("wallet_exchange_rate", parseFloat(walletExchangeRate).toFixed(2));
+      }
+
+      const { partnerWalletExchangeFee } = req.body;
+      if (partnerWalletExchangeFee !== undefined) {
+        const numVal = parseFloat(partnerWalletExchangeFee);
+        if (isNaN(numVal) || numVal < 0 || numVal > 20) {
+          return res.status(400).json({ message: "Le taux d'échange partenaire doit être entre 0 et 20%" });
+        }
+        await storage.setSetting("partner_wallet_exchange_fee", parseFloat(partnerWalletExchangeFee).toFixed(2));
       }
 
       const currentSettings = await storage.getCommissionSettings();

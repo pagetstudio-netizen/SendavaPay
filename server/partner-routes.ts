@@ -2219,11 +2219,13 @@ export function registerPartnerRoutes(app: Express) {
   app.get("/api/partner/wallets", requirePartnerAuth, async (req: Request, res: Response) => {
     try {
       const partnerId = req.session.partnerId!;
-      const [wallets, exchanges] = await Promise.all([
+      const [wallets, exchanges, exchangeFeeRaw] = await Promise.all([
         storage.getPartnerWallets(partnerId),
         storage.getPartnerWalletExchanges(partnerId),
+        storage.getSetting("partner_wallet_exchange_fee"),
       ]);
-      res.json({ wallets, exchanges });
+      const exchangeFeeRate = exchangeFeeRaw || "2";
+      res.json({ wallets, exchanges, exchangeFeeRate });
     } catch (error) {
       console.error("Partner wallets error:", error);
       res.status(500).json({ message: "Erreur serveur" });
@@ -2259,11 +2261,17 @@ export function registerPartnerRoutes(app: Express) {
         return res.status(400).json({ message: "Source et destination identiques" });
       }
 
+      // Calcul des frais d'échange partenaire
+      const feeRateRaw = await storage.getSetting("partner_wallet_exchange_fee");
+      const feeRate = parseFloat(feeRateRaw || "2");
+      const feeAmount = Math.round(numAmount * feeRate / 100);
+      const netAmount = numAmount - feeAmount;
+
       const debited = await storage.debitPartnerWallet(fromWallet.id, numAmount.toString());
       if (!debited) {
         return res.status(400).json({ message: "Solde insuffisant dans le portefeuille source" });
       }
-      await storage.creditPartnerWalletById(toWallet.id, numAmount.toString());
+      await storage.creditPartnerWalletById(toWallet.id, netAmount.toString());
       const created = await storage.createPartnerWalletExchange({
         partnerId,
         fromWalletId: fromWallet.id,
@@ -2272,6 +2280,14 @@ export function registerPartnerRoutes(app: Express) {
         toCountryCode: toWallet.countryCode,
         currency: fromWallet.currency,
         amount: numAmount.toString(),
+      });
+
+      // Log des frais prélevés
+      await storage.createPartnerLog({
+        partnerId,
+        action: "system",
+        details: `Échange wallet ${fromWallet.countryCode}→${toWallet.countryCode}: ${numAmount} ${fromWallet.currency} — frais ${feeRate}% = ${feeAmount} ${fromWallet.currency} — reçu: ${netAmount} ${fromWallet.currency}`,
+        ipAddress: req.ip || req.socket?.remoteAddress,
       });
 
       const partner = await storage.getPartner(partnerId);
@@ -2287,7 +2303,7 @@ export function registerPartnerRoutes(app: Express) {
         });
       }
 
-      res.json({ message: "Échange effectué avec succès" });
+      res.json({ message: "Échange effectué avec succès", fee: feeAmount, netAmount, feeRate });
     } catch (error) {
       console.error("Partner wallet exchange error:", error);
       res.status(500).json({ message: "Erreur lors de l'échange" });

@@ -474,13 +474,14 @@ function PartnerWalletsSection() {
   const [toWalletId, setToWalletId] = useState("");
   const [exchangeAmount, setExchangeAmount] = useState("");
 
-  const { data, isLoading } = useQuery<{ wallets: any[]; exchanges: any[] }>({
+  const { data, isLoading } = useQuery<{ wallets: any[]; exchanges: any[]; exchangeFeeRate: string }>({
     queryKey: ["/api/partner/wallets"],
   });
 
   const HIDDEN_WALLETS = ["NE", "GW"];
   const wallets = (data?.wallets ?? []).filter((w: any) => !HIDDEN_WALLETS.includes(w.countryCode));
   const exchanges = data?.exchanges ?? [];
+  const exchangeFeeRate = parseFloat(data?.exchangeFeeRate || "2");
 
   const exchangeMutation = useMutation({
     mutationFn: async () => {
@@ -616,6 +617,28 @@ function PartnerWalletsSection() {
                         Disponible : {formatWalletAmount(fromWallet.balance, fromWallet.currency)}
                       </p>
                     </div>
+
+                    {exchangeAmount && parseFloat(exchangeAmount) > 0 && toWalletId && (() => {
+                      const amt = parseFloat(exchangeAmount);
+                      const fee = Math.round(amt * exchangeFeeRate / 100);
+                      const net = amt - fee;
+                      return (
+                        <div className="rounded-lg border bg-muted/40 p-3 space-y-1.5 text-sm" data-testid="div-exchange-fee-summary">
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Montant envoyé</span>
+                            <span className="font-medium text-foreground">{formatWalletAmount(amt.toString(), fromWallet.currency)}</span>
+                          </div>
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Frais ({exchangeFeeRate}%)</span>
+                            <span className="font-medium text-destructive">− {formatWalletAmount(fee.toString(), fromWallet.currency)}</span>
+                          </div>
+                          <div className="flex justify-between border-t pt-1.5 font-semibold">
+                            <span>Montant reçu</span>
+                            <span className="text-green-600 dark:text-green-400" data-testid="text-exchange-net-amount">{formatWalletAmount(net.toString(), fromWallet.currency)}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </>
                 )}
 
