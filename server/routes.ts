@@ -8350,24 +8350,46 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
 
       const payment = await storage.getLeekpayPaymentById(token);
       if (!payment) {
-        // Vérifier si c'est un paiement partenaire
-        const ref = customData.reference || token;
-        const partnerTx = await storage.getPartnerTransactionByReference(ref);
+        // ─── Paiement partenaire ───
+        // Étape 1 : chercher par customData.reference (ex: PTR_XXXXXXXXXXXXXXXX)
+        const { db: _pdDb2 } = await import("./db");
+        const { sql: _pdSql2 } = await import("drizzle-orm");
+
+        const customRef = customData?.reference || "";
+        let partnerTx = customRef
+          ? await storage.getPartnerTransactionByReference(customRef)
+          : undefined;
+
+        // Étape 2 : fallback — chercher par invoiceToken dans metadata (cas où custom_data absent)
+        if (!partnerTx && token) {
+          console.log(`🔍 PayDunya webhook: custom_data.reference absent ou introuvable (ref="${customRef}"), recherche par invoiceToken=${token}`);
+          const rows = await _pdDb2.execute(_pdSql2`
+            SELECT * FROM partner_transactions
+            WHERE metadata::text LIKE ${"%" + token + "%"}
+              AND status IN ('processing', 'pending')
+            LIMIT 1
+          `).catch(() => ({ rows: [] }));
+          const row = (rows as any)?.rows?.[0];
+          if (row) {
+            partnerTx = row as any;
+            console.log(`🔍 PayDunya webhook: transaction partenaire trouvée par invoiceToken ref=${(partnerTx as any)?.reference}`);
+          }
+        }
+
         if (partnerTx && partnerTx.status !== "completed") {
-          const { db } = await import("./db");
-          const { sql } = await import("drizzle-orm");
-          const upd = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+          const finalRef = (partnerTx as any).reference;
+          const upd = await _pdDb2.execute(_pdSql2`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${finalRef} AND status IN ('processing', 'pending')`);
           const rows = (upd as any)?.rowCount || 0;
           if (rows > 0) {
-            const net = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
-            await db.execute(sql`UPDATE partners SET balance = balance + ${net.toString()} WHERE id = ${partnerTx.partnerId}`);
-            console.log(`✅ PayDunya webhook: paiement partenaire confirmé ref=${ref} net=${net}`);
+            const net = parseFloat(partnerTx.amount as string) - parseFloat((partnerTx.fee as string) || "0");
+            await _pdDb2.execute(_pdSql2`UPDATE partners SET balance = balance + ${net.toString()} WHERE id = ${partnerTx.partnerId}`);
+            console.log(`✅ PayDunya webhook: paiement partenaire confirmé ref=${finalRef} net=${net}`);
             if (partnerTx.callbackUrl) {
-              fetch(partnerTx.callbackUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reference: ref, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: net.toString(), currency: partnerTx.currency, provider: "paydunya" }) }).catch(() => {});
+              fetch(partnerTx.callbackUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reference: finalRef, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: net.toString(), currency: partnerTx.currency, provider: "paydunya" }) }).catch(() => {});
             }
           }
         } else {
-          console.log(`⚠️ PayDunya webhook: paiement non trouvé pour token=${token}`);
+          console.log(`⚠️ PayDunya webhook: paiement partenaire non trouvé — customRef="${customRef}" token="${token}"`);
         }
         return;
       }

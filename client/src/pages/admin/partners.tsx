@@ -37,6 +37,7 @@ import {
   ToggleRight,
   ExternalLink,
   Wallet,
+  CheckCircle,
 } from "lucide-react";
 import {
   Select,
@@ -81,6 +82,8 @@ interface PartnerLog {
 interface PartnerTransaction {
   id: number;
   amount: string | number;
+  fee?: string | number;
+  currency?: string;
   type: string;
   status: string;
   reference?: string;
@@ -252,6 +255,20 @@ export function PartnersContent() {
     },
     onError: (err: any) => {
       toast({ title: "Erreur", description: err.message || "Échec de la modification du solde", variant: "destructive" });
+    },
+  });
+
+  const forceCompleteMutation = useMutation({
+    mutationFn: async (reference: string) => {
+      return await apiRequest("POST", `/api/admin/partner-transactions/${reference}/force-complete`, {});
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/partners", selectedPartner?.id, "transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/partners"] });
+      toast({ title: "✅ Transaction complétée", description: `Référence ${data?.reference} — net crédité: ${data?.netAmount ?? ""} XOF` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur", description: err.message || "Impossible de compléter la transaction", variant: "destructive" });
     },
   });
 
@@ -915,24 +932,50 @@ export function PartnersContent() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>Montant</TableHead>
-                            <TableHead>Type</TableHead>
                             <TableHead>Statut</TableHead>
                             <TableHead>Référence</TableHead>
                             <TableHead>Date</TableHead>
+                            <TableHead>Action</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {partnerTransactions.map((tx) => (
                             <TableRow key={tx.id} data-testid={`row-transaction-${tx.id}`}>
-                              <TableCell className="font-medium">{formatCurrency(tx.amount)}</TableCell>
-                              <TableCell>
-                                <Badge variant="outline" className="text-xs">{tx.type}</Badge>
+                              <TableCell className="font-medium">
+                                {formatCurrency(tx.amount)}
+                                {tx.fee && parseFloat(tx.fee as string) > 0 && (
+                                  <span className="text-xs text-muted-foreground block">frais: {formatCurrency(tx.fee)}</span>
+                                )}
                               </TableCell>
                               <TableCell>
-                                <Badge variant="secondary" className="text-xs">{tx.status}</Badge>
+                                <Badge
+                                  variant={tx.status === "completed" ? "default" : tx.status === "failed" ? "destructive" : "secondary"}
+                                  className="text-xs"
+                                >
+                                  {tx.status === "completed" ? "Complété" : tx.status === "failed" ? "Échoué" : tx.status === "processing" ? "En cours" : "En attente"}
+                                </Badge>
                               </TableCell>
-                              <TableCell className="text-sm text-muted-foreground font-mono">{tx.reference || "-"}</TableCell>
-                              <TableCell className="text-sm text-muted-foreground">{formatDate(tx.createdAt)}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground font-mono">{tx.reference || "-"}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground">{formatDate(tx.createdAt)}</TableCell>
+                              <TableCell>
+                                {(tx.status === "processing" || tx.status === "pending") && tx.reference && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-xs h-7 gap-1 text-green-600 border-green-300 hover:bg-green-50"
+                                    disabled={forceCompleteMutation.isPending}
+                                    onClick={() => {
+                                      if (confirm(`Forcer la complétion de ${tx.reference} ?\nCela créditera le solde du partenaire.`)) {
+                                        forceCompleteMutation.mutate(tx.reference!);
+                                      }
+                                    }}
+                                    data-testid={`button-force-complete-${tx.id}`}
+                                  >
+                                    <CheckCircle className="h-3 w-3" />
+                                    Forcer
+                                  </Button>
+                                )}
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>

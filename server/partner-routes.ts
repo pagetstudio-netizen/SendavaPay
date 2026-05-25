@@ -505,6 +505,64 @@ export function registerPartnerRoutes(app: Express) {
     }
   });
 
+  // Force-complétion d'une transaction partenaire bloquée (en attente/en cours)
+  app.post("/api/admin/partner-transactions/:reference/force-complete", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { reference } = req.params;
+      const { db } = await import("./db");
+      const { sql } = await import("drizzle-orm");
+
+      const partnerTx = await storage.getPartnerTransactionByReference(reference);
+      if (!partnerTx) {
+        return res.status(404).json({ message: "Transaction introuvable" });
+      }
+      if (partnerTx.status === "completed") {
+        return res.status(400).json({ message: "Cette transaction est déjà complétée" });
+      }
+      if (partnerTx.status === "failed") {
+        return res.status(400).json({ message: "Cette transaction a échoué, elle ne peut pas être forcée" });
+      }
+
+      // Mettre à jour le statut
+      const upd = await db.execute(sql`
+        UPDATE partner_transactions
+        SET status = 'completed', completed_at = NOW()
+        WHERE reference = ${reference}
+          AND status IN ('processing', 'pending')
+      `);
+      const rows = (upd as any)?.rowCount || 0;
+      if (rows === 0) {
+        return res.status(400).json({ message: "Impossible de mettre à jour la transaction" });
+      }
+
+      // Créditer le solde du partenaire
+      const net = parseFloat(partnerTx.amount as string) - parseFloat((partnerTx.fee as string) || "0");
+      await db.execute(sql`UPDATE partners SET balance = balance + ${net.toString()} WHERE id = ${partnerTx.partnerId}`);
+
+      // Notifier via le callback si défini
+      if (partnerTx.callbackUrl) {
+        fetch(partnerTx.callbackUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reference, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: net.toString(), currency: partnerTx.currency, provider: "admin_force" }),
+        }).catch(() => {});
+      }
+
+      await storage.createPartnerLog({
+        partnerId: partnerTx.partnerId,
+        action: "system",
+        details: `Transaction ${reference} forcée en "complétée" par admin — montant net crédité: ${net}`,
+        ipAddress: req.ip || req.socket.remoteAddress,
+      });
+
+      console.log(`✅ Admin force-complete: transaction ${reference} complétée, net=${net} crédité au partenaire ${partnerTx.partnerId}`);
+      res.json({ success: true, message: "Transaction complétée et solde crédité", reference, netAmount: net });
+    } catch (error: any) {
+      console.error("Force-complete error:", error);
+      res.status(500).json({ message: "Erreur serveur: " + error.message });
+    }
+  });
+
   // ==========================================
   // PUBLIC PARTNER PAGE
   // ==========================================
