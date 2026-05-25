@@ -2825,10 +2825,11 @@ function CommissionsContent() {
   const [encaissementRate, setEncaissementRate] = useState("5");
   const [withdrawalRate, setWithdrawalRate] = useState("7");
   const [walletExchangeRate, setWalletExchangeRate] = useState("4");
+  const [partnerWalletExchangeFee, setPartnerWalletExchangeFee] = useState("2");
   const [reason, setReason] = useState("");
   const [editingFees, setEditingFees] = useState<Record<number, { deposit: string; withdraw: string; encaissement: string; api: string }>>({});
 
-  const { data: settings } = useQuery<{ depositRate: string; encaissementRate: string; withdrawalRate: string; walletExchangeRate: string }>({
+  const { data: settings } = useQuery<{ depositRate: string; encaissementRate: string; withdrawalRate: string; walletExchangeRate: string; partnerWalletExchangeFee: string }>({
     queryKey: ["/api/admin/settings"],
   });
 
@@ -2846,11 +2847,12 @@ function CommissionsContent() {
       setEncaissementRate(settings.encaissementRate || "5");
       setWithdrawalRate(settings.withdrawalRate || "7");
       setWalletExchangeRate(settings.walletExchangeRate || "4");
+      setPartnerWalletExchangeFee(settings.partnerWalletExchangeFee || "2");
     }
   }, [settings]);
 
   const updateMutation = useMutation({
-    mutationFn: async (data: { depositRate: string; encaissementRate: string; withdrawalRate: string; walletExchangeRate: string; reason?: string }) => {
+    mutationFn: async (data: { depositRate: string; encaissementRate: string; withdrawalRate: string; walletExchangeRate: string; partnerWalletExchangeFee: string; reason?: string }) => {
       await apiRequest("POST", "/api/admin/fees/update", data);
     },
     onSuccess: () => {
@@ -2884,11 +2886,11 @@ function CommissionsContent() {
   };
 
   const handleSubmit = () => {
-    if (!validateRate(depositRate) || !validateRate(encaissementRate) || !validateRate(withdrawalRate) || !validateRate(walletExchangeRate)) {
+    if (!validateRate(depositRate) || !validateRate(encaissementRate) || !validateRate(withdrawalRate) || !validateRate(walletExchangeRate) || !validateRate(partnerWalletExchangeFee)) {
       toast({ title: "Erreur de validation", description: "Les taux doivent être entre 0% et 20%", variant: "destructive" });
       return;
     }
-    updateMutation.mutate({ depositRate, encaissementRate, withdrawalRate, walletExchangeRate, reason: reason || undefined });
+    updateMutation.mutate({ depositRate, encaissementRate, withdrawalRate, walletExchangeRate, partnerWalletExchangeFee, reason: reason || undefined });
   };
 
   const fieldLabel = (field: string) => {
@@ -2976,7 +2978,24 @@ function CommissionsContent() {
               {!validateRate(walletExchangeRate) && (
                 <p className="text-sm text-destructive" data-testid="text-exchange-rate-error">Doit être entre 0 et 20</p>
               )}
-              <p className="text-xs text-muted-foreground">Prélevé lors des échanges entre portefeuilles. Actuellement : {settings?.walletExchangeRate || "4"}%</p>
+              <p className="text-xs text-muted-foreground">Prélevé lors des échanges entre portefeuilles utilisateurs. Actuellement : {settings?.walletExchangeRate || "4"}%</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="partner-exchange-fee">Frais d'échange wallet partenaire (%)</Label>
+              <Input
+                id="partner-exchange-fee"
+                data-testid="input-partner-exchange-fee"
+                type="number"
+                value={partnerWalletExchangeFee}
+                onChange={(e) => setPartnerWalletExchangeFee(e.target.value)}
+                min="0"
+                max="20"
+                step="0.1"
+              />
+              {!validateRate(partnerWalletExchangeFee) && (
+                <p className="text-sm text-destructive" data-testid="text-partner-exchange-fee-error">Doit être entre 0 et 20</p>
+              )}
+              <p className="text-xs text-muted-foreground">Prélevé lors des échanges entre wallets pays dans l'espace partenaire. Actuellement : {settings?.partnerWalletExchangeFee || "2"}%</p>
             </div>
           </div>
           <div className="space-y-2">
