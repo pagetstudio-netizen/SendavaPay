@@ -1666,6 +1666,83 @@ export function registerPartnerRoutes(app: Express) {
           } catch (verifyError) {
             console.error("SDK verify Paxity check error:", verifyError);
           }
+        } else if (txProvider === "paydunya") {
+          try {
+            const { confirmPayDunyaInvoice } = await import("./paydunya");
+            const invoiceToken = txMeta.invoiceToken || ref;
+            console.log(`SDK Verify PayDunya for ${ref}, invoiceToken=${invoiceToken}`);
+            const pdResult = await confirmPayDunyaInvoice(invoiceToken);
+            console.log(`SDK Verify PayDunya result for ${ref}:`, JSON.stringify(pdResult));
+
+            if (pdResult.status === "completed") {
+              const { db } = await import("./db");
+              const { sql } = await import("drizzle-orm");
+              const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+
+              const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
+              if (rowsAffected > 0) {
+                const netAmount = parseFloat(transaction.amount as string) - parseFloat((transaction.fee as string) || "0");
+                await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${partner.id}`);
+                try {
+                  const cCode = txMeta.country;
+                  if (cCode) {
+                    const allC = await storage.getCountries();
+                    const cRec = allC.find((c: any) => c.code.toUpperCase() === cCode.toUpperCase());
+                    if (cRec) await storage.creditPartnerWallet(partner.id, cRec.code, cRec.name, transaction.currency || cRec.currency, netAmount.toString());
+                  }
+                } catch (wErr) { console.error("SDK PayDunya verify: wallet credit error:", wErr); }
+                console.log(`✅ SDK PayDunya: Paiement confirmé partner #${partner.id} ref=${ref} net=${netAmount}`);
+                if (transaction.callbackUrl) {
+                  try {
+                    await fetch(transaction.callbackUrl, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ reference: ref, status: "SUCCESS", amount: transaction.amount, fee: transaction.fee, netAmount: netAmount.toString(), currency: transaction.currency, provider: "paydunya" }),
+                    });
+                  } catch (cbErr) { console.error("SDK PayDunya: Callback error:", cbErr); }
+                }
+              }
+
+              await storage.createPartnerLog({
+                partnerId: partner.id,
+                action: "api_call",
+                details: `SDK Paiement PayDunya confirmé: ${ref} - ${transaction.amount} ${transaction.currency}`,
+                ipAddress: req.ip || req.socket.remoteAddress,
+              });
+
+              return res.json({
+                success: true,
+                status: "SUCCESS",
+                txid: transaction.reference,
+                reference: transaction.reference,
+                provider: "paydunya",
+                amount: transaction.amount,
+                fee: transaction.fee,
+                currency: transaction.currency,
+                message: "Paiement confirmé avec succès via PayDunya",
+                createdAt: transaction.createdAt,
+                completedAt: new Date().toISOString(),
+              });
+            } else if (pdResult.status === "failed" || pdResult.status === "cancelled") {
+              const { db } = await import("./db");
+              const { sql } = await import("drizzle-orm");
+              await db.execute(sql`UPDATE partner_transactions SET status = 'failed' WHERE reference = ${ref} AND status IN ('processing', 'pending')`);
+              return res.json({
+                success: false,
+                status: "FAILED",
+                txid: transaction.reference,
+                reference: transaction.reference,
+                provider: "paydunya",
+                amount: transaction.amount,
+                fee: transaction.fee,
+                currency: transaction.currency,
+                message: "Paiement échoué ou annulé",
+                createdAt: transaction.createdAt,
+              });
+            }
+          } catch (verifyError) {
+            console.error("SDK verify PayDunya check error:", verifyError);
+          }
         } else {
           try {
             const { soleaspay } = await import("./soleaspay");
@@ -2221,8 +2298,46 @@ export function registerPartnerRoutes(app: Express) {
         return;
       }
       if (orderId.includes("PDEP-PD-")) {
-        res.json({ status: "pending", message: "En attente de confirmation PayDunya..." });
-        return;
+        try {
+          const { confirmPayDunyaInvoice } = await import("./paydunya");
+          const { db } = await import("./db");
+          const { sql } = await import("drizzle-orm");
+          const pdResult = await confirmPayDunyaInvoice(payId);
+          console.log(`Partner verify-deposit PayDunya: orderId=${orderId} payId=${payId} status=${pdResult.status}`);
+
+          if (pdResult.status === "completed") {
+            const updateResult = await db.execute(sql`
+              UPDATE partner_transactions SET status = 'completed', completed_at = NOW()
+              WHERE reference = ${orderId} AND status IN ('processing', 'pending')
+            `);
+            const rowsAffected = (updateResult as any)?.rowCount || 0;
+            if (rowsAffected > 0) {
+              const txRows = await db.execute(sql`SELECT * FROM partner_transactions WHERE reference = ${orderId} LIMIT 1`);
+              const tx = (txRows as any)?.rows?.[0];
+              if (tx) {
+                const netAmount = parseFloat(tx.amount) - parseFloat(tx.fee || "0");
+                await db.execute(sql`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${tx.partner_id}`);
+                try {
+                  const meta = JSON.parse(tx.metadata || "{}");
+                  const cCode = meta.country;
+                  if (cCode) {
+                    const allC = await storage.getCountries();
+                    const cRec = allC.find((c: any) => c.code.toUpperCase() === cCode.toUpperCase());
+                    if (cRec) await storage.creditPartnerWallet(tx.partner_id, cRec.code, cRec.name, tx.currency || cRec.currency, netAmount.toString());
+                  }
+                } catch {}
+                console.log(`✅ Partner deposit PayDunya confirmé via verify: ref=${orderId} net=${netAmount}`);
+              }
+            }
+            return res.json({ status: "completed", message: "Paiement confirmé" });
+          } else if (pdResult.status === "failed" || pdResult.status === "cancelled") {
+            await db.execute(sql`UPDATE partner_transactions SET status = 'failed' WHERE reference = ${orderId} AND status IN ('processing', 'pending')`);
+            return res.json({ status: "failed", message: "Paiement échoué ou annulé" });
+          }
+        } catch (verifyErr) {
+          console.error("Partner verify-deposit PayDunya error:", verifyErr);
+        }
+        return res.json({ status: "pending", message: "En attente de confirmation PayDunya..." });
       }
 
       const { soleaspay } = await import("./soleaspay");

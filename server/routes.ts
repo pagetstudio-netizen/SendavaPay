@@ -8338,7 +8338,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
       // ─── Cas 2 : Dépôt / Lien de paiement / Partenaire ───
       const invoiceData = data?.data || data;
       const hash = invoiceData?.hash;
-      const status = (invoiceData?.status || "").toLowerCase();
+      const status = (invoiceData?.status || invoiceData?.invoice?.status || "").toLowerCase();
       const token = invoiceData?.invoice?.token || invoiceData?.token;
       const customData = invoiceData?.custom_data || {};
 
