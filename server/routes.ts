@@ -2390,11 +2390,42 @@ export async function registerRoutes(
       if (!payment) {
         // Vérifier si c'est une transaction partenaire API
         if (success && status === "SUCCESS") {
-          const partnerTx = await storage.getPartnerTransactionByReference(reference);
+          const { db: _spDb } = await import("./db");
+          const { sql: _spSql } = await import("drizzle-orm");
+
+          // BUG FIX: SoleasPay envoie data.data.reference = son propre ID (pas notre PTR_xxx).
+          // Notre orderId (PTR_xxx) revient dans data.data.external_reference.
+          // Il faut chercher par external_reference en priorité, puis par reference, puis par metadata.
+          console.log(`[SoleasPay] Recherche partner TX: reference="${reference}" external_reference="${external_reference}"`);
+          let partnerTx: any = null;
+          if (external_reference) {
+            partnerTx = await storage.getPartnerTransactionByReference(external_reference);
+            if (partnerTx) console.log(`[SoleasPay] TX trouvée par external_reference="${external_reference}" (PTR_xxx)`);
+          }
+          if (!partnerTx && reference) {
+            partnerTx = await storage.getPartnerTransactionByReference(reference);
+            if (partnerTx) console.log(`[SoleasPay] TX trouvée par reference="${reference}"`);
+          }
+          if (!partnerTx) {
+            // Fallback: chercher par soleasRef stocké dans metadata
+            const spFbRows = await _spDb.execute(_spSql`
+              SELECT * FROM partner_transactions
+              WHERE (metadata::text LIKE ${"%" + reference + "%"} OR metadata::text LIKE ${"%" + (external_reference || "") + "%"})
+                AND status IN ('processing', 'pending')
+              ORDER BY created_at DESC LIMIT 1
+            `).catch(() => ({ rows: [] }));
+            const spFbRow = (spFbRows as any)?.rows?.[0];
+            if (spFbRow) {
+              partnerTx = spFbRow;
+              console.log(`[SoleasPay] TX trouvée par fallback metadata: ref=${partnerTx.reference}`);
+            }
+          }
+
           if (partnerTx && partnerTx.status !== "completed") {
-            const { db: _spDb } = await import("./db");
-            const { sql: _spSql } = await import("drizzle-orm");
-            const updateResult = await _spDb.execute(_spSql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${reference} AND status IN ('processing', 'pending')`);
+            // BUG FIX: utiliser partnerTx.reference (PTR_xxx) dans le UPDATE, pas le reference SoleasPay
+            const storedRef = partnerTx.reference;
+            console.log(`[SoleasPay] Mise à jour status → completed pour ref=${storedRef}`);
+            const updateResult = await _spDb.execute(_spSql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${storedRef} AND status IN ('processing', 'pending')`);
             const rowsAffected = (updateResult as any)?.rowCount || 0;
             if (rowsAffected > 0) {
               const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
@@ -2411,7 +2442,7 @@ export async function registerRoutes(
                   }
                 }
               } catch (wErr) { console.error("SoleasPay webhook: partner wallet credit error:", wErr); }
-              console.log(`✅ SoleasPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${reference} net=${netAmount}`);
+              console.log(`✅ SoleasPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${storedRef} net=${netAmount}`);
               // Notification Telegram groupe admin
               try {
                 let spMeta: any = {};
@@ -2424,21 +2455,27 @@ export async function registerRoutes(
                   fee: parseFloat(partnerTx.fee as string || "0"),
                   netAmount,
                   currency: partnerTx.currency || "XOF",
-                  reference,
-                  customerPhone: (partnerTx as any).customerPhone || undefined,
-                  customerName: (partnerTx as any).customerName || undefined,
+                  reference: storedRef,
+                  customerPhone: (partnerTx as any).customer_phone || (partnerTx as any).customerPhone || undefined,
+                  customerName: (partnerTx as any).customer_name || (partnerTx as any).customerName || undefined,
                   operator: spMeta.operator || undefined,
                   provider: "soleaspay",
                 });
               } catch (notifErr) { console.error("SoleasPay webhook: erreur notification Telegram:", notifErr); }
-              if (partnerTx.callbackUrl) {
-                fetch(partnerTx.callbackUrl, {
+              if (partnerTx.callbackUrl || partnerTx.callback_url) {
+                const cbUrl = partnerTx.callbackUrl || partnerTx.callback_url;
+                fetch(cbUrl, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ reference, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: netAmount.toString(), currency: partnerTx.currency, provider: "soleaspay" }),
+                  body: JSON.stringify({ reference: storedRef, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: netAmount.toString(), currency: partnerTx.currency, provider: "soleaspay" }),
                 }).catch(() => {});
               }
+            } else {
+              console.warn(`[SoleasPay] UPDATE 0 lignes pour ref=${storedRef} — déjà traité?`);
             }
+            return res.json({ received: true });
+          } else if (partnerTx) {
+            console.log(`[SoleasPay] TX partenaire déjà complétée ref=${partnerTx.reference}`);
             return res.json({ received: true });
           }
         }
@@ -3108,11 +3145,41 @@ export async function registerRoutes(
       }
 
       if (!payment) {
-        const partnerTx = await storage.getPartnerTransactionByReference(lookupId);
+        const { db } = await import("./db");
+        const { sql } = await import("drizzle-orm");
+
+        // BUG FIX: MbiyoPay envoie transaction_id = leur ID interne, order_id = notre PTR_xxx.
+        // lookupId = transactionId || orderId → prend transactionId en priorité → FAIL pour partner TX.
+        // Il faut chercher par orderId (notre PTR_xxx) en priorité.
+        console.log(`[MbiyoPay] Recherche partner TX: transactionId="${transactionId}" orderId="${orderId}" lookupId="${lookupId}"`);
+        let partnerTx: any = null;
+        if (orderId) {
+          partnerTx = await storage.getPartnerTransactionByReference(orderId);
+          if (partnerTx) console.log(`[MbiyoPay] TX trouvée par orderId="${orderId}" (PTR_xxx)`);
+        }
+        if (!partnerTx && transactionId && transactionId !== orderId) {
+          partnerTx = await storage.getPartnerTransactionByReference(transactionId);
+          if (partnerTx) console.log(`[MbiyoPay] TX trouvée par transactionId="${transactionId}"`);
+        }
+        if (!partnerTx) {
+          const mbFbRows = await db.execute(sql`
+            SELECT * FROM partner_transactions
+            WHERE (metadata::text LIKE ${"%" + (transactionId || "") + "%"} OR metadata::text LIKE ${"%" + (orderId || "") + "%"})
+              AND status IN ('processing', 'pending')
+            ORDER BY created_at DESC LIMIT 1
+          `).catch(() => ({ rows: [] }));
+          const mbFbRow = (mbFbRows as any)?.rows?.[0];
+          if (mbFbRow) {
+            partnerTx = mbFbRow;
+            console.log(`[MbiyoPay] TX trouvée par fallback metadata: ref=${partnerTx.reference}`);
+          }
+        }
+
         if (partnerTx && partnerTx.status !== "completed" && txStatus === "successful") {
-          const { db } = await import("./db");
-          const { sql } = await import("drizzle-orm");
-          const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${lookupId} AND status IN ('processing', 'pending')`);
+          // BUG FIX: utiliser partnerTx.reference (PTR_xxx) dans le UPDATE
+          const storedRef = partnerTx.reference;
+          console.log(`[MbiyoPay] Mise à jour status → completed pour ref=${storedRef}`);
+          const updateResult = await db.execute(sql`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${storedRef} AND status IN ('processing', 'pending')`);
           const rowsAffected = (updateResult as any)?.rowCount || (updateResult as any)?.length || 0;
           if (rowsAffected > 0) {
             const netAmount = parseFloat(partnerTx.amount as string) - parseFloat(partnerTx.fee as string || "0");
@@ -3130,7 +3197,7 @@ export async function registerRoutes(
                 }
               }
             } catch (wErr) { console.error("MbiyoPay webhook: partner wallet credit error:", wErr); }
-            console.log(`✅ MbiyoPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${lookupId} net=${netAmount}`);
+            console.log(`✅ MbiyoPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${storedRef} net=${netAmount}`);
             // Notification Telegram groupe admin
             try {
               let mbMeta: any = {};
@@ -3143,26 +3210,31 @@ export async function registerRoutes(
                 fee: parseFloat(partnerTx.fee as string || "0"),
                 netAmount,
                 currency: partnerTx.currency || "XOF",
-                reference: lookupId,
-                customerPhone: (partnerTx as any).customerPhone || undefined,
-                customerName: (partnerTx as any).customerName || undefined,
+                reference: storedRef,
+                customerPhone: (partnerTx as any).customer_phone || (partnerTx as any).customerPhone || undefined,
+                customerName: (partnerTx as any).customer_name || (partnerTx as any).customerName || undefined,
                 operator: mbMeta.operator || undefined,
                 provider: "mbiyopay",
               });
             } catch (notifErr) { console.error("MbiyoPay webhook: erreur notification Telegram:", notifErr); }
-            if (partnerTx.callbackUrl) {
+            const mbCbUrl = partnerTx.callbackUrl || partnerTx.callback_url;
+            if (mbCbUrl) {
               try {
-                await fetch(partnerTx.callbackUrl, {
+                await fetch(mbCbUrl, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ reference: lookupId, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: netAmount.toString(), currency: partnerTx.currency, provider: "mbiyopay" }),
+                  body: JSON.stringify({ reference: storedRef, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: netAmount.toString(), currency: partnerTx.currency, provider: "mbiyopay" }),
                 });
-                console.log(`📤 MbiyoPay webhook: Callback envoyé à ${partnerTx.callbackUrl}`);
+                console.log(`📤 MbiyoPay webhook: Callback envoyé à ${mbCbUrl}`);
               } catch (cbErr) { console.error("MbiyoPay webhook: Callback error:", cbErr); }
             }
+          } else {
+            console.warn(`[MbiyoPay] UPDATE 0 lignes pour ref=${storedRef} — déjà traité?`);
           }
+        } else if (partnerTx) {
+          console.log(`[MbiyoPay] TX partenaire déjà complétée ou statut=${txStatus} ref=${partnerTx.reference}`);
         } else {
-          console.log("⚠️ MbiyoPay webhook: Paiement non trouvé ref=" + lookupId);
+          console.log("⚠️ MbiyoPay webhook: Paiement non trouvé transactionId=" + transactionId + " orderId=" + orderId);
         }
         return;
       }
@@ -3994,6 +4066,25 @@ export async function registerRoutes(
               }
             } catch (wErr) { console.error("Paxity webhook: partner wallet credit error:", wErr); }
             console.log(`✅ Paxity webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${ref} net=${netAmount}`);
+            // Notification Telegram groupe admin
+            try {
+              let paxMeta: any = {};
+              try { paxMeta = JSON.parse(partnerTx.metadata as string || "{}"); } catch {}
+              const paxPartner = await storage.getPartner(partnerTx.partnerId as number);
+              notifyPartnerPayment({
+                partnerName: paxPartner?.name || `Partenaire #${partnerTx.partnerId}`,
+                partnerId: partnerTx.partnerId as number,
+                amount: parseFloat(partnerTx.amount as string),
+                fee: parseFloat(partnerTx.fee as string || "0"),
+                netAmount,
+                currency: partnerTx.currency || "XOF",
+                reference: ref,
+                customerPhone: (partnerTx as any).customerPhone || undefined,
+                customerName: (partnerTx as any).customerName || undefined,
+                operator: paxMeta.operator || undefined,
+                provider: "paxity",
+              });
+            } catch (notifErr) { console.error("Paxity webhook: erreur notification Telegram:", notifErr); }
             if (partnerTx.callbackUrl) {
               try {
                 await fetch(partnerTx.callbackUrl, {
