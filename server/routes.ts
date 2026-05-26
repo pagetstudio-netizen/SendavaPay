@@ -69,6 +69,7 @@ import {
   editMessageRemoveButton,
   notifyAdminBalanceAdjustment,
   notifySystemError,
+  notifyPartnerPayment,
 } from "./telegram";
 
 function getCommissionRate(settings: any, transactionType: string, countryOverride?: string | number | null): number {
@@ -2411,6 +2412,25 @@ export async function registerRoutes(
                 }
               } catch (wErr) { console.error("SoleasPay webhook: partner wallet credit error:", wErr); }
               console.log(`✅ SoleasPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${reference} net=${netAmount}`);
+              // Notification Telegram groupe admin
+              try {
+                let spMeta: any = {};
+                try { spMeta = JSON.parse(partnerTx.metadata as string || "{}"); } catch {}
+                const spPartner = await storage.getPartner(partnerTx.partnerId as number);
+                notifyPartnerPayment({
+                  partnerName: spPartner?.name || `Partenaire #${partnerTx.partnerId}`,
+                  partnerId: partnerTx.partnerId as number,
+                  amount: parseFloat(partnerTx.amount as string),
+                  fee: parseFloat(partnerTx.fee as string || "0"),
+                  netAmount,
+                  currency: partnerTx.currency || "XOF",
+                  reference,
+                  customerPhone: (partnerTx as any).customerPhone || undefined,
+                  customerName: (partnerTx as any).customerName || undefined,
+                  operator: spMeta.operator || undefined,
+                  provider: "soleaspay",
+                });
+              } catch (notifErr) { console.error("SoleasPay webhook: erreur notification Telegram:", notifErr); }
               if (partnerTx.callbackUrl) {
                 fetch(partnerTx.callbackUrl, {
                   method: "POST",
@@ -3111,6 +3131,25 @@ export async function registerRoutes(
               }
             } catch (wErr) { console.error("MbiyoPay webhook: partner wallet credit error:", wErr); }
             console.log(`✅ MbiyoPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${lookupId} net=${netAmount}`);
+            // Notification Telegram groupe admin
+            try {
+              let mbMeta: any = {};
+              try { mbMeta = JSON.parse(partnerTx.metadata as string || "{}"); } catch {}
+              const mbPartner = await storage.getPartner(partnerTx.partnerId as number);
+              notifyPartnerPayment({
+                partnerName: mbPartner?.name || `Partenaire #${partnerTx.partnerId}`,
+                partnerId: partnerTx.partnerId as number,
+                amount: parseFloat(partnerTx.amount as string),
+                fee: parseFloat(partnerTx.fee as string || "0"),
+                netAmount,
+                currency: partnerTx.currency || "XOF",
+                reference: lookupId,
+                customerPhone: (partnerTx as any).customerPhone || undefined,
+                customerName: (partnerTx as any).customerName || undefined,
+                operator: mbMeta.operator || undefined,
+                provider: "mbiyopay",
+              });
+            } catch (notifErr) { console.error("MbiyoPay webhook: erreur notification Telegram:", notifErr); }
             if (partnerTx.callbackUrl) {
               try {
                 await fetch(partnerTx.callbackUrl, {
@@ -3369,6 +3408,25 @@ export async function registerRoutes(
               }
             } catch (wErr) { console.error("MaishaPay webhook: partner wallet credit error:", wErr); }
             console.log(`✅ MaishaPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${originatingTransactionId} net=${netAmount}`);
+            // Notification Telegram groupe admin
+            try {
+              let mpMeta: any = {};
+              try { mpMeta = JSON.parse(partnerTx.metadata as string || "{}"); } catch {}
+              const mpPartner = await storage.getPartner(partnerTx.partnerId as number);
+              notifyPartnerPayment({
+                partnerName: mpPartner?.name || `Partenaire #${partnerTx.partnerId}`,
+                partnerId: partnerTx.partnerId as number,
+                amount: parseFloat(partnerTx.amount as string),
+                fee: parseFloat(partnerTx.fee as string || "0"),
+                netAmount,
+                currency: partnerTx.currency || "XOF",
+                reference: originatingTransactionId,
+                customerPhone: (partnerTx as any).customerPhone || undefined,
+                customerName: (partnerTx as any).customerName || undefined,
+                operator: mpMeta.operator || undefined,
+                provider: "maishapay",
+              });
+            } catch (notifErr) { console.error("MaishaPay webhook: erreur notification Telegram:", notifErr); }
             if (partnerTx.callbackUrl) {
               try {
                 await fetch(partnerTx.callbackUrl, {
@@ -3659,6 +3717,25 @@ export async function registerRoutes(
             }
           } catch (wErr) { console.error("OmniPay webhook: partner wallet credit error:", wErr); }
           console.log(`✅ OmniPay webhook: Paiement partner #${partnerTx.partnerId} confirmé ref=${reference} status=${status} net=${netAmount}`);
+          // Notification Telegram groupe admin
+          try {
+            let opMeta: any = {};
+            try { opMeta = JSON.parse(partnerTx.metadata as string || "{}"); } catch {}
+            const opPartner = await storage.getPartner(partnerTx.partnerId as number);
+            notifyPartnerPayment({
+              partnerName: opPartner?.name || `Partenaire #${partnerTx.partnerId}`,
+              partnerId: partnerTx.partnerId as number,
+              amount: parseFloat(partnerTx.amount as string),
+              fee: parseFloat(partnerTx.fee as string || "0"),
+              netAmount,
+              currency: partnerTx.currency || "XOF",
+              reference,
+              customerPhone: (partnerTx as any).customerPhone || undefined,
+              customerName: (partnerTx as any).customerName || undefined,
+              operator: opMeta.operator || undefined,
+              provider: "omnipay",
+            });
+          } catch (notifErr) { console.error("OmniPay webhook: erreur notification Telegram:", notifErr); }
           if (partnerTx.callbackUrl) {
             try {
               const cbResponse = await fetch(partnerTx.callbackUrl, {
@@ -8473,6 +8550,28 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
 
         console.log(`✅ [PayDunya] STEP 4 — Paiement partenaire confirmé ref=${finalRef} net=${net}`);
 
+        // Notification Telegram groupe admin
+        try {
+          const pdPartner = await storage.getPartner(partnerTx.partnerId as number);
+          let pdMeta2: any = {};
+          try { pdMeta2 = JSON.parse((partnerTx as any).metadata || "{}"); } catch {}
+          notifyPartnerPayment({
+            partnerName: pdPartner?.name || `Partenaire #${partnerTx.partnerId}`,
+            partnerId: partnerTx.partnerId as number,
+            amount: parseFloat(partnerTx.amount as string),
+            fee: parseFloat((partnerTx.fee as string) || "0"),
+            netAmount: net,
+            currency: partnerTx.currency || "XOF",
+            reference: finalRef,
+            customerPhone: (partnerTx as any).customerPhone || undefined,
+            customerName: (partnerTx as any).customerName || undefined,
+            operator: pdMeta2.operator || undefined,
+            provider: "paydunya",
+          });
+        } catch (notifErr) {
+          console.error(`[PayDunya] STEP 4 — Erreur notification Telegram partenaire:`, notifErr);
+        }
+
         // STEP 5 — Envoi webhook partenaire avec retry (3 tentatives)
         if (partnerTx.callbackUrl) {
           console.log(`[PayDunya] STEP 5 — Envoi webhook partenaire → ${partnerTx.callbackUrl}`);
@@ -8633,23 +8732,25 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
             }
           } catch (pwErr) { console.error("Partner wallet (PayDunya webhook lien) error:", pwErr); }
 
-          // Notification Telegram
+          // Notification Telegram groupe admin
           try {
-            const { notifyPaymentReceived: npr } = await import("./telegram");
-            if (typeof npr === "function") {
-              npr({
-                vendeurId: link.userId,
-                payerName: claimed.payerName || "Inconnu",
-                amount,
-                fee,
-                netAmount,
-                currency: claimed.currency || "XOF",
-                linkTitle: link.title,
-                operator: claimed.paymentMethod?.replace("paydunya_", "") || "PayDunya",
-                reference: token,
-              });
-            }
-          } catch (_) {}
+            const pdLinkMerchant = await storage.getUser(link.userId);
+            notifyPaymentReceived({
+              merchantName: pdLinkMerchant?.fullName || `Marchand #${link.userId}`,
+              merchantId: link.userId,
+              amount,
+              fee,
+              netAmount,
+              currency: claimed.currency || "XOF",
+              payerPhone: claimed.payerPhone || undefined,
+              payerName: claimed.payerName || undefined,
+              paymentLinkTitle: link.title,
+              reference: token,
+              source: "link",
+            });
+          } catch (notifErr) {
+            console.error("PayDunya webhook: erreur notification Telegram lien:", notifErr);
+          }
 
           console.log(`✅ PayDunya webhook: paiement lien confirmé vendeur #${link.userId} montant=${netAmount} lien="${link.title}"`);
         } else {

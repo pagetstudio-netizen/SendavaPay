@@ -358,6 +358,38 @@ export function notifyAdminLogin(data: {
   );
 }
 
+export function notifyPartnerPayment(data: {
+  partnerName: string;
+  partnerId: number;
+  amount: number;
+  fee: number;
+  netAmount: number;
+  currency: string;
+  reference: string;
+  customerPhone?: string;
+  customerName?: string;
+  operator?: string;
+  provider?: string;
+}) {
+  const providerLabel = (data.provider || "API").toUpperCase();
+  const msg =
+    `<b>💳 PAIEMENT PARTENAIRE SDK</b>\n\n` +
+    `<b>Partenaire:</b> ${data.partnerName} (#${data.partnerId})\n` +
+    `<b>Montant:</b> ${formatAmount(data.amount)} ${data.currency}\n` +
+    `<b>Frais:</b> ${formatAmount(data.fee)} ${data.currency}\n` +
+    `<b>Net crédité:</b> ${formatAmount(data.netAmount)} ${data.currency}\n` +
+    (data.customerName ? `<b>Client:</b> ${data.customerName}\n` : "") +
+    (data.customerPhone ? `<b>Tél client:</b> ${data.customerPhone}\n` : "") +
+    (data.operator ? `<b>Opérateur:</b> ${data.operator}\n` : "") +
+    `<b>Passerelle:</b> ${providerLabel}\n` +
+    `<b>Référence:</b> <code>${data.reference}</code>\n` +
+    `<b>Date:</b> ${formatDate()}`;
+
+  sendTelegramMessage(msg).catch((err) =>
+    console.error("[Telegram] Partner payment notification error:", err)
+  );
+}
+
 export function notifyPartnerWithdrawal(data: {
   partnerName: string;
   partnerId: number;
