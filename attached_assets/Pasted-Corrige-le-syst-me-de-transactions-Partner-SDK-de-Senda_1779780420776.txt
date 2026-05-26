@@ -1,0 +1,157 @@
+Corrige le système de transactions Partner SDK de SendavaPay.
+
+Contexte :
+
+Les comptes personnels SendavaPay fonctionnent parfaitement :
+
+- dépôt instantané,
+- callback reçu,
+- solde crédité,
+- transaction validée.
+
+Mais pour les comptes Partner/API SDK :
+
+- les clients effectuent bien le paiement,
+- le fournisseur PayDunya envoie correctement le webhook,
+- mais les transactions restent bloquées en statut "pending",
+- le wallet du partner n’est jamais crédité,
+- le webhook du partner n’est jamais envoyé.
+
+Webhook PayDunya configuré :
+https://SendavaPay.com/api/webhooks/paydunya
+
+Objectif :
+Corriger complètement le flux des transactions partner afin que :
+
+1. les callbacks PayDunya soient correctement traités,
+2. les transactions passent automatiquement à SUCCESS,
+3. le wallet partner soit crédité,
+4. le webhook du partner soit envoyé instantanément,
+5. aucune transaction ne reste bloquée en pending.
+
+À vérifier et corriger :
+
+1. Vérifier que le webhook PayDunya reçoit bien les données :
+
+- transaction_id
+- custom_data
+- status
+- amount
+- reference
+
+2. Ajouter des logs complets :
+
+- webhook reçu,
+- transaction trouvée,
+- mise à jour status,
+- crédit partner,
+- envoi webhook partner,
+- erreurs SQL,
+- erreurs callback.
+
+3. Vérifier que la recherche transaction utilise le bon identifiant :
+   Exemple :
+
+- reference
+- external_id
+- transaction_ref
+- custom_data.reference
+
+4. Corriger la logique callback :
+
+SI status PayDunya = completed OU success :
+
+- transaction.status = success
+- transaction.completed_at = now()
+- créditer automatiquement le wallet du partner
+- sauvegarder la transaction
+- envoyer le webhook au partner
+
+5. Empêcher les doubles crédits :
+
+- vérifier si transaction déjà success avant crédit.
+
+6. Ajouter une transaction SQL sécurisée :
+
+DB transaction :
+
+- beginTransaction
+- commit
+- rollback
+
+7. Ajouter gestion erreurs complète :
+
+- try/catch
+- logs détaillés
+
+8. Vérifier que les transactions SDK/partner sont bien prises en charge dans le callback principal.
+   Actuellement le callback semble gérer uniquement :
+
+- personal users
+  mais pas :
+- partners
+- merchants
+- sdk api payments
+
+9. Vérifier le système de webhook partner :
+   Le webhook doit être envoyé seulement après :
+
+- transaction success
+  ET
+- wallet partner crédité.
+
+10. Ajouter système de retry automatique :
+    Si webhook partner échoue :
+
+- retry 3 fois,
+- sauvegarder la réponse HTTP.
+
+11. Ajouter protection :
+
+- validation signature PayDunya,
+- validation montant,
+- validation devise,
+- validation duplicate callback.
+
+12. Corriger le problème principal :
+    Actuellement :
+
+- paiement effectué,
+- callback reçu,
+- mais transaction reste pending.
+
+Le système doit automatiquement finaliser la transaction après réception du callback PayDunya SUCCESS.
+
+13. Ajouter logs comme :
+
+- STEP 1 CALLBACK RECEIVED
+- STEP 2 TRANSACTION FOUND
+- STEP 3 UPDATE SUCCESS
+- STEP 4 CREDIT PARTNER
+- STEP 5 SEND WEBHOOK
+- STEP 6 DONE
+
+14. Vérifier aussi :
+
+- cron jobs,
+- queue workers,
+- jobs Laravel/Node,
+- tâches async,
+- Redis queues,
+- workers arrêtés.
+
+15. Le système doit supporter :
+
+- paiements personnels,
+- paiements API SDK,
+- paiements partners,
+- paiements merchants,
+  sans bloquer les transactions.
+
+Fournir :
+
+- le code corrigé,
+- les logs,
+- les modifications effectuées,
+- les causes exactes du bug,
+- les optimisations sécurité et performance.
