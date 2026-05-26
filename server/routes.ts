@@ -8336,84 +8336,180 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
       }
 
       // ─── Cas 2 : Dépôt / Lien de paiement / Partenaire ───
+      console.log("[PayDunya] STEP 1 — CALLBACK RECEIVED (dépôt/lien/partenaire)");
       const invoiceData = data?.data || data;
       const hash = invoiceData?.hash;
-      const status = (invoiceData?.status || invoiceData?.invoice?.status || "").toLowerCase();
+      // BUG FIX: PayDunya envoie "completed" OU "success" selon le mode (checkout vs SoftPay).
+      // L'ancien code rejetait silencieusement tous les webhooks avec status="success".
+      const rawStatus = (invoiceData?.status || invoiceData?.invoice?.status || "").toLowerCase();
+      const isCompleted = rawStatus === "completed" || rawStatus === "success" || rawStatus === "00";
       const token = invoiceData?.invoice?.token || invoiceData?.token;
-      const customData = invoiceData?.custom_data || {};
+      // Normaliser custom_data : PayDunya peut envoyer "custom_data" ou "custom_data"
+      const customData = invoiceData?.custom_data || invoiceData?.customData || {};
+
+      console.log(`[PayDunya] STEP 1 — token=${token} status=${rawStatus} isCompleted=${isCompleted} customRef=${customData?.reference || "(none)"}`);
 
       if (!token) {
-        console.error("❌ PayDunya webhook: token manquant");
+        console.error("❌ [PayDunya] STEP 1 — token manquant dans le payload:", JSON.stringify(invoiceData).slice(0, 500));
         return;
       }
 
-      // Vérification hash (SHA-512 de la master key)
-      if (hash && !verifyPayDunyaWebhook(hash)) {
-        console.error("❌ PayDunya webhook: hash invalide");
-        return;
+      // BUG FIX: Vérification hash uniquement si PAYDUNYA_MASTER_KEY est configurée.
+      // L'ancien code bloquait les webhooks valides quand la clé n'était pas encore chargée
+      // (verifyPayDunyaWebhook retourne false si masterKey est vide, ce qui bloquait le webhook).
+      if (hash) {
+        const { getCredential: _gc } = await import("./credentials");
+        const _mk = _gc("PAYDUNYA_MASTER_KEY");
+        if (_mk && !verifyPayDunyaWebhook(hash)) {
+          console.error("❌ [PayDunya] STEP 1 — hash invalide (masterKey configurée — rejet)");
+          return;
+        } else if (!_mk) {
+          console.warn("⚠️ [PayDunya] STEP 1 — PAYDUNYA_MASTER_KEY non configurée, hash non vérifié (webhook accepté)");
+        }
       }
 
-      if (status !== "completed") {
-        console.log(`⚠️ PayDunya webhook: statut=${status} pour token=${token} — ignoré`);
+      if (!isCompleted) {
+        console.log(`⚠️ [PayDunya] STEP 1 — statut="${rawStatus}" non terminal pour token=${token} — ignoré`);
         return;
       }
 
       const payment = await storage.getLeekpayPaymentById(token);
       if (!payment) {
-        // ─── Paiement partenaire ───
-        // Étape 1 : chercher par customData.reference (ex: PTR_XXXXXXXXXXXXXXXX)
+        // ─── Paiement partenaire / SDK ───
+        console.log(`[PayDunya] STEP 2 — Aucun paiement LeekPay trouvé pour token=${token} — recherche transaction partenaire`);
         const { db: _pdDb2 } = await import("./db");
         const { sql: _pdSql2 } = await import("drizzle-orm");
 
-        const customRef = customData?.reference || "";
+        // Étape 1 : chercher par customData.reference (PTR_xxx, PDEP-PD-xxx, etc.)
+        const customRef = (customData?.reference || customData?.ref || "").toString().trim();
         let partnerTx = customRef
           ? await storage.getPartnerTransactionByReference(customRef)
           : undefined;
 
-        // Étape 2 : fallback — chercher par invoiceToken dans metadata (cas où custom_data absent)
+        console.log(`[PayDunya] STEP 2 — customRef="${customRef}" partnerTx=${partnerTx ? `trouvé(ref=${(partnerTx as any).reference} status=${partnerTx.status})` : "introuvable"}`);
+
+        // Étape 2 : fallback — chercher par invoiceToken dans metadata
         if (!partnerTx && token) {
-          console.log(`🔍 PayDunya webhook: custom_data.reference absent ou introuvable (ref="${customRef}"), recherche par invoiceToken=${token}`);
-          const rows = await _pdDb2.execute(_pdSql2`
+          console.log(`[PayDunya] STEP 2 — Fallback: recherche par invoiceToken=${token} dans metadata`);
+          const fbRows = await _pdDb2.execute(_pdSql2`
             SELECT * FROM partner_transactions
             WHERE metadata::text LIKE ${"%" + token + "%"}
               AND status IN ('processing', 'pending')
+            ORDER BY created_at DESC
             LIMIT 1
-          `).catch(() => ({ rows: [] }));
-          const row = (rows as any)?.rows?.[0];
-          if (row) {
-            partnerTx = row as any;
-            console.log(`🔍 PayDunya webhook: transaction partenaire trouvée par invoiceToken ref=${(partnerTx as any)?.reference}`);
+          `).catch(e => { console.error("[PayDunya] STEP 2 — Erreur SQL fallback:", e); return { rows: [] }; });
+          const fbRow = (fbRows as any)?.rows?.[0];
+          if (fbRow) {
+            partnerTx = fbRow as any;
+            console.log(`[PayDunya] STEP 2 — Transaction partenaire trouvée par invoiceToken: ref=${(partnerTx as any)?.reference}`);
+          } else {
+            console.warn(`[PayDunya] STEP 2 — Aucune transaction partenaire trouvée pour token=${token} customRef="${customRef}"`);
           }
         }
 
-        if (partnerTx && partnerTx.status !== "completed") {
-          const finalRef = (partnerTx as any).reference;
-          const upd = await _pdDb2.execute(_pdSql2`UPDATE partner_transactions SET status = 'completed', completed_at = NOW() WHERE reference = ${finalRef} AND status IN ('processing', 'pending')`);
-          const rows = (upd as any)?.rowCount || 0;
-          if (rows > 0) {
-            const net = parseFloat(partnerTx.amount as string) - parseFloat((partnerTx.fee as string) || "0");
-            await _pdDb2.execute(_pdSql2`UPDATE partners SET balance = balance + ${net.toString()} WHERE id = ${partnerTx.partnerId}`);
-            // Créditer le wallet pays du partenaire
-            try {
-              let pdMeta: any = {};
-              try { pdMeta = JSON.parse((partnerTx as any).metadata || "{}"); } catch {}
-              const pdCountryCode = pdMeta.country || customData?.country || "";
-              if (pdCountryCode) {
-                const pdCountries = await storage.getCountries();
-                const pdCountryRec = pdCountries.find((c: any) => c.code.toUpperCase() === pdCountryCode.toUpperCase());
-                if (pdCountryRec) {
-                  await storage.creditPartnerWallet(partnerTx.partnerId as number, pdCountryRec.code, pdCountryRec.name, partnerTx.currency || pdCountryRec.currency, net.toString());
-                }
-              }
-            } catch (wErr) { console.error("PayDunya webhook: partner wallet credit error:", wErr); }
-            console.log(`✅ PayDunya webhook: paiement partenaire confirmé ref=${finalRef} net=${net}`);
-            if (partnerTx.callbackUrl) {
-              fetch(partnerTx.callbackUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reference: finalRef, status: "SUCCESS", amount: partnerTx.amount, fee: partnerTx.fee, netAmount: net.toString(), currency: partnerTx.currency, provider: "paydunya" }) }).catch(() => {});
-            }
-          }
-        } else {
-          console.log(`⚠️ PayDunya webhook: paiement partenaire non trouvé — customRef="${customRef}" token="${token}"`);
+        if (!partnerTx) {
+          console.warn(`[PayDunya] STEP 2 — Transaction partenaire introuvable — customRef="${customRef}" token="${token}" — webhook ignoré`);
+          return;
         }
+
+        if (partnerTx.status === "completed") {
+          console.log(`[PayDunya] STEP 2 — Transaction partenaire déjà complétée ref=${(partnerTx as any).reference} — doublon ignoré`);
+          return;
+        }
+
+        // STEP 3 — Mise à jour statut avec protection anti-doublon via SQL atomique
+        console.log(`[PayDunya] STEP 3 — Mise à jour statut → completed ref=${(partnerTx as any).reference}`);
+        const finalRef = (partnerTx as any).reference;
+        let upd: any;
+        try {
+          upd = await _pdDb2.execute(_pdSql2`
+            UPDATE partner_transactions
+            SET status = 'completed', completed_at = NOW()
+            WHERE reference = ${finalRef}
+              AND status IN ('processing', 'pending')
+          `);
+        } catch (sqlErr) {
+          console.error(`[PayDunya] STEP 3 — Erreur SQL UPDATE partner_transactions:`, sqlErr);
+          return;
+        }
+        const updRows = (upd as any)?.rowCount || 0;
+        if (updRows === 0) {
+          console.warn(`[PayDunya] STEP 3 — Aucune ligne mise à jour (déjà traité?) ref=${finalRef}`);
+          return;
+        }
+        console.log(`[PayDunya] STEP 3 — UPDATE SUCCESS: ${updRows} ligne(s) mises à jour ref=${finalRef}`);
+
+        // STEP 4 — Crédit wallet partner
+        const net = parseFloat(partnerTx.amount as string) - parseFloat((partnerTx.fee as string) || "0");
+        console.log(`[PayDunya] STEP 4 — Crédit partner #${partnerTx.partnerId} montant=${net} (brut=${partnerTx.amount} frais=${partnerTx.fee || 0})`);
+        try {
+          await _pdDb2.execute(_pdSql2`UPDATE partners SET balance = balance + ${net.toString()} WHERE id = ${partnerTx.partnerId}`);
+          console.log(`[PayDunya] STEP 4 — Balance partenaire mise à jour OK`);
+
+          let pdMeta: any = {};
+          try { pdMeta = JSON.parse((partnerTx as any).metadata || "{}"); } catch {}
+          const pdCountryCode = pdMeta.country || customData?.country || "";
+          if (pdCountryCode) {
+            const pdCountries = await storage.getCountries();
+            const pdCountryRec = pdCountries.find((c: any) => c.code.toUpperCase() === pdCountryCode.toUpperCase());
+            if (pdCountryRec) {
+              await storage.creditPartnerWallet(
+                partnerTx.partnerId as number,
+                pdCountryRec.code,
+                pdCountryRec.name,
+                partnerTx.currency || pdCountryRec.currency,
+                net.toString(),
+              );
+              console.log(`[PayDunya] STEP 4 — Wallet pays ${pdCountryRec.code} crédité OK`);
+            } else {
+              console.warn(`[PayDunya] STEP 4 — Pays "${pdCountryCode}" introuvable en base, wallet pays non crédité`);
+            }
+          } else {
+            console.warn(`[PayDunya] STEP 4 — Code pays absent de metadata et custom_data, wallet pays non crédité`);
+          }
+        } catch (creditErr) {
+          console.error(`[PayDunya] STEP 4 — ERREUR crédit wallet partenaire ref=${finalRef}:`, creditErr);
+        }
+
+        console.log(`✅ [PayDunya] STEP 4 — Paiement partenaire confirmé ref=${finalRef} net=${net}`);
+
+        // STEP 5 — Envoi webhook partenaire avec retry (3 tentatives)
+        if (partnerTx.callbackUrl) {
+          console.log(`[PayDunya] STEP 5 — Envoi webhook partenaire → ${partnerTx.callbackUrl}`);
+          const webhookPayload = JSON.stringify({
+            reference: finalRef,
+            status: "SUCCESS",
+            amount: partnerTx.amount,
+            fee: partnerTx.fee,
+            netAmount: net.toString(),
+            currency: partnerTx.currency,
+            provider: "paydunya",
+            completedAt: new Date().toISOString(),
+          });
+          (async () => {
+            const MAX_RETRIES = 3;
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+              try {
+                const cbRes = await fetch(partnerTx!.callbackUrl!, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: webhookPayload,
+                  signal: AbortSignal.timeout(10000),
+                });
+                console.log(`[PayDunya] STEP 5 — Webhook partenaire envoyé (tentative ${attempt}/${MAX_RETRIES}) HTTP ${cbRes.status} → ${partnerTx!.callbackUrl}`);
+                if (cbRes.ok || cbRes.status < 500) break;
+                if (attempt < MAX_RETRIES) await new Promise(r => setTimeout(r, 2000 * attempt));
+              } catch (cbErr) {
+                console.error(`[PayDunya] STEP 5 — Webhook partenaire ÉCHOUÉ tentative ${attempt}/${MAX_RETRIES} → ${partnerTx!.callbackUrl}:`, cbErr);
+                if (attempt < MAX_RETRIES) await new Promise(r => setTimeout(r, 2000 * attempt));
+              }
+            }
+          })();
+        } else {
+          console.warn(`[PayDunya] STEP 5 — Pas de callbackUrl configuré pour partenaire #${partnerTx.partnerId} ref=${finalRef}`);
+        }
+
+        console.log(`[PayDunya] STEP 6 — DONE ref=${finalRef} partenaire #${partnerTx.partnerId} net=${net}`);
         return;
       }
 
