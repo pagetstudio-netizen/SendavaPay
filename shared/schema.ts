@@ -23,6 +23,8 @@ export const users = pgTable("users", {
   country: text("country"),
   merchantName: text("merchant_name"),
   adminNote: text("admin_note"),
+  apiSdkEnabled: boolean("api_sdk_enabled").default(false).notNull(),
+  apiRedirectEnabled: boolean("api_redirect_enabled").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -107,6 +109,7 @@ export const apiKeys = pgTable("api_keys", {
   redirectUrl: text("redirect_url"),
   webhookUrl: text("webhook_url"),
   webhookSecret: text("webhook_secret"),
+  apiType: text("api_type").default("redirect").notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   lastUsedAt: timestamp("last_used_at"),
   requestCount: integer("request_count").default(0).notNull(),

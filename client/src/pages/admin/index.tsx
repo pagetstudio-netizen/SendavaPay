@@ -82,6 +82,10 @@ import {
   Send,
   Eye,
   EyeOff,
+  Code2,
+  Zap,
+  ToggleLeft,
+  ToggleRight,
 } from "lucide-react";
 import { PartnersContent } from "@/pages/admin/partners";
 import type { 
@@ -383,6 +387,8 @@ function UsersContent() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [showApiPermDialog, setShowApiPermDialog] = useState(false);
+  const [apiPermForm, setApiPermForm] = useState({ apiSdkEnabled: false, apiRedirectEnabled: false });
   const [balanceForm, setBalanceForm] = useState({ amount: "", operation: "add", reason: "", walletId: "" });
   const [editForm, setEditForm] = useState({ fullName: "", email: "", phone: "", adminNote: "", role: "" });
   const [newPassword, setNewPassword] = useState("");
@@ -484,6 +490,31 @@ function UsersContent() {
       toast({ title: "Erreur", description: err.message || "Échec de la réinitialisation", variant: "destructive" });
     },
   });
+
+  const apiPermMutation = useMutation({
+    mutationFn: async ({ userId, data }: { userId: number; data: typeof apiPermForm }) => {
+      const res = await apiRequest("PUT", `/api/admin/users/${userId}/api-permissions`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Succès", description: "Permissions API mises à jour" });
+      setShowApiPermDialog(false);
+      setSelectedUser(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur", description: err.message || "Échec de la mise à jour", variant: "destructive" });
+    },
+  });
+
+  const openApiPermDialog = (user: UserType) => {
+    setSelectedUser(user);
+    setApiPermForm({
+      apiSdkEnabled: !!(user as any).apiSdkEnabled,
+      apiRedirectEnabled: !!(user as any).apiRedirectEnabled,
+    });
+    setShowApiPermDialog(true);
+  };
 
   const openPasswordDialog = (user: UserType) => {
     setSelectedUser(user);
@@ -640,6 +671,15 @@ function UsersContent() {
                           title={user.isBlocked ? "Débloquer" : "Bloquer"}
                         >
                           {user.isBlocked ? <Unlock className="h-4 w-4 text-green-600" /> : <Ban className="h-4 w-4 text-orange-600" />}
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => openApiPermDialog(user)}
+                          title="Permissions API"
+                          data-testid={`button-api-perm-${user.id}`}
+                        >
+                          <Code2 className={`h-4 w-4 ${(user as any).apiSdkEnabled || (user as any).apiRedirectEnabled ? "text-purple-600" : "text-muted-foreground"}`} />
                         </Button>
                         <Button
                           size="icon"
@@ -853,6 +893,85 @@ function UsersContent() {
               data-testid="button-confirm-reset-password"
             >
               Réinitialiser
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* API Permissions Dialog */}
+      <Dialog open={showApiPermDialog} onOpenChange={setShowApiPermDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Code2 className="h-5 w-5 text-purple-600" />
+              Permissions API
+            </DialogTitle>
+            <DialogDescription>
+              {selectedUser && `Activer ou désactiver les types d'API pour ${selectedUser.fullName}`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/30 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+                  <Code2 className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                </div>
+                <div>
+                  <p className="font-medium text-sm">API SDK</p>
+                  <p className="text-xs text-muted-foreground">Paiements, retraits automatiques, webhooks</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setApiPermForm((f) => ({ ...f, apiSdkEnabled: !f.apiSdkEnabled }))}
+                className="flex-shrink-0"
+                data-testid="toggle-sdk-enabled"
+              >
+                {apiPermForm.apiSdkEnabled
+                  ? <ToggleRight className="h-8 w-8 text-purple-600" />
+                  : <ToggleLeft className="h-8 w-8 text-muted-foreground" />}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/30 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                  <Zap className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <p className="font-medium text-sm">API Redirection</p>
+                  <p className="text-xs text-muted-foreground">Liens de paiement avec redirection</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setApiPermForm((f) => ({ ...f, apiRedirectEnabled: !f.apiRedirectEnabled }))}
+                className="flex-shrink-0"
+                data-testid="toggle-redirect-enabled"
+              >
+                {apiPermForm.apiRedirectEnabled
+                  ? <ToggleRight className="h-8 w-8 text-blue-600" />
+                  : <ToggleLeft className="h-8 w-8 text-muted-foreground" />}
+              </button>
+            </div>
+
+            <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-200">
+              <strong>Note :</strong> L'utilisateur doit également avoir un compte vérifié pour accéder à l'API.
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowApiPermDialog(false)}>Annuler</Button>
+            <Button
+              onClick={() => selectedUser && apiPermMutation.mutate({ userId: selectedUser.id, data: apiPermForm })}
+              disabled={apiPermMutation.isPending}
+              data-testid="button-confirm-api-perm"
+            >
+              {apiPermMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Code2 className="h-4 w-4 mr-2" />
+              )}
+              Enregistrer
             </Button>
           </DialogFooter>
         </DialogContent>
