@@ -966,7 +966,7 @@ router.get("/v1/withdrawal-status/:reference", checkApiMaintenance, authenticate
   try {
     const transaction = await storage.getApiTransactionByReference(req.params.reference);
 
-    if (!transaction || transaction.type !== "withdrawal") {
+    if (!transaction || transaction.type !== "payout") {
       return res.status(404).json({ success: false, error: "Retrait introuvable", code: "NOT_FOUND" });
     }
     if (transaction.userId !== sdkUser.id) {
@@ -990,7 +990,7 @@ router.get("/v1/withdrawal-status/:reference", checkApiMaintenance, authenticate
         statusLabel:       statusLabel[transaction.status] || transaction.status,
         amount:            transaction.amount,
         fee:               transaction.fee,
-        netAmount:         transaction.netAmount,
+        netAmount:         (parseFloat(transaction.amount) - parseFloat(transaction.fee || "0")).toFixed(2),
         currency:          transaction.currency,
         phoneNumber:       transaction.customerPhone,
         paymentMethod:     transaction.paymentMethod,
@@ -1062,7 +1062,7 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
     if (data.externalReference) {
       const existing = await storage.getApiTransactionsByUser(sdkUser.id);
       const dup = existing.find(
-        t => t.type === "withdrawal" &&
+        t => t.type === "payout" &&
              t.externalReference === data.externalReference &&
              (t.status === "pending" || t.status === "processing" || t.status === "completed")
       );
@@ -1102,7 +1102,7 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
       apiKeyId:          sdkKey.id,
       reference,
       externalReference: data.externalReference || null,
-      type:              "withdrawal",
+      type:              "payout",
       amount:            data.amount.toString(),
       currency:          data.currency,
       description:       data.description || `Retrait SDK vers ${data.phoneNumber} (${data.operator})`,
