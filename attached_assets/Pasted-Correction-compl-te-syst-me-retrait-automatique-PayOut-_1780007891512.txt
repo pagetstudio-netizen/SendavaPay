@@ -1,0 +1,242 @@
+Correction complète système retrait automatique (PayOut)
+
+Le système de retrait automatique actuel doit être amélioré pour devenir stable, sécurisé et compatible production fintech.
+
+---
+
+1. Corriger logique retrait wallet pays
+
+IMPORTANT :
+
+Chaque retrait doit obligatoirement utiliser le wallet du même pays.
+
+Exemple :
+
+- country: TG → wallet Togo
+- country: SN → wallet Sénégal
+- country: CM → wallet Cameroun.
+
+Le backend doit vérifier automatiquement :
+
+- existence wallet
+- devise correcte
+- solde suffisant
+- opérateur compatible pays.
+
+---
+
+2. Vérification stricte avant retrait
+
+Avant tout retrait :
+
+Vérifier :
+
+- balance disponible
+- wallet actif
+- opérateur actif
+- format téléphone E164
+- devise pays
+- pays opérateur
+- limite montant.
+
+Refuser immédiatement si incohérence.
+
+---
+
+3. Ajouter endpoint vérification retrait
+
+Créer :
+
+POST /api/sdk/v1/validate-withdrawal
+
+Permet au marchand :
+
+- vérifier retrait avant envoi réel
+- afficher erreurs avant confirmation.
+
+Réponse :
+
+{
+  "success": true,
+  "fees": 100,
+  "walletBalance": 50000,
+  "operatorStatus": "online"
+}
+
+---
+
+4. Ajouter système queue payouts
+
+IMPORTANT :
+Les retraits ne doivent jamais être traités directement dans la requête HTTP.
+
+Utiliser :
+
+- queue
+- workers
+- retry automatique.
+
+Flow :
+
+1. requête reçue
+2. statut = queued
+3. worker traite
+4. statut final.
+
+---
+
+5. Ajouter nouveaux statuts retraits
+
+Ajouter :
+
+Statut| Description
+queued| En attente worker
+processing| En cours opérateur
+provider_pending| En attente fournisseur
+completed| Réussi
+failed| Échec
+reversed| Fonds retournés
+cancelled| Annulé
+
+---
+
+6. Ajouter endpoint statut retrait
+
+Créer :
+
+GET /api/sdk/v1/withdrawal-status/:reference
+
+Le marchand peut suivre :
+
+- progression
+- erreurs
+- statut live.
+
+---
+
+7. Ajouter retry automatique opérateur
+
+Si opérateur timeout :
+
+- retry automatique
+- maximum 3 tentatives
+- backoff progressif.
+
+Ne jamais marquer failed immédiatement sur timeout court.
+
+---
+
+8. Ajouter protection double retrait
+
+Bloquer :
+
+- double clic
+- double externalReference
+- double callback
+- double webhook
+- replay attaque.
+
+---
+
+9. Ajouter vérification réponse fournisseur
+
+Le backend doit toujours vérifier :
+
+- transactionId fournisseur
+- statut réel
+- accusé réception opérateur.
+
+Ne jamais marquer completed sans confirmation réelle.
+
+---
+
+10. Ajouter webhook retraits
+
+Envoyer :
+
+- withdrawal.processing
+- withdrawal.completed
+- withdrawal.failed
+- withdrawal.reversed.
+
+---
+
+11. Ajouter historique détaillé payout
+
+Le marchand doit voir :
+
+- opérateur utilisé
+- wallet débité
+- frais
+- référence fournisseur
+- date traitement
+- erreur éventuelle.
+
+---
+
+12. Ajouter endpoint disponibilité payout
+
+Créer :
+
+GET /api/sdk/v1/payout-status
+
+Retour :
+
+- opérateurs payout online/offline
+- maintenance
+- pays disponibles.
+
+---
+
+13. Corriger erreurs opérateurs payout
+
+Retour propre :
+
+{
+  "success": false,
+  "code": "PAYOUT_OPERATOR_OFFLINE",
+  "message": "Service temporairement indisponible"
+}
+
+Ne jamais retourner :
+
+- erreur SQL
+- stack trace
+- timeout brut.
+
+---
+
+14. Ajouter limitation sécurité payout
+
+Ajouter :
+
+- montant minimum
+- montant maximum
+- limite journalière
+- limite par minute
+- anti fraude.
+
+---
+
+15. Ajouter monitoring payout temps réel
+
+Admin doit voir :
+
+- taux succès payout
+- erreurs opérateurs
+- temps traitement
+- retraits bloqués
+- files queue.
+
+---
+
+16. Important
+
+Le payout doit être :
+
+- stable
+- asynchrone
+- sécurisé
+- sans double retrait
+- compatible gros volume
+- compatible multi-wallet pays.
