@@ -6275,7 +6275,7 @@ export async function registerRoutes(
         customerName: payerName,
         customerPhone: payerPhone,
         customerEmail: payerEmail,
-        paymentMethod: paymentGateway === "omnipay" ? `omnipay_${service.operator}` : service.operator,
+        paymentMethod: paymentGateway === "omnipay" ? `omnipay_${service.operator}` : paymentGateway === "paydunya" ? `paydunya_${service.operator}` : service.operator,
         status: "processing",
       });
 
