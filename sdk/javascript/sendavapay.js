@@ -1,5 +1,40 @@
 import crypto from "crypto";
 
+/**
+ * SendavaPay SDK v2.0 — Intégration côté serveur (Node.js)
+ *
+ * Ce SDK est destiné à votre backend (Node.js).
+ * Pour le paiement intégré côté frontend, utilisez le widget navigateur :
+ *   <script src="https://sendavapay.com/sdk/sendavapay.js"></script>
+ *
+ * NOUVEAU FLOW (v2) :
+ * ──────────────────
+ * 1. Votre backend appelle createPayment() → reçoit { paymentToken, reference }
+ * 2. Votre frontend passe le paymentToken au widget :
+ *    SendavaPay.init({ token: paymentToken, onSuccess: fn, onFailed: fn })
+ * 3. Le widget affiche l'UI de paiement directement sur votre site
+ * 4. Votre backend vérifie le statut via getPaymentStatus(reference)
+ * 5. Ou attendez le webhook (recommandé)
+ *
+ * PAYS ET OPÉRATEURS SUPPORTÉS
+ * ─────────────────────────────
+ * | Pays              | Code | Opérateur(s)             | Devise | OTP requis |
+ * |-------------------|------|--------------------------|--------|------------|
+ * | Togo              | TG   | TMoney, Moov             | XOF    | Non        |
+ * | Bénin             | BJ   | MTN, Moov                | XOF    | Non        |
+ * | Cameroun          | CM   | MTN, Orange              | XAF    | Non        |
+ * | Burkina Faso      | BF   | Orange Money             | XOF    | OUI ★      |
+ * | Côte d'Ivoire     | CI   | Orange Money             | XOF    | OUI ★      |
+ * | Côte d'Ivoire     | CI   | MTN, Moov, Wave          | XOF    | Non        |
+ * | Guinée            | GN   | Orange Money             | GNF    | OUI ★      |
+ * | Mali              | ML   | Orange Money             | XOF    | OUI ★      |
+ * | Sénégal           | SN   | Orange Money             | XOF    | OUI ★      |
+ * | Sénégal           | SN   | Wave                     | XOF    | Non        |
+ * | RD Congo          | COD  | Vodacom, Airtel, Orange  | CDF    | Non        |
+ * | Congo             | COG  | MTN                      | XAF    | Non        |
+ *
+ * ★ OTP FLOW — géré automatiquement par le widget
+ */
 class SendavaPay {
   constructor(apiKey, apiSecret, baseUrl = "https://sendavapay.com") {
     this.apiKey = apiKey;
@@ -23,13 +58,13 @@ class SendavaPay {
       method,
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": this.apiKey,
+        "Authorization": `Bearer ${this.apiKey}`,
         "x-signature": signature,
         "x-timestamp": timestamp,
       },
     };
 
-    if (method === "POST") {
+    if (method === "POST" || method === "PUT") {
       options.body = JSON.stringify(payload);
     }
 
@@ -38,163 +73,119 @@ class SendavaPay {
   }
 
   /**
-   * Initiate a Mobile Money payment.
-   *
-   * SUPPORTED COUNTRIES, OPERATORS & OTP REQUIREMENTS
-   * ─────────────────────────────────────────────────
-   * | Pays              | Code | Opérateur(s)             | Devise | OTP requis |
-   * |-------------------|------|--------------------------|--------|------------|
-   * | Togo              | TG   | TMoney, Moov             | XOF    | Non        |
-   * | Bénin             | BJ   | MTN, Moov                | XOF    | Non        |
-   * | Cameroun          | CM   | MTN, Orange              | XAF    | Non        |
-   * | Burkina Faso      | BF   | Orange Money             | XOF    | OUI ★      |
-   * | Côte d'Ivoire     | CI   | Orange Money             | XOF    | OUI ★      |
-   * | Côte d'Ivoire     | CI   | MTN, Moov, Wave          | XOF    | Non        |
-   * | Guinée            | GN   | Orange Money             | GNF    | OUI ★      |
-   * | Mali              | ML   | Orange Money             | XOF    | OUI ★      |
-   * | Sénégal           | SN   | Orange Money             | XOF    | OUI ★      |
-   * | Sénégal           | SN   | Wave                     | XOF    | Non        |
-   * | RD Congo          | COD  | Vodacom, Airtel, Orange  | CDF    | Non        |
-   * | Congo             | COG  | MTN                      | XAF    | Non        |
-   *
-   * ★ OTP FLOW (Orange Money — BF, CI, GN, ML, SN)
-   * ────────────────────────────────────────────────
-   * 1. Call createPayment() → response includes { otpRequired: true, reference }
-   * 2. Show an OTP input field so the customer can enter the code received by SMS
-   * 3. Call confirmOtp(reference, otp) to submit the code
-   * 4. Verify the final status with verifyPayment() or wait for the webhook
+   * Créer un paiement côté serveur.
+   * Retourne un paymentToken à passer au widget frontend.
    *
    * @param {Object} params
-   * @param {number} params.amount - Amount to charge
-   * @param {string} params.phoneNumber - Customer's phone number
-   * @param {string} params.operator - Mobile operator (MTN, Moov, Orange, TMoney, Wave, Vodacom, Airtel)
-   * @param {string} params.country - Country code (TG, BJ, BF, CM, CI, GN, ML, SN, COD, COG)
-   * @param {string} [params.currency] - Currency (auto-detected from country if not set)
-   * @param {string} [params.customerName] - Customer name
-   * @param {string} [params.customerEmail] - Customer email
-   * @param {string} [params.description] - Payment description
-   * @param {string} [params.callbackUrl] - Webhook URL for payment status updates
-   * @param {string} [params.redirectUrl] - Redirect URL after payment
-   * @param {Object} [params.metadata] - Additional metadata
-   * @param {string} [params.otp] - OTP code for operators that require it (Orange CI, Orange BF)
-   * @param {string} [params.provider] - Payment provider:
-   *   "soleaspay" (default, USSD push) | "winipayer" (checkout redirect) | "paydunya" (SoftPay direct USSD/redirect)
-   *   With "paydunya", Wave operators return a redirectUrl, Orange CI/BF require an OTP.
-   * @returns {Promise<Object>} Payment result — includes otpRequired:true for OTP operators, redirectUrl for Wave/Orange SN
+   * @param {number} params.amount - Montant (requis)
+   * @param {string} [params.currency] - Devise (défaut: XOF)
+   * @param {string} [params.description] - Description
+   * @param {string} [params.externalReference] - Votre référence interne (anti-doublon)
+   * @param {string} [params.customerName] - Nom du client
+   * @param {string} [params.customerEmail] - Email du client
+   * @param {string} [params.customerPhone] - Téléphone du client
+   * @param {string} [params.payerCountry] - Pays préféré (TG, BJ, SN, CI…)
+   * @param {string} [params.webhookUrl] - URL de notification webhook
+   * @param {Object} [params.metadata] - Données supplémentaires
+   * @returns {Promise<{success: boolean, data: {reference, paymentToken, expiresAt, amount, currency, widget}}>}
    */
-  async createPayment({ amount, phoneNumber, operator, country, currency, customerName, customerEmail, description, callbackUrl, redirectUrl, metadata, provider }) {
-    return this.request("POST", "/api/sdk/payment", {
+  async createPayment({ amount, currency, description, externalReference, customerName, customerEmail, customerPhone, payerCountry, webhookUrl, metadata }) {
+    return this.request("POST", "/api/sdk/v1/create-payment", {
       amount,
-      phoneNumber,
-      operator,
-      country,
       currency,
+      description,
+      externalReference,
       customerName,
       customerEmail,
-      description,
-      callbackUrl,
-      redirectUrl,
+      customerPhone,
+      payerCountry,
+      webhookUrl,
       metadata,
-      provider,
     });
   }
 
   /**
-   * Confirm an OTP code for Orange Money payments (BF, CI, GN, ML, SN).
-   * Call this after createPayment() returns { otpRequired: true }.
-   * The customer receives a one-time SMS code — collect it and pass it here.
+   * Vérifier le statut d'un paiement (polling).
+   * Préférez les webhooks pour une intégration robuste.
    *
-   * @param {string} reference - Transaction reference from createPayment
-   * @param {string} otp - OTP code entered by the customer
-   * @returns {Promise<Object>} Confirmation result with updated status
+   * @param {string} reference - Référence de la transaction
+   * @returns {Promise<{success: boolean, data: {reference, status, amount, currency, completedAt}}>}
    */
-  async confirmOtp(reference, otp) {
-    return this.request("POST", "/api/sdk/confirm-otp", { reference, otp });
+  async getPaymentStatus(reference) {
+    return this.request("GET", `/api/sdk/v1/payment-status/${reference}`);
   }
 
   /**
-   * Initiate a payment via WiniPayer (checkout redirect)
-   * Creates a checkout link - redirect the customer to checkoutUrl to complete payment
-   * @param {Object} params
-   * @param {number} params.amount - Amount to charge
-   * @param {string} [params.description] - Payment description
-   * @param {string} [params.customerName] - Customer name
-   * @param {string} [params.customerEmail] - Customer email
-   * @param {string} [params.phoneNumber] - Customer phone number
-   * @param {string} [params.callbackUrl] - Webhook URL for payment status updates
-   * @param {string} [params.redirectUrl] - Return URL after successful payment
-   * @param {Object} [params.metadata] - Additional metadata
-   * @returns {Promise<Object>} Result with checkoutUrl to redirect customer
-   */
-  async createWiniPayerPayment({ amount, description, customerName, customerEmail, phoneNumber, callbackUrl, redirectUrl, metadata }) {
-    return this.request("POST", "/api/sdk/payment", {
-      amount,
-      description,
-      customerName,
-      customerEmail,
-      phoneNumber,
-      callbackUrl,
-      redirectUrl,
-      metadata,
-      provider: "winipayer",
-    });
-  }
-
-  /**
-   * Request a withdrawal to a mobile money account
-   */
-  async createWithdraw({ amount, phoneNumber, operator, country, currency = "XOF", description }) {
-    return this.request("POST", "/api/sdk/withdraw", {
-      amount,
-      phoneNumber,
-      operator,
-      country,
-      currency,
-      description,
-    });
-  }
-
-  /**
-   * Verify payment status - checks with payment provider (SoleasPay or WiniPayer)
-   * @param {string} reference - Transaction reference from createPayment
-   * @returns {Promise<Object>} Payment status (PROCESSING, SUCCESS, FAILED, EXPIRED)
+   * Vérification détaillée d'un paiement (avec toutes les infos client).
+   * @param {string} reference
    */
   async verifyPayment(reference) {
-    return this.request("POST", "/api/sdk/verify", { reference });
+    return this.request("POST", "/api/sdk/v1/verify-payment", { reference });
   }
 
   /**
-   * Poll payment status until completed or timeout
-   * Works with both SoleasPay and WiniPayer transactions
-   * @param {string} reference - Transaction reference
-   * @param {number} [intervalMs=3000] - Polling interval in milliseconds
-   * @param {number} [timeoutMs=120000] - Maximum wait time (default 2 minutes)
-   * @param {Function} [onStatus] - Callback for each status check
-   * @returns {Promise<Object>} Final payment result
+   * Attendre la confirmation d'un paiement (polling).
+   *
+   * @param {string} reference
+   * @param {number} [intervalMs=3000] - Intervalle en ms
+   * @param {number} [timeoutMs=120000] - Délai maximum (2 min par défaut)
+   * @param {Function} [onStatus] - Callback à chaque vérification
+   * @returns {Promise<Object>} Résultat final
    */
   async waitForPayment(reference, intervalMs = 3000, timeoutMs = 120000, onStatus) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
-      const result = await this.verifyPayment(reference);
+      const result = await this.getPaymentStatus(reference);
       if (onStatus) onStatus(result);
-      if (result.status === "SUCCESS" || result.status === "FAILED" || result.status === "CANCELLED" || result.status === "EXPIRED") {
+      const status = result?.data?.status || result?.status;
+      if (status === "completed" || status === "failed" || status === "cancelled") {
         return result;
       }
       await new Promise(resolve => setTimeout(resolve, intervalMs));
     }
-    return { success: false, status: "TIMEOUT", reference, message: "Timeout - le client n'a pas confirmé" };
+    return { success: false, status: "TIMEOUT", reference, message: "Délai dépassé — paiement non confirmé" };
   }
 
-  async getTransaction(reference) {
-    return this.request("GET", `/api/sdk/transaction/${reference}`);
+  /**
+   * Demander un retrait vers Mobile Money.
+   *
+   * @param {Object} params
+   * @param {number} params.amount
+   * @param {string} params.phoneNumber
+   * @param {string} params.operator - MTN, Moov, Orange, TMoney…
+   * @param {string} params.country - TG, BJ, SN, CI…
+   * @param {string} [params.currency]
+   * @param {string} [params.description]
+   * @param {string} [params.externalReference]
+   */
+  async createWithdraw({ amount, phoneNumber, operator, country, currency = "XOF", description, externalReference }) {
+    return this.request("POST", "/api/sdk/v1/withdraw", {
+      amount, phoneNumber, operator, country, currency, description, externalReference,
+    });
   }
 
+  /**
+   * Obtenir le solde des wallets.
+   * @param {string} [country] - Filtrer par pays (TG, BJ…)
+   */
+  async getBalance(country) {
+    const path = country ? `/api/sdk/v1/balance?country=${country}` : "/api/sdk/v1/balance";
+    return this.request("GET", path);
+  }
+
+  /**
+   * Obtenir l'historique des transactions.
+   */
   async getTransactions() {
-    return this.request("GET", "/api/sdk/transactions");
+    return this.request("GET", "/api/sdk/v1/transactions");
   }
 
-  async getBalance() {
-    return this.request("GET", "/api/sdk/balance");
+  /**
+   * Configurer l'URL de webhook.
+   * @param {string} webhookUrl
+   */
+  async setWebhook(webhookUrl) {
+    return this.request("PUT", "/api/sdk/v1/webhook", { webhookUrl });
   }
 }
 

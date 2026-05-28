@@ -26,7 +26,7 @@ const SettingsPage = lazy(() => import("@/pages/dashboard/settings"));
 const DashboardHelpPage = lazy(() => import("@/pages/dashboard/help"));
 const WalletsPage = lazy(() => import("@/pages/dashboard/wallets"));
 const PaymentPage = lazy(() => import("@/pages/pay"));
-const PayApiPage = lazy(() => import("@/pages/pay-api"));
+
 const SuccessPage = lazy(() => import("@/pages/success"));
 const PaymentSuccessPage = lazy(() => import("@/pages/payment-success"));
 const AdminDashboardPage = lazy(() => import("@/pages/admin/index"));
@@ -61,7 +61,6 @@ function Router() {
         <Route path="/partner/dashboard" component={PartnerDashboardPage} />
         <Route path="/partner.by_:slug" component={PartnerPublicPage} />
         <Route path="/pay/:code" component={PaymentPage} />
-        <Route path="/pay/api/:reference" component={PayApiPage} />
         <Route path="/success" component={SuccessPage} />
         <Route path="/payment-success" component={PaymentSuccessPage} />
         <Route path="/terms" component={TermsPage} />

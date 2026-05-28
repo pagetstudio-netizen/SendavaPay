@@ -209,6 +209,7 @@ export interface IStorage {
   createApiTransaction(transaction: Partial<ApiTransaction>): Promise<ApiTransaction>;
   getApiTransaction(id: number): Promise<ApiTransaction | undefined>;
   getApiTransactionByReference(reference: string): Promise<ApiTransaction | undefined>;
+  getApiTransactionByToken(token: string): Promise<ApiTransaction | undefined>;
   getApiTransactionsByUser(userId: number): Promise<ApiTransaction[]>;
   getAllApiTransactions(): Promise<ApiTransaction[]>;
   updateApiTransaction(id: number, updates: Partial<ApiTransaction>): Promise<ApiTransaction | undefined>;
@@ -1090,6 +1091,11 @@ export class DatabaseStorage implements IStorage {
 
   async getApiTransactionByReference(reference: string): Promise<ApiTransaction | undefined> {
     const [transaction] = await getDb().select().from(apiTransactions).where(eq(apiTransactions.reference, reference));
+    return transaction;
+  }
+
+  async getApiTransactionByToken(token: string): Promise<ApiTransaction | undefined> {
+    const [transaction] = await getDb().select().from(apiTransactions).where(eq(apiTransactions.paymentToken, token));
     return transaction;
   }
 

@@ -1,3 +1,34 @@
+"""
+SendavaPay SDK v2.0 — Intégration côté serveur (Python)
+
+Ce SDK est destiné à votre backend Python.
+Pour le paiement intégré côté frontend, utilisez le widget :
+  <script src="https://sendavapay.com/sdk/sendavapay.js"></script>
+
+NOUVEAU FLOW (v2) :
+──────────────────
+1. Votre backend Python appelle create_payment() → reçoit { paymentToken, reference }
+2. Passez paymentToken à votre frontend :
+   SendavaPay.init({ token: payment_token, onSuccess: fn, onFailed: fn })
+3. Le widget affiche l'UI de paiement directement sur votre site
+4. Attendez le webhook (recommandé) ou appelez get_payment_status(reference)
+
+PAYS ET OPÉRATEURS SUPPORTÉS
+─────────────────────────────
+Pays              | Code | Opérateur(s)             | Devise
+─────────────────────────────────────────────────────────────
+Togo              | TG   | TMoney, Moov             | XOF
+Bénin             | BJ   | MTN, Moov                | XOF
+Cameroun          | CM   | MTN, Orange              | XAF
+Burkina Faso      | BF   | Orange Money             | XOF
+Côte d'Ivoire     | CI   | Orange Money, MTN, Moov  | XOF
+Guinée            | GN   | Orange Money             | GNF
+Mali              | ML   | Orange Money             | XOF
+Sénégal           | SN   | Orange Money, Wave       | XOF
+RD Congo          | COD  | Vodacom, Airtel, Orange  | CDF
+Congo             | COG  | MTN                      | XAF
+"""
+
 import json
 import hmac
 import hashlib
@@ -12,7 +43,7 @@ class SendavaPay:
         self.base_url = base_url.rstrip("/")
 
     def sign(self, payload, timestamp):
-        data = f"{timestamp}.{json.dumps(payload, separators=(',', ':'))}"
+        data = f"{timestamp}.{json.dumps(payload, separators=(',', ':'), ensure_ascii=False)}"
         return hmac.new(
             self.api_secret,
             data.encode("utf-8"),
@@ -29,7 +60,7 @@ class SendavaPay:
 
         headers = {
             "Content-Type": "application/json",
-            "x-api-key": self.api_key,
+            "Authorization": f"Bearer {self.api_key}",
             "x-signature": signature,
             "x-timestamp": timestamp,
         }
@@ -37,191 +68,149 @@ class SendavaPay:
         try:
             if method == "POST":
                 res = requests.post(url, json=payload, headers=headers, timeout=30)
+            elif method == "PUT":
+                res = requests.put(url, json=payload, headers=headers, timeout=30)
             else:
                 res = requests.get(url, headers=headers, timeout=30)
             return res.json()
         except requests.exceptions.RequestException as e:
-            return {"success": False, "status": "ERROR", "message": str(e)}
+            return {"success": False, "error": str(e)}
 
-    def create_payment(self, amount, phone_number=None, operator=None, country=None,
-                       currency=None, customer_name=None,
-                       customer_email=None, description=None,
-                       callback_url=None, redirect_url=None, metadata=None,
-                       provider=None):
+    def create_payment(self, amount, currency=None, description=None,
+                       external_reference=None, customer_name=None,
+                       customer_email=None, customer_phone=None,
+                       payer_country=None, webhook_url=None, metadata=None):
         """
-        Initiate a Mobile Money payment.
-
-        SUPPORTED COUNTRIES, OPERATORS & OTP REQUIREMENTS
-        ──────────────────────────────────────────────────
-        Pays              | Code | Opérateur(s)             | Devise | OTP requis
-        ─────────────────────────────────────────────────────────────────────────
-        Togo              | TG   | TMoney, Moov             | XOF    | Non
-        Bénin             | BJ   | MTN, Moov                | XOF    | Non
-        Cameroun          | CM   | MTN, Orange              | XAF    | Non
-        Burkina Faso      | BF   | Orange Money             | XOF    | OUI ★
-        Côte d'Ivoire     | CI   | Orange Money             | XOF    | OUI ★
-        Côte d'Ivoire     | CI   | MTN, Moov, Wave          | XOF    | Non
-        Guinée            | GN   | Orange Money             | GNF    | OUI ★
-        Mali              | ML   | Orange Money             | XOF    | OUI ★
-        Sénégal           | SN   | Orange Money             | XOF    | OUI ★
-        Sénégal           | SN   | Wave                     | XOF    | Non
-        RD Congo          | COD  | Vodacom, Airtel, Orange  | CDF    | Non
-        Congo             | COG  | MTN                      | XAF    | Non
-
-        ★ OTP FLOW — Orange Money (BF, CI, GN, ML, SN):
-          1. Call create_payment() → response includes { "otpRequired": True, "reference": "..." }
-          2. Show an OTP input field so the customer can enter the SMS code they received
-          3. Call confirm_otp(reference, otp) to submit the code
-          4. Verify the final status with verify_payment() or wait for the webhook
+        Créer un paiement côté serveur.
+        Retourne un paymentToken à passer au widget frontend.
 
         Args:
-            amount: Amount to charge
-            phone_number: Customer's mobile number (required)
-            operator: Mobile operator — MTN, Moov, Orange, TMoney, Wave, Vodacom, Airtel
-            country: Country code — TG, BJ, BF, CM, CI, GN, ML, SN, COD, COG
-            currency: Currency (auto-detected from country if not provided)
-            customer_name: Customer name (optional)
-            customer_email: Customer email (optional)
-            description: Payment description (optional)
-            callback_url: Webhook URL for status updates (optional)
-            redirect_url: Redirect URL after payment (optional)
-            metadata: Additional data dict (optional)
-            provider: "soleaspay" (default, USSD push) | "winipayer" (checkout redirect) |
-                      "paydunya" (SoftPay direct — USSD/redirect per operator)
-            otp: OTP code for operators that require it with PayDunya (Orange CI, Orange BF)
+            amount: Montant (requis)
+            currency: Devise (défaut XOF)
+            description: Description du paiement
+            external_reference: Votre référence interne (anti-doublon)
+            customer_name: Nom du client
+            customer_email: Email du client
+            customer_phone: Téléphone du client
+            payer_country: Pays préféré — TG, BJ, SN, CI…
+            webhook_url: URL de notification webhook
+            metadata: Données supplémentaires (dict)
 
         Returns:
-            dict: Payment result with reference for verification.
-                  For Orange Money operators, includes otpRequired: True.
-                  For WiniPayer, includes checkoutUrl to redirect the customer.
+            dict: { success, data: { reference, paymentToken, expiresAt, amount, currency } }
         """
         payload = {"amount": amount}
-        if phone_number:
-            payload["phoneNumber"] = phone_number
-        if operator:
-            payload["operator"] = operator
-        if country:
-            payload["country"] = country
         if currency:
             payload["currency"] = currency
+        if description:
+            payload["description"] = description
+        if external_reference:
+            payload["externalReference"] = external_reference
         if customer_name:
             payload["customerName"] = customer_name
         if customer_email:
             payload["customerEmail"] = customer_email
-        if description:
-            payload["description"] = description
-        if callback_url:
-            payload["callbackUrl"] = callback_url
-        if redirect_url:
-            payload["redirectUrl"] = redirect_url
+        if customer_phone:
+            payload["customerPhone"] = customer_phone
+        if payer_country:
+            payload["payerCountry"] = payer_country
+        if webhook_url:
+            payload["webhookUrl"] = webhook_url
         if metadata:
             payload["metadata"] = metadata
-        if provider:
-            payload["provider"] = provider
-        return self.request("POST", "/api/sdk/payment", payload)
+        return self.request("POST", "/api/sdk/v1/create-payment", payload)
 
-    def create_winipayer_payment(self, amount, description=None,
-                                 customer_name=None, customer_email=None,
-                                 phone_number=None, callback_url=None,
-                                 redirect_url=None, metadata=None):
+    def get_payment_status(self, reference):
         """
-        Initiate a payment via WiniPayer (checkout redirect).
-        Returns a checkout URL to redirect the customer.
+        Vérifier le statut d'un paiement.
+        Préférez les webhooks pour une intégration robuste.
 
         Args:
-            amount: Amount to charge
-            description: Payment description (optional)
-            customer_name: Customer name (optional)
-            customer_email: Customer email (optional)
-            phone_number: Customer phone number (optional)
-            callback_url: Webhook URL for status updates (optional)
-            redirect_url: Return URL after successful payment (optional)
-            metadata: Additional data dict (optional)
+            reference: Référence de la transaction
 
         Returns:
-            dict: Result with checkoutUrl to redirect customer
+            dict: { success, data: { reference, status, amount, currency, completedAt } }
         """
-        return self.create_payment(
-            amount=amount,
-            phone_number=phone_number,
-            description=description,
-            customer_name=customer_name,
-            customer_email=customer_email,
-            callback_url=callback_url,
-            redirect_url=redirect_url,
-            metadata=metadata,
-            provider="winipayer",
-        )
-
-    def confirm_otp(self, reference, otp):
-        """
-        Confirm an OTP code for Orange Money payments (BF, CI, GN, ML, SN).
-        Call this after create_payment() returns { "otpRequired": True }.
-        The customer receives a one-time SMS code — collect it and pass it here.
-
-        Args:
-            reference: Transaction reference from create_payment()
-            otp: OTP code entered by the customer
-
-        Returns:
-            dict: Confirmation result with updated payment status
-        """
-        return self.request("POST", "/api/sdk/confirm-otp", {
-            "reference": reference,
-            "otp": otp,
-        })
-
-    def create_withdraw(self, amount, phone_number, operator=None,
-                        country=None, currency="XOF", description=None):
-        """Request a withdrawal to a mobile money account."""
-        return self.request("POST", "/api/sdk/withdraw", {
-            "amount": amount,
-            "phoneNumber": phone_number,
-            "operator": operator,
-            "country": country,
-            "currency": currency,
-            "description": description,
-        })
+        return self.request("GET", f"/api/sdk/v1/payment-status/{reference}")
 
     def verify_payment(self, reference):
-        """Verify payment status - checks with payment provider (SoleasPay or WiniPayer)."""
-        return self.request("POST", "/api/sdk/verify", {"reference": reference})
+        """Vérification détaillée d'un paiement (avec toutes les infos client)."""
+        return self.request("POST", "/api/sdk/v1/verify-payment", {"reference": reference})
 
     def wait_for_payment(self, reference, interval_sec=3, timeout_sec=120, on_status=None):
         """
-        Poll payment status until completed or timeout.
-        Works with both SoleasPay and WiniPayer transactions.
+        Attendre la confirmation d'un paiement (polling).
+        Préférez les webhooks pour une intégration en production.
 
         Args:
-            reference: Transaction reference from create_payment
-            interval_sec: Polling interval in seconds (default: 3)
-            timeout_sec: Maximum wait time (default: 120)
-            on_status: Callback function for each status check (optional)
+            reference: Référence de la transaction
+            interval_sec: Intervalle de vérification en secondes (défaut: 3)
+            timeout_sec: Délai maximum (défaut: 120)
+            on_status: Callback à chaque vérification (optionnel)
 
         Returns:
-            dict: Final payment result
+            dict: Résultat final du paiement
         """
         start = time.time()
         while time.time() - start < timeout_sec:
-            result = self.verify_payment(reference)
+            result = self.get_payment_status(reference)
             if on_status:
                 on_status(result)
-            status = result.get("status", "")
-            if status in ("SUCCESS", "FAILED", "CANCELLED", "EXPIRED"):
+            status = (result.get("data") or {}).get("status") or result.get("status", "")
+            if status in ("completed", "failed", "cancelled"):
                 return result
             time.sleep(interval_sec)
         return {
             "success": False,
             "status": "TIMEOUT",
             "reference": reference,
-            "message": "Timeout - le client n'a pas confirmé",
+            "message": "Délai dépassé — paiement non confirmé",
         }
 
-    def get_transaction(self, reference):
-        return self.request("GET", f"/api/sdk/transaction/{reference}")
+    def create_withdraw(self, amount, phone_number, operator=None,
+                        country=None, currency="XOF", description=None,
+                        external_reference=None):
+        """
+        Demander un retrait vers Mobile Money.
+
+        Args:
+            amount: Montant (requis)
+            phone_number: Numéro de téléphone (requis)
+            operator: Opérateur — MTN, Moov, Orange, TMoney…
+            country: Code pays — TG, BJ, SN, CI…
+            currency: Devise (défaut XOF)
+            description: Description (optionnel)
+            external_reference: Votre référence interne (optionnel)
+        """
+        return self.request("POST", "/api/sdk/v1/withdraw", {
+            "amount": amount,
+            "phoneNumber": phone_number,
+            "operator": operator,
+            "country": country,
+            "currency": currency,
+            "description": description,
+            "externalReference": external_reference,
+        })
+
+    def get_balance(self, country=None):
+        """
+        Obtenir le solde des wallets.
+
+        Args:
+            country: Filtrer par pays (TG, BJ…) ou None pour tous
+        """
+        path = f"/api/sdk/v1/balance?country={country}" if country else "/api/sdk/v1/balance"
+        return self.request("GET", path)
 
     def get_transactions(self):
-        return self.request("GET", "/api/sdk/transactions")
+        """Obtenir l'historique des transactions."""
+        return self.request("GET", "/api/sdk/v1/transactions")
 
-    def get_balance(self):
-        return self.request("GET", "/api/sdk/balance")
+    def set_webhook(self, webhook_url):
+        """
+        Configurer l'URL de webhook.
+
+        Args:
+            webhook_url: URL de notification (HTTPS requis)
+        """
+        return self.request("PUT", "/api/sdk/v1/webhook", {"webhookUrl": webhook_url})

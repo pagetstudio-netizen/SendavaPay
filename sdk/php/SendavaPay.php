@@ -1,5 +1,20 @@
 <?php
 
+/**
+ * SendavaPay SDK v2.0 — Intégration côté serveur (PHP)
+ *
+ * Ce SDK est destiné à votre backend PHP.
+ * Pour le paiement intégré côté frontend, utilisez le widget :
+ *   <script src="https://sendavapay.com/sdk/sendavapay.js"></script>
+ *
+ * NOUVEAU FLOW (v2) :
+ * ──────────────────
+ * 1. Votre backend PHP appelle createPayment() → reçoit { paymentToken, reference }
+ * 2. Passez paymentToken à votre frontend :
+ *    SendavaPay.init({ token: "<?= $paymentToken ?>", onSuccess: fn, onFailed: fn })
+ * 3. Le widget affiche l'UI de paiement directement sur votre site
+ * 4. Attendez le webhook (recommandé) ou appelez getPaymentStatus($reference)
+ */
 class SendavaPay {
     private $apiKey;
     private $apiSecret;
@@ -12,7 +27,7 @@ class SendavaPay {
     }
 
     private function sign($payload, $timestamp) {
-        $data = $timestamp . "." . json_encode($payload);
+        $data = $timestamp . "." . json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         return hash_hmac("sha256", $data, $this->apiSecret);
     }
 
@@ -23,7 +38,7 @@ class SendavaPay {
 
         $headers = [
             "Content-Type: application/json",
-            "x-api-key: {$this->apiKey}",
+            "Authorization: Bearer {$this->apiKey}",
             "x-signature: {$signature}",
             "x-timestamp: {$timestamp}",
         ];
@@ -38,6 +53,9 @@ class SendavaPay {
         if ($method === "POST") {
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        } elseif ($method === "PUT") {
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT");
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
         }
 
         $response = curl_exec($ch);
@@ -46,144 +64,119 @@ class SendavaPay {
         curl_close($ch);
 
         if ($error) {
-            return ["success" => false, "status" => "ERROR", "message" => "Erreur cURL: " . $error];
+            return ["success" => false, "error" => "Erreur cURL: " . $error];
         }
 
         return json_decode($response, true);
     }
 
     /**
-     * Initiate a Mobile Money payment.
-     *
-     * SUPPORTED COUNTRIES, OPERATORS & OTP REQUIREMENTS
-     * ─────────────────────────────────────────────────
-     * | Pays              | Code | Opérateur(s)             | Devise | OTP requis |
-     * |-------------------|------|--------------------------|--------|------------|
-     * | Togo              | TG   | TMoney, Moov             | XOF    | Non        |
-     * | Bénin             | BJ   | MTN, Moov                | XOF    | Non        |
-     * | Cameroun          | CM   | MTN, Orange              | XAF    | Non        |
-     * | Burkina Faso      | BF   | Orange Money             | XOF    | OUI ★      |
-     * | Côte d'Ivoire     | CI   | Orange Money             | XOF    | OUI ★      |
-     * | Côte d'Ivoire     | CI   | MTN, Moov, Wave          | XOF    | Non        |
-     * | Guinée            | GN   | Orange Money             | GNF    | OUI ★      |
-     * | Mali              | ML   | Orange Money             | XOF    | OUI ★      |
-     * | Sénégal           | SN   | Orange Money             | XOF    | OUI ★      |
-     * | Sénégal           | SN   | Wave                     | XOF    | Non        |
-     * | RD Congo          | COD  | Vodacom, Airtel, Orange  | CDF    | Non        |
-     * | Congo             | COG  | MTN                      | XAF    | Non        |
-     *
-     * ★ OTP FLOW (Orange Money — BF, CI, GN, ML, SN)
-     * ────────────────────────────────────────────────
-     * 1. Appelez createPayment() → la réponse contient { "otpRequired": true, "reference": "..." }
-     * 2. Affichez un champ de saisie OTP dans votre interface
-     * 3. Le client reçoit un code SMS à usage unique — collectez-le
-     * 4. Appelez confirmOtp($reference, $otp) pour soumettre le code
-     * 5. Vérifiez le statut final avec verifyPayment() ou attendez le webhook
+     * Créer un paiement côté serveur.
+     * Retourne un paymentToken à passer au widget frontend.
      *
      * @param array $data
-     *   - amount: float (requis) - Montant à débiter
-     *   - phoneNumber: string (requis) - Numéro mobile du client
-     *   - operator: string (requis) - MTN, Moov, Orange, TMoney, Wave, Vodacom, Airtel
-     *   - country: string (requis) - TG, BJ, BF, CM, CI, GN, ML, SN, COD, COG
-     *   - currency: string (optionnel) - Détectée automatiquement selon le pays
+     *   - amount: float (requis) — Montant
+     *   - currency: string (optionnel, défaut XOF)
+     *   - description: string (optionnel)
+     *   - externalReference: string (optionnel) — Votre référence interne (anti-doublon)
      *   - customerName: string (optionnel)
      *   - customerEmail: string (optionnel)
-     *   - description: string (optionnel)
-     *   - callbackUrl: string (optionnel) - Webhook de notification de statut
-     *   - redirectUrl: string (optionnel) - Redirection après paiement
+     *   - customerPhone: string (optionnel)
+     *   - payerCountry: string (optionnel) — TG, BJ, SN, CI…
+     *   - webhookUrl: string (optionnel) — URL de notification
      *   - metadata: array (optionnel)
-     *   - otp: string (optionnel) - Code OTP pour Orange CI / Orange BF avec PayDunya
-     *   - provider: string (optionnel) - "soleaspay" (défaut, USSD) | "winipayer" (checkout) | "paydunya" (SoftPay direct USSD/redirect)
-     * @return array Résultat du paiement — inclut otpRequired:true pour les opérateurs Orange Money
+     * @return array { success, data: { reference, paymentToken, expiresAt, amount, currency } }
      */
     public function createPayment($data) {
-        return $this->request("POST", "/api/sdk/payment", $data);
+        return $this->request("POST", "/api/sdk/v1/create-payment", $data);
     }
 
     /**
-     * Confirmer un code OTP pour les paiements Orange Money (BF, CI, GN, ML, SN).
-     * À appeler après createPayment() lorsque la réponse contient { "otpRequired": true }.
-     * Le client reçoit un code SMS — collectez-le et passez-le ici.
+     * Vérifier le statut d'un paiement.
+     * Préférez les webhooks pour une intégration robuste.
      *
-     * @param string $reference Référence de la transaction (depuis createPayment)
-     * @param string $otp Code OTP saisi par le client
-     * @return array Résultat de la confirmation avec le statut mis à jour
+     * @param string $reference Référence de la transaction
+     * @return array { success, data: { reference, status, amount, currency, completedAt } }
      */
-    public function confirmOtp($reference, $otp) {
-        return $this->request("POST", "/api/sdk/confirm-otp", [
-            "reference" => $reference,
-            "otp" => $otp,
-        ]);
+    public function getPaymentStatus($reference) {
+        return $this->request("GET", "/api/sdk/v1/payment-status/" . urlencode($reference));
     }
 
     /**
-     * Initiate a payment via WiniPayer (checkout redirect)
-     * Creates a checkout link - redirect the customer to checkoutUrl
-     *
-     * @param array $data Required: amount
-     *   - amount: float - Amount to charge
-     *   - description: string (optional)
-     *   - customerName: string (optional)
-     *   - customerEmail: string (optional)
-     *   - phoneNumber: string (optional)
-     *   - callbackUrl: string (optional) - Webhook for status updates
-     *   - redirectUrl: string (optional) - Return URL after payment
-     *   - metadata: array (optional)
-     * @return array Result with checkoutUrl to redirect customer
-     */
-    public function createWiniPayerPayment($data) {
-        $data["provider"] = "winipayer";
-        return $this->request("POST", "/api/sdk/payment", $data);
-    }
-
-    /**
-     * Request a withdrawal to a mobile money account
-     */
-    public function createWithdraw($data) {
-        return $this->request("POST", "/api/sdk/withdraw", $data);
-    }
-
-    /**
-     * Verify payment status - checks with payment provider (SoleasPay or WiniPayer)
+     * Vérification détaillée d'un paiement.
+     * @param string $reference
+     * @return array
      */
     public function verifyPayment($reference) {
-        return $this->request("POST", "/api/sdk/verify", ["reference" => $reference]);
+        return $this->request("POST", "/api/sdk/v1/verify-payment", ["reference" => $reference]);
     }
 
     /**
-     * Poll payment status until completed or timeout
-     * Works with both SoleasPay and WiniPayer transactions
+     * Attendre la confirmation d'un paiement (polling).
      *
-     * @param string $reference Transaction reference
-     * @param int $intervalSec Polling interval in seconds (default: 3)
-     * @param int $timeoutSec Maximum wait time in seconds (default: 120)
-     * @param callable|null $onStatus Callback for each status check
-     * @return array Final payment result
+     * @param string $reference
+     * @param int $intervalSec Intervalle en secondes (défaut: 3)
+     * @param int $timeoutSec Délai maximum (défaut: 120)
+     * @param callable|null $onStatus Callback à chaque vérification
+     * @return array Résultat final
      */
     public function waitForPayment($reference, $intervalSec = 3, $timeoutSec = 120, $onStatus = null) {
         $start = time();
         while (time() - $start < $timeoutSec) {
-            $result = $this->verifyPayment($reference);
+            $result = $this->getPaymentStatus($reference);
             if ($onStatus) {
                 $onStatus($result);
             }
-            if (in_array($result["status"] ?? "", ["SUCCESS", "FAILED", "CANCELLED", "EXPIRED"])) {
+            $status = $result["data"]["status"] ?? $result["status"] ?? "";
+            if (in_array($status, ["completed", "failed", "cancelled"])) {
                 return $result;
             }
             sleep($intervalSec);
         }
-        return ["success" => false, "status" => "TIMEOUT", "reference" => $reference, "message" => "Timeout - le client n'a pas confirmé"];
+        return ["success" => false, "status" => "TIMEOUT", "reference" => $reference, "message" => "Délai dépassé — paiement non confirmé"];
     }
 
-    public function getTransaction($reference) {
-        return $this->request("GET", "/api/sdk/transaction/" . urlencode($reference));
+    /**
+     * Demander un retrait vers Mobile Money.
+     *
+     * @param array $data
+     *   - amount: float (requis)
+     *   - phoneNumber: string (requis)
+     *   - operator: string (requis) — MTN, Moov, Orange, TMoney…
+     *   - country: string (requis) — TG, BJ, SN, CI…
+     *   - currency: string (optionnel, défaut XOF)
+     *   - description: string (optionnel)
+     *   - externalReference: string (optionnel)
+     * @return array
+     */
+    public function createWithdraw($data) {
+        return $this->request("POST", "/api/sdk/v1/withdraw", $data);
     }
 
+    /**
+     * Obtenir le solde des wallets.
+     * @param string|null $country Filtrer par pays (TG, BJ…)
+     * @return array
+     */
+    public function getBalance($country = null) {
+        $path = "/api/sdk/v1/balance" . ($country ? "?country=" . urlencode($country) : "");
+        return $this->request("GET", $path);
+    }
+
+    /**
+     * Obtenir l'historique des transactions.
+     * @return array
+     */
     public function getTransactions() {
-        return $this->request("GET", "/api/sdk/transactions");
+        return $this->request("GET", "/api/sdk/v1/transactions");
     }
 
-    public function getBalance() {
-        return $this->request("GET", "/api/sdk/balance");
+    /**
+     * Configurer l'URL de webhook.
+     * @param string $webhookUrl
+     * @return array
+     */
+    public function setWebhook($webhookUrl) {
+        return $this->request("PUT", "/api/sdk/v1/webhook", ["webhookUrl" => $webhookUrl]);
     }
 }
