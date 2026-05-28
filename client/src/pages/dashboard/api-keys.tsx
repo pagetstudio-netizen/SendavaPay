@@ -603,7 +603,7 @@ export default function ApiKeysPage() {
   }
 
   const sdkEnabled = permissions?.apiSdkEnabled ?? false;
-  const redirectEnabled = permissions?.apiRedirectEnabled ?? false;
+  const redirectEnabled = permissions?.apiRedirectEnabled ?? true;
   const anyEnabled = sdkEnabled || redirectEnabled;
 
   if (!anyEnabled && !permissionsLoading) {

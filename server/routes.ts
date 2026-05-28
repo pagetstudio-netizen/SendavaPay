@@ -6814,7 +6814,7 @@ export async function registerRoutes(
       if (!user) return res.status(404).json({ message: "Utilisateur introuvable" });
       res.json({
         apiSdkEnabled: (user as any).apiSdkEnabled ?? false,
-        apiRedirectEnabled: (user as any).apiRedirectEnabled ?? false,
+        apiRedirectEnabled: true,
       });
     } catch (error) {
       console.error("Get API permissions error:", error);
@@ -6853,9 +6853,7 @@ export async function registerRoutes(
       if (resolvedType === "sdk" && !(user as any).apiSdkEnabled) {
         return res.status(403).json({ message: "L'API SDK n'est pas activée sur votre compte" });
       }
-      if (resolvedType === "redirect" && !(user as any).apiRedirectEnabled) {
-        return res.status(403).json({ message: "L'API Redirection n'est pas activée sur votre compte" });
-      }
+      // L'API Redirection (lien de paiement) est accessible à tous les comptes vérifiés
 
       const crypto = await import("crypto");
       const webhookSecret = webhookUrl ? `whsec_${crypto.randomBytes(24).toString("hex")}` : undefined;
