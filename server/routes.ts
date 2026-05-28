@@ -6343,6 +6343,93 @@ export async function registerRoutes(
         });
       }
 
+      // ── PayDunya ─────────────────────────────────────────────────────────
+      if (paymentGateway === "paydunya") {
+        if (!payerPhone) {
+          return res.status(400).json({ message: "Numéro de téléphone requis pour PayDunya" });
+        }
+
+        console.log(`📤 PayDunya API: paiement référence=${req.params.reference}, montant=${amount} ${service.currency}`);
+
+        const { initiatePayDunySoftPay, formatPhoneForPayDunya, createPayDunyaCheckout } = await import("./paydunya");
+
+        const pdInvoiceParams = {
+          totalAmount: amount,
+          description: transaction.description || `Paiement API ${transaction.reference}`,
+          storeName: "SendavaPay",
+          callbackUrl: `${baseUrl}/api/webhook/paydunya`,
+          returnUrl: `${baseUrl}/success`,
+          cancelUrl: `${baseUrl}/pay/api/${req.params.reference}`,
+          customData: { reference: orderId, apiTransactionId: String(transaction.id) },
+        };
+
+        const pdSoftPayOp = getSoftPayOperator(service.operator || "", service.countryCode || "");
+
+        if (pdSoftPayOp) {
+          const cleanPhone = formatPhoneForPayDunya(payerPhone, service.countryCode || "");
+          console.log(`📤 PayDunya SoftPay API: opérateur=${pdSoftPayOp.slug} téléphone=${cleanPhone}`);
+
+          const spResult = await initiatePayDunySoftPay({
+            operatorName: service.operator || "",
+            countryCode: service.countryCode || "",
+            phone: cleanPhone,
+            name: payerName || "Client",
+            email: payerEmail || "noreply@sendavapay.com",
+            invoiceParams: pdInvoiceParams,
+          });
+
+          if (!spResult.success) {
+            console.error("❌ PayDunya SoftPay API error:", spResult.error);
+            await storage.updateApiTransaction(transaction.id, { status: "failed" });
+            return res.status(500).json({ message: spResult.error || "Erreur PayDunya SoftPay" });
+          }
+
+          const invoiceToken = spResult.invoiceToken!;
+          await storage.updateApiTransaction(transaction.id, {
+            externalReference: `${orderId}|${invoiceToken}`,
+            paymentMethod: `paydunya_${service.name}`,
+          });
+
+          console.log(`✅ PayDunya SoftPay API: initié token=${invoiceToken} type=${spResult.responseType}`);
+
+          return res.json({
+            success: true,
+            payId: invoiceToken,
+            orderId,
+            provider: "paydunya",
+            redirectUrl: spResult.redirectUrl || null,
+            omUrl: spResult.omUrl || null,
+            isWave: false,
+            message: spResult.message || "Veuillez confirmer le paiement sur votre téléphone.",
+          });
+        }
+
+        // Fallback : checkout PayDunya (redirection)
+        const pdResult = await createPayDunyaCheckout(pdInvoiceParams);
+        if (!pdResult.success || !pdResult.checkoutUrl || !pdResult.token) {
+          console.error("❌ PayDunya checkout API error:", pdResult.error);
+          await storage.updateApiTransaction(transaction.id, { status: "failed" });
+          return res.status(500).json({ message: pdResult.error || "Erreur lors de la création du paiement PayDunya" });
+        }
+
+        await storage.updateApiTransaction(transaction.id, {
+          externalReference: `${orderId}|${pdResult.token}`,
+          paymentMethod: `paydunya_${service.name}`,
+        });
+
+        console.log(`📤 PayDunya checkout API: token=${pdResult.token} url=${pdResult.checkoutUrl}`);
+
+        return res.json({
+          success: true,
+          payId: pdResult.token,
+          orderId,
+          provider: "paydunya",
+          redirectUrl: pdResult.checkoutUrl,
+          isWave: false,
+          message: "Vous allez être redirigé vers la page de paiement PayDunya.",
+        });
+      }
+
       // ── SoleasPay (défaut) ───────────────────────────────────────────────
       if (!payerPhone) {
         return res.status(400).json({ message: "Numéro de téléphone requis pour SoleasPay" });
@@ -6408,6 +6495,7 @@ export async function registerRoutes(
       }
 
       const isOmniPay = transaction.paymentMethod?.startsWith("omnipay_");
+      const isPayDunya = transaction.paymentMethod?.startsWith("paydunya_");
 
       let verifyResult: { success: boolean; status?: string; data?: { amount?: number }; message?: string };
 
@@ -6421,6 +6509,18 @@ export async function registerRoutes(
           data: { amount: opVerify.amount ? parseFloat(String(opVerify.amount)) : undefined },
           message: opVerify.message,
         };
+      } else if (isPayDunya) {
+        const { confirmPayDunyaInvoice } = await import("./paydunya");
+        console.log(`🔍 PayDunya API verify: payId=${payId}`);
+        const pdVerify = await confirmPayDunyaInvoice(payId);
+        const pdSuccess = pdVerify.status === "completed";
+        verifyResult = {
+          success: pdSuccess,
+          status: pdSuccess ? "SUCCESS" : (pdVerify.status === "cancelled" ? "FAILED" : "PENDING"),
+          data: { amount: pdVerify.amount ? parseFloat(String(pdVerify.amount)) : undefined },
+          message: pdVerify.error || (pdSuccess ? "Paiement confirmé" : "En attente de confirmation"),
+        };
+        console.log(`🔍 PayDunya API verify result: status=${verifyResult.status}`);
       } else {
         verifyResult = await soleaspay.verifyPayment(orderId, payId);
         console.log(`🔍 SoleasPay API verify: orderId=${orderId}, payId=${payId}, result=`, JSON.stringify(verifyResult));
