@@ -24,7 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Key, Shield, Code2, Loader2, Copy, Check, Trash2, Plus, ExternalLink,
   Wrench, ArrowLeft, Bell, Globe, Zap, ArrowUpRight, Info, BookOpen,
-  Terminal, ChevronDown, ChevronUp, Webhook,
+  Terminal, Webhook,
 } from "lucide-react";
 import type { ApiKey } from "@shared/schema";
 
@@ -61,94 +61,71 @@ function SdkDocumentation({ apiKeys }: { apiKeys: ApiKey[] }) {
   const sdkKeys = apiKeys.filter((k) => k.apiType === "sdk" && k.isActive);
   const exampleKey = sdkKeys[0]?.apiKey || "sdk_votre_cle_ici";
 
-  const [openSection, setOpenSection] = useState<string | null>("intro");
-  const toggle = (s: string) => setOpenSection(openSection === s ? null : s);
-
-  const Section = ({ id, title, icon: Icon, children }: any) => (
-    <Card className="overflow-hidden">
-      <button
-        className="w-full flex items-center justify-between p-4 text-left hover:bg-muted/50 transition-colors"
-        onClick={() => toggle(id)}
-      >
-        <div className="flex items-center gap-2 font-semibold">
+  const Section = ({ title, icon: Icon, children }: { title: string; icon: any; children: React.ReactNode }) => (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
           <Icon className="h-5 w-5 text-primary" />
           {title}
-        </div>
-        {openSection === id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-      </button>
-      {openSection === id && <CardContent className="pt-0 space-y-4">{children}</CardContent>}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">{children}</CardContent>
     </Card>
   );
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 p-4 bg-primary/10 rounded-lg border border-primary/20">
-        <Info className="h-5 w-5 text-primary flex-shrink-0" />
-        <p className="text-sm">
-          <strong>API SDK</strong> — Intégration complète pour marchands. Créez des paiements, gérez des retraits automatiques et configurez des webhooks directement depuis votre site.
-        </p>
-      </div>
-
-      <Section id="intro" title="Authentification" icon={Shield}>
-        <p className="text-sm text-muted-foreground">
-          Incluez votre clé API SDK dans l'en-tête <code className="bg-muted px-1 rounded">Authorization</code> de chaque requête.
-        </p>
-        <CodeBlock code={`Authorization: Bearer ${exampleKey}`} />
-        <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
-          <p className="text-sm text-amber-800 dark:text-amber-200">
-            <strong>Base URL :</strong> <code>https://sendavapay.com/api/sdk/v1</code>
+    <div className="space-y-5">
+      {/* Bannière principe */}
+      <div className="flex items-start gap-3 p-4 bg-primary/10 rounded-lg border border-primary/20">
+        <Info className="h-5 w-5 text-primary flex-shrink-0 mt-0.5" />
+        <div className="space-y-1">
+          <p className="text-sm font-semibold">Paiement sur votre propre site</p>
+          <p className="text-sm text-muted-foreground">
+            Le client reste sur <strong>votre page de paiement</strong> du début à la fin — aucune redirection vers SendavaPay.
+            Vous construisez votre propre interface (formulaire, design, langues) et vous utilisez le SDK pour appeler nos API.
           </p>
         </div>
-      </Section>
+      </div>
 
-      <Section id="wallet-routing" title="Routage automatique par pays / wallet" icon={Globe}>
-        <p className="text-sm text-muted-foreground">
-          SendavaPay détecte automatiquement le pays du payeur et crédite le bon wallet. Chaque paiement est attribué au wallet du pays correspondant.
-        </p>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm border rounded-lg overflow-hidden">
-            <thead className="bg-muted">
-              <tr>
-                <th className="text-left p-3 font-medium">Pays du payeur</th>
-                <th className="text-left p-3 font-medium">Wallet crédité</th>
-                <th className="text-left p-3 font-medium">Devise</th>
-                <th className="text-left p-3 font-medium">Code pays</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                ["Togo", "Wallet Togo", "XOF", "TG"],
-                ["Bénin", "Wallet Bénin", "XOF", "BJ"],
-                ["Sénégal", "Wallet Sénégal", "XOF", "SN"],
-                ["Côte d'Ivoire", "Wallet CI", "XOF", "CI"],
-                ["Mali", "Wallet Mali", "XOF", "ML"],
-                ["Burkina Faso", "Wallet Burkina", "XOF", "BF"],
-                ["Cameroun", "Wallet Cameroun", "XAF", "CM"],
-                ["Guinée", "Wallet Guinée", "GNF", "GN"],
-              ].map(([country, wallet, currency, code]) => (
-                <tr key={code} className="border-t hover:bg-muted/30">
-                  <td className="p-3">{country}</td>
-                  <td className="p-3 text-primary font-medium">{wallet}</td>
-                  <td className="p-3 font-mono">{currency}</td>
-                  <td className="p-3 font-mono text-muted-foreground">{code}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 text-sm text-blue-800 dark:text-blue-200">
-          <strong>Exemple :</strong> Un client depuis le Togo paie via TMoney → l'argent est crédité sur votre <strong>Wallet Togo</strong>. Un client depuis le Sénégal paie via Wave → l'argent va sur votre <strong>Wallet Sénégal</strong>.
+      {/* Flux global */}
+      <Section title="Flux d'intégration" icon={Zap}>
+        <div className="space-y-2">
+          {[
+            ["1", "Votre backend crée un paiement", "POST /api/sdk/v1/create-payment → reçoit un paymentToken (valide 30 min)"],
+            ["2", "Votre page affiche le formulaire", "Sélection pays, opérateur Mobile Money, numéro de téléphone — votre design"],
+            ["3", "Votre page initie le paiement", "Appel direct à POST /api/pay-api/:reference avec les infos du payeur"],
+            ["4", "OTP si requis", "Le client reçoit un SMS, entre le code sur votre page → POST /api/pay-api/:reference/verify"],
+            ["5", "Confirmation", "Polling GET /api/sdk/v1/payment-status/:reference — vous affichez la confirmation"],
+          ].map(([num, title, desc]) => (
+            <div key={num} className="flex gap-3">
+              <div className="flex-shrink-0 h-6 w-6 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center font-bold">{num}</div>
+              <div>
+                <p className="text-sm font-medium">{title}</p>
+                <p className="text-xs text-muted-foreground">{desc}</p>
+              </div>
+            </div>
+          ))}
         </div>
       </Section>
 
-      <Section id="create-payment" title="Créer un paiement" icon={Zap}>
+      {/* Authentification */}
+      <Section title="Authentification (backend)" icon={Shield}>
         <p className="text-sm text-muted-foreground">
-          Génère une URL de paiement que vous redirigez vers votre client.
+          Votre clé SDK ne s'utilise que côté serveur. Ne l'exposez jamais dans le code frontend.
         </p>
-        <div className="space-y-1">
-          <Badge variant="outline" className="font-mono text-xs">POST /api/sdk/v1/create-payment</Badge>
-        </div>
-        <CodeBlock language="json" code={`// Corps de la requête
+        <CodeBlock code={`Authorization: Bearer ${exampleKey}
+Content-Type: application/json
+
+Base URL : https://sendavapay.com/api/sdk/v1`} />
+      </Section>
+
+      {/* Étape 1 — Créer paiement */}
+      <Section title="Étape 1 — Créer un paiement (backend)" icon={Key}>
+        <p className="text-sm text-muted-foreground">
+          Appelé depuis votre serveur lors d'une commande. Renvoie un <code className="bg-muted px-1 rounded">paymentToken</code> à passer à votre page de paiement.
+        </p>
+        <Badge variant="outline" className="font-mono text-xs">POST /api/sdk/v1/create-payment</Badge>
+        <CodeBlock language="json" code={`// Requête (depuis votre serveur)
 {
   "amount": 5000,
   "currency": "XOF",
@@ -157,57 +134,142 @@ function SdkDocumentation({ apiKeys }: { apiKeys: ApiKey[] }) {
   "customerEmail": "jean@example.com",
   "customerPhone": "+22890000000",
   "payerCountry": "TG",
-  "redirectUrl": "https://monsite.com/succes",
-  "webhookUrl": "https://monsite.com/api/webhook",
+  "webhookUrl": "https://monsite.com/api/webhook/sendavapay",
   "externalReference": "order_1234"
-}`} />
-        <CodeBlock language="json" code={`// Réponse
-{
-  "success": true,
-  "data": {
-    "reference": "sdk_abc123",
-    "amount": 5000,
-    "currency": "XOF",
-    "status": "pending",
-    "paymentUrl": "https://sendavapay.com/pay/api/sdk_abc123",
-    "walletRouting": {
-      "detectedCountry": "TG",
-      "targetWallet": "Togo",
-      "note": "Les fonds seront crédités sur le wallet Togo"
-    },
-    "createdAt": "2024-01-15T10:00:00Z"
-  }
-}`} />
-        <p className="text-sm text-muted-foreground">Redirigez votre client vers <code className="bg-muted px-1 rounded">paymentUrl</code>. Après paiement, il est renvoyé vers votre <code className="bg-muted px-1 rounded">redirectUrl</code>.</p>
-      </Section>
-
-      <Section id="verify-payment" title="Vérifier un paiement" icon={Check}>
-        <Badge variant="outline" className="font-mono text-xs">POST /api/sdk/v1/verify-payment</Badge>
-        <CodeBlock code={`// Corps
-{ "reference": "sdk_abc123" }
+}
 
 // Réponse
 {
   "success": true,
   "data": {
     "reference": "sdk_abc123",
-    "amount": "5000.00",
-    "status": "completed",   // pending | completed | failed | cancelled
-    "paymentMethod": "tmoney",
-    "completedAt": "2024-01-15T10:05:00Z"
+    "paymentToken": "pay_tok_xxxxxxxxxxxxxxxx",
+    "expiresAt": "2024-01-15T10:30:00Z",
+    "amount": 5000,
+    "currency": "XOF",
+    "status": "pending"
   }
 }`} />
-        <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800 text-sm text-green-800 dark:text-green-200">
-          <strong>Conseil de sécurité :</strong> Vérifiez toujours le statut côté serveur avant de valider une commande. Ne vous fiez pas uniquement à la redirection.
+        <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-200">
+          Passez le <code>paymentToken</code> à votre page de paiement (ex. en paramètre URL ou dans le rendu HTML). Ne transmettez pas votre clé SDK au navigateur.
         </div>
       </Section>
 
-      <Section id="withdraw" title="Retrait automatique (Mobile Money)" icon={ArrowUpRight}>
+      {/* Étape 2 — SDK navigateur */}
+      <Section title="Étape 2 — SDK navigateur (votre page de paiement)" icon={Terminal}>
         <p className="text-sm text-muted-foreground">
-          Envoyez de l'argent automatiquement depuis votre wallet vers un numéro Mobile Money. Le wallet du pays spécifié est débité.
+          Chargez le SDK léger sur votre page de paiement. Il expose des méthodes API sans aucune interface — c'est vous qui construisez le formulaire.
+        </p>
+        <CodeBlock language="html" code={`<script src="https://sendavapay.com/sdk/sendavapay.js"></script>`} />
+        <p className="text-sm font-medium">Initialisation et récupération des détails :</p>
+        <CodeBlock language="javascript" code={`// Récupérez le token depuis l'URL ou la page
+const token = new URLSearchParams(location.search).get('token');
+
+const sp = new SendavaPay({ token });
+
+// Récupère les détails de la transaction (montant, description…)
+const details = await sp.getDetails();
+console.log(details.amount, details.currency, details.description);
+
+// Récupère les pays disponibles
+const countries = await sp.getCountries();
+
+// Récupère les opérateurs d'un pays
+const operators = await sp.getServices('SN'); // ['Orange Money', 'Wave', …]`} />
+      </Section>
+
+      {/* Étape 3 — Initier le paiement */}
+      <Section title="Étape 3 — Initier le paiement" icon={Zap}>
+        <p className="text-sm text-muted-foreground">
+          Lorsque le client soumet votre formulaire, appelez <code className="bg-muted px-1 rounded">initiatePayment()</code>.
+        </p>
+        <CodeBlock language="javascript" code={`// Soumission du formulaire de paiement
+document.getElementById('pay-btn').addEventListener('click', async () => {
+  const result = await sp.initiatePayment({
+    payerName:    document.getElementById('name').value,
+    payerPhone:   document.getElementById('phone').value,
+    payerEmail:   document.getElementById('email').value,
+    payerCountry: document.getElementById('country').value, // 'SN', 'TG'…
+    serviceId:    selectedOperator.id,
+  });
+
+  if (result.requiresOtp) {
+    // Afficher votre champ OTP
+    showOtpStep(result.payId, result.orderId);
+  } else {
+    // Lancer le polling de statut
+    startPolling();
+  }
+});`} />
+      </Section>
+
+      {/* Étape 4 — OTP */}
+      <Section title="Étape 4 — Vérification OTP (si requis)" icon={Shield}>
+        <p className="text-sm text-muted-foreground">
+          Certains opérateurs demandent un code OTP envoyé par SMS. Affichez un champ de saisie sur votre page.
+        </p>
+        <CodeBlock language="javascript" code={`document.getElementById('otp-btn').addEventListener('click', async () => {
+  const result = await sp.verifyOtp({
+    payId:   savedPayId,
+    orderId: savedOrderId,
+    otp:     document.getElementById('otp-input').value,
+  });
+
+  if (result.success) {
+    startPolling(); // Lancer la vérification du statut
+  } else {
+    showError('Code OTP incorrect, réessayez.');
+  }
+});`} />
+      </Section>
+
+      {/* Étape 5 — Polling statut */}
+      <Section title="Étape 5 — Confirmation du paiement" icon={Check}>
+        <p className="text-sm text-muted-foreground">
+          Vérifiez le statut jusqu'à confirmation. Affichez votre propre page de succès ou d'échec.
+        </p>
+        <CodeBlock language="javascript" code={`function startPolling() {
+  // Option A — polling automatique
+  const poller = sp.pollStatus({
+    interval: 3,         // vérifier toutes les 3 secondes
+    maxAttempts: 40,     // 2 minutes max
+    onSuccess: (data) => {
+      // data.status === 'completed'
+      showSuccessPage(data);
+    },
+    onFailed: (data) => {
+      showErrorPage(data.message || 'Paiement échoué');
+    },
+  });
+
+  // Option B — vérification manuelle
+  const status = await sp.getStatus();
+  // status.status: 'pending' | 'completed' | 'failed'
+}`} />
+        <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800 text-sm text-green-800 dark:text-green-200">
+          <strong>Sécurité :</strong> Validez toujours le statut final côté serveur via <code>GET /api/sdk/v1/payment-status/:reference</code> avant de marquer une commande comme payée.
+        </div>
+        <Badge variant="outline" className="font-mono text-xs">GET /api/sdk/v1/payment-status/:reference</Badge>
+        <CodeBlock language="json" code={`{
+  "success": true,
+  "data": {
+    "reference": "sdk_abc123",
+    "status": "completed",   // pending | completed | failed | cancelled
+    "amount": "5000.00",
+    "currency": "XOF",
+    "paymentMethod": "orange_sn",
+    "completedAt": "2024-01-15T10:05:00Z"
+  }
+}`} />
+      </Section>
+
+      {/* Retrait */}
+      <Section title="Retrait automatique (payout)" icon={ArrowUpRight}>
+        <p className="text-sm text-muted-foreground">
+          Envoyez de l'argent depuis votre wallet vers un numéro Mobile Money. Appelé uniquement depuis votre backend.
         </p>
         <Badge variant="outline" className="font-mono text-xs">POST /api/sdk/v1/withdraw</Badge>
-        <CodeBlock code={`// Corps de la requête
+        <CodeBlock language="json" code={`// Requête
 {
   "amount": 10000,
   "phoneNumber": "+22890123456",
@@ -222,44 +284,86 @@ function SdkDocumentation({ apiKeys }: { apiKeys: ApiKey[] }) {
 {
   "success": true,
   "data": {
-    "withdrawalId": 42,
     "reference": "sdk_xyz789",
     "amount": 10000,
     "fee": 100,
     "netAmount": 9900,
-    "currency": "XOF",
-    "phoneNumber": "+22890123456",
-    "operator": "tmoney",
-    "country": "TG",
-    "countryName": "Togo",
-    "walletDebited": "Togo",
     "status": "pending",
-    "message": "Demande de retrait créée."
+    "walletDebited": "Togo"
   }
 }`} />
-        <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border text-sm">
-          <strong>Routage wallet :</strong> Le montant est prélevé sur votre <strong>Wallet Togo</strong> si <code>country: "TG"</code>, sur votre <strong>Wallet Bénin</strong> si <code>country: "BJ"</code>, etc. Assurez-vous que le wallet du pays a suffisamment de fonds.
-        </div>
+      </Section>
+
+      {/* Webhooks */}
+      <Section title="Webhooks — Notifications automatiques" icon={Webhook}>
+        <p className="text-sm text-muted-foreground">
+          Recevez une notification POST sur votre serveur dès qu'un paiement est complété.
+          Passez <code className="bg-muted px-1 rounded">webhookUrl</code> lors de la création du paiement, ou configurez une URL globale.
+        </p>
+        <p className="text-sm font-medium">Payload reçu :</p>
+        <CodeBlock language="json" code={`{
+  "event": "payment.completed",
+  "reference": "sdk_abc123",
+  "amount": "5000.00",
+  "currency": "XOF",
+  "status": "completed",
+  "customerPhone": "+22890000000",
+  "paymentMethod": "orange_sn",
+  "externalReference": "order_1234",
+  "timestamp": "2024-01-15T10:05:00Z"
+}`} />
+        <p className="text-sm font-medium">Vérification de signature (Node.js) :</p>
+        <CodeBlock language="javascript" code={`const crypto = require('crypto');
+
+app.post('/api/webhook/sendavapay', (req, res) => {
+  const sig = req.headers['x-sendavapay-signature'];
+  const expected = 'sha256=' + crypto
+    .createHmac('sha256', process.env.WEBHOOK_SECRET)
+    .update(JSON.stringify(req.body))
+    .digest('hex');
+
+  if (sig !== expected) return res.status(401).send('Signature invalide');
+
+  const { event, reference, status } = req.body;
+  if (event === 'payment.completed' && status === 'completed') {
+    // Valider la commande dans votre base de données
+    markOrderAsPaid(reference);
+  }
+  res.json({ received: true });
+});`} />
+      </Section>
+
+      {/* Wallets */}
+      <Section title="Routage des wallets par pays" icon={Globe}>
+        <p className="text-sm text-muted-foreground">
+          Chaque paiement est automatiquement crédité sur le wallet correspondant au pays du payeur.
+        </p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm border rounded-lg overflow-hidden">
-            <thead className="bg-muted"><tr>
-              <th className="text-left p-2 font-medium">Pays</th>
-              <th className="text-left p-2 font-medium">Code</th>
-              <th className="text-left p-2 font-medium">Opérateurs supportés</th>
-            </tr></thead>
+            <thead className="bg-muted">
+              <tr>
+                <th className="text-left p-3 font-medium">Pays</th>
+                <th className="text-left p-3 font-medium">Code</th>
+                <th className="text-left p-3 font-medium">Devise</th>
+                <th className="text-left p-3 font-medium">Wallet crédité</th>
+              </tr>
+            </thead>
             <tbody>
               {[
-                ["Togo", "TG", "tmoney, flooz, togocel"],
-                ["Bénin", "BJ", "mtn_bj, moov_bj"],
-                ["Sénégal", "SN", "orange_sn, wave_sn, free_sn"],
-                ["Côte d'Ivoire", "CI", "orange_ci, mtn_ci, wave_ci, moov_ci"],
-                ["Mali", "ML", "orange_ml, wave_ml, moov_ml"],
-                ["Cameroun", "CM", "orange_cm, mtn_cm"],
-              ].map(([country, code, ops]) => (
-                <tr key={code} className="border-t">
-                  <td className="p-2">{country}</td>
-                  <td className="p-2 font-mono text-muted-foreground">{code}</td>
-                  <td className="p-2 font-mono text-xs">{ops}</td>
+                ["Togo", "TG", "XOF", "Wallet Togo"],
+                ["Sénégal", "SN", "XOF", "Wallet Sénégal"],
+                ["Côte d'Ivoire", "CI", "XOF", "Wallet CI"],
+                ["Bénin", "BJ", "XOF", "Wallet Bénin"],
+                ["Mali", "ML", "XOF", "Wallet Mali"],
+                ["Burkina Faso", "BF", "XOF", "Wallet Burkina"],
+                ["Cameroun", "CM", "XAF", "Wallet Cameroun"],
+                ["Guinée", "GN", "GNF", "Wallet Guinée"],
+              ].map(([country, code, currency, wallet]) => (
+                <tr key={code} className="border-t hover:bg-muted/30">
+                  <td className="p-3">{country}</td>
+                  <td className="p-3 font-mono text-muted-foreground">{code}</td>
+                  <td className="p-3 font-mono">{currency}</td>
+                  <td className="p-3 text-primary font-medium">{wallet}</td>
                 </tr>
               ))}
             </tbody>
@@ -267,181 +371,20 @@ function SdkDocumentation({ apiKeys }: { apiKeys: ApiKey[] }) {
         </div>
       </Section>
 
-      <Section id="balance" title="Soldes des wallets" icon={Key}>
+      {/* Soldes */}
+      <Section title="Soldes des wallets" icon={BookOpen}>
         <Badge variant="outline" className="font-mono text-xs">GET /api/sdk/v1/balance</Badge>
-        <CodeBlock code={`// Tous les wallets
-GET /api/sdk/v1/balance
-
-// Un pays spécifique
-GET /api/sdk/v1/balance?country=TG
-
-// Réponse (tous les wallets)
+        <CodeBlock language="json" code={`// GET /api/sdk/v1/balance?country=TG  (ou sans paramètre pour tous)
 {
   "success": true,
   "data": {
     "wallets": [
       { "country": "TG", "countryName": "Togo", "balance": "25000.00", "currency": "XOF" },
-      { "country": "SN", "countryName": "Sénégal", "balance": "8500.00", "currency": "XOF" },
-      { "country": "CI", "countryName": "Côte d'Ivoire", "balance": "0.00", "currency": "XOF" }
+      { "country": "SN", "countryName": "Sénégal", "balance": "8500.00", "currency": "XOF" }
     ],
-    "totalWallets": 9
+    "totalWallets": 8
   }
 }`} />
-      </Section>
-
-      <Section id="transactions" title="Historique des transactions" icon={BookOpen}>
-        <Badge variant="outline" className="font-mono text-xs">GET /api/sdk/v1/transactions</Badge>
-        <CodeBlock code={`// Réponse
-{
-  "success": true,
-  "data": {
-    "transactions": [
-      {
-        "reference": "sdk_abc123",
-        "type": "payment",
-        "amount": "5000.00",
-        "fee": "350.00",
-        "currency": "XOF",
-        "status": "completed",
-        "customerPhone": "+22890000000",
-        "paymentMethod": "tmoney",
-        "createdAt": "2024-01-15T10:00:00Z",
-        "completedAt": "2024-01-15T10:05:00Z"
-      }
-    ],
-    "total": 1
-  }
-}`} />
-      </Section>
-
-      <Section id="webhook" title="Webhooks — Notifications automatiques" icon={Webhook}>
-        <p className="text-sm text-muted-foreground">
-          Configurez une URL webhook pour recevoir des notifications en temps réel à chaque paiement complété.
-        </p>
-        <Badge variant="outline" className="font-mono text-xs">PUT /api/sdk/v1/webhook</Badge>
-        <CodeBlock code={`// Corps
-{ "webhookUrl": "https://monsite.com/api/webhook/sendavapay" }
-
-// Réponse
-{
-  "success": true,
-  "data": {
-    "webhookUrl": "https://monsite.com/api/webhook/sendavapay",
-    "webhookSecret": "whsec_abc123...",
-    "message": "Webhook configuré avec succès."
-  }
-}`} />
-        <p className="text-sm font-medium mt-2">Payload reçu sur votre serveur :</p>
-        <CodeBlock code={`{
-  "event": "payment.completed",
-  "reference": "sdk_abc123",
-  "amount": "5000.00",
-  "currency": "XOF",
-  "status": "completed",
-  "customerPhone": "+22890000000",
-  "paymentMethod": "tmoney",
-  "timestamp": "2024-01-15T10:05:00Z"
-}`} />
-        <p className="text-sm font-medium">Vérification de signature (Node.js) :</p>
-        <CodeBlock language="javascript" code={`const crypto = require('crypto');
-
-function verifyWebhook(payload, signature, secret) {
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(JSON.stringify(payload))
-    .digest('hex');
-  return \`sha256=\${expected}\` === signature;
-}
-
-// Dans votre route Express
-app.post('/api/webhook/sendavapay', (req, res) => {
-  const sig = req.headers['x-sendavapay-signature'];
-  if (!verifyWebhook(req.body, sig, process.env.WEBHOOK_SECRET)) {
-    return res.status(401).send('Signature invalide');
-  }
-  const { event, reference, status } = req.body;
-  if (event === 'payment.completed' && status === 'completed') {
-    // Valider la commande, livrer le produit, etc.
-  }
-  res.json({ received: true });
-});`} />
-      </Section>
-
-      <Section id="examples" title="Exemples d'intégration" icon={Terminal}>
-        <p className="text-sm font-medium">JavaScript / Node.js</p>
-        <CodeBlock language="javascript" code={`const API_KEY = '${exampleKey}';
-const BASE_URL = 'https://sendavapay.com/api/sdk/v1';
-
-async function createPayment(order) {
-  const res = await fetch(\`\${BASE_URL}/create-payment\`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': \`Bearer \${API_KEY}\`
-    },
-    body: JSON.stringify({
-      amount: order.total,
-      currency: 'XOF',
-      customerName: order.customerName,
-      customerEmail: order.customerEmail,
-      payerCountry: order.country,  // 'TG', 'BJ', 'SN', etc.
-      redirectUrl: 'https://monsite.com/merci',
-      externalReference: order.id
-    })
-  });
-  const data = await res.json();
-  // Rediriger le client vers data.data.paymentUrl
-  return data.data.paymentUrl;
-}`} />
-        <p className="text-sm font-medium">PHP</p>
-        <CodeBlock language="php" code={`<?php
-$apiKey = '${exampleKey}';
-$baseUrl = 'https://sendavapay.com/api/sdk/v1';
-
-function createPayment($amount, $customerEmail, $country) {
-  global $apiKey, $baseUrl;
-  $ch = curl_init("$baseUrl/create-payment");
-  curl_setopt_array($ch, [
-    CURLOPT_POST => true,
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_HTTPHEADER => [
-      "Content-Type: application/json",
-      "Authorization: Bearer $apiKey"
-    ],
-    CURLOPT_POSTFIELDS => json_encode([
-      'amount' => $amount,
-      'currency' => 'XOF',
-      'customerEmail' => $customerEmail,
-      'payerCountry' => $country,
-      'redirectUrl' => 'https://monsite.com/merci'
-    ])
-  ]);
-  $res = json_decode(curl_exec($ch), true);
-  curl_close($ch);
-  return $res['data']['paymentUrl'];
-}
-?>`} />
-        <p className="text-sm font-medium">Python</p>
-        <CodeBlock language="python" code={`import requests
-
-API_KEY = '${exampleKey}'
-BASE_URL = 'https://sendavapay.com/api/sdk/v1'
-
-headers = {
-    'Content-Type': 'application/json',
-    'Authorization': f'Bearer {API_KEY}'
-}
-
-def create_payment(amount, customer_email, country):
-    res = requests.post(f'{BASE_URL}/create-payment', headers=headers, json={
-        'amount': amount,
-        'currency': 'XOF',
-        'customerEmail': customer_email,
-        'payerCountry': country,  # 'TG', 'BJ', 'SN', 'CI', etc.
-        'redirectUrl': 'https://monsite.com/merci'
-    })
-    data = res.json()
-    return data['data']['paymentUrl']`} />
       </Section>
     </div>
   );
