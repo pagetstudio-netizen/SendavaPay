@@ -350,7 +350,7 @@ export const merchants = pgTable("merchants", {
   lastLoginAt: timestamp("last_login_at"),
 });
 
-export const apiTransactionStatusEnum = pgEnum("api_transaction_status", ["pending", "processing", "completed", "failed", "cancelled"]);
+export const apiTransactionStatusEnum = pgEnum("api_transaction_status", ["pending", "queued", "processing", "provider_pending", "completed", "failed", "reversed", "cancelled"]);
 export const apiTransactionTypeEnum = pgEnum("api_transaction_type", ["payment", "credit", "refund", "payout"]);
 
 export const apiTransactions = pgTable("api_transactions", {
