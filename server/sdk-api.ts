@@ -274,7 +274,11 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
 
     // Créer la demande de retrait automatique
     const reference = generateReference();
-    const fee = parseFloat((data.amount * 0.01).toFixed(2));
+    // Frais: utiliser le taux SDK personnalisé, sinon 1% par défaut
+    const sdkFeeRate = (sdkUser as any).customApiSdkFeeRate != null
+      ? parseFloat((sdkUser as any).customApiSdkFeeRate)
+      : 1;
+    const fee = parseFloat((data.amount * sdkFeeRate / 100).toFixed(2));
     const netAmount = data.amount - fee;
 
     const withdrawalRequest = await storage.createWithdrawalRequest({

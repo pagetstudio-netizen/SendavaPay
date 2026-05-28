@@ -389,6 +389,14 @@ function UsersContent() {
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [showApiPermDialog, setShowApiPermDialog] = useState(false);
   const [apiPermForm, setApiPermForm] = useState({ apiSdkEnabled: false, apiRedirectEnabled: false });
+  const [showFeesDialog, setShowFeesDialog] = useState(false);
+  const [feesForm, setFeesForm] = useState({
+    customDepositFeeRate: "",
+    customWithdrawalFeeRate: "",
+    customApiPaymentFeeRate: "",
+    customApiSdkFeeRate: "",
+    customPersonalFeeRate: "",
+  });
   const [balanceForm, setBalanceForm] = useState({ amount: "", operation: "add", reason: "", walletId: "" });
   const [editForm, setEditForm] = useState({ fullName: "", email: "", phone: "", adminNote: "", role: "" });
   const [newPassword, setNewPassword] = useState("");
@@ -506,6 +514,35 @@ function UsersContent() {
       toast({ title: "Erreur", description: err.message || "Échec de la mise à jour", variant: "destructive" });
     },
   });
+
+  const feesMutation = useMutation({
+    mutationFn: async ({ userId, data }: { userId: number; data: typeof feesForm }) => {
+      const res = await apiRequest("PUT", `/api/admin/users/${userId}/custom-fees`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Succès", description: "Frais personnalisés enregistrés" });
+      setShowFeesDialog(false);
+      setSelectedUser(null);
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur", description: err.message || "Échec de la mise à jour", variant: "destructive" });
+    },
+  });
+
+  const openFeesDialog = (user: UserType) => {
+    setSelectedUser(user);
+    const u = user as any;
+    setFeesForm({
+      customDepositFeeRate: u.customDepositFeeRate != null ? String(u.customDepositFeeRate) : "",
+      customWithdrawalFeeRate: u.customWithdrawalFeeRate != null ? String(u.customWithdrawalFeeRate) : "",
+      customApiPaymentFeeRate: u.customApiPaymentFeeRate != null ? String(u.customApiPaymentFeeRate) : "",
+      customApiSdkFeeRate: u.customApiSdkFeeRate != null ? String(u.customApiSdkFeeRate) : "",
+      customPersonalFeeRate: u.customPersonalFeeRate != null ? String(u.customPersonalFeeRate) : "",
+    });
+    setShowFeesDialog(true);
+  };
 
   const openApiPermDialog = (user: UserType) => {
     setSelectedUser(user);
@@ -671,6 +708,15 @@ function UsersContent() {
                           title={user.isBlocked ? "Débloquer" : "Bloquer"}
                         >
                           {user.isBlocked ? <Unlock className="h-4 w-4 text-green-600" /> : <Ban className="h-4 w-4 text-orange-600" />}
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => openFeesDialog(user)}
+                          title="Frais personnalisés"
+                          data-testid={`button-fees-${user.id}`}
+                        >
+                          <Percent className={`h-4 w-4 ${(user as any).customDepositFeeRate != null || (user as any).customWithdrawalFeeRate != null ? "text-orange-500" : "text-muted-foreground"}`} />
                         </Button>
                         <Button
                           size="icon"
@@ -893,6 +939,76 @@ function UsersContent() {
               data-testid="button-confirm-reset-password"
             >
               Réinitialiser
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Custom Fees Dialog */}
+      <Dialog open={showFeesDialog} onOpenChange={setShowFeesDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Percent className="h-5 w-5 text-orange-500" />
+              Frais personnalisés
+            </DialogTitle>
+            <DialogDescription>
+              {selectedUser && `Définir des frais spécifiques pour ${selectedUser.fullName}. Laisser vide pour utiliser les frais globaux.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 text-xs text-blue-800 dark:text-blue-200">
+              <strong>Priorité :</strong> Frais utilisateur &gt; Frais pays &gt; Frais globaux. Laisser un champ vide pour hériter des frais supérieurs.
+            </div>
+            {[
+              { key: "customDepositFeeRate", label: "Dépôt", desc: "Frais sur les dépôts Mobile Money", icon: "↓", color: "text-green-600" },
+              { key: "customWithdrawalFeeRate", label: "Retrait", desc: "Frais sur les retraits Mobile Money", icon: "↑", color: "text-red-600" },
+              { key: "customApiPaymentFeeRate", label: "API / Liens de paiement", desc: "Frais sur les paiements reçus (lien + API redirect)", icon: "🔗", color: "text-blue-600" },
+              { key: "customApiSdkFeeRate", label: "API SDK", desc: "Frais sur les retraits automatiques SDK (défaut 1%)", icon: "⚡", color: "text-purple-600" },
+              { key: "customPersonalFeeRate", label: "Personnel", desc: "Frais sur les transactions personnelles", icon: "👤", color: "text-gray-600" },
+            ].map(({ key, label, desc, icon, color }) => (
+              <div key={key} className="flex items-center gap-3">
+                <div className="flex-1 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-sm font-medium ${color}`}>{icon}</span>
+                    <Label className="text-sm font-medium">{label}</Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{desc}</p>
+                </div>
+                <div className="relative w-28">
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    placeholder="Défaut"
+                    value={feesForm[key as keyof typeof feesForm]}
+                    onChange={(e) => setFeesForm((f) => ({ ...f, [key]: e.target.value }))}
+                    className="pr-6 text-sm"
+                    data-testid={`input-fee-${key}`}
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">%</span>
+                </div>
+              </div>
+            ))}
+            <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200">
+              <strong>Effacer un frais :</strong> Supprimer la valeur et enregistrer pour revenir aux frais globaux.
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowFeesDialog(false)}>Annuler</Button>
+            <Button
+              onClick={() => selectedUser && feesMutation.mutate({ userId: selectedUser.id, data: feesForm })}
+              disabled={feesMutation.isPending}
+              className="bg-orange-500 hover:bg-orange-600 text-white"
+              data-testid="button-confirm-fees"
+            >
+              {feesMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Percent className="h-4 w-4 mr-2" />
+              )}
+              Enregistrer les frais
             </Button>
           </DialogFooter>
         </DialogContent>

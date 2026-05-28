@@ -96,6 +96,25 @@ async function getEffectiveFeeRate(
       storage.getUser(userId),
       storage.getCountries(),
     ]);
+
+    // 1. Frais personnalisés par utilisateur (priorité maximale)
+    if (user) {
+      const u = user as any;
+      if (transactionType === "deposit" && u.customDepositFeeRate != null) {
+        const r = parseFloat(u.customDepositFeeRate);
+        if (!isNaN(r)) return r;
+      }
+      if (transactionType === "withdrawal" && u.customWithdrawalFeeRate != null) {
+        const r = parseFloat(u.customWithdrawalFeeRate);
+        if (!isNaN(r)) return r;
+      }
+      if (transactionType === "payment_received" && u.customApiPaymentFeeRate != null) {
+        const r = parseFloat(u.customApiPaymentFeeRate);
+        if (!isNaN(r)) return r;
+      }
+    }
+
+    // 2. Frais par pays
     if (user?.country) {
       const countryRecord = (allCountries as any[]).find(
         (c) => c.name?.toLowerCase() === user.country!.toLowerCase() && c.isActive
@@ -118,6 +137,7 @@ async function getEffectiveFeeRate(
   } catch (e) {
     console.error("[getEffectiveFeeRate] Erreur lookup pays:", e);
   }
+  // 3. Frais globaux (fallback)
   return getCommissionRate(settings, transactionType);
 }
 
@@ -1439,6 +1459,7 @@ export async function registerRoutes(
             paymentMethod: `paydunya_${service.name}`,
             returnUrl: `${baseUrl}/success`,
             payerPhone: cleanPhone,
+            payerCountry: service.countryCode || null,
           });
 
           console.log(`✅ PayDunya SoftPay: initié token=${invoiceToken} type=${spResult.responseType}`);
@@ -1488,6 +1509,7 @@ export async function registerRoutes(
           paymentMethod: `paydunya_${service.name}`,
           returnUrl: `${baseUrl}/success`,
           paymentUrl: pdResult.checkoutUrl,
+          payerCountry: service.countryCode || null,
         });
 
         console.log(`📤 PayDunya: Checkout créé token=${pdResult.token} url=${pdResult.checkoutUrl}`);
@@ -1541,6 +1563,7 @@ export async function registerRoutes(
         customerEmail: user.email,
         paymentMethod: `soleaspay_${service.name}`,
         returnUrl: `${baseUrl}/success`,
+        payerCountry: service.countryCode || null,
       });
 
       console.log(`📤 SoleasPay: Paiement initié ref=${payId}, status=${result.status}`);
@@ -1614,13 +1637,24 @@ export async function registerRoutes(
             description: existingPayment.description || "Dépôt via SoleasPay",
             externalRef: payId,
             paymentMethod: existingPayment.paymentMethod || "soleaspay",
+            payerCountry: existingPayment.payerCountry || null,
           });
 
           await storage.updateUserBalance(existingPayment.userId, netAmount.toString());
 
-          // Créditer le portefeuille pays (avec fallback sur paymentMethod si payerCountry absent)
+          // Créditer le portefeuille pays (utilise payerCountry stocké au moment du dépôt)
           {
-            const _cc = existingPayment.payerCountry || (existingPayment.paymentMethod ? existingPayment.paymentMethod.trim().split(/\s+/).pop()?.toUpperCase() : null);
+            const _cc = existingPayment.payerCountry || (existingPayment.paymentMethod
+              ? (() => {
+                  const parts = existingPayment.paymentMethod.trim().split(/[_\s]+/);
+                  // chercher un code pays de 2 lettres dans les segments
+                  for (let i = parts.length - 1; i >= 0; i--) {
+                    const seg = parts[i].toUpperCase();
+                    if (/^[A-Z]{2}$/.test(seg) && ["TG","BJ","SN","CI","ML","BF","CM","GN","CG","COD","COG"].includes(seg)) return seg;
+                  }
+                  return null;
+                })()
+              : null);
             if (_cc) {
               const allCountries = await storage.getCountries();
               const countryRec = allCountries.find((c: any) => c.code.toUpperCase() === _cc.toUpperCase());
@@ -9631,6 +9665,32 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   });
 
   // ========== USER MANAGEMENT (ADMIN) ==========
+
+  // Admin: update custom fee rates for a user
+  app.put("/api/admin/users/:id/custom-fees", requireAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const { customDepositFeeRate, customWithdrawalFeeRate, customApiPaymentFeeRate, customApiSdkFeeRate, customPersonalFeeRate } = req.body;
+      const updates: any = {};
+      const toRate = (v: any) => (v === "" || v === null || v === undefined) ? null : parseFloat(v);
+      updates.customDepositFeeRate = toRate(customDepositFeeRate);
+      updates.customWithdrawalFeeRate = toRate(customWithdrawalFeeRate);
+      updates.customApiPaymentFeeRate = toRate(customApiPaymentFeeRate);
+      updates.customApiSdkFeeRate = toRate(customApiSdkFeeRate);
+      updates.customPersonalFeeRate = toRate(customPersonalFeeRate);
+      const user = await storage.updateUser(userId, updates);
+      await storage.createAuditLog({
+        userId: req.session.userId,
+        action: "custom_fees_updated",
+        details: `Frais personnalisés utilisateur #${userId}: dépôt=${updates.customDepositFeeRate}%, retrait=${updates.customWithdrawalFeeRate}%, API=${updates.customApiPaymentFeeRate}%, SDK=${updates.customApiSdkFeeRate}%, personnel=${updates.customPersonalFeeRate}%`,
+        ipAddress: req.ip,
+      });
+      res.json(user);
+    } catch (error) {
+      console.error("Update custom fees error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
 
   // Admin: toggle API permissions for a user
   app.put("/api/admin/users/:id/api-permissions", requireAdmin, async (req, res) => {
