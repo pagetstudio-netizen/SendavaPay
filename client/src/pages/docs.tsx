@@ -1,27 +1,16 @@
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
-import { 
-  Copy, 
-  Check, 
-  Code2, 
-  Key, 
-  Webhook, 
-  CreditCard,
-  ArrowLeft,
-  ExternalLink,
-  Zap,
-  Shield,
-  FileCode,
-  Wrench,
-  Loader2,
-  Sparkles,
-  MessageCircle,
-  Mail
+import {
+  Copy, Check, Code2, Key, Webhook, CreditCard,
+  ArrowLeft, Zap, Shield, FileCode,
+  Wrench, Loader2, Sparkles, MessageCircle, Mail,
+  Globe, ArrowRight, Terminal, CheckCircle2, AlertTriangle,
+  RefreshCw, Server, List
 } from "lucide-react";
 
 export default function ApiDocs() {
@@ -29,15 +18,18 @@ export default function ApiDocs() {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   const { data: maintenanceStatus, isLoading: maintenanceLoading } = useQuery<{ enabled: boolean }>({
-    queryKey: ['/api/api-maintenance-status'],
+    queryKey: ["/api/api-maintenance-status"],
     refetchInterval: 10000,
   });
 
   useEffect(() => {
-    document.title = "Documentation API - SendavaPay";
-    const metaDescription = document.querySelector('meta[name="description"]');
+    document.title = "Documentation API SDK v3 - SendavaPay";
+    const metaDescription = document.querySelector("meta[name=\"description\"]");
     if (metaDescription) {
-      metaDescription.setAttribute("content", "Documentation complète de l'API SendavaPay pour intégrer les paiements Mobile Money dans vos applications. Exemples de code en JavaScript, PHP et Python.");
+      metaDescription.setAttribute(
+        "content",
+        "Documentation de l'API SDK SendavaPay v3 — intégration pure API, sans widget, sans redirection. Paiements Mobile Money pour l'Afrique de l'Ouest et Centrale."
+      );
     }
   }, []);
 
@@ -48,9 +40,9 @@ export default function ApiDocs() {
     setTimeout(() => setCopiedCode(null), 2000);
   };
 
-  const CodeBlock = ({ code, language, id }: { code: string; language: string; id: string }) => (
+  const CodeBlock = ({ code, id }: { code: string; id: string }) => (
     <div className="relative">
-      <div className="absolute right-2 top-2">
+      <div className="absolute right-2 top-2 z-10">
         <Button
           variant="ghost"
           size="sm"
@@ -60,417 +52,307 @@ export default function ApiDocs() {
           {copiedCode === id ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
         </Button>
       </div>
-      <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm">
+      <pre className="bg-muted p-4 rounded-lg overflow-x-auto text-sm pr-12">
         <code>{code}</code>
       </pre>
     </div>
   );
 
-  const endpoints = [
-    {
-      method: "POST",
-      path: "/api/v1/create-payment",
-      description: "Créer un nouveau lien de paiement",
-      params: [
-        { name: "amount", type: "number", required: true, description: "Montant du paiement" },
-        { name: "currency", type: "string", required: false, description: "Devise (défaut: XOF)" },
-        { name: "description", type: "string", required: false, description: "Description du paiement" },
-        { name: "externalReference", type: "string", required: false, description: "Référence externe" },
-        { name: "customerEmail", type: "string", required: false, description: "Email du client" },
-        { name: "customerPhone", type: "string", required: false, description: "Téléphone du client" },
-        { name: "customerName", type: "string", required: false, description: "Nom du client" },
-        { name: "redirectUrl", type: "string", required: false, description: "URL de redirection après paiement" },
-        { name: "metadata", type: "object", required: false, description: "Données personnalisées" },
-      ],
-      response: `{
-  "success": true,
-  "data": {
-    "reference": "pay_abc123_xyz789",
-    "amount": 5000,
-    "currency": "XOF",
-    "status": "pending",
-    "paymentUrl": "https://sendavapay.com/pay/pay_abc123_xyz789",
-    "createdAt": "2024-01-15T10:30:00Z"
-  }
-}`,
-    },
-    {
-      method: "POST",
-      path: "/api/v1/verify-payment",
-      description: "Vérifier le statut d'un paiement",
-      params: [
-        { name: "reference", type: "string", required: true, description: "Référence du paiement" },
-      ],
-      response: `{
-  "success": true,
-  "data": {
-    "reference": "pay_abc123_xyz789",
-    "externalReference": "ORDER-123",
-    "amount": "5000",
-    "fee": "350",
-    "currency": "XOF",
-    "status": "completed",
-    "customerEmail": "client@email.com",
-    "customerPhone": "+22890123456",
-    "customerName": "Jean Dupont",
-    "paymentMethod": "mtn_tg",
-    "createdAt": "2024-01-15T10:30:00Z",
-    "completedAt": "2024-01-15T10:35:00Z"
-  }
-}`,
-    },
-    {
-      method: "POST",
-      path: "/api/v1/credit-account",
-      description: "Créditer un compte utilisateur SendavaPay",
-      params: [
-        { name: "phone", type: "string", required: true, description: "Numéro de téléphone du compte" },
-        { name: "amount", type: "number", required: true, description: "Montant à créditer" },
-        { name: "description", type: "string", required: false, description: "Description du crédit" },
-        { name: "externalReference", type: "string", required: false, description: "Référence externe" },
-      ],
-      response: `{
-  "success": true,
-  "data": {
-    "reference": "pay_def456_uvw123",
-    "amount": 10000,
-    "phone": "+22890123456",
-    "userName": "Jean Dupont",
-    "status": "completed",
-    "createdAt": "2024-01-15T11:00:00Z"
-  }
-}`,
-    },
-    {
-      method: "GET",
-      path: "/api/v1/balance",
-      description: "Consulter le solde d'un compte utilisateur",
-      params: [
-        { name: "phone", type: "string", required: true, description: "Numéro de téléphone (query param)" },
-      ],
-      response: `{
-  "success": true,
-  "data": {
-    "phone": "+22890123456",
-    "balance": "150000",
-    "currency": "XOF",
-    "name": "Jean Dupont",
-    "isVerified": true
-  }
-}`,
-    },
-    {
-      method: "GET",
-      path: "/api/v1/transactions",
-      description: "Lister toutes vos transactions API",
-      params: [],
-      response: `{
-  "success": true,
-  "data": {
-    "transactions": [...],
-    "total": 50
-  }
-}`,
-    },
-  ];
+  const jsExample = `// ─── API SDK SendavaPay v3 — Exemple JavaScript complet ──────────────────────
+const API_KEY = 'sdk_live_VOTRE_CLE_API';
+const BASE    = 'https://sendavapay.com/api/sdk/v1';
+const hdrs    = { 'Authorization': \`Bearer \${API_KEY}\`, 'Content-Type': 'application/json' };
 
-  const jsExample = `// Installation: npm install axios
-const axios = require('axios');
+// ═══ FLUX PAIEMENT ════════════════════════════════════════════════════════════
 
-const API_KEY = 'sk_live_votre_cle_api';
-const BASE_URL = 'https://sendavapay.com/api/v1';
+// ÉTAPE 1 — Créer le paiement (appel serveur→serveur, clé API côté serveur)
+const r1   = await fetch(\`\${BASE}/create-payment\`, {
+  method: 'POST', headers: hdrs,
+  body: JSON.stringify({ amount: 5000, currency: 'XOF', description: 'Commande #123',
+                          externalReference: 'ORDER-' + Date.now() })
+});
+const { data: { reference, paymentToken, expiresAt } } = await r1.json();
+// → paymentToken est transmis à votre frontend (jamais dans l'URL !)
 
-// Créer un paiement
-async function createPayment(amount, description) {
-  try {
-    const response = await axios.post(
-      \`\${BASE_URL}/v1/create-payment\`,
-      {
-        amount,
-        description,
-        currency: 'XOF',
-        customerEmail: 'client@email.com'
-      },
-      {
-        headers: {
-          'Authorization': \`Bearer \${API_KEY}\`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-    
-    console.log('Paiement créé:', response.data);
-    return response.data;
-  } catch (error) {
-    console.error('Erreur:', error.response?.data);
-    throw error;
-  }
+// ÉTAPE 2 — Lister les opérateurs (frontend, AUCUNE auth requise)
+const r2 = await fetch(\`\${BASE}/operators/TG\`);          // TG, BJ, SN, CI, ML…
+const { data: operators } = await r2.json();
+// → operators[].id, operators[].name, operators[].requiresOtp, operators[].status
+
+// ÉTAPE 3 — Initier le paiement (frontend, AUCUNE auth)
+const r3 = await fetch(\`\${BASE}/initiate-payment\`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    paymentToken,
+    payerName:    'Jean Dupont',
+    payerPhone:   '+22890123456',
+    payerCountry: 'TG',
+    operatorId:   operators[0].id
+  })
+});
+const init = await r3.json();
+// init.requiresOtp        → true  : demandez le code OTP → ÉTAPE 4
+// init.requiresRedirect   → true  : redirigez vers init.redirectUrl
+// sinon                           : paiement initié, attendez le webhook
+
+// ÉTAPE 4 (si init.requiresOtp === true) — Soumettre le code OTP
+if (init.requiresOtp) {
+  const otp = await demanderOtpAuClient();   // votre propre UI
+  await fetch(\`\${BASE}/submit-otp\`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ otpToken: init.otpToken, otp })
+  });
 }
 
-// Vérifier un paiement
-async function verifyPayment(reference) {
-  const response = await axios.post(
-    \`\${BASE_URL}/v1/verify-payment\`,
-    { reference },
-    {
-      headers: {
-        'Authorization': \`Bearer \${API_KEY}\`,
-        'Content-Type': 'application/json'
-      }
-    }
-  );
-  
-  return response.data;
-}
+// ─── Vérifier le statut (côté serveur) ───────────────────────────────────────
+const st = await fetch(\`\${BASE}/payment-status/\${reference}\`, { headers: hdrs });
+const { data: status } = await st.json();
+// status.status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled'
 
-// Créditer un compte
-async function creditAccount(phone, amount, description) {
-  const response = await axios.post(
-    \`\${BASE_URL}/v1/credit-account\`,
-    { phone, amount, description },
-    {
-      headers: {
-        'Authorization': \`Bearer \${API_KEY}\`,
-        'Content-Type': 'application/json'
-      }
-    }
-  );
-  
-  return response.data;
-}
+// ═══ FLUX RETRAIT ═════════════════════════════════════════════════════════════
 
-// Consulter le solde
-async function getBalance(phone) {
-  const response = await axios.get(
-    \`\${BASE_URL}/v1/balance?phone=\${encodeURIComponent(phone)}\`,
-    {
-      headers: {
-        'Authorization': \`Bearer \${API_KEY}\`
-      }
-    }
-  );
-  
-  return response.data;
+// Valider d'abord (dry-run)
+const va = await fetch(\`\${BASE}/validate-withdrawal\`, {
+  method: 'POST', headers: hdrs,
+  body: JSON.stringify({ amount: 10000, phoneNumber: '+22890123456',
+                          operator: 'Flooz', country: 'TG', currency: 'XOF' })
+});
+const { data: validation } = await va.json();
+if (validation.valid) {
+  // Lancer le retrait
+  const wr = await fetch(\`\${BASE}/withdraw\`, {
+    method: 'POST', headers: hdrs,
+    body: JSON.stringify({ amount: 10000, phoneNumber: '+22890123456',
+                            operator: 'Flooz', country: 'TG', currency: 'XOF',
+                            externalReference: 'PAYOUT-' + Date.now() })
+  });
+  const { data: withdrawal } = await wr.json();
+  // withdrawal.status === 'queued'
+  // withdrawal.trackingUrl → pour suivre l'état
 }`;
 
   const phpExample = `<?php
-// Configuration
-$apiKey = 'sk_live_votre_cle_api';
-$baseUrl = 'https://sendavapay.com/api/v1';
+// ─── API SDK SendavaPay v3 — Exemple PHP ─────────────────────────────────────
+$apiKey = 'sdk_live_VOTRE_CLE_API';
+$base   = 'https://sendavapay.com/api/sdk/v1';
 
-// Fonction pour faire les requêtes API
-function sendRequest($method, $endpoint, $data = null) {
-    global $apiKey, $baseUrl;
-    
+function sdkCall(string $method, string $path, ?array $body = null): array {
+    global $apiKey, $base;
     $ch = curl_init();
-    $url = $baseUrl . $endpoint;
-    
-    $headers = [
-        'Authorization: Bearer ' . $apiKey,
-        'Content-Type: application/json'
-    ];
-    
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-    
-    if ($method === 'POST') {
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    curl_setopt_array($ch, [
+        CURLOPT_URL            => $base . $path,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST  => $method,
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Bearer ' . $apiKey,
+            'Content-Type: application/json',
+        ],
+    ]);
+    if ($body !== null) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
     }
-    
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $raw = curl_exec($ch);
     curl_close($ch);
-    
-    return [
-        'status' => $httpCode,
-        'data' => json_decode($response, true)
-    ];
+    return json_decode($raw, true);
 }
 
-// Créer un paiement
-function createPayment($amount, $description, $customerEmail = null) {
-    $data = [
-        'amount' => $amount,
-        'description' => $description,
-        'currency' => 'XOF'
-    ];
-    
-    if ($customerEmail) {
-        $data['customerEmail'] = $customerEmail;
-    }
-    
-    return sendRequest('POST', '/v1/create-payment', $data);
-}
+// ═══ FLUX PAIEMENT ════════════════════════════════════════════════════════════
 
-// Vérifier un paiement
-function verifyPayment($reference) {
-    return sendRequest('POST', '/v1/verify-payment', [
-        'reference' => $reference
+// ÉTAPE 1 — Créer le paiement (serveur)
+$p1 = sdkCall('POST', '/create-payment', [
+    'amount'            => 5000,
+    'currency'          => 'XOF',
+    'description'       => 'Commande #123',
+    'externalReference' => 'ORDER-' . time(),
+]);
+$reference    = $p1['data']['reference'];
+$paymentToken = $p1['data']['paymentToken'];
+// → transmettre $paymentToken à votre frontend
+
+// ÉTAPE 2 — Opérateurs disponibles (frontend / sans auth)
+$operators = sdkCall('GET', '/operators/TG');
+
+// ÉTAPE 3 — Initier (frontend)
+$p3 = sdkCall('POST', '/initiate-payment', [
+    'paymentToken' => $paymentToken,
+    'payerName'    => 'Jean Dupont',
+    'payerPhone'   => '+22890123456',
+    'payerCountry' => 'TG',
+    'operatorId'   => $operators['data'][0]['id'],
+]);
+
+// ÉTAPE 4 — OTP si requis
+if (!empty($p3['requiresOtp'])) {
+    $otp = $_POST['otp'] ?? ''; // saisi par le client dans votre formulaire
+    sdkCall('POST', '/submit-otp', [
+        'otpToken' => $p3['otpToken'],
+        'otp'      => $otp,
     ]);
 }
 
-// Créditer un compte
-function creditAccount($phone, $amount, $description = null) {
-    $data = [
-        'phone' => $phone,
-        'amount' => $amount
-    ];
-    
-    if ($description) {
-        $data['description'] = $description;
-    }
-    
-    return sendRequest('POST', '/v1/credit-account', $data);
-}
+// Vérifier le statut (serveur)
+$status = sdkCall('GET', '/payment-status/' . $reference);
+echo $status['data']['status']; // completed, failed, processing…
 
-// Consulter le solde
-function getBalance($phone) {
-    return sendRequest('GET', '/v1/balance?phone=' . urlencode($phone));
+// ═══ FLUX RETRAIT ═════════════════════════════════════════════════════════════
+$validation = sdkCall('POST', '/validate-withdrawal', [
+    'amount'      => 10000,
+    'phoneNumber' => '+22890123456',
+    'operator'    => 'Flooz',
+    'country'     => 'TG',
+    'currency'    => 'XOF',
+]);
+if ($validation['data']['valid']) {
+    $wr = sdkCall('POST', '/withdraw', [
+        'amount'            => 10000,
+        'phoneNumber'       => '+22890123456',
+        'operator'          => 'Flooz',
+        'country'           => 'TG',
+        'currency'          => 'XOF',
+        'externalReference' => 'PAYOUT-' . time(),
+    ]);
+    echo $wr['data']['status']; // queued
 }
-
-// Exemple d'utilisation
-$result = createPayment(5000, 'Achat produit XYZ');
-print_r($result);
 ?>`;
 
-  const pythonExample = `import requests
-import json
+  const pythonExample = `# ─── API SDK SendavaPay v3 — Exemple Python ──────────────────────────────────
+import requests
 
-# Configuration
-API_KEY = 'sk_live_votre_cle_api'
-BASE_URL = 'https://sendavapay.com/api/v1'
+API_KEY = 'sdk_live_VOTRE_CLE_API'
+BASE    = 'https://sendavapay.com/api/sdk/v1'
+AHDRS   = {'Authorization': f'Bearer {API_KEY}', 'Content-Type': 'application/json'}
 
-headers = {
-    'Authorization': f'Bearer {API_KEY}',
-    'Content-Type': 'application/json'
-}
+# ═══ FLUX PAIEMENT ════════════════════════════════════════════════════════════
 
-def create_payment(amount, description, customer_email=None):
-    """Créer un nouveau paiement"""
-    data = {
-        'amount': amount,
-        'description': description,
-        'currency': 'XOF'
-    }
-    
-    if customer_email:
-        data['customerEmail'] = customer_email
-    
-    response = requests.post(
-        f'{BASE_URL}/v1/create-payment',
-        headers=headers,
-        json=data
-    )
-    
-    return response.json()
+# ÉTAPE 1 — Créer le paiement (serveur)
+r1 = requests.post(f'{BASE}/create-payment', json={
+    'amount': 5000, 'currency': 'XOF',
+    'description': 'Commande #123', 'externalReference': 'ORDER-1',
+}, headers=AHDRS)
+data          = r1.json()['data']
+reference     = data['reference']
+payment_token = data['paymentToken']
 
-def verify_payment(reference):
-    """Vérifier le statut d'un paiement"""
-    response = requests.post(
-        f'{BASE_URL}/v1/verify-payment',
-        headers=headers,
-        json={'reference': reference}
-    )
-    
-    return response.json()
+# ÉTAPE 2 — Opérateurs (frontend / sans auth)
+operators = requests.get(f'{BASE}/operators/TG').json()['data']
 
-def credit_account(phone, amount, description=None):
-    """Créditer un compte utilisateur"""
-    data = {
-        'phone': phone,
-        'amount': amount
-    }
-    
-    if description:
-        data['description'] = description
-    
-    response = requests.post(
-        f'{BASE_URL}/v1/credit-account',
-        headers=headers,
-        json=data
-    )
-    
-    return response.json()
+# ÉTAPE 3 — Initier (frontend / sans auth)
+r3 = requests.post(f'{BASE}/initiate-payment', json={
+    'paymentToken': payment_token,
+    'payerName':    'Jean Dupont',
+    'payerPhone':   '+22890123456',
+    'payerCountry': 'TG',
+    'operatorId':   operators[0]['id'],
+})
+init = r3.json()
 
-def get_balance(phone):
-    """Consulter le solde d'un compte"""
-    response = requests.get(
-        f'{BASE_URL}/v1/balance',
-        headers=headers,
-        params={'phone': phone}
-    )
-    
-    return response.json()
+# ÉTAPE 4 — OTP si requis
+if init.get('requiresOtp'):
+    otp = input('Code OTP reçu par le client : ')
+    requests.post(f'{BASE}/submit-otp', json={
+        'otpToken': init['otpToken'],
+        'otp': otp,
+    })
 
-# Exemple d'utilisation
-if __name__ == '__main__':
-    # Créer un paiement
-    result = create_payment(5000, 'Achat produit XYZ')
-    print('Paiement créé:', json.dumps(result, indent=2))
-    
-    # Vérifier le paiement
-    if result.get('success'):
-        reference = result['data']['reference']
-        status = verify_payment(reference)
-        print('Statut:', json.dumps(status, indent=2))`;
+# Statut
+status = requests.get(f'{BASE}/payment-status/{reference}', headers=AHDRS).json()
+print(status['data']['status'])
 
-  const webhookExample = `// Exemple de réception de webhook (Node.js/Express)
-const crypto = require('crypto');
+# ═══ FLUX RETRAIT ═════════════════════════════════════════════════════════════
+v = requests.post(f'{BASE}/validate-withdrawal', json={
+    'amount': 10000, 'phoneNumber': '+22890123456',
+    'operator': 'Flooz', 'country': 'TG', 'currency': 'XOF',
+}, headers=AHDRS).json()
+
+if v['data']['valid']:
+    wr = requests.post(f'{BASE}/withdraw', json={
+        'amount': 10000, 'phoneNumber': '+22890123456',
+        'operator': 'Flooz', 'country': 'TG', 'currency': 'XOF',
+        'externalReference': 'PAYOUT-1',
+    }, headers=AHDRS).json()
+    print(wr['data']['status'])   # queued`;
+
+  const webhookExample = `// ─── Réception & vérification webhook SendavaPay (Node.js / Express) ─────────
+const crypto  = require('crypto');
 const express = require('express');
-const app = express();
+const app     = express();
 
-app.use(express.json());
+// IMPORTANT: utiliser express.raw pour accéder au corps brut (pour la signature)
+app.post('/webhooks/sendavapay',
+  express.raw({ type: 'application/json' }),
+  (req, res) => {
+    const signature = req.headers['x-sendavapay-signature'];  // "t=...,v1=..."
+    const rawBody   = req.body.toString();
 
-const WEBHOOK_SECRET = 'whsec_votre_secret_webhook';
+    if (!verifySignature(rawBody, signature)) {
+      return res.status(401).json({ error: 'Invalid signature' });
+    }
 
-// Vérifier la signature du webhook
-function verifyWebhookSignature(payload, signature) {
-  const expectedSignature = crypto
+    const event = JSON.parse(rawBody);
+
+    // ─── Répondre IMMÉDIATEMENT HTTP 200 ──────────────────────────────────────
+    // Si votre serveur ne répond pas, SendavaPay retentera :
+    //   1 min → 5 min → 15 min → 1 heure
+    res.json({ received: true });
+
+    // ─── Traiter l'événement en arrière-plan ──────────────────────────────────
+    setImmediate(() => handleEvent(event));
+  }
+);
+
+function verifySignature(rawBody, signature) {
+  const parts = Object.fromEntries(
+    signature.split(',').map(p => { const [k,v] = p.split('='); return [k, v]; })
+  );
+  const ts  = parts['t'];
+  const sig = parts['v1'];
+
+  // Rejeter si le webhook est plus vieux que 5 minutes (protection replay)
+  if (Math.abs(Date.now() / 1000 - parseInt(ts)) > 300) return false;
+
+  const WEBHOOK_SECRET = process.env.SENDAVAPAY_WEBHOOK_SECRET; // whsec_xxx
+  const expected = crypto
     .createHmac('sha256', WEBHOOK_SECRET)
-    .update(JSON.stringify(payload))
+    .update(\`\${ts}.\${rawBody}\`)
     .digest('hex');
-  
-  return signature === expectedSignature;
+
+  return crypto.timingSafeEqual(
+    Buffer.from(sig,      'hex'),
+    Buffer.from(expected, 'hex')
+  );
 }
 
-app.post('/webhook/sendavapay', (req, res) => {
-  const signature = req.headers['x-sendavapay-signature'];
-  const event = req.headers['x-sendavapay-event'];
-  
-  // Vérifier la signature
-  if (!verifyWebhookSignature(req.body, signature)) {
-    return res.status(401).json({ error: 'Invalid signature' });
-  }
-  
-  const { data, timestamp } = req.body;
-  
-  // Traiter l'événement
-  switch (event) {
-    case 'payment.completed':
-      console.log('Paiement reçu:', data);
-      // Mettre à jour votre base de données
-      // Envoyer un email de confirmation
-      break;
-      
-    case 'payment.failed':
-      console.log('Paiement échoué:', data);
-      // Gérer l'échec
-      break;
-      
-    case 'credit.completed':
-      console.log('Crédit effectué:', data);
-      break;
-      
-    default:
-      console.log('Event inconnu:', event);
-  }
-  
-  res.json({ received: true });
-});
+async function handleEvent(event) {
+  switch (event.event) {
 
-app.listen(3000);`;
+    case 'payment.completed':
+      // Valider la commande, envoyer email de confirmation, etc.
+      console.log('✅ Paiement reçu:', event.reference, event.amount, event.currency);
+      await db.orders.markPaid(event.reference);
+      break;
+
+    case 'payment.failed':
+      console.log('❌ Paiement échoué:', event.reference);
+      break;
+
+    case 'payment.expired':
+      console.log('⏱ Token expiré:', event.reference);
+      break;
+
+    case 'payout.queued':
+      console.log('⏳ Retrait en file:', event.reference);
+      break;
+
+    case 'payout.completed':
+      console.log('✅ Retrait effectué:', event.reference);
+      break;
+
+    case 'payout.failed':
+      console.log('❌ Retrait échoué:', event.reference);
+      // Notifier l'utilisateur, vérifier le solde
+      break;
+  }
+}`;
 
   if (maintenanceLoading) {
     return (
@@ -489,22 +371,12 @@ app.listen(3000);`;
               <Wrench className="h-8 w-8 text-orange-600 dark:text-orange-400" />
             </div>
             <CardTitle className="text-2xl">API en maintenance</CardTitle>
-            <CardDescription className="text-base">
-              L'API et la documentation sont temporairement indisponibles
-            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-muted-foreground">
-              Nous effectuons actuellement des travaux de maintenance sur notre API. 
-              Veuillez réessayer dans quelques instants.
+              L'API est temporairement indisponible. Veuillez réessayer dans quelques instants.
             </p>
-            <div className="bg-muted/50 p-4 rounded-lg">
-              <p className="text-sm text-muted-foreground">
-                Les paiements via liens de paiement restent fonctionnels. 
-                Seule l'API développeur est temporairement désactivée.
-              </p>
-            </div>
-            <Button onClick={() => window.location.href = "/"} variant="outline" data-testid="button-go-home">
+            <Button onClick={() => (window.location.href = "/")} variant="outline" data-testid="button-go-home">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Retour à l'accueil
             </Button>
@@ -516,6 +388,7 @@ app.listen(3000);`;
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Header */}
       <header className="border-b bg-card sticky top-0 z-50">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 md:gap-4 min-w-0">
@@ -525,7 +398,8 @@ app.listen(3000);`;
             </a>
             <div className="flex items-center gap-2 min-w-0">
               <FileCode className="h-5 w-5 text-primary shrink-0" />
-              <h1 className="font-bold text-base md:text-xl truncate">Documentation API</h1>
+              <h1 className="font-bold text-base md:text-xl truncate">Documentation API SDK v3</h1>
+              <Badge variant="outline" className="hidden sm:flex text-xs">Pure API</Badge>
             </div>
           </div>
           <a href="/dashboard/api-keys" className="shrink-0">
@@ -539,58 +413,61 @@ app.listen(3000);`;
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto space-y-12">
+        <div className="max-w-4xl mx-auto space-y-10">
+
+          {/* Hero */}
           <section className="text-center space-y-4">
-            <h2 className="text-3xl font-bold">API SendavaPay</h2>
-            <p className="text-lg text-muted-foreground">
-              Intégrez facilement les paiements Mobile Money dans vos applications
+            <h2 className="text-3xl font-bold">API SDK SendavaPay v3</h2>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+              Intégrez les paiements Mobile Money dans votre propre frontend.
+              <strong className="text-foreground"> Zéro widget. Zéro iframe. Zéro redirection vers SendavaPay.</strong>
             </p>
-            <div className="flex flex-wrap justify-center gap-2 md:gap-4">
+            <div className="flex flex-wrap justify-center gap-2 md:gap-3">
               <Badge variant="outline" className="text-sm py-1 px-3">
-                <Zap className="h-3 w-3 mr-1" />
-                API RESTful
+                <Terminal className="h-3 w-3 mr-1" /> API RESTful
               </Badge>
               <Badge variant="outline" className="text-sm py-1 px-3">
-                <Shield className="h-3 w-3 mr-1" />
-                Sécurisé SSL
+                <Shield className="h-3 w-3 mr-1" /> SSL + HMAC-SHA256
               </Badge>
               <Badge variant="outline" className="text-sm py-1 px-3">
-                <Webhook className="h-3 w-3 mr-1" />
-                Webhooks
+                <Webhook className="h-3 w-3 mr-1" /> Webhooks + retry
+              </Badge>
+              <Badge variant="outline" className="text-sm py-1 px-3">
+                <Globe className="h-3 w-3 mr-1" /> 11 pays supportés
               </Badge>
             </div>
           </section>
 
-          {/* White-label + support CTA */}
+          {/* CTA cards */}
           <div className="grid sm:grid-cols-2 gap-4">
             <Card className="border-primary/30 bg-primary/5">
               <CardContent className="p-6 flex flex-col gap-4 h-full">
                 <div className="flex items-center gap-2 text-primary font-semibold">
                   <Sparkles className="h-5 w-5" />
-                  Mode white-label
+                  API SDK privée
                 </div>
                 <p className="text-sm text-muted-foreground flex-1">
-                  Intégrez SendavaPay directement sur votre site web en mode white-label. Vos clients paient sans quitter votre plateforme, sous votre marque.
+                  Votre frontend, vos règles. Vos clients ne quittent jamais votre plateforme. 
+                  L'API SDK s'intègre dans n'importe quelle stack : React, Vue, PHP, Python, mobile…
                 </p>
-                <a href="mailto:contact@sendavapay.com?subject=Demande accès API white-label SendavaPay" className="block">
+                <a href="mailto:contact@sendavapay.com?subject=Demande accès API SDK SendavaPay" className="block">
                   <Button className="w-full" data-testid="button-request-api">
                     <Mail className="h-4 w-4 mr-2" />
-                    Demander l'API
+                    Demander l'accès SDK
                   </Button>
                 </a>
               </CardContent>
             </Card>
-
-            <Card className="border-muted">
+            <Card>
               <CardContent className="p-6 flex flex-col gap-4 h-full">
                 <div className="flex items-center gap-2 font-semibold">
                   <MessageCircle className="h-5 w-5 text-muted-foreground" />
-                  Besoin d'aide ?
+                  Support technique
                 </div>
                 <p className="text-sm text-muted-foreground flex-1">
-                  Notre équipe technique est disponible pour vous accompagner dans l'intégration de l'API et répondre à vos questions.
+                  Notre équipe est disponible pour vous aider à intégrer l'API et déboguer votre intégration.
                 </p>
-                <a href="mailto:support@sendavapay.com?subject=Support technique API SendavaPay" className="block">
+                <a href="mailto:support@sendavapay.com?subject=Support technique API SDK" className="block">
                   <Button variant="outline" className="w-full" data-testid="button-contact-support">
                     <MessageCircle className="h-4 w-4 mr-2" />
                     Contacter le support
@@ -600,6 +477,7 @@ app.listen(3000);`;
             </Card>
           </div>
 
+          {/* Getting Started */}
           <Card id="getting-started">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -610,453 +488,569 @@ app.listen(3000);`;
             <CardContent className="space-y-4">
               <ol className="list-decimal list-inside space-y-3 text-muted-foreground">
                 <li>
-                  <strong className="text-foreground">Créez un compte SendavaPay</strong> - Inscrivez-vous sur{" "}
-                  <a href="/register" className="text-primary hover:underline">SendavaPay</a> et complétez la vérification KYC
+                  <strong className="text-foreground">Créez un compte SendavaPay</strong> et complétez la vérification KYC
                 </li>
                 <li>
-                  <strong className="text-foreground">Générez votre clé API</strong> - Dans votre{" "}
-                  <a href="/dashboard/api-keys" className="text-primary hover:underline">tableau de bord</a>, créez et copiez votre clé API
+                  <strong className="text-foreground">Générez une clé API de type SDK</strong> dans votre{" "}
+                  <a href="/dashboard/api-keys" className="text-primary hover:underline">tableau de bord → Clés API</a>
                 </li>
                 <li>
-                  <strong className="text-foreground">Intégrez l'API</strong> - Utilisez les exemples ci-dessous pour commencer
+                  <strong className="text-foreground">Configurez votre webhook</strong> via{" "}
+                  <code className="bg-muted px-1.5 py-0.5 rounded text-xs">PUT /api/sdk/v1/webhook</code>
+                </li>
+                <li>
+                  <strong className="text-foreground">Testez</strong> avec{" "}
+                  <code className="bg-muted px-1.5 py-0.5 rounded text-xs">POST /api/sdk/v1/test-webhook</code>
+                </li>
+                <li>
+                  <strong className="text-foreground">Intégrez</strong> le flux 4 étapes ci-dessous
                 </li>
               </ol>
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                <p className="text-sm">
+                  <strong>Base URL :</strong>{" "}
+                  <code className="bg-muted px-2 py-0.5 rounded">https://sendavapay.com/api/sdk/v1</code>
+                </p>
+              </div>
             </CardContent>
           </Card>
 
+          {/* Authentication */}
           <Card id="authentication">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Key className="h-5 w-5" />
                 Authentification
               </CardTitle>
-              <CardDescription>
-                Toutes les requêtes API doivent être authentifiées avec votre clé API
-              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-muted-foreground">
-                Incluez votre clé API dans l'en-tête <code className="bg-muted px-2 py-1 rounded">Authorization</code> de chaque requête:
+                Passez votre clé API SDK dans le header <code className="bg-muted px-2 py-0.5 rounded">Authorization</code> de chaque appel <strong>serveur→serveur</strong>.
+                Les endpoints publics (opérateurs, initiation, OTP) n'ont pas besoin d'authentification.
               </p>
-              <CodeBlock
-                id="auth-header"
-                language="bash"
-                code={`Authorization: Bearer sk_live_votre_cle_api`}
-              />
-              <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-4">
-                <p className="text-sm">
-                  <strong>Important:</strong> Ne partagez jamais votre clé API. Gardez-la côté serveur uniquement.
+              <CodeBlock id="auth-header" code={`Authorization: Bearer sdk_live_VOTRE_CLE_API`} />
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+                  <p className="text-sm">
+                    <strong>🔴 Côté serveur uniquement</strong><br />
+                    Ne jamais exposer votre clé API dans le code frontend ou les URLs.
+                  </p>
+                </div>
+                <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+                  <p className="text-sm">
+                    <strong>🟢 Endpoints publics (CORS *)</strong><br />
+                    <code className="text-xs">/operators/:cc</code>, <code className="text-xs">/countries</code>, <code className="text-xs">/initiate-payment</code>, <code className="text-xs">/submit-otp</code>
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Payment Flow */}
+          <Card id="payment-flow">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CreditCard className="h-5 w-5" />
+                Flux de paiement — 4 étapes
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Steps */}
+              <div className="space-y-4">
+                {[
+                  {
+                    step: "1",
+                    title: "Créer le paiement",
+                    badge: "Serveur→Serveur",
+                    color: "bg-blue-500",
+                    endpoint: "POST /api/sdk/v1/create-payment",
+                    desc: "Votre backend appelle l'API avec votre clé secrète. Vous obtenez un paymentToken (valable 30 min) que vous passez à votre frontend.",
+                    response: `{ "reference": "sdk_lp8x_abc123", "paymentToken": "pay_tok_xxx", "expiresAt": "...", "amount": 5000, "status": "pending" }`,
+                  },
+                  {
+                    step: "2",
+                    title: "Récupérer les opérateurs",
+                    badge: "Frontend (public)",
+                    color: "bg-purple-500",
+                    endpoint: "GET /api/sdk/v1/operators/:countryCode",
+                    desc: "Votre frontend appelle cet endpoint sans auth (CORS ouvert). Afficher les opérateurs disponibles pour le pays du client.",
+                    response: `{ "data": [{ "id": "12", "name": "Flooz", "requiresOtp": false, "status": "online" }, ...] }`,
+                  },
+                  {
+                    step: "3",
+                    title: "Initier le paiement",
+                    badge: "Frontend (public)",
+                    color: "bg-orange-500",
+                    endpoint: "POST /api/sdk/v1/initiate-payment",
+                    desc: "Passez le paymentToken, les infos du client, et l'opérateur choisi. La réponse indique si un OTP est requis ou si un redirect est nécessaire.",
+                    response: `{ "requiresOtp": true, "otpToken": "otp_xxx", "reference": "sdk_lp8x_abc123" }
+// OU
+{ "requiresOtp": false, "reference": "sdk_lp8x_abc123" }
+// OU
+{ "requiresRedirect": true, "redirectUrl": "https://wave.com/..." }`,
+                  },
+                  {
+                    step: "4",
+                    title: "Soumettre l'OTP (si requis)",
+                    badge: "Frontend (public)",
+                    color: "bg-green-500",
+                    endpoint: "POST /api/sdk/v1/submit-otp",
+                    desc: "Si l'étape 3 retourne requiresOtp=true, afficher un champ OTP à votre client. Soumettre l'otpToken + le code saisi.",
+                    response: `{ "success": true, "reference": "sdk_lp8x_abc123", "message": "OTP accepté. Le paiement est en cours." }`,
+                  },
+                ].map(({ step, title, badge, color, endpoint, desc, response }) => (
+                  <div key={step} className="border rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className={`${color} text-white rounded-full w-7 h-7 flex items-center justify-center text-sm font-bold shrink-0`}>
+                        {step}
+                      </span>
+                      <span className="font-semibold">{title}</span>
+                      <Badge variant="outline" className="text-xs">{badge}</Badge>
+                    </div>
+                    <code className="text-xs bg-muted px-2 py-1 rounded block w-fit">{endpoint}</code>
+                    <p className="text-sm text-muted-foreground">{desc}</p>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Réponse :</p>
+                      <pre className="bg-muted p-3 rounded text-xs overflow-x-auto">{response}</pre>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Retry */}
+              <div className="border rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <RefreshCw className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium text-sm">Paiement échoué ? Relancer sans nouveau token</span>
+                </div>
+                <code className="text-xs bg-muted px-2 py-1 rounded">POST /api/sdk/v1/retry-payment</code>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Passez le même <code className="bg-muted px-1 rounded">paymentToken</code>. Le statut repasse à <code className="bg-muted px-1 rounded">pending</code>.
+                </p>
+              </div>
+
+              {/* Status check */}
+              <div className="border rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium text-sm">Vérifier le statut</span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <code className="text-xs bg-muted px-2 py-1 rounded w-fit">GET /api/sdk/v1/payment-status/:reference  ← polling</code>
+                  <code className="text-xs bg-muted px-2 py-1 rounded w-fit">POST /api/sdk/v1/verify-payment  ← vérification ponctuelle</code>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  Statuts possibles : <code className="bg-muted px-1 rounded">pending</code> → <code className="bg-muted px-1 rounded">processing</code> → <code className="bg-muted px-1 rounded">completed</code> | <code className="bg-muted px-1 rounded">failed</code> | <code className="bg-muted px-1 rounded">cancelled</code>
                 </p>
               </div>
             </CardContent>
           </Card>
 
-          <Card id="endpoints">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Code2 className="h-5 w-5" />
-                Endpoints API
-              </CardTitle>
-              <CardDescription>
-                Base URL: <code className="bg-muted px-2 py-1 rounded">https://sendavapay.com/api/v1</code>
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-8">
-              {endpoints.map((endpoint, index) => (
-                <div key={index} className="border-b pb-6 last:border-0 last:pb-0">
-                  <div className="flex items-center gap-3 mb-3 flex-wrap">
-                    <Badge className={endpoint.method === "GET" ? "bg-blue-500 shrink-0" : "bg-green-500 shrink-0"}>
-                      {endpoint.method}
-                    </Badge>
-                    <code className="text-sm font-mono break-all">{endpoint.path}</code>
-                  </div>
-                  <p className="text-muted-foreground mb-4">{endpoint.description}</p>
-                  
-                  {endpoint.params.length > 0 && (
-                    <div className="mb-4">
-                      <h4 className="font-medium mb-2">Paramètres</h4>
-                      <div className="bg-muted rounded-lg overflow-x-auto">
-                        <table className="w-full text-sm min-w-[500px]">
-                          <thead>
-                            <tr className="border-b">
-                              <th className="text-left p-3">Nom</th>
-                              <th className="text-left p-3">Type</th>
-                              <th className="text-left p-3">Requis</th>
-                              <th className="text-left p-3">Description</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {endpoint.params.map((param, i) => (
-                              <tr key={i} className="border-b last:border-0">
-                                <td className="p-3 font-mono">{param.name}</td>
-                                <td className="p-3">{param.type}</td>
-                                <td className="p-3">
-                                  {param.required ? (
-                                    <Badge className="bg-red-500">Oui</Badge>
-                                  ) : (
-                                    <Badge variant="outline">Non</Badge>
-                                  )}
-                                </td>
-                                <td className="p-3 text-muted-foreground">{param.description}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div>
-                    <h4 className="font-medium mb-2">Réponse</h4>
-                    <CodeBlock id={`response-${index}`} language="json" code={endpoint.response} />
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
+          {/* Countries & Operators */}
           <Card id="countries-operators">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <CreditCard className="h-5 w-5" />
-                Pays, opérateurs & code OTP
+                <Globe className="h-5 w-5" />
+                Pays & opérateurs supportés
               </CardTitle>
-              <CardDescription>
-                Liste des pays et opérateurs supportés — certains opérateurs exigent un code OTP pour valider le paiement
-              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-
-              {/* Explication des deux codes */}
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-4 space-y-2">
-                  <p className="text-sm font-semibold flex items-center gap-2">
-                    📱 Code USSD — composé par le client
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Le <strong>client</strong> ouvre le clavier de son téléphone et compose un code USSD 
-                    (ex : <code className="bg-muted px-1 py-0.5 rounded">*144*4*6*5000#</code>). 
-                    Orange Money traite alors la demande et envoie automatiquement un code OTP par SMS au client.
-                  </p>
-                  <p className="text-xs text-orange-700 dark:text-orange-400 font-medium">
-                    ✦ Ce code est composé par le client — pas par votre application
-                  </p>
-                </div>
-                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 space-y-2">
-                  <p className="text-sm font-semibold flex items-center gap-2">
-                    🔐 Code OTP — saisi dans votre interface
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Après avoir composé le code USSD, le client reçoit un code OTP (6 chiffres) par SMS. 
-                    Votre interface affiche un champ de saisie. Le client entre ce code pour finaliser le paiement.
-                  </p>
-                  <p className="text-xs text-blue-700 dark:text-blue-400 font-medium">
-                    ✦ Ce code est entré dans votre application — vous l'envoyez à l'API
-                  </p>
-                </div>
-              </div>
-
-              {/* Tableau des pays */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[640px] border rounded-lg overflow-hidden">
-                  <thead className="bg-muted">
-                    <tr>
-                      <th className="text-left p-3 font-semibold">Pays</th>
-                      <th className="text-left p-3 font-semibold">Opérateur</th>
-                      <th className="text-left p-3 font-semibold">Devise</th>
-                      <th className="text-left p-3 font-semibold">Code USSD client ①</th>
-                      <th className="text-left p-3 font-semibold">OTP requis ②</th>
-                      <th className="text-left p-3 font-semibold">Flux</th>
+            <CardContent className="space-y-4">
+              <div className="bg-muted rounded-lg overflow-x-auto">
+                <table className="w-full text-sm min-w-[450px]">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left p-3">Pays</th>
+                      <th className="text-left p-3">Code</th>
+                      <th className="text-left p-3">Devise</th>
+                      <th className="text-left p-3">Opérateurs typiques</th>
                     </tr>
                   </thead>
                   <tbody>
                     {[
-                      { country: "🇹🇬 Togo", operators: "TMoney, Moov", currency: "XOF", ussd: "—", otp: false, flow: "USSD push auto" },
-                      { country: "🇧🇯 Bénin", operators: "MTN, Moov", currency: "XOF", ussd: "—", otp: false, flow: "USSD push auto" },
-                      { country: "🇨🇲 Cameroun", operators: "MTN, Orange", currency: "XAF", ussd: "—", otp: false, flow: "USSD push auto" },
-                      { country: "🇧🇫 Burkina Faso", operators: "Orange Money", currency: "XOF", ussd: "*144*4*6*[MONTANT]#", otp: true, flow: "USSD → OTP" },
-                      { country: "🇨🇮 Côte d'Ivoire", operators: "Orange Money", currency: "XOF", ussd: "#144*82#", otp: true, flow: "USSD → OTP" },
-                      { country: "🇨🇮 Côte d'Ivoire", operators: "MTN, Moov, Wave", currency: "XOF", ussd: "—", otp: false, flow: "USSD push / checkout" },
-                      { country: "🇬🇳 Guinée", operators: "Orange Money", currency: "GNF", ussd: "#144#", otp: true, flow: "USSD → OTP" },
-                      { country: "🇲🇱 Mali", operators: "Orange Money", currency: "XOF", ussd: "#144#77#", otp: true, flow: "USSD → OTP" },
-                      { country: "🇸🇳 Sénégal", operators: "Orange Money", currency: "XOF", ussd: "#144#391#", otp: true, flow: "USSD → OTP" },
-                      { country: "🇸🇳 Sénégal", operators: "Wave", currency: "XOF", ussd: "—", otp: false, flow: "Checkout redirect" },
-                      { country: "🇨🇩 RD Congo", operators: "Vodacom, Airtel, Orange", currency: "CDF", ussd: "—", otp: false, flow: "Checkout redirect" },
-                      { country: "🇨🇬 Congo", operators: "MTN", currency: "XAF", ussd: "—", otp: false, flow: "USSD push auto" },
-                    ].map((row, i) => (
-                      <tr key={i} className={`border-t ${row.otp ? "bg-orange-500/5" : ""}`}>
-                        <td className="p-3 text-sm">{row.country}</td>
-                        <td className="p-3">{row.operators}</td>
-                        <td className="p-3 font-mono text-xs">{row.currency}</td>
-                        <td className="p-3 font-mono text-xs">
-                          {row.ussd !== "—" ? (
-                            <span className="bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300 px-2 py-0.5 rounded font-semibold">
-                              {row.ussd}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-                        <td className="p-3">
-                          {row.otp ? (
-                            <Badge className="bg-orange-500 text-white">Oui ②</Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-green-600 border-green-500">Non</Badge>
-                          )}
-                        </td>
-                        <td className="p-3 text-muted-foreground text-xs">{row.flow}</td>
+                      { name: "Togo",         code: "TG", cur: "XOF", ops: "TMoney, Flooz" },
+                      { name: "Bénin",         code: "BJ", cur: "XOF", ops: "MTN, Moov" },
+                      { name: "Sénégal",       code: "SN", cur: "XOF", ops: "Orange, Wave, Free" },
+                      { name: "Côte d'Ivoire", code: "CI", cur: "XOF", ops: "Orange, MTN, Wave, Moov" },
+                      { name: "Mali",          code: "ML", cur: "XOF", ops: "Orange" },
+                      { name: "Burkina Faso",  code: "BF", cur: "XOF", ops: "Orange, Moov" },
+                      { name: "Guinée",        code: "GN", cur: "GNF", ops: "MTN, Orange, Cellcom" },
+                      { name: "Cameroun",      code: "CM", cur: "XAF", ops: "Orange, MTN" },
+                      { name: "Congo",         code: "CG", cur: "XAF", ops: "MTN, Airtel" },
+                      { name: "RDC",           code: "COD", cur: "CDF", ops: "Vodacom, Airtel, Orange" },
+                    ].map(r => (
+                      <tr key={r.code} className="border-b last:border-0">
+                        <td className="p-3">{r.name}</td>
+                        <td className="p-3 font-mono">{r.code}</td>
+                        <td className="p-3">{r.cur}</td>
+                        <td className="p-3 text-muted-foreground text-xs">{r.ops}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="bg-orange-500/10 border border-orange-500/20 rounded-lg p-4 space-y-2">
+                <p className="text-sm font-semibold">📱 Code OTP — Orange Money Togo / certains opérateurs</p>
+                <p className="text-sm text-muted-foreground">
+                  Lorsque <code className="bg-muted px-1 rounded">requiresOtp: true</code>, le client compose <code className="bg-muted px-1 rounded">*144#</code> sur son téléphone pour obtenir un code OTP, puis le saisit dans votre formulaire.
+                  Vous soumettez ce code via <code className="bg-muted px-1 rounded">/submit-otp</code>.
+                </p>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Récupérez la liste complète et les statuts en temps réel via :
+              </p>
+              <div className="flex flex-col gap-1">
+                <code className="text-xs bg-muted px-2 py-1 rounded w-fit">GET /api/sdk/v1/countries — liste des pays actifs</code>
+                <code className="text-xs bg-muted px-2 py-1 rounded w-fit">GET /api/sdk/v1/operators/:cc — opérateurs par pays avec statut online/offline</code>
+                <code className="text-xs bg-muted px-2 py-1 rounded w-fit">GET /api/sdk/v1/operators-status — tous les opérateurs dépôt+retrait</code>
+                <code className="text-xs bg-muted px-2 py-1 rounded w-fit">GET /api/sdk/v1/payout-status?country=TG — disponibilité retraits (filtre pays optionnel)</code>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Withdrawal Flow */}
+          <Card id="withdrawal-flow">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ArrowRight className="h-5 w-5" />
+                Flux de retrait (payout)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-muted-foreground text-sm">
+                Les retraits sont traités de manière asynchrone. La demande est mise en file d'attente et traitée dès que possible.
+              </p>
+
+              <div className="space-y-3">
+                {[
+                  {
+                    step: "1", endpoint: "POST /api/sdk/v1/validate-withdrawal",
+                    desc: "Dry-run : vérifie le solde, l'opérateur, le format du numéro et calcule les frais. Aucun mouvement de fonds.",
+                  },
+                  {
+                    step: "2", endpoint: "POST /api/sdk/v1/withdraw",
+                    desc: "Lance le retrait. Le solde est débité immédiatement. Retourne status=queued et une trackingUrl.",
+                  },
+                  {
+                    step: "3", endpoint: "GET /api/sdk/v1/withdrawal-status/:reference",
+                    desc: "Suivez l'avancement : queued → processing → completed | failed | reversed",
+                  },
+                ].map(({ step, endpoint, desc }) => (
+                  <div key={step} className="border rounded-lg p-3 flex gap-3">
+                    <span className="bg-primary/10 text-primary rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
+                      {step}
+                    </span>
+                    <div>
+                      <code className="text-xs bg-muted px-2 py-0.5 rounded">{endpoint}</code>
+                      <p className="text-xs text-muted-foreground mt-1">{desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-muted rounded-lg overflow-x-auto">
+                <table className="w-full text-sm min-w-[400px]">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left p-3">Statut</th>
+                      <th className="text-left p-3">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { s: "queued",           d: "En file d'attente, sera traité prochainement" },
+                      { s: "processing",       d: "En cours de traitement chez l'opérateur" },
+                      { s: "provider_pending", d: "En attente de confirmation fournisseur" },
+                      { s: "completed",        d: "Retrait effectué avec succès" },
+                      { s: "failed",           d: "Retrait échoué — contactez le support" },
+                      { s: "reversed",         d: "Fonds retournés au portefeuille" },
+                    ].map(({ s, d }) => (
+                      <tr key={s} className="border-b last:border-0">
+                        <td className="p-3 font-mono text-xs">{s}</td>
+                        <td className="p-3 text-muted-foreground text-xs">{d}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              {/* Note BF montant */}
-              <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3">
-                <p className="text-sm">
-                  <strong>Note Burkina Faso :</strong> le code <code className="bg-muted px-1 py-0.5 rounded">*144*4*6*[MONTANT]#</code> doit être composé avec le montant réel de la transaction. 
-                  Exemple pour 5 000 XOF : <code className="bg-muted px-1 py-0.5 rounded">*144*4*6*5000#</code>. 
-                  SendavaPay affiche automatiquement le bon code au client sur la page de paiement.
-                </p>
-              </div>
-
-              {/* Flux détaillé */}
-              <div>
-                <h4 className="font-semibold mb-3">Flux complet pour Orange Money (BF, CI, GN, ML, SN)</h4>
-                <div className="space-y-3">
-                  {[
-                    { who: "Votre serveur", step: "1", label: "Initier le paiement", detail: "Appelez POST /api/sdk/payment avec le numéro et l'opérateur Orange du client. Réponse : { otpRequired: true, reference, ussdCode }" },
-                    { who: "Votre interface", step: "2", label: "Afficher le code USSD", detail: "Montrez au client le code USSD à composer (ex : #144*82#). Ce code est dans la réponse API sous ussdCode." },
-                    { who: "Le client", step: "3", label: "Composer le code USSD", detail: "Le client ouvre son clavier téléphonique et compose le code USSD. Orange Money lui envoie ensuite un SMS avec un code OTP." },
-                    { who: "Votre interface", step: "4", label: "Afficher un champ OTP", detail: "Affichez un champ de saisie pour que le client entre le code OTP reçu par SMS." },
-                    { who: "Votre serveur", step: "5", label: "Confirmer l'OTP", detail: "Envoyez POST /api/sdk/confirm-otp avec { reference, otp }. Le paiement est validé." },
-                    { who: "Votre serveur", step: "6", label: "Vérifier le statut final", detail: "Utilisez POST /api/sdk/verify ou attendez le webhook payment.completed." },
-                  ].map((item) => (
-                    <div key={item.step} className="flex gap-3 items-start">
-                      <div className="shrink-0 w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
-                        {item.step}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-semibold">{item.label}</span>
-                          <Badge variant="outline" className="text-xs">{item.who}</Badge>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">{item.detail}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <h4 className="font-semibold mb-2">Endpoint de confirmation OTP</h4>
-                <CodeBlock
-                  id="otp-endpoint"
-                  language="json"
-                  code={`// POST /api/sdk/confirm-otp
-// Corps de la requête :
-{
-  "reference": "pay_abc123_xyz789",  // référence obtenue à l'étape 1
-  "otp": "123456"                    // code OTP saisi par le client
-}
-
-// Réponse :
-{
-  "success": true,
-  "status": "PROCESSING",
-  "reference": "pay_abc123_xyz789",
-  "message": "Paiement en cours de traitement"
-}`}
-                />
-              </div>
-
-              <div>
-                <h4 className="font-semibold mb-2">Exemple complet — Orange Money CI (JavaScript)</h4>
-                <CodeBlock
-                  id="otp-example-js"
-                  language="javascript"
-                  code={`const sdk = new SendavaPay('sk_live_...', 'votre_secret');
-
-// Étape 1 : Initier le paiement Orange Money
-const payment = await sdk.createPayment({
-  amount: 5000,
-  phoneNumber: '+2250700000000',
-  operator: 'Orange',
-  country: 'CI',
-  description: 'Achat article #123',
-  callbackUrl: 'https://votre-site.com/webhook'
-});
-
-if (payment.otpRequired) {
-  // Étape 2 : Afficher un champ OTP à l'utilisateur
-  const otp = await demander_otp_au_client(); // votre logique UI
-
-  // Étape 3 : Confirmer avec l'OTP
-  const confirmation = await sdk.confirmOtp(payment.reference, otp);
-  console.log('Confirmation OTP :', confirmation);
-}
-
-// Étape 4 : Attendre la finalisation (webhook ou polling)
-const final = await sdk.waitForPayment(payment.reference);
-console.log('Résultat final :', final.status); // SUCCESS / FAILED`}
-                />
+              <div className="flex flex-col gap-1">
+                <code className="text-xs bg-muted px-2 py-1 rounded w-fit">GET /api/sdk/v1/withdrawals?page=1&limit=20&status=completed&country=TG</code>
+                <p className="text-xs text-muted-foreground">Lister vos retraits avec pagination et filtres (statut, pays, dates)</p>
               </div>
             </CardContent>
           </Card>
 
-          <Card id="code-examples">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileCode className="h-5 w-5" />
-                Exemples de code
-              </CardTitle>
-              <CardDescription>
-                Exemples d'intégration dans différents langages
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="javascript">
-                <TabsList className="mb-4">
-                  <TabsTrigger value="javascript" data-testid="tab-js">JavaScript</TabsTrigger>
-                  <TabsTrigger value="php" data-testid="tab-php">PHP</TabsTrigger>
-                  <TabsTrigger value="python" data-testid="tab-python">Python</TabsTrigger>
-                </TabsList>
-                
-                <TabsContent value="javascript">
-                  <CodeBlock id="js-example" language="javascript" code={jsExample} />
-                </TabsContent>
-                
-                <TabsContent value="php">
-                  <CodeBlock id="php-example" language="php" code={phpExample} />
-                </TabsContent>
-                
-                <TabsContent value="python">
-                  <CodeBlock id="python-example" language="python" code={pythonExample} />
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
-
+          {/* Webhooks */}
           <Card id="webhooks">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Webhook className="h-5 w-5" />
                 Webhooks
               </CardTitle>
-              <CardDescription>
-                Recevez des notifications en temps réel pour les événements de paiement
-              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div>
-                <h4 className="font-medium mb-2">Événements disponibles</h4>
-                <ul className="space-y-2 text-muted-foreground">
-                  <li>
-                    <code className="bg-muted px-2 py-1 rounded">payment.completed</code> - Paiement réussi
-                  </li>
-                  <li>
-                    <code className="bg-muted px-2 py-1 rounded">payment.failed</code> - Paiement échoué
-                  </li>
-                  <li>
-                    <code className="bg-muted px-2 py-1 rounded">credit.completed</code> - Crédit effectué
-                  </li>
-                </ul>
-              </div>
-              
-              <div>
-                <h4 className="font-medium mb-2">Structure du webhook</h4>
+
+              <div className="space-y-2">
+                <h4 className="font-medium">Configuration</h4>
                 <CodeBlock
-                  id="webhook-structure"
-                  language="json"
-                  code={`{
-  "event": "payment.completed",
-  "data": {
-    "reference": "pay_abc123_xyz789",
-    "amount": 5000,
-    "currency": "XOF",
-    "customerPhone": "+22890123456"
-  },
-  "timestamp": "2024-01-15T10:35:00Z"
-}`}
+                  id="webhook-setup"
+                  code={`// 1. Configurer votre URL de webhook
+PUT /api/sdk/v1/webhook
+{ "webhookUrl": "https://votre-serveur.com/webhooks/sendavapay" }
+
+// → Retourne votre webhookSecret à conserver en sécurité
+{ "webhookSecret": "whsec_xxx", "retryPolicy": "1 min → 5 min → 15 min → 1 heure", "events": [...] }
+
+// 2. Tester la livraison
+POST /api/sdk/v1/test-webhook
+// → Envoie un webhook.test à votre URL et retourne le résultat`}
                 />
               </div>
-              
-              <div>
-                <h4 className="font-medium mb-2">En-têtes de la requête</h4>
-                <ul className="space-y-2 text-muted-foreground">
-                  <li>
-                    <code className="bg-muted px-2 py-1 rounded">X-SendavaPay-Signature</code> - Signature HMAC-SHA256
-                  </li>
-                  <li>
-                    <code className="bg-muted px-2 py-1 rounded">X-SendavaPay-Event</code> - Type d'événement
-                  </li>
-                </ul>
+
+              <div className="space-y-2">
+                <h4 className="font-medium">Événements disponibles</h4>
+                <div className="bg-muted rounded-lg overflow-x-auto">
+                  <table className="w-full text-sm min-w-[400px]">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left p-3">Événement</th>
+                        <th className="text-left p-3">Déclencheur</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { e: "payment.completed",  t: "Paiement confirmé et solde crédité" },
+                        { e: "payment.failed",     t: "Paiement refusé ou timeout" },
+                        { e: "payment.expired",    t: "Token de paiement expiré (30 min)" },
+                        { e: "payout.queued",      t: "Demande de retrait enregistrée" },
+                        { e: "payout.processing",  t: "Retrait en cours de traitement" },
+                        { e: "payout.completed",   t: "Retrait effectué avec succès" },
+                        { e: "payout.failed",      t: "Retrait échoué, fonds disponibles" },
+                        { e: "webhook.test",       t: "Test manuel via /test-webhook" },
+                      ].map(({ e, t }) => (
+                        <tr key={e} className="border-b last:border-0">
+                          <td className="p-3 font-mono text-xs">{e}</td>
+                          <td className="p-3 text-muted-foreground text-xs">{t}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              
-              <div>
-                <h4 className="font-medium mb-2">Exemple de réception</h4>
-                <CodeBlock id="webhook-example" language="javascript" code={webhookExample} />
+
+              <div className="space-y-2">
+                <h4 className="font-medium">Retry automatique</h4>
+                <p className="text-sm text-muted-foreground">
+                  Si votre serveur ne répond pas avec HTTP 2xx, SendavaPay retentera automatiquement :
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {["Immédiat", "+1 min", "+5 min", "+15 min", "+1 heure"].map((d, i) => (
+                    <Badge key={i} variant="outline">{d}</Badge>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h4 className="font-medium">Vérification de signature (HMAC-SHA256)</h4>
+                <p className="text-sm text-muted-foreground">
+                  Chaque webhook contient le header <code className="bg-muted px-1 rounded">X-SendavaPay-Signature: t=&#123;ts&#125;,v1=&#123;hex&#125;</code>.
+                  Vérifiez-le pour rejeter les fausses requêtes.
+                </p>
+                <CodeBlock id="webhook-verify" code={webhookExample} />
               </div>
             </CardContent>
           </Card>
 
+          {/* Endpoint Reference */}
+          <Card id="endpoints">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <List className="h-5 w-5" />
+                Référence complète des endpoints
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Base URL : <code className="bg-muted px-2 py-0.5 rounded">https://sendavapay.com/api/sdk/v1</code>
+              </p>
+
+              {[
+                {
+                  section: "Paiements",
+                  items: [
+                    { m: "POST", p: "/create-payment", auth: true, desc: "Créer une transaction + paymentToken" },
+                    { m: "GET",  p: "/payment-token/:token", auth: false, desc: "Infos de paiement par token (pour votre frontend)" },
+                    { m: "POST", p: "/initiate-payment", auth: false, desc: "Lancer le débit Mobile Money" },
+                    { m: "POST", p: "/submit-otp", auth: false, desc: "Soumettre le code OTP (Orange Money)" },
+                    { m: "POST", p: "/retry-payment", auth: false, desc: "Relancer un paiement échoué avec le même token" },
+                    { m: "GET",  p: "/payment-status/:ref", auth: true, desc: "Statut en temps réel" },
+                    { m: "POST", p: "/verify-payment", auth: true, desc: "Vérification ponctuelle" },
+                  ],
+                },
+                {
+                  section: "Opérateurs & pays",
+                  items: [
+                    { m: "GET", p: "/countries",           auth: false, desc: "Liste des pays actifs" },
+                    { m: "GET", p: "/operators/:cc",       auth: false, desc: "Opérateurs disponibles pour un pays" },
+                    { m: "GET", p: "/operators-status",    auth: false, desc: "Statut dépôt+retrait de tous les opérateurs" },
+                    { m: "GET", p: "/payout-status",       auth: true,  desc: "Disponibilité retraits (filtre ?country=TG)" },
+                  ],
+                },
+                {
+                  section: "Retraits",
+                  items: [
+                    { m: "POST", p: "/validate-withdrawal",      auth: true, desc: "Simulation dry-run (frais, solde, opérateur)" },
+                    { m: "POST", p: "/withdraw",                  auth: true, desc: "Lancer le retrait (retourne queued)" },
+                    { m: "GET",  p: "/withdrawal-status/:ref",    auth: true, desc: "Statut d'un retrait" },
+                    { m: "GET",  p: "/withdrawals",               auth: true, desc: "Liste paginée des retraits (filtres: status, country, from, to)" },
+                  ],
+                },
+                {
+                  section: "Compte",
+                  items: [
+                    { m: "GET", p: "/balance",      auth: true, desc: "Solde par portefeuille (filtre ?country=TG)" },
+                    { m: "GET", p: "/transactions", auth: true, desc: "Historique paginé (filtres: type, status)" },
+                  ],
+                },
+                {
+                  section: "Configuration & santé",
+                  items: [
+                    { m: "PUT",  p: "/webhook",       auth: true,  desc: "Configurer le webhook URL + secret" },
+                    { m: "POST", p: "/test-webhook",  auth: true,  desc: "Tester la livraison webhook" },
+                    { m: "GET",  p: "/health",        auth: false, desc: "Statut de l'API + taille des queues" },
+                    { m: "GET",  p: "/v1",            auth: false, desc: "Liste de tous les endpoints" },
+                  ],
+                },
+              ].map(({ section, items }) => (
+                <div key={section}>
+                  <h4 className="font-medium text-sm mb-2 text-muted-foreground uppercase tracking-wide">{section}</h4>
+                  <div className="bg-muted rounded-lg overflow-x-auto mb-4">
+                    <table className="w-full text-sm min-w-[450px]">
+                      <tbody>
+                        {items.map(({ m, p, auth, desc }) => (
+                          <tr key={p} className="border-b last:border-0">
+                            <td className="p-2 pl-3 w-14">
+                              <Badge className={m === "GET" ? "bg-blue-500 text-xs" : m === "PUT" ? "bg-yellow-600 text-xs" : "bg-green-600 text-xs"}>
+                                {m}
+                              </Badge>
+                            </td>
+                            <td className="p-2 font-mono text-xs w-64">{p}</td>
+                            <td className="p-2 w-8">
+                              {auth ? <Shield className="h-3 w-3 text-orange-500" /> : <Globe className="h-3 w-3 text-green-500" />}
+                            </td>
+                            <td className="p-2 pr-3 text-muted-foreground text-xs">{desc}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Shield className="h-3 w-3 text-orange-500" /> = Authentification requise &nbsp;
+                <Globe className="h-3 w-3 text-green-500" /> = Public (CORS ouvert)
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Code Examples */}
+          <Card id="examples">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Code2 className="h-5 w-5" />
+                Exemples de code complets
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="js">
+                <TabsList className="mb-4">
+                  <TabsTrigger value="js" data-testid="tab-js">JavaScript</TabsTrigger>
+                  <TabsTrigger value="php" data-testid="tab-php">PHP</TabsTrigger>
+                  <TabsTrigger value="python" data-testid="tab-python">Python</TabsTrigger>
+                </TabsList>
+                <TabsContent value="js">
+                  <CodeBlock id="example-js" code={jsExample} />
+                </TabsContent>
+                <TabsContent value="php">
+                  <CodeBlock id="example-php" code={phpExample} />
+                </TabsContent>
+                <TabsContent value="python">
+                  <CodeBlock id="example-python" code={pythonExample} />
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+
+          {/* Error Codes */}
           <Card id="errors">
             <CardHeader>
-              <CardTitle>Codes d'erreur</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5" />
+                Codes d'erreur
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="bg-muted rounded-lg overflow-x-auto">
-                <table className="w-full text-sm min-w-[400px]">
+                <table className="w-full text-sm min-w-[500px]">
                   <thead>
                     <tr className="border-b">
-                      <th className="text-left p-3">Code HTTP</th>
+                      <th className="text-left p-3">HTTP</th>
                       <th className="text-left p-3">Code</th>
                       <th className="text-left p-3">Description</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr className="border-b">
-                      <td className="p-3">401</td>
-                      <td className="p-3 font-mono">UNAUTHORIZED</td>
-                      <td className="p-3 text-muted-foreground">Clé API manquante</td>
-                    </tr>
-                    <tr className="border-b">
-                      <td className="p-3">401</td>
-                      <td className="p-3 font-mono">INVALID_API_KEY</td>
-                      <td className="p-3 text-muted-foreground">Clé API invalide</td>
-                    </tr>
-                    <tr className="border-b">
-                      <td className="p-3">403</td>
-                      <td className="p-3 font-mono">ACCOUNT_SUSPENDED</td>
-                      <td className="p-3 text-muted-foreground">Compte suspendu ou non vérifié</td>
-                    </tr>
-                    <tr className="border-b">
-                      <td className="p-3">404</td>
-                      <td className="p-3 font-mono">PAYMENT_NOT_FOUND</td>
-                      <td className="p-3 text-muted-foreground">Paiement non trouvé</td>
-                    </tr>
-                    <tr>
-                      <td className="p-3">404</td>
-                      <td className="p-3 font-mono">USER_NOT_FOUND</td>
-                      <td className="p-3 text-muted-foreground">Utilisateur non trouvé</td>
-                    </tr>
+                    {[
+                      { h: 401, c: "UNAUTHORIZED",          d: "Header Authorization manquant" },
+                      { h: 401, c: "INVALID_API_KEY",       d: "Clé API invalide ou révoquée" },
+                      { h: 403, c: "NOT_SDK_KEY",           d: "Cette clé n'est pas de type SDK" },
+                      { h: 403, c: "ACCOUNT_NOT_VERIFIED",  d: "Compte non vérifié (KYC requis)" },
+                      { h: 403, c: "SDK_NOT_ENABLED",       d: "L'API SDK n'est pas activée sur ce compte" },
+                      { h: 404, c: "INVALID_TOKEN",         d: "paymentToken invalide ou inexistant" },
+                      { h: 410, c: "TOKEN_EXPIRED",         d: "Token expiré (30 min pour paiement, 10 min pour OTP)" },
+                      { h: 409, c: "ALREADY_COMPLETED",     d: "Ce paiement a déjà été complété" },
+                      { h: 409, c: "PAYMENT_IN_PROGRESS",   d: "Un paiement est déjà en cours" },
+                      { h: 409, c: "DUPLICATE_REFERENCE",   d: "externalReference déjà utilisée" },
+                      { h: 409, c: "DUPLICATE_WITHDRAWAL",  d: "externalReference de retrait déjà utilisée" },
+                      { h: 400, c: "COUNTRY_MISMATCH",      d: "Opérateur non disponible pour ce pays" },
+                      { h: 400, c: "INVALID_OPERATOR",      d: "Identifiant d'opérateur invalide" },
+                      { h: 400, c: "OPERATOR_COUNTRY_MISMATCH", d: "Opérateur incompatible avec le pays indiqué" },
+                      { h: 400, c: "INVALID_PHONE_FORMAT",  d: "Format E.164 requis (+22890000000)" },
+                      { h: 400, c: "AMOUNT_TOO_LOW",        d: "Montant minimum: 100" },
+                      { h: 400, c: "AMOUNT_TOO_HIGH",       d: "Montant maximum: 5 000 000" },
+                      { h: 400, c: "INSUFFICIENT_BALANCE",  d: "Solde insuffisant dans ce portefeuille" },
+                      { h: 400, c: "WALLET_NOT_FOUND",      d: "Portefeuille inexistant pour ce pays" },
+                      { h: 400, c: "OTP_FAILED",            d: "Code OTP invalide ou refusé" },
+                      { h: 400, c: "INVALID_OTP_TOKEN",     d: "otpToken invalide ou expiré" },
+                      { h: 500, c: "PAYMENT_INITIATION_FAILED", d: "Erreur lors de l'initiation chez l'opérateur" },
+                      { h: 503, c: "OPERATOR_UNAVAILABLE",  d: "Opérateur en maintenance" },
+                      { h: 503, c: "API_MAINTENANCE",       d: "API en maintenance générale" },
+                    ].map(({ h, c, d }) => (
+                      <tr key={c} className="border-b last:border-0">
+                        <td className="p-3 text-muted-foreground">{h}</td>
+                        <td className="p-3 font-mono text-xs">{c}</td>
+                        <td className="p-3 text-muted-foreground text-xs">{d}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
             </CardContent>
           </Card>
 
+          {/* Footer CTA */}
           <div className="text-center py-8">
             <p className="text-muted-foreground mb-4">
-              Besoin d'aide ? Contactez notre support technique
+              Prêt à intégrer l'API SDK SendavaPay ?
             </p>
             <a href="/dashboard/api-keys">
               <Button size="lg" data-testid="button-start-integration">
                 <Key className="h-5 w-5 mr-2" />
-                Générer ma clé API
+                Générer ma clé SDK
               </Button>
             </a>
           </div>
+
         </div>
       </main>
     </div>

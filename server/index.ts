@@ -22,6 +22,15 @@ async function initializePartnerTables() {
     try {
       await client.query(`ALTER TYPE withdrawal_request_status ADD VALUE IF NOT EXISTS 'failed';`);
     } catch (e) { /* already exists */ }
+    try {
+      await client.query(`ALTER TYPE api_transaction_status ADD VALUE IF NOT EXISTS 'queued';`);
+    } catch (e) { /* already exists */ }
+    try {
+      await client.query(`ALTER TYPE api_transaction_status ADD VALUE IF NOT EXISTS 'provider_pending';`);
+    } catch (e) { /* already exists */ }
+    try {
+      await client.query(`ALTER TYPE api_transaction_status ADD VALUE IF NOT EXISTS 'reversed';`);
+    } catch (e) { /* already exists */ }
     await client.query(`
       DO $$ BEGIN
         CREATE TYPE partner_status AS ENUM ('active', 'inactive', 'suspended');

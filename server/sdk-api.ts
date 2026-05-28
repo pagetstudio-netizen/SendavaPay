@@ -29,6 +29,140 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
+// ─── Webhook Retry Queue ───────────────────────────────────────────────────────
+// Retry schedule: 1 min → 5 min → 15 min → 1 h
+const WEBHOOK_RETRY_DELAYS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
+
+interface WebhookRetryEntry {
+  id: string;
+  webhookUrl: string;
+  payload: Record<string, any>;
+  headers: Record<string, string>;
+  transactionRef: string;
+  transactionId?: number;
+  attempts: number;
+  nextRetry: number;
+}
+
+const webhookRetryQueue = new Map<string, WebhookRetryEntry>();
+
+async function sendWebhookWithRetry(
+  webhookUrl: string,
+  payload: Record<string, any>,
+  webhookSecret: string | null | undefined,
+  transactionRef: string,
+  transactionId?: number,
+): Promise<void> {
+  const payloadStr = JSON.stringify(payload);
+  const ts = Math.floor(Date.now() / 1000).toString();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-SendavaPay-Event": payload.event || "payment.update",
+    "X-SendavaPay-Timestamp": ts,
+    "User-Agent": "SendavaPay-Webhook/1.0",
+  };
+  if (webhookSecret) {
+    const sig = crypto.createHmac("sha256", webhookSecret).update(`${ts}.${payloadStr}`).digest("hex");
+    headers["X-SendavaPay-Signature"] = `t=${ts},v1=${sig}`;
+  }
+  const retryId = `wh_${transactionRef}_${Date.now()}`;
+  webhookRetryQueue.set(retryId, {
+    id: retryId, webhookUrl, payload, headers,
+    transactionRef, transactionId, attempts: 0, nextRetry: Date.now(),
+  });
+}
+
+async function processWebhookQueue(): Promise<void> {
+  const now = Date.now();
+  for (const [key, entry] of webhookRetryQueue.entries()) {
+    if (entry.nextRetry > now) continue;
+    webhookRetryQueue.delete(key);
+    try {
+      const ctrl = new AbortController();
+      const tId = setTimeout(() => ctrl.abort(), 10_000);
+      const response = await fetch(entry.webhookUrl, {
+        method: "POST", headers: entry.headers,
+        body: JSON.stringify(entry.payload), signal: ctrl.signal,
+      });
+      clearTimeout(tId);
+      if (entry.transactionId) {
+        await storage.updateApiTransaction(entry.transactionId, {
+          webhookSent: response.ok,
+          webhookAttempts: entry.attempts + 1,
+          webhookLastAttempt: new Date(),
+        }).catch(() => {});
+      }
+      if (!response.ok && entry.attempts < WEBHOOK_RETRY_DELAYS.length) {
+        const next: WebhookRetryEntry = { ...entry, id: `${key}_r${entry.attempts + 1}`, attempts: entry.attempts + 1, nextRetry: now + WEBHOOK_RETRY_DELAYS[entry.attempts] };
+        webhookRetryQueue.set(next.id, next);
+        console.warn(`[sdk-webhook] retry ${entry.attempts + 1}/${WEBHOOK_RETRY_DELAYS.length} in ${WEBHOOK_RETRY_DELAYS[entry.attempts] / 1000}s → ${entry.webhookUrl}`);
+      }
+    } catch {
+      if (entry.transactionId) {
+        await storage.updateApiTransaction(entry.transactionId, { webhookAttempts: entry.attempts + 1, webhookLastAttempt: new Date() }).catch(() => {});
+      }
+      if (entry.attempts < WEBHOOK_RETRY_DELAYS.length) {
+        const next: WebhookRetryEntry = { ...entry, id: `${key}_r${entry.attempts + 1}`, attempts: entry.attempts + 1, nextRetry: now + WEBHOOK_RETRY_DELAYS[entry.attempts] };
+        webhookRetryQueue.set(next.id, next);
+      }
+    }
+  }
+}
+setInterval(processWebhookQueue, 30_000);
+
+// ─── Withdrawal Processing Queue ──────────────────────────────────────────────
+interface WithdrawalQueueEntry {
+  sdkTransactionRef: string;
+  withdrawalRequestId: number;
+  webhookUrl: string | null;
+  webhookSecret: string | null;
+}
+const withdrawalQueue: WithdrawalQueueEntry[] = [];
+
+async function processWithdrawalQueue(): Promise<void> {
+  if (!withdrawalQueue.length) return;
+  const entries = withdrawalQueue.splice(0, 10);
+  for (const entry of entries) {
+    try {
+      const txn = await storage.getApiTransactionByReference(entry.sdkTransactionRef);
+      if (!txn || (txn.status !== "queued" && txn.status !== "processing")) continue;
+
+      const wr = await storage.getWithdrawalRequest(entry.withdrawalRequestId);
+      if (!wr) { await storage.updateApiTransaction(txn.id, { status: "failed" }); continue; }
+
+      if (wr.status === "approved" || wr.status === "processing") {
+        if (txn.status !== "processing") await storage.updateApiTransaction(txn.id, { status: "processing" });
+        withdrawalQueue.push(entry);
+      } else if (wr.status === "completed") {
+        await storage.updateApiTransaction(txn.id, { status: "completed", completedAt: new Date() });
+        if (entry.webhookUrl) {
+          await sendWebhookWithRetry(entry.webhookUrl, {
+            event: "payout.completed", reference: txn.reference, status: "completed",
+            amount: txn.amount, currency: txn.currency, phoneNumber: txn.customerPhone,
+            completedAt: new Date().toISOString(),
+          }, entry.webhookSecret, txn.reference, txn.id);
+        }
+      } else if (wr.status === "rejected" || wr.status === "failed") {
+        await storage.updateApiTransaction(txn.id, { status: "failed" });
+        try {
+          await storage.creditWalletById((wr as any).walletId, txn.amount);
+        } catch (_) {}
+        if (entry.webhookUrl) {
+          await sendWebhookWithRetry(entry.webhookUrl, {
+            event: "payout.failed", reference: txn.reference, status: "failed",
+            amount: txn.amount, currency: txn.currency, completedAt: new Date().toISOString(),
+          }, entry.webhookSecret, txn.reference, txn.id);
+        }
+      } else {
+        withdrawalQueue.push(entry);
+      }
+    } catch (err) {
+      console.error("[sdk-withdrawal-queue]", err);
+    }
+  }
+}
+setInterval(processWithdrawalQueue, 60_000);
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function generateReference(): string {
   const timestamp = Date.now().toString(36);
@@ -80,14 +214,47 @@ function detectCountryFromMethod(paymentMethod: string, payerCountry?: string): 
   return "TG";
 }
 
-function widgetCors(req: Request, res: Response, next: NextFunction) {
+// ─── SDK CORS ─────────────────────────────────────────────────────────────────
+// Public SDK endpoints must allow any origin: merchant frontends live on arbitrary domains.
+// Security is enforced by single-use paymentTokens, API-key auth, and rate limiting.
+function sdkCors(req: Request, res: Response, next: NextFunction) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Vary", "Origin");
   if (req.method === "OPTIONS") return res.status(204).end();
   next();
 }
 
+// ─── Structured SDK logging ────────────────────────────────────────────────────
+function sdkLog(opts: {
+  req: Request;
+  endpoint: string;
+  statusCode: number;
+  responseTimeMs: number;
+  operator?: string;
+  country?: string;
+  reference?: string;
+  error?: string;
+}): void {
+  const ip = ((opts.req.headers["x-forwarded-for"] as string) || opts.req.ip || "unknown").split(",")[0].trim();
+  console.log(JSON.stringify({
+    ts:       new Date().toISOString(),
+    api:      "sdk/v1",
+    endpoint: opts.endpoint,
+    method:   opts.req.method,
+    ip,
+    status:   opts.statusCode,
+    ms:       opts.responseTimeMs,
+    ...(opts.operator  && { op:  opts.operator }),
+    ...(opts.country   && { cc:  opts.country }),
+    ...(opts.reference && { ref: opts.reference }),
+    ...(opts.error     && { err: opts.error }),
+    ua: (opts.req.get("User-Agent") || "").substring(0, 80),
+  }));
+}
+
+// ─── Authentication ────────────────────────────────────────────────────────────
 async function authenticateSdkKey(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -121,25 +288,32 @@ router.get("/v1", (_req, res) => {
   res.json({
     success: true,
     data: {
-      name: "SendavaPay SDK API",
-      version: "3.0.0",
-      status: "operational",
+      name:          "SendavaPay SDK API",
+      version:       "3.0.0",
+      status:        "operational",
       documentation: "/docs",
+      architecture:  "pure-api | no-widget | no-iframe | no-redirect | merchant-controls-frontend",
       endpoints: {
-        createPayment:    "POST /api/sdk/v1/create-payment",
-        initiatePayment:  "POST /api/sdk/v1/initiate-payment",
-        submitOtp:        "POST /api/sdk/v1/submit-otp",
-        verifyPayment:    "POST /api/sdk/v1/verify-payment",
-        paymentToken:     "GET  /api/sdk/v1/payment-token/:paymentToken",
-        paymentStatus:    "GET  /api/sdk/v1/payment-status/:reference",
-        operators:        "GET  /api/sdk/v1/operators/:countryCode",
-        operatorsStatus:  "GET  /api/sdk/v1/operators-status",
-        retryPayment:     "POST /api/sdk/v1/retry-payment",
-        withdraw:         "POST /api/sdk/v1/withdraw",
-        balance:          "GET  /api/sdk/v1/balance",
-        transactions:     "GET  /api/sdk/v1/transactions",
-        updateWebhook:    "PUT  /api/sdk/v1/webhook",
-        health:           "GET  /api/sdk/v1/health",
+        createPayment:      "POST /api/sdk/v1/create-payment",
+        countries:          "GET  /api/sdk/v1/countries",
+        operators:          "GET  /api/sdk/v1/operators/:countryCode",
+        paymentToken:       "GET  /api/sdk/v1/payment-token/:token",
+        initiatePayment:    "POST /api/sdk/v1/initiate-payment",
+        submitOtp:          "POST /api/sdk/v1/submit-otp",
+        retryPayment:       "POST /api/sdk/v1/retry-payment",
+        paymentStatus:      "GET  /api/sdk/v1/payment-status/:reference",
+        verifyPayment:      "POST /api/sdk/v1/verify-payment",
+        validateWithdrawal: "POST /api/sdk/v1/validate-withdrawal",
+        withdraw:           "POST /api/sdk/v1/withdraw",
+        withdrawalStatus:   "GET  /api/sdk/v1/withdrawal-status/:reference",
+        withdrawals:        "GET  /api/sdk/v1/withdrawals",
+        balance:            "GET  /api/sdk/v1/balance",
+        transactions:       "GET  /api/sdk/v1/transactions",
+        updateWebhook:      "PUT  /api/sdk/v1/webhook",
+        testWebhook:        "POST /api/sdk/v1/test-webhook",
+        operatorsStatus:    "GET  /api/sdk/v1/operators-status",
+        payoutStatus:       "GET  /api/sdk/v1/payout-status",
+        health:             "GET  /api/sdk/v1/health",
       },
     },
   });
@@ -147,6 +321,7 @@ router.get("/v1", (_req, res) => {
 
 // ─── CREATE PAYMENT ───────────────────────────────────────────────────────────
 router.post("/v1/create-payment", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
+  const t0 = Date.now();
   const sdkUser = (req as any).sdkUser as User;
   const sdkKey  = (req as any).sdkKey  as ApiKey;
 
@@ -159,8 +334,7 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateSdkKey, async
       customerEmail:     z.string().email().optional(),
       customerPhone:     z.string().optional(),
       customerName:      z.string().optional(),
-      payerCountry:      z.string().length(2).optional(),
-      paymentMethod:     z.string().optional(),
+      payerCountry:      z.string().min(2).max(3).optional(),
       webhookUrl:        z.string().url().optional(),
       metadata:          z.record(z.any()).optional(),
     });
@@ -174,9 +348,10 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateSdkKey, async
       const existing = await storage.getApiTransactionsByUser(sdkUser.id);
       const dup = existing.find(
         t => t.externalReference === data.externalReference &&
-             (t.status === "pending" || t.status === "completed")
+             (t.status === "pending" || t.status === "processing" || t.status === "completed")
       );
       if (dup) {
+        sdkLog({ req, endpoint: "create-payment", statusCode: 409, responseTimeMs: Date.now() - t0, error: "DUPLICATE_REFERENCE" });
         return res.status(409).json({
           success: false,
           error: "Un paiement avec cette référence existe déjà",
@@ -185,12 +360,6 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateSdkKey, async
         });
       }
     }
-
-    const countryCode = data.payerCountry
-      ? data.payerCountry.toUpperCase()
-      : data.paymentMethod
-        ? detectCountryFromMethod(data.paymentMethod, data.payerCountry)
-        : null;
 
     const transaction = await storage.createApiTransaction({
       userId:            sdkUser.id,
@@ -212,27 +381,49 @@ router.post("/v1/create-payment", checkApiMaintenance, authenticateSdkKey, async
       userAgent:         req.get("User-Agent") || null,
     } as any);
 
+    sdkLog({ req, endpoint: "create-payment", statusCode: 201, responseTimeMs: Date.now() - t0, reference });
     res.status(201).json({
       success: true,
       data: {
-        reference:    transaction.reference,
+        reference,
         paymentToken,
-        expiresAt:    tokenExpiresAt.toISOString(),
-        amount:       data.amount,
-        currency:     data.currency,
-        status:       "pending",
-        nextStep:     "POST /api/sdk/v1/initiate-payment",
-        createdAt:    transaction.createdAt,
+        expiresAt:   tokenExpiresAt.toISOString(),
+        amount:      data.amount,
+        currency:    data.currency,
+        status:      "pending",
+        nextStep:    "GET /api/sdk/v1/operators/:countryCode — puis POST /api/sdk/v1/initiate-payment",
+        createdAt:   transaction.createdAt,
       },
     });
   } catch (error: any) {
+    sdkLog({ req, endpoint: "create-payment", statusCode: 400, responseTimeMs: Date.now() - t0, error: error.message });
     res.status(400).json({ success: false, error: error.message || "Erreur lors de la création du paiement" });
   }
 });
 
+// ─── COUNTRIES (public, CORS) ─────────────────────────────────────────────────
+router.options("/v1/countries", sdkCors);
+router.get("/v1/countries", sdkCors, async (_req: Request, res: Response) => {
+  try {
+    const dbCountries = await storage.getCountries();
+    const inactiveSet = new Set(dbCountries.filter(c => c.isActive === false).map(c => c.code.toUpperCase()));
+    const data = Object.values(COUNTRY_CODE_MAP)
+      .filter(c => !inactiveSet.has(c.countryCode))
+      .map(c => ({
+        code:      c.countryCode,
+        name:      c.countryName,
+        currency:  c.currency,
+        operators: getServicesByCountry(c.countryCode).length,
+      }));
+    res.json({ success: true, data });
+  } catch {
+    res.status(500).json({ success: false, error: "Erreur serveur", code: "SERVER_ERROR" });
+  }
+});
+
 // ─── GET OPERATORS FOR A COUNTRY (public, CORS) ───────────────────────────────
-router.options("/v1/operators/:countryCode", widgetCors);
-router.get("/v1/operators/:countryCode", widgetCors, async (req: Request, res: Response) => {
+router.options("/v1/operators/:countryCode", sdkCors);
+router.get("/v1/operators/:countryCode", sdkCors, async (req: Request, res: Response) => {
   try {
     const countryCode = req.params.countryCode.toUpperCase();
     const services    = getServicesByCountry(countryCode);
@@ -244,12 +435,12 @@ router.get("/v1/operators/:countryCode", widgetCors, async (req: Request, res: R
     const dbOperators = await storage.getOperators();
 
     const data = services.map(service => {
-      const dbOp           = dbOperators.find(op => op.code === service.id.toString());
-      const gateway        = dbOp?.paymentGateway || service.paymentGateway || "soleaspay";
-      const inMaintenance  = (dbOp?.inMaintenance || dbOp?.maintenanceApi) ?? false;
-      const pdOp           = gateway === "paydunya" ? getSoftPayOperator(service.operator, service.countryCode) : null;
-      const requiresOtp    = pdOp?.requiresOtp ?? false;
-      const slug           = getOperatorSlug({ ...service, paymentGateway: gateway });
+      const dbOp          = dbOperators.find(op => op.code === service.id.toString());
+      const gateway       = dbOp?.paymentGateway || service.paymentGateway || "soleaspay";
+      const inMaintenance = (dbOp?.inMaintenance || dbOp?.maintenanceApi) ?? false;
+      const pdOp          = gateway === "paydunya" ? getSoftPayOperator(service.operator, service.countryCode) : null;
+      const requiresOtp   = pdOp?.requiresOtp ?? false;
+      const slug          = getOperatorSlug({ ...service, paymentGateway: gateway });
 
       return {
         id:          String(service.id),
@@ -257,21 +448,23 @@ router.get("/v1/operators/:countryCode", widgetCors, async (req: Request, res: R
         operator:    service.operator,
         slug,
         currency:    service.currency,
+        country:     service.countryCode,
         gateway,
         requiresOtp,
+        status:      inMaintenance ? "offline" : "online",
         available:   !inMaintenance,
       };
     });
 
     res.json({ success: true, data });
-  } catch (error: any) {
+  } catch {
     res.status(500).json({ success: false, error: "Erreur serveur", code: "SERVER_ERROR" });
   }
 });
 
 // ─── OPERATORS STATUS (public, CORS) ─────────────────────────────────────────
-router.options("/v1/operators-status", widgetCors);
-router.get("/v1/operators-status", widgetCors, async (_req: Request, res: Response) => {
+router.options("/v1/operators-status", sdkCors);
+router.get("/v1/operators-status", sdkCors, async (_req: Request, res: Response) => {
   try {
     const dbOperators = await storage.getOperators();
 
@@ -282,25 +475,26 @@ router.get("/v1/operators-status", widgetCors, async (_req: Request, res: Respon
       const slug          = getOperatorSlug({ ...service, paymentGateway: gateway });
 
       return {
-        id:       String(service.id),
+        id:            String(service.id),
         slug,
-        operator: service.operator,
-        country:  service.countryCode,
-        currency: service.currency,
+        operator:      service.operator,
+        country:       service.countryCode,
+        currency:      service.currency,
         gateway,
-        status:   inMaintenance ? "maintenance" : "online",
+        depositStatus: inMaintenance ? "offline" : "online",
+        payoutStatus:  (dbOp?.inMaintenance || dbOp?.maintenanceWithdraw) ? "offline" : "online",
       };
     });
 
     res.json({ success: true, data });
-  } catch (error: any) {
+  } catch {
     res.status(500).json({ success: false, error: "Erreur serveur", code: "SERVER_ERROR" });
   }
 });
 
 // ─── GET PAYMENT INFO BY TOKEN (public, CORS) ─────────────────────────────────
-router.options("/v1/payment-token/:token", widgetCors);
-router.get("/v1/payment-token/:token", widgetCors, async (req: Request, res: Response) => {
+router.options("/v1/payment-token/:token", sdkCors);
+router.get("/v1/payment-token/:token", sdkCors, async (req: Request, res: Response) => {
   try {
     const { token } = req.params;
     const transaction = await storage.getApiTransactionByToken(token);
@@ -322,26 +516,27 @@ router.get("/v1/payment-token/:token", widgetCors, async (req: Request, res: Res
     res.json({
       success: true,
       data: {
-        reference:    transaction.reference,
-        amount:       transaction.amount,
-        currency:     transaction.currency,
-        description:  transaction.description,
-        status:       transaction.status,
+        reference:     transaction.reference,
+        amount:        transaction.amount,
+        currency:      transaction.currency,
+        description:   transaction.description,
+        status:        transaction.status,
         merchantName,
         customerName:  transaction.customerName  || null,
         customerPhone: transaction.customerPhone || null,
-        expiresAt:    transaction.tokenExpiresAt,
+        expiresAt:     transaction.tokenExpiresAt,
       },
     });
-  } catch (error: any) {
+  } catch {
     res.status(500).json({ success: false, error: "Erreur serveur", code: "SERVER_ERROR" });
   }
 });
 
 // ─── INITIATE PAYMENT (public, CORS) ──────────────────────────────────────────
 // Le marchand contrôle son propre frontend. Il passe le paymentToken + opérateur choisi.
-router.options("/v1/initiate-payment", widgetCors);
-router.post("/v1/initiate-payment", widgetCors, async (req: Request, res: Response) => {
+router.options("/v1/initiate-payment", sdkCors);
+router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response) => {
+  const t0 = Date.now();
   try {
     const schema = z.object({
       paymentToken: z.string(),
@@ -361,6 +556,16 @@ router.post("/v1/initiate-payment", widgetCors, async (req: Request, res: Respon
       return res.status(404).json({ success: false, error: "Token de paiement invalide ou expiré", code: "INVALID_TOKEN" });
     }
     if (transaction.tokenExpiresAt && new Date() > new Date(transaction.tokenExpiresAt)) {
+      // Fire payment.expired webhook
+      const apiKey = transaction.apiKeyId ? await storage.getApiKeyById(transaction.apiKeyId) : null;
+      const cbUrl  = transaction.callbackUrl || (apiKey as any)?.webhookUrl;
+      if (cbUrl) {
+        await sendWebhookWithRetry(cbUrl, {
+          event: "payment.expired", reference: transaction.reference,
+          status: "cancelled", expiredAt: new Date().toISOString(),
+        }, (apiKey as any)?.webhookSecret, transaction.reference, transaction.id);
+      }
+      await storage.updateApiTransaction(transaction.id, { status: "cancelled" });
       return res.status(410).json({ success: false, error: "Ce token de paiement a expiré", code: "TOKEN_EXPIRED" });
     }
     if (transaction.status === "completed") {
@@ -387,22 +592,19 @@ router.post("/v1/initiate-payment", widgetCors, async (req: Request, res: Respon
       });
     }
 
-    const dbOperators   = await storage.getOperators();
-    const dbOp          = dbOperators.find(op => op.code === String(data.operatorId));
+    const dbOperators    = await storage.getOperators();
+    const dbOp           = dbOperators.find(op => op.code === String(data.operatorId));
     const paymentGateway = dbOp?.paymentGateway || service.paymentGateway || "soleaspay";
 
     if (dbOp?.inMaintenance || dbOp?.maintenanceApi) {
-      return res.status(503).json({
-        success: false,
-        error:   "Opérateur temporairement indisponible",
-        code:    "OPERATOR_UNAVAILABLE",
-      });
+      sdkLog({ req, endpoint: "initiate-payment", statusCode: 503, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry });
+      return res.status(503).json({ success: false, error: "Opérateur temporairement indisponible", code: "OPERATOR_UNAVAILABLE" });
     }
 
     const amount      = parseFloat(transaction.amount);
     const description = transaction.description || `Paiement ${transaction.reference}`;
     const orderId     = `API_${transaction.reference}_${Date.now()}`;
-    const baseUrl     = "https://sendavapay.com";
+    const baseUrl     = process.env.APP_URL || process.env.SITE_URL || "https://sendavapay.com";
 
     await storage.updateApiTransaction(transaction.id, {
       customerName:  data.payerName,
@@ -422,102 +624,61 @@ router.post("/v1/initiate-payment", widgetCors, async (req: Request, res: Respon
       const pdOp = getSoftPayOperator(service.operator, service.countryCode);
 
       if (pdOp?.requiresOtp && !data.otp) {
-        // OTP requis — stocker les infos et retourner otpToken
         const otpToken = generateOtpToken();
         otpStore.set(otpToken, {
-          reference:    transaction.reference,
-          serviceId:    data.operatorId,
-          payerName:    data.payerName,
-          payerPhone:   data.payerPhone,
-          payerEmail:   data.payerEmail || "",
-          payerCountry: payerCountry,
-          amount,
-          description,
-          gateway:      "paydunya",
-          expiresAt:    new Date(Date.now() + 10 * 60 * 1000),
+          reference: transaction.reference, serviceId: data.operatorId,
+          payerName: data.payerName, payerPhone: data.payerPhone,
+          payerEmail: data.payerEmail || "", payerCountry,
+          amount, description, gateway: "paydunya",
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000),
         });
         await storage.updateApiTransaction(transaction.id, { status: "pending" });
+        sdkLog({ req, endpoint: "initiate-payment", statusCode: 200, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry });
         return res.json({
-          success:    true,
+          success:     true,
           requiresOtp: true,
           otpToken,
-          message:    "Demandez au client de composer *144# sur son téléphone pour obtenir son OTP, puis soumettez-le via /submit-otp",
-          nextStep:   "POST /api/sdk/v1/submit-otp",
+          reference:   transaction.reference,
+          message:     "Demandez au client de composer *144# sur son téléphone pour obtenir son OTP, puis soumettez-le via /submit-otp",
+          nextStep:    "POST /api/sdk/v1/submit-otp",
         });
       }
 
-      const phone = formatPhoneForPayDunya(data.payerPhone, payerCountry);
-      const pdResult = await initiatePayDunySoftPay(
-        service,
-        phone,
-        data.payerName,
-        data.payerEmail || "client@sendavapay.com",
-        amount,
-        description,
-        baseUrl,
-        data.otp,
-        data.address,
-      );
+      const phone    = formatPhoneForPayDunya(data.payerPhone, payerCountry);
+      const pdResult = await initiatePayDunySoftPay(service, phone, data.payerName, data.payerEmail || "client@sendavapay.com", amount, description, baseUrl, data.otp, data.address);
 
       if (!pdResult.success) {
-        // Fallback checkout URL
         try {
           const checkout = await createPayDunyaCheckout({
-            totalAmount:  amount,
-            description,
-            storeName:    "SendavaPay",
-            callbackUrl:  `${baseUrl}/api/webhook/paydunya`,
-            returnUrl:    `${baseUrl}/success?reference=${transaction.reference}`,
-            cancelUrl:    `${baseUrl}/pay/api/${transaction.reference}`,
+            totalAmount: amount, description, storeName: "SendavaPay",
+            callbackUrl: `${baseUrl}/api/webhook/paydunya`,
+            returnUrl:   `${baseUrl}/success?reference=${transaction.reference}`,
+            cancelUrl:   `${baseUrl}/pay/api/${transaction.reference}`,
           });
           if (checkout.success && checkout.checkoutUrl) {
-            await storage.updateApiTransaction(transaction.id, {
-              externalReference: checkout.token || orderId,
-            });
-            return res.json({
-              success:       true,
-              requiresOtp:   false,
-              requiresRedirect: true,
-              redirectUrl:   checkout.checkoutUrl,
-              reference:     transaction.reference,
-              message:       "Redirigez le client vers cette URL pour compléter le paiement",
-            });
+            await storage.updateApiTransaction(transaction.id, { externalReference: checkout.token || orderId });
+            sdkLog({ req, endpoint: "initiate-payment", statusCode: 200, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry });
+            return res.json({ success: true, requiresOtp: false, requiresRedirect: true, redirectUrl: checkout.checkoutUrl, reference: transaction.reference, message: "Redirigez le client vers cette URL pour compléter le paiement" });
           }
         } catch (_) {}
-
         await storage.updateApiTransaction(transaction.id, { status: "failed" });
-        return res.status(500).json({
-          success: false,
-          error:   pdResult.error || "Échec de l'initiation du paiement",
-          code:    "PAYMENT_INITIATION_FAILED",
-        });
+        sdkLog({ req, endpoint: "initiate-payment", statusCode: 500, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry, error: pdResult.error });
+        return res.status(500).json({ success: false, error: pdResult.error || "Échec de l'initiation du paiement", code: "PAYMENT_INITIATION_FAILED" });
       }
 
       if (pdResult.redirectUrl) {
-        await storage.updateApiTransaction(transaction.id, {
-          externalReference: `${orderId}|${pdResult.redirectUrl}`,
-        });
-        return res.json({
-          success:          true,
-          requiresOtp:      false,
-          requiresRedirect: true,
-          redirectUrl:      pdResult.redirectUrl,
-          reference:        transaction.reference,
-          message:          "Redirigez le client vers cette URL pour compléter le paiement",
-        });
+        await storage.updateApiTransaction(transaction.id, { externalReference: `${orderId}|${pdResult.redirectUrl}` });
+        sdkLog({ req, endpoint: "initiate-payment", statusCode: 200, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry });
+        return res.json({ success: true, requiresOtp: false, requiresRedirect: true, redirectUrl: pdResult.redirectUrl, reference: transaction.reference, message: "Redirigez le client vers cette URL pour compléter le paiement" });
       }
 
       const invoiceToken = (pdResult as any).invoiceToken || orderId;
-      await storage.updateApiTransaction(transaction.id, {
-        externalReference: `${orderId}|${invoiceToken}`,
-      });
-
+      await storage.updateApiTransaction(transaction.id, { externalReference: `${orderId}|${invoiceToken}` });
+      sdkLog({ req, endpoint: "initiate-payment", statusCode: 200, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry, reference: transaction.reference });
       return res.json({
         success:     true,
         requiresOtp: false,
         reference:   transaction.reference,
-        payId:       invoiceToken,
-        provider:    "paydunya",
         message:     "Paiement initié. Le client va recevoir une demande de confirmation sur son téléphone.",
       });
     }
@@ -529,59 +690,40 @@ router.post("/v1/initiate-payment", widgetCors, async (req: Request, res: Respon
 
       if (opOperator === undefined) {
         await storage.updateApiTransaction(transaction.id, { status: "failed" });
-        return res.status(400).json({
-          success: false,
-          error:   "Opérateur non supporté",
-          code:    "OPERATOR_UNAVAILABLE",
-        });
+        sdkLog({ req, endpoint: "initiate-payment", statusCode: 400, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry });
+        return res.status(400).json({ success: false, error: "Opérateur non supporté", code: "OPERATOR_UNAVAILABLE" });
       }
 
-      const cleanPhone  = formatPhoneForOmnipay(data.payerPhone, payerCountry);
-      const isWave      = opOperator === "wave";
-      const nameParts   = data.payerName.split(" ");
-      const firstName   = nameParts[0];
-      const lastName    = nameParts.slice(1).join(" ") || nameParts[0];
-      const autoOtp     = service.operator === "Orange"
-        ? String(Math.floor(100000 + Math.random() * 900000))
-        : undefined;
+      const cleanPhone = formatPhoneForOmnipay(data.payerPhone, payerCountry);
+      const isWave     = opOperator === "wave";
+      const nameParts  = data.payerName.split(" ");
+      const autoOtp    = service.operator === "Orange" ? String(Math.floor(100000 + Math.random() * 900000)) : undefined;
 
       const opResult = await opClient.requestPayment({
-        msisdn:      cleanPhone,
-        amount,
-        reference:   orderId,
-        firstName,
-        lastName,
-        operator:    opOperator ?? undefined,
-        otp:         autoOtp,
+        msisdn: cleanPhone, amount, reference: orderId,
+        firstName: nameParts[0], lastName: nameParts.slice(1).join(" ") || nameParts[0],
+        operator: opOperator ?? undefined, otp: autoOtp,
         returnUrl:   isWave ? `${baseUrl}/success?reference=${orderId}` : undefined,
         callbackUrl: `${baseUrl}/api/webhook/omnipay`,
       });
 
       if (String(opResult.success) !== "1") {
         await storage.updateApiTransaction(transaction.id, { status: "failed" });
-        return res.status(500).json({
-          success: false,
-          error:   opResult.message || "Échec de l'initiation du paiement",
-          code:    "PAYMENT_INITIATION_FAILED",
-        });
+        sdkLog({ req, endpoint: "initiate-payment", statusCode: 500, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry, error: opResult.message });
+        return res.status(500).json({ success: false, error: opResult.message || "Échec de l'initiation du paiement", code: "PAYMENT_INITIATION_FAILED" });
       }
 
-      const payId   = opResult.transaction_id || opResult.reference || orderId;
       const waveUrl = opResult.payment_url || opResult.wave_launch_url || opResult.redirect_url;
+      await storage.updateApiTransaction(transaction.id, { externalReference: `${orderId}|${opResult.transaction_id || orderId}` });
 
-      await storage.updateApiTransaction(transaction.id, {
-        externalReference: `${orderId}|${payId}`,
-      });
-
+      sdkLog({ req, endpoint: "initiate-payment", statusCode: 200, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry, reference: transaction.reference });
       return res.json({
         success:          true,
         requiresOtp:      false,
         requiresRedirect: isWave && !!waveUrl,
         redirectUrl:      waveUrl || null,
         reference:        transaction.reference,
-        payId,
-        provider:         "omnipay",
-        message:          isWave && waveUrl
+        message: isWave && waveUrl
           ? "Redirigez le client vers l'application Wave pour confirmer le paiement"
           : "Le client va recevoir une demande de confirmation sur son téléphone",
       });
@@ -592,45 +734,36 @@ router.post("/v1/initiate-payment", widgetCors, async (req: Request, res: Respon
     const cleanPhone = fmtPhone(data.payerPhone, payerCountry);
 
     const spResult = await (soleaspay as any).initiatePayment?.({
-      phone:     cleanPhone,
-      amount,
-      orderId,
-      serviceId: data.operatorId,
+      phone: cleanPhone, amount, orderId, serviceId: data.operatorId,
       callbackUrl: `${baseUrl}/api/webhook/soleaspay`,
     });
 
     if (!spResult?.success) {
       await storage.updateApiTransaction(transaction.id, { status: "failed" });
-      return res.status(500).json({
-        success: false,
-        error:   spResult?.message || "Échec de l'initiation du paiement",
-        code:    "PAYMENT_INITIATION_FAILED",
-      });
+      sdkLog({ req, endpoint: "initiate-payment", statusCode: 500, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry, error: spResult?.message });
+      return res.status(500).json({ success: false, error: spResult?.message || "Échec de l'initiation du paiement", code: "PAYMENT_INITIATION_FAILED" });
     }
 
-    const payId = spResult.payId || orderId;
-    await storage.updateApiTransaction(transaction.id, {
-      externalReference: `${orderId}|${payId}`,
-    });
+    await storage.updateApiTransaction(transaction.id, { externalReference: `${orderId}|${spResult.payId || orderId}` });
 
+    sdkLog({ req, endpoint: "initiate-payment", statusCode: 200, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry, reference: transaction.reference });
     return res.json({
       success:     true,
       requiresOtp: false,
       reference:   transaction.reference,
-      payId,
-      orderId,
-      provider:    "soleaspay",
       message:     "Le client va recevoir une demande de confirmation sur son téléphone",
     });
   } catch (error: any) {
     console.error("[initiate-payment]", error);
+    sdkLog({ req, endpoint: "initiate-payment", statusCode: 500, responseTimeMs: Date.now() - t0, error: error.message });
     res.status(500).json({ success: false, error: error.message || "Erreur serveur", code: "SERVER_ERROR" });
   }
 });
 
 // ─── SUBMIT OTP (public, CORS) ────────────────────────────────────────────────
-router.options("/v1/submit-otp", widgetCors);
-router.post("/v1/submit-otp", widgetCors, async (req: Request, res: Response) => {
+router.options("/v1/submit-otp", sdkCors);
+router.post("/v1/submit-otp", sdkCors, async (req: Request, res: Response) => {
+  const t0 = Date.now();
   try {
     const schema = z.object({
       otpToken: z.string().startsWith("otp_"),
@@ -662,67 +795,45 @@ router.post("/v1/submit-otp", widgetCors, async (req: Request, res: Response) =>
     await storage.updateApiTransaction(transaction.id, { status: "processing" });
 
     const { initiatePayDunySoftPay, formatPhoneForPayDunya } = await import("./paydunya");
-    const phone    = formatPhoneForPayDunya(entry.payerPhone, entry.payerCountry);
-    const orderId  = `API_${entry.reference}_${Date.now()}`;
-    const baseUrl  = "https://sendavapay.com";
+    const phone   = formatPhoneForPayDunya(entry.payerPhone, entry.payerCountry);
+    const orderId = `API_${entry.reference}_${Date.now()}`;
+    const baseUrl = process.env.APP_URL || process.env.SITE_URL || "https://sendavapay.com";
 
-    const pdResult = await initiatePayDunySoftPay(
-      service,
-      phone,
-      entry.payerName,
-      entry.payerEmail || "client@sendavapay.com",
-      entry.amount,
-      entry.description,
-      baseUrl,
-      otp,
-    );
+    const pdResult = await initiatePayDunySoftPay(service, phone, entry.payerName, entry.payerEmail || "client@sendavapay.com", entry.amount, entry.description, baseUrl, otp);
 
     otpStore.delete(otpToken);
 
     if (!pdResult.success) {
       await storage.updateApiTransaction(transaction.id, { status: "failed" });
-      return res.status(400).json({
-        success: false,
-        error:   pdResult.error || "Code OTP invalide ou paiement refusé",
-        code:    "OTP_FAILED",
-      });
+      sdkLog({ req, endpoint: "submit-otp", statusCode: 400, responseTimeMs: Date.now() - t0, operator: service.operator, country: entry.payerCountry, error: pdResult.error });
+      return res.status(400).json({ success: false, error: pdResult.error || "Code OTP invalide ou paiement refusé", code: "OTP_FAILED" });
     }
 
     const invoiceToken = (pdResult as any).invoiceToken || orderId;
-    await storage.updateApiTransaction(transaction.id, {
-      externalReference: `${orderId}|${invoiceToken}`,
-    });
+    await storage.updateApiTransaction(transaction.id, { externalReference: `${orderId}|${invoiceToken}` });
 
+    sdkLog({ req, endpoint: "submit-otp", statusCode: 200, responseTimeMs: Date.now() - t0, operator: service.operator, country: entry.payerCountry, reference: entry.reference });
     res.json({
       success:   true,
       reference: entry.reference,
-      payId:     invoiceToken,
-      provider:  "paydunya",
       message:   "OTP accepté. Le paiement est en cours de traitement.",
     });
   } catch (error: any) {
+    sdkLog({ req, endpoint: "submit-otp", statusCode: 400, responseTimeMs: Date.now() - t0, error: error.message });
     res.status(400).json({ success: false, error: error.message || "Erreur OTP", code: "OTP_ERROR" });
   }
 });
 
 // ─── RETRY PAYMENT (public, CORS) ────────────────────────────────────────────
-router.options("/v1/retry-payment", widgetCors);
-router.post("/v1/retry-payment", widgetCors, async (req: Request, res: Response) => {
+router.options("/v1/retry-payment", sdkCors);
+router.post("/v1/retry-payment", sdkCors, async (req: Request, res: Response) => {
   try {
     const schema = z.object({ paymentToken: z.string() });
     const { paymentToken } = schema.parse(req.body);
 
     const transaction = await storage.getApiTransactionByToken(paymentToken);
-    if (!transaction) {
-      return res.status(404).json({ success: false, error: "Token invalide", code: "INVALID_TOKEN" });
-    }
-    if (transaction.status !== "failed") {
-      return res.status(400).json({
-        success: false,
-        error:   "Seuls les paiements échoués peuvent être relancés",
-        code:    "INVALID_STATUS",
-      });
-    }
+    if (!transaction) return res.status(404).json({ success: false, error: "Token invalide", code: "INVALID_TOKEN" });
+    if (transaction.status !== "failed") return res.status(400).json({ success: false, error: "Seuls les paiements échoués peuvent être relancés", code: "INVALID_STATUS" });
     if (transaction.tokenExpiresAt && new Date() > new Date(transaction.tokenExpiresAt)) {
       return res.status(410).json({ success: false, error: "Ce token de paiement a expiré", code: "TOKEN_EXPIRED" });
     }
@@ -730,11 +841,11 @@ router.post("/v1/retry-payment", widgetCors, async (req: Request, res: Response)
     await storage.updateApiTransaction(transaction.id, { status: "pending" });
 
     res.json({
-      success:  true,
+      success:   true,
       reference: transaction.reference,
-      status:   "pending",
-      message:  "Transaction réinitialisée. Relancez le paiement via /initiate-payment.",
-      nextStep: "POST /api/sdk/v1/initiate-payment",
+      status:    "pending",
+      message:   "Transaction réinitialisée. Relancez le paiement via /initiate-payment.",
+      nextStep:  "POST /api/sdk/v1/initiate-payment",
     });
   } catch (error: any) {
     res.status(400).json({ success: false, error: error.message || "Erreur serveur", code: "SERVER_ERROR" });
@@ -744,7 +855,6 @@ router.post("/v1/retry-payment", widgetCors, async (req: Request, res: Response)
 // ─── VERIFY PAYMENT ───────────────────────────────────────────────────────────
 router.post("/v1/verify-payment", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
   const sdkUser = (req as any).sdkUser as User;
-
   try {
     const schema = z.object({ reference: z.string() });
     const { reference } = schema.parse(req.body);
@@ -777,7 +887,6 @@ router.post("/v1/verify-payment", checkApiMaintenance, authenticateSdkKey, async
 // ─── PAYMENT STATUS ───────────────────────────────────────────────────────────
 router.get("/v1/payment-status/:reference", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
   const sdkUser = (req as any).sdkUser as User;
-
   try {
     const transaction = await storage.getApiTransactionByReference(req.params.reference);
     if (!transaction) return res.status(404).json({ success: false, error: "Paiement introuvable", code: "NOT_FOUND" });
@@ -801,29 +910,36 @@ router.get("/v1/payment-status/:reference", checkApiMaintenance, authenticateSdk
 });
 
 // ─── HEALTH CHECK (public) ────────────────────────────────────────────────────
-router.get("/v1/health", async (_req: Request, res: Response) => {
+router.get("/v1/health", async (req: Request, res: Response) => {
+  const t0 = Date.now();
   try {
     let dbStatus = "ok";
     try { await storage.getCountries(); } catch { dbStatus = "error"; }
 
     const dbOperators  = await storage.getOperators().catch(() => []);
-    const onlineCount  = dbOperators.filter(op => !op.inMaintenance).length;
-    const totalCount   = SOLEASPAY_SERVICES.length;
+    const online       = dbOperators.filter(op => !op.inMaintenance && !op.maintenanceApi).length;
+    const payoutOnline = dbOperators.filter(op => !op.inMaintenance && !op.maintenanceWithdraw).length;
+    const totalOps     = SOLEASPAY_SERVICES.length;
+    const maintenance  = await storage.getSetting("api_docs_maintenance").catch(() => null);
 
     res.json({
       success: true,
       data: {
-        api:      "operational",
+        api:      maintenance === "true" ? "maintenance" : "operational",
         database: dbStatus,
         operators: {
-          total:       totalCount,
-          online:      onlineCount,
-          maintenance: totalCount - onlineCount,
+          total:         totalOps,
+          depositOnline: online,
+          payoutOnline,
+          maintenance:   totalOps - online,
         },
-        timestamp: new Date().toISOString(),
+        webhookQueueSize:    webhookRetryQueue.size,
+        withdrawalQueueSize: withdrawalQueue.length,
+        timestamp:           new Date().toISOString(),
+        responseTimeMs:      Date.now() - t0,
       },
     });
-  } catch (error: any) {
+  } catch {
     res.status(500).json({ success: false, data: { api: "degraded", database: "error" } });
   }
 });
@@ -854,13 +970,10 @@ async function validateWithdrawal(
   if (!countryInfo) {
     return { ok: false, code: "UNSUPPORTED_COUNTRY", error: `Pays non supporté: ${data.country}. Supportés: ${Object.keys(COUNTRY_CODE_MAP).join(", ")}` };
   }
-
-  // Vérification format téléphone E.164
   if (!isE164Phone(data.phoneNumber)) {
-    return { ok: false, code: "INVALID_PHONE_FORMAT", error: `Format téléphone invalide. Utilisez le format E.164 (ex: +22890000000)` };
+    return { ok: false, code: "INVALID_PHONE_FORMAT", error: "Format téléphone invalide. Utilisez le format E.164 (ex: +22890000000)" };
   }
 
-  // Vérification opérateur compatible avec le pays
   const countryServices = getServicesByCountry(countryUpper);
   const compatibleOp = countryServices.find(
     s => s.operator.toLowerCase() === data.operator.toLowerCase() ||
@@ -871,7 +984,6 @@ async function validateWithdrawal(
     return { ok: false, code: "OPERATOR_COUNTRY_MISMATCH", error: `Opérateur '${data.operator}' non disponible pour ${countryInfo.countryName}. Disponibles: ${opList}` };
   }
 
-  // Vérification statut opérateur (maintenance)
   let operatorStatus = "online";
   try {
     const dbOperators = await storage.getOperators();
@@ -884,33 +996,22 @@ async function validateWithdrawal(
     }
   } catch (_) {}
 
-  // Limites montant
-  if (data.amount < 100) {
-    return { ok: false, code: "AMOUNT_TOO_LOW", error: "Montant minimum: 100" };
-  }
-  if (data.amount > 5_000_000) {
-    return { ok: false, code: "AMOUNT_TOO_HIGH", error: "Montant maximum par retrait: 5 000 000" };
-  }
+  if (data.amount < 100)       return { ok: false, code: "AMOUNT_TOO_LOW",  error: "Montant minimum: 100" };
+  if (data.amount > 5_000_000) return { ok: false, code: "AMOUNT_TOO_HIGH", error: "Montant maximum par retrait: 5 000 000" };
 
-  // Wallet
   const userWallets  = await storage.getUserWallets(sdkUser.id);
   const targetWallet = userWallets.find(w => w.countryCode === countryUpper);
   if (!targetWallet) {
     return { ok: false, code: "WALLET_NOT_FOUND", error: `Wallet ${countryInfo.countryName} introuvable sur votre compte` };
   }
 
-  // Solde
   const walletBalance = parseFloat(targetWallet.balance);
-  const sdkFeeRate    = (sdkUser as any).customApiSdkFeeRate != null
-    ? parseFloat((sdkUser as any).customApiSdkFeeRate) : 1;
-  const fee      = parseFloat((data.amount * sdkFeeRate / 100).toFixed(2));
+  const sdkFeeRate    = (sdkUser as any).customApiSdkFeeRate != null ? parseFloat((sdkUser as any).customApiSdkFeeRate) : 1;
+  const fee       = parseFloat((data.amount * sdkFeeRate / 100).toFixed(2));
   const netAmount = data.amount - fee;
 
   if (walletBalance < data.amount) {
-    return {
-      ok: false, code: "INSUFFICIENT_BALANCE",
-      error: `Solde insuffisant. Disponible: ${walletBalance} ${countryInfo.currency}, requis: ${data.amount} ${countryInfo.currency}`,
-    };
+    return { ok: false, code: "INSUFFICIENT_BALANCE", error: `Solde insuffisant. Disponible: ${walletBalance} ${countryInfo.currency}, requis: ${data.amount} ${countryInfo.currency}` };
   }
 
   return { ok: true, countryInfo, wallet: targetWallet, fee, netAmount, operatorStatus };
@@ -919,7 +1020,6 @@ async function validateWithdrawal(
 // ─── VALIDATE WITHDRAWAL (dry-run) ────────────────────────────────────────────
 router.post("/v1/validate-withdrawal", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
   const sdkUser = (req as any).sdkUser as User;
-
   try {
     const schema = z.object({
       amount:      z.number().positive(),
@@ -932,9 +1032,7 @@ router.post("/v1/validate-withdrawal", checkApiMaintenance, authenticateSdkKey, 
     const data = schema.parse(req.body);
     const v    = await validateWithdrawal(sdkUser, data);
 
-    if (!v.ok) {
-      return res.status(400).json({ success: false, error: v.error, code: v.code });
-    }
+    if (!v.ok) return res.status(400).json({ success: false, error: v.error, code: v.code });
 
     const userWallets = await storage.getUserWallets(sdkUser.id);
     const wallet      = userWallets.find(w => w.countryCode === data.country.toUpperCase());
@@ -944,7 +1042,7 @@ router.post("/v1/validate-withdrawal", checkApiMaintenance, authenticateSdkKey, 
       data: {
         valid:          true,
         amount:         data.amount,
-        currency:       data.currency,
+        currency:       v.countryInfo!.currency,
         fee:            v.fee,
         netAmount:      v.netAmount,
         walletBalance:  parseFloat(wallet?.balance || "0"),
@@ -960,9 +1058,19 @@ router.post("/v1/validate-withdrawal", checkApiMaintenance, authenticateSdkKey, 
 });
 
 // ─── WITHDRAWAL STATUS ────────────────────────────────────────────────────────
+const WITHDRAWAL_STATUS_LABELS: Record<string, string> = {
+  queued:           "En file d'attente",
+  pending:          "En attente de traitement",
+  processing:       "En cours de traitement opérateur",
+  provider_pending: "En attente fournisseur",
+  completed:        "Retrait effectué avec succès",
+  failed:           "Retrait échoué",
+  reversed:         "Fonds retournés au portefeuille",
+  cancelled:        "Annulé",
+};
+
 router.get("/v1/withdrawal-status/:reference", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
   const sdkUser = (req as any).sdkUser as User;
-
   try {
     const transaction = await storage.getApiTransactionByReference(req.params.reference);
 
@@ -973,21 +1081,13 @@ router.get("/v1/withdrawal-status/:reference", checkApiMaintenance, authenticate
       return res.status(403).json({ success: false, error: "Non autorisé", code: "UNAUTHORIZED" });
     }
 
-    // Map statut lisible
-    const statusLabel: Record<string, string> = {
-      pending:    "En attente de traitement",
-      processing: "En cours de traitement",
-      completed:  "Retrait effectué avec succès",
-      failed:     "Retrait échoué",
-    };
-
     res.json({
       success: true,
       data: {
         reference:         transaction.reference,
         externalReference: transaction.externalReference,
         status:            transaction.status,
-        statusLabel:       statusLabel[transaction.status] || transaction.status,
+        statusLabel:       WITHDRAWAL_STATUS_LABELS[transaction.status] || transaction.status,
         amount:            transaction.amount,
         fee:               transaction.fee,
         netAmount:         (parseFloat(transaction.amount) - parseFloat(transaction.fee || "0")).toFixed(2),
@@ -1003,44 +1103,101 @@ router.get("/v1/withdrawal-status/:reference", checkApiMaintenance, authenticate
   }
 });
 
-// ─── PAYOUT STATUS (disponibilité retraits par opérateur) ─────────────────────
-router.get("/v1/payout-status", checkApiMaintenance, authenticateSdkKey, async (_req: Request, res: Response) => {
+// ─── PAYOUT STATUS (avec filtre pays optionnel) ────────────────────────────────
+router.get("/v1/payout-status", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
   try {
-    const dbOperators = await storage.getOperators();
+    const countryFilter = (req.query.country as string | undefined)?.toUpperCase();
+    const dbOperators   = await storage.getOperators();
 
-    const data = SOLEASPAY_SERVICES.map(service => {
-      const dbOp          = dbOperators.find(op => op.code === String(service.id));
-      const inMaintenance = dbOp?.inMaintenance || dbOp?.maintenanceWithdraw || false;
-      const gateway       = dbOp?.paymentGateway || service.paymentGateway || "soleaspay";
+    let services = SOLEASPAY_SERVICES;
+    if (countryFilter) services = services.filter(s => s.countryCode.toUpperCase() === countryFilter);
+
+    const data = services.map(service => {
+      const dbOp         = dbOperators.find(op => op.code === String(service.id));
+      const payoutMaint  = dbOp?.inMaintenance || dbOp?.maintenanceWithdraw || false;
+      const depositMaint = dbOp?.inMaintenance || dbOp?.maintenanceDeposit  || false;
+      const gateway      = dbOp?.paymentGateway || service.paymentGateway || "soleaspay";
 
       return {
-        id:       String(service.id),
-        operator: service.operator,
-        country:  service.countryCode,
-        currency: service.currency,
+        id:                    String(service.id),
+        operator:              service.operator,
+        country:               service.countryCode,
+        currency:              service.currency,
         gateway,
-        payoutStatus:   inMaintenance ? "offline" : "online",
-        depositStatus:  (dbOp?.inMaintenance || dbOp?.maintenanceDeposit) ? "offline" : "online",
+        payoutStatus:          payoutMaint  ? "offline" : "online",
+        depositStatus:         depositMaint ? "offline" : "online",
+        maintenanceReason:     payoutMaint  ? ((dbOp as any)?.maintenanceReason || "Maintenance temporaire") : null,
+        estimatedRecoveryTime: null,
       };
     });
 
-    const online     = data.filter(d => d.payoutStatus === "online").length;
-    const offline    = data.filter(d => d.payoutStatus === "offline").length;
+    const online  = data.filter(d => d.payoutStatus === "online").length;
+    const offline = data.filter(d => d.payoutStatus === "offline").length;
 
     res.json({
       success: true,
       data: {
+        filter:    countryFilter || "all",
         summary:   { online, offline, total: data.length },
         operators: data,
       },
     });
-  } catch (error: any) {
+  } catch {
     res.status(500).json({ success: false, error: "Erreur serveur", code: "SERVER_ERROR" });
+  }
+});
+
+// ─── WITHDRAWALS LIST ─────────────────────────────────────────────────────────
+router.get("/v1/withdrawals", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
+  const sdkUser = (req as any).sdkUser as User;
+  try {
+    const page     = Math.max(1, parseInt((req.query.page as string) || "1", 10));
+    const limit    = Math.min(100, Math.max(1, parseInt((req.query.limit as string) || "20", 10)));
+    const country  = (req.query.country as string | undefined)?.toUpperCase();
+    const status   = req.query.status as string | undefined;
+    const fromDate = req.query.from as string | undefined;
+    const toDate   = req.query.to   as string | undefined;
+
+    let transactions = await storage.getApiTransactionsByUser(sdkUser.id);
+    transactions = transactions.filter(t => t.type === "payout");
+
+    if (country) transactions = transactions.filter(t => (t.paymentMethod || "").toUpperCase().includes(country) || t.currency === (COUNTRY_CODE_MAP[country]?.currency || ""));
+    if (status)  transactions = transactions.filter(t => t.status === status);
+    if (fromDate) { const from = new Date(fromDate); transactions = transactions.filter(t => new Date(t.createdAt) >= from); }
+    if (toDate)   { const to = new Date(toDate); to.setHours(23, 59, 59, 999); transactions = transactions.filter(t => new Date(t.createdAt) <= to); }
+
+    const total  = transactions.length;
+    const offset = (page - 1) * limit;
+    const paged  = transactions.slice(offset, offset + limit);
+
+    res.json({
+      success: true,
+      data: {
+        withdrawals: paged.map(t => ({
+          reference:         t.reference,
+          externalReference: t.externalReference,
+          status:            t.status,
+          statusLabel:       WITHDRAWAL_STATUS_LABELS[t.status] || t.status,
+          amount:            t.amount,
+          fee:               t.fee,
+          netAmount:         (parseFloat(t.amount) - parseFloat(t.fee || "0")).toFixed(2),
+          currency:          t.currency,
+          phoneNumber:       t.customerPhone,
+          paymentMethod:     t.paymentMethod,
+          createdAt:         t.createdAt,
+          completedAt:       t.completedAt,
+        })),
+        pagination: { page, limit, total, pages: Math.ceil(total / limit), hasMore: offset + paged.length < total },
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || "Erreur serveur" });
   }
 });
 
 // ─── WITHDRAW ─────────────────────────────────────────────────────────────────
 router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
+  const t0 = Date.now();
   const sdkUser = (req as any).sdkUser as User;
   const sdkKey  = (req as any).sdkKey  as ApiKey;
 
@@ -1058,32 +1215,29 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
     const data         = schema.parse(req.body);
     const countryUpper = data.country.toUpperCase();
 
-    // ── Protection double retrait par externalReference ──
     if (data.externalReference) {
       const existing = await storage.getApiTransactionsByUser(sdkUser.id);
       const dup = existing.find(
         t => t.type === "payout" &&
              t.externalReference === data.externalReference &&
-             (t.status === "pending" || t.status === "processing" || t.status === "completed")
+             (t.status === "queued" || t.status === "pending" || t.status === "processing" || t.status === "completed")
       );
       if (dup) {
-        return res.status(409).json({
-          success: false,
-          error:   "Un retrait avec cette référence existe déjà",
-          code:    "DUPLICATE_WITHDRAWAL",
-          data:    { reference: dup.reference, status: dup.status },
-        });
+        return res.status(409).json({ success: false, error: "Un retrait avec cette référence existe déjà", code: "DUPLICATE_WITHDRAWAL", data: { reference: dup.reference, status: dup.status } });
       }
     }
 
-    // ── Validation complète ──
     const v = await validateWithdrawal(sdkUser, data);
     if (!v.ok) {
+      sdkLog({ req, endpoint: "withdraw", statusCode: 400, responseTimeMs: Date.now() - t0, operator: data.operator, country: countryUpper, error: v.code });
       return res.status(400).json({ success: false, error: v.error, code: v.code });
     }
 
     const { countryInfo, wallet: targetWallet, fee, netAmount } = v;
     const reference = generateReference();
+
+    // Débit immédiat du wallet (protection double-spend)
+    await storage.debitWallet(targetWallet.id, data.amount.toString());
 
     const withdrawalRequest = await storage.createWithdrawalRequest({
       userId:        sdkUser.id,
@@ -1097,26 +1251,45 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
       walletId:      targetWallet.id,
     });
 
-    await storage.createApiTransaction({
+    const sdkTxn = await storage.createApiTransaction({
       userId:            sdkUser.id,
       apiKeyId:          sdkKey.id,
       reference,
       externalReference: data.externalReference || null,
       type:              "payout",
       amount:            data.amount.toString(),
+      fee:               fee!.toString(),
       currency:          data.currency,
       description:       data.description || `Retrait SDK vers ${data.phoneNumber} (${data.operator})`,
       customerPhone:     data.phoneNumber,
-      paymentMethod:     data.operator,
+      paymentMethod:     `${data.operator}_${countryUpper}`,
       callbackUrl:       sdkKey.webhookUrl || null,
       ipAddress:         req.ip || null,
       userAgent:         req.get("User-Agent") || null,
     } as any);
 
+    // Enqueue pour traitement asynchrone
+    withdrawalQueue.push({
+      sdkTransactionRef:   reference,
+      withdrawalRequestId: withdrawalRequest.id,
+      webhookUrl:          (sdkKey as any).webhookUrl || null,
+      webhookSecret:       (sdkKey as any).webhookSecret || null,
+    });
+
+    // Webhook immédiat : payout.queued
+    if ((sdkKey as any).webhookUrl) {
+      await sendWebhookWithRetry((sdkKey as any).webhookUrl, {
+        event: "payout.queued", reference, status: "queued",
+        amount: data.amount, fee: fee!, netAmount: netAmount!, currency: data.currency,
+        phoneNumber: data.phoneNumber, operator: data.operator, country: countryUpper,
+        createdAt: new Date().toISOString(),
+      }, (sdkKey as any).webhookSecret, reference, sdkTxn.id);
+    }
+
+    sdkLog({ req, endpoint: "withdraw", statusCode: 201, responseTimeMs: Date.now() - t0, operator: data.operator, country: countryUpper, reference });
     res.status(201).json({
       success: true,
       data: {
-        withdrawalId:  withdrawalRequest.id,
         reference,
         externalReference: data.externalReference || null,
         amount:        data.amount,
@@ -1127,15 +1300,16 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
         operator:      data.operator,
         country:       countryUpper,
         countryName:   countryInfo!.countryName,
-        status:        "pending",
-        statusLabel:   "En attente de traitement",
-        walletBalance: parseFloat(targetWallet.balance),
+        status:        "queued",
+        statusLabel:   "En file d'attente",
+        walletBalance: parseFloat(targetWallet.balance) - data.amount,
         trackingUrl:   `GET /api/sdk/v1/withdrawal-status/${reference}`,
-        message:       "Demande de retrait enregistrée et en cours de traitement.",
+        message:       "Retrait mis en file d'attente. Utilisez trackingUrl pour suivre l'avancement.",
         createdAt:     new Date().toISOString(),
       },
     });
   } catch (error: any) {
+    sdkLog({ req, endpoint: "withdraw", statusCode: 400, responseTimeMs: Date.now() - t0, error: error.message });
     res.status(400).json({ success: false, error: error.message || "Erreur lors du retrait", code: "SERVER_ERROR" });
   }
 });
@@ -1143,7 +1317,6 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
 // ─── BALANCE ──────────────────────────────────────────────────────────────────
 router.get("/v1/balance", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
   const sdkUser = (req as any).sdkUser as User;
-
   try {
     const wallets = await storage.getUserWallets(sdkUser.id);
     const country = (req.query.country as string | undefined)?.toUpperCase();
@@ -1169,13 +1342,24 @@ router.get("/v1/balance", checkApiMaintenance, authenticateSdkKey, async (req: R
 // ─── TRANSACTIONS ─────────────────────────────────────────────────────────────
 router.get("/v1/transactions", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
   const sdkUser = (req as any).sdkUser as User;
-
   try {
-    const transactions = await storage.getApiTransactionsByUser(sdkUser.id);
+    const page   = Math.max(1, parseInt((req.query.page as string) || "1", 10));
+    const limit  = Math.min(100, Math.max(1, parseInt((req.query.limit as string) || "50", 10)));
+    const type   = req.query.type   as string | undefined;
+    const status = req.query.status as string | undefined;
+
+    let transactions = await storage.getApiTransactionsByUser(sdkUser.id);
+    if (type)   transactions = transactions.filter(t => t.type   === type);
+    if (status) transactions = transactions.filter(t => t.status === status);
+
+    const total  = transactions.length;
+    const offset = (page - 1) * limit;
+    const paged  = transactions.slice(offset, offset + limit);
+
     res.json({
       success: true,
       data: {
-        transactions: transactions.map(t => ({
+        transactions: paged.map(t => ({
           reference:         t.reference,
           externalReference: t.externalReference,
           type:              t.type,
@@ -1189,7 +1373,7 @@ router.get("/v1/transactions", checkApiMaintenance, authenticateSdkKey, async (r
           createdAt:         t.createdAt,
           completedAt:       t.completedAt,
         })),
-        total: transactions.length,
+        pagination: { page, limit, total, pages: Math.ceil(total / limit), hasMore: offset + paged.length < total },
       },
     });
   } catch (error: any) {
@@ -1197,26 +1381,111 @@ router.get("/v1/transactions", checkApiMaintenance, authenticateSdkKey, async (r
   }
 });
 
-// ─── WEBHOOK ──────────────────────────────────────────────────────────────────
+// ─── WEBHOOK CONFIGURATION ────────────────────────────────────────────────────
 router.put("/v1/webhook", authenticateSdkKey, async (req: Request, res: Response) => {
   const sdkKey = (req as any).sdkKey as ApiKey;
-
   try {
     const schema = z.object({ webhookUrl: z.string().url() });
     const { webhookUrl } = schema.parse(req.body);
 
-    const cryptoMod     = await import("crypto");
-    const webhookSecret = `whsec_${cryptoMod.randomBytes(24).toString("hex")}`;
-
+    const webhookSecret = `whsec_${crypto.randomBytes(24).toString("hex")}`;
     await storage.updateApiKey(sdkKey.id, { webhookUrl, webhookSecret });
 
     res.json({
       success: true,
-      data: { webhookUrl, webhookSecret, message: "Webhook configuré avec succès." },
+      data: {
+        webhookUrl,
+        webhookSecret,
+        events: [
+          "payment.completed",
+          "payment.failed",
+          "payment.expired",
+          "payout.queued",
+          "payout.processing",
+          "payout.completed",
+          "payout.failed",
+          "webhook.test",
+        ],
+        retryPolicy: "1 min → 5 min → 15 min → 1 heure",
+        signature:   "HMAC-SHA256 | header: X-SendavaPay-Signature: t={ts},v1={hex} | payload: `{ts}.{jsonBody}`",
+        message:     "Webhook configuré. Conservez le webhookSecret pour vérifier les signatures.",
+      },
     });
   } catch (error: any) {
     res.status(400).json({ success: false, error: error.message || "Erreur de configuration webhook" });
   }
 });
 
+// ─── TEST WEBHOOK ─────────────────────────────────────────────────────────────
+router.post("/v1/test-webhook", authenticateSdkKey, async (req: Request, res: Response) => {
+  const sdkKey = (req as any).sdkKey as ApiKey;
+  try {
+    const webhookUrl = (sdkKey as any).webhookUrl;
+    if (!webhookUrl) {
+      return res.status(400).json({ success: false, error: "Aucun webhook URL configuré. Utilisez PUT /api/sdk/v1/webhook d'abord.", code: "WEBHOOK_NOT_CONFIGURED" });
+    }
+
+    const parsedUrl = new URL(webhookUrl);
+    const hostname  = parsedUrl.hostname.toLowerCase();
+    const blocked   = [/^localhost$/i, /^127\./, /^10\./, /^172\.(1[6-9]|2[0-9]|3[01])\./, /^192\.168\./, /^0\.0\.0\.0$/];
+    if (blocked.some(p => p.test(hostname)) && process.env.NODE_ENV === "production") {
+      return res.status(400).json({ success: false, error: "URL webhook bloquée (IP privée non autorisée en production)", code: "BLOCKED_WEBHOOK_URL" });
+    }
+
+    const ts = Math.floor(Date.now() / 1000).toString();
+    const testPayload = {
+      event:     "webhook.test",
+      reference: `test_${crypto.randomBytes(8).toString("hex")}`,
+      message:   "Ceci est un test de webhook SendavaPay",
+      timestamp: new Date().toISOString(),
+    };
+    const payloadStr = JSON.stringify(testPayload);
+    const headers: Record<string, string> = {
+      "Content-Type":           "application/json",
+      "X-SendavaPay-Event":     "webhook.test",
+      "X-SendavaPay-Timestamp": ts,
+      "User-Agent":             "SendavaPay-Webhook/1.0",
+    };
+    if ((sdkKey as any).webhookSecret) {
+      const sig = crypto.createHmac("sha256", (sdkKey as any).webhookSecret).update(`${ts}.${payloadStr}`).digest("hex");
+      headers["X-SendavaPay-Signature"] = `t=${ts},v1=${sig}`;
+    }
+
+    const startMs = Date.now();
+    let responseStatus: number | null = null;
+    let responseBody: string | null   = null;
+    let delivered = false;
+
+    try {
+      const ctrl = new AbortController();
+      const tid  = setTimeout(() => ctrl.abort(), 10_000);
+      const resp = await fetch(webhookUrl, { method: "POST", headers, body: payloadStr, signal: ctrl.signal });
+      clearTimeout(tid);
+      responseStatus = resp.status;
+      responseBody   = (await resp.text()).substring(0, 500);
+      delivered      = resp.ok;
+    } catch (err: any) {
+      responseBody = err.message || "Connection failed";
+    }
+
+    res.json({
+      success: true,
+      data: {
+        webhookUrl,
+        delivered,
+        responseStatus,
+        responseBody,
+        responseTimeMs: Date.now() - startMs,
+        payload:        testPayload,
+        message: delivered
+          ? "Webhook livré avec succès. Votre serveur a répondu HTTP 2xx."
+          : "Webhook non livré. Vérifiez l'URL et que votre serveur est accessible.",
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || "Erreur lors du test webhook" });
+  }
+});
+
+export { sendWebhookWithRetry };
 export default router;
