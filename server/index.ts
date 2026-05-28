@@ -111,6 +111,8 @@ async function initializePartnerTables() {
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_api_payment_fee_rate DECIMAL(5,2);`);
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_api_sdk_fee_rate DECIMAL(5,2);`);
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_personal_fee_rate DECIMAL(5,2);`);
+    await client.query(`ALTER TABLE leekpay_payments ADD COLUMN IF NOT EXISTS payer_country TEXT;`);
+    await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payer_country TEXT;`);
     log("Partner tables initialized successfully", "init");
   } catch (error) {
     log(`Partner tables initialization error: ${(error as Error).message}`, "init");
