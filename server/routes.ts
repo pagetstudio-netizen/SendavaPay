@@ -973,13 +973,12 @@ export async function registerRoutes(
     widgetCorsHeaders(res);
     try {
       const dbCountries = await storage.getCountries();
-      const activeCountryCodes = new Set(
-        dbCountries.filter(c => c.isActive !== false).map(c => c.code.toUpperCase())
+      // N'exclure que les pays EXPLICITEMENT désactivés (isActive === false).
+      // Les pays absents de la DB (ex: CI, TG, BJ…) restent visibles.
+      const inactiveCountryCodes = new Set(
+        dbCountries.filter(c => c.isActive === false).map(c => c.code.toUpperCase())
       );
-      // Si aucun pays n'est en base, on retourne tout (compatibilité)
-      const filtered = dbCountries.length === 0
-        ? SOLEASPAY_COUNTRIES
-        : SOLEASPAY_COUNTRIES.filter(c => activeCountryCodes.has(c.code.toUpperCase()));
+      const filtered = SOLEASPAY_COUNTRIES.filter(c => !inactiveCountryCodes.has(c.code.toUpperCase()));
       res.json(filtered);
     } catch {
       res.json(SOLEASPAY_COUNTRIES);
