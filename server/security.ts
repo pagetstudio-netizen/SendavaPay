@@ -373,6 +373,9 @@ const IP_BLOCK_BYPASS_PREFIXES = ["/api/sdk", "/api/v1", "/api/webhook", "/pay",
 
 // ─── IP BLOCK MIDDLEWARE ──────────────────────────────────────────────────────
 export function ipBlockMiddleware(req: Request, res: Response, next: NextFunction) {
+  // In development mode, skip IP blocking entirely
+  if (process.env.NODE_ENV !== "production") return next();
+
   // API routes authenticated by key — never block by IP (datacenter/VPS IPs are legitimate)
   if (IP_BLOCK_BYPASS_PREFIXES.some(p => req.path === p || req.path.startsWith(p + "/"))) return next();
 
@@ -395,6 +398,9 @@ export function ipBlockMiddleware(req: Request, res: Response, next: NextFunctio
 const GEO_BYPASS_PREFIXES = ["/pay", "/api/sdk", "/api/v1", "/api/partner-page"];
 
 export function geoAndVpnBlockMiddleware(req: Request, res: Response, next: NextFunction) {
+  // In development mode, skip geo/VPN blocking entirely (Replit proxy IPs are US datacenters)
+  if (process.env.NODE_ENV !== "production") return next();
+
   // Skip exact bypass paths
   if (GEO_BYPASS_PATHS.has(req.path)) return next();
 
