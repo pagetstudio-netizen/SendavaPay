@@ -375,6 +375,8 @@ export const apiTransactions = pgTable("api_transactions", {
   webhookSent: boolean("webhook_sent").default(false).notNull(),
   webhookAttempts: integer("webhook_attempts").default(0).notNull(),
   webhookLastAttempt: timestamp("webhook_last_attempt"),
+  paymentToken: text("payment_token").unique(),
+  tokenExpiresAt: timestamp("token_expires_at"),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

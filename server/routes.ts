@@ -961,8 +961,16 @@ export async function registerRoutes(
 
   // ========== SOLEASPAY ROUTES ==========
   
+  // CORS pour le widget navigateur
+  const widgetCorsHeaders = (res: any) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  };
+
   // Obtenir les pays et opérateurs disponibles
   app.get("/api/soleaspay/countries", async (req, res) => {
+    widgetCorsHeaders(res);
     try {
       const dbCountries = await storage.getCountries();
       const activeCountryCodes = new Set(
@@ -978,7 +986,11 @@ export async function registerRoutes(
     }
   });
 
+  app.options("/api/soleaspay/countries", (req, res) => { widgetCorsHeaders(res); res.status(204).end(); });
+  app.options("/api/soleaspay/services/:countryCode", (req, res) => { widgetCorsHeaders(res); res.status(204).end(); });
+
   app.get("/api/soleaspay/services/:countryCode", async (req, res) => {
+    widgetCorsHeaders(res);
     try {
       const { countryCode } = req.params;
 
@@ -6196,8 +6208,13 @@ export async function registerRoutes(
     }
   });
 
+  // Preflight CORS pour les endpoints pay-api appelés par le widget
+  app.options("/api/pay-api/:reference", (req, res) => { widgetCorsHeaders(res); res.status(204).end(); });
+  app.options("/api/pay-api/:reference/verify", (req, res) => { widgetCorsHeaders(res); res.status(204).end(); });
+
   // Get API transaction details for payment page
   app.get("/api/pay-api/:reference", async (req, res) => {
+    widgetCorsHeaders(res);
     try {
       const transaction = await storage.getApiTransactionByReference(req.params.reference);
       if (!transaction) {
@@ -6223,6 +6240,7 @@ export async function registerRoutes(
 
   // Process API payment with SoleasPay
   app.post("/api/pay-api/:reference", async (req, res) => {
+    widgetCorsHeaders(res);
     try {
       const { payerName, payerPhone, payerEmail, payerCountry, serviceId } = req.body;
       const transaction = await storage.getApiTransactionByReference(req.params.reference);
@@ -6381,6 +6399,7 @@ export async function registerRoutes(
 
   // Verify API payment status
   app.post("/api/pay-api/:reference/verify", async (req, res) => {
+    widgetCorsHeaders(res);
     try {
       const { payId, orderId } = req.body;
       const transaction = await storage.getApiTransactionByReference(req.params.reference);

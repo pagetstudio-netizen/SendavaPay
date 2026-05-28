@@ -1,0 +1,234 @@
+Modification complète du système API SDK — Paiement direct sur le site du marchand
+
+Modifier entièrement le fonctionnement actuel de l’API SDK.
+
+Objectif :
+Le client ne doit plus être redirigé vers une page SendavaPay.
+
+Tous les paiements doivent désormais se faire directement sur le site ou l’application du marchand via API SDK.
+
+---
+
+Nouveau fonctionnement attendu
+
+Ancien système (à supprimer)
+
+Ancien flow :
+
+1. Le marchand crée un paiement
+2. SendavaPay génère paymentUrl
+3. Le client est redirigé vers SendavaPay
+4. Paiement effectué sur SendavaPay
+5. Retour vers le site marchand
+
+SUPPRIMER COMPLÈTEMENT :
+
+- paymentUrl
+- pages hosted checkout
+- redirection SendavaPay
+- page /pay/api/xxx
+
+---
+
+Nouveau système
+
+Étape 1 — Création paiement API
+
+Le marchand appelle :
+
+POST /api/sdk/v1/create-payment
+
+Réponse :
+
+{
+  "success": true,
+  "data": {
+    "reference": "sdk_abc123",
+    "status": "pending",
+    "paymentToken": "pay_tok_xxxxx",
+    "expiresAt": "2026-05-28T12:00:00Z"
+  }
+}
+
+IMPORTANT :
+
+- Ne plus retourner paymentUrl
+- Retourner uniquement :
+  - paymentToken
+  - reference
+  - statut.
+
+---
+
+Étape 2 — Paiement directement sur le site marchand
+
+Le marchand utilise le SDK SendavaPay pour afficher :
+
+- opérateurs Mobile Money
+- numéro téléphone
+- OTP
+- validation paiement
+
+Tout cela directement sur SON site.
+
+Exemple :
+
+- Widget JavaScript
+- SDK React
+- SDK Flutter
+- SDK Vue
+- SDK HTML Embed.
+
+---
+
+Nouveau SDK JavaScript
+
+Exemple :
+
+<script src="https://sendavapay.com/sdk/sendavapay.js"></script>
+
+---
+
+Exemple d’intégration
+
+SendavaPay.init({
+  token: "pay_tok_xxxxx",
+  amount: 5000,
+  currency: "XOF",
+  country: "TG",
+  onSuccess: function(response) {
+    console.log(response);
+  },
+  onFailed: function(error) {
+    console.log(error);
+  }
+});
+
+---
+
+Interface de paiement intégrée
+
+Le SDK doit afficher directement :
+
+- liste des opérateurs
+- numéro téléphone
+- confirmation
+- statut paiement
+- loader
+- succès/échec
+
+Sans quitter le site marchand.
+
+---
+
+Backend API
+
+Créer nouveaux endpoints :
+
+Initialiser paiement
+
+POST /api/sdk/v1/create-payment
+
+Confirmer paiement
+
+POST /api/sdk/v1/confirm-payment
+
+Vérifier OTP
+
+POST /api/sdk/v1/verify-otp
+
+Statut transaction
+
+GET /api/sdk/v1/payment-status/:reference
+
+---
+
+SDK Mobile
+
+Créer :
+
+- SDK Flutter
+- SDK Android
+- SDK iOS
+
+---
+
+Webhooks
+
+Conserver les webhooks.
+
+Après paiement réussi :
+
+- envoyer automatiquement webhook au marchand.
+
+---
+
+Routage wallet pays
+
+Conserver :
+
+- TG → Wallet Togo
+- BJ → Wallet Bénin
+- SN → Wallet Sénégal
+
+Mais tout doit fonctionner en arrière-plan via API.
+
+---
+
+Retrait automatique
+
+Les retraits doivent aussi fonctionner entièrement via API sans redirection.
+
+---
+
+Sécurité obligatoire
+
+Ajouter :
+
+- token temporaire paiement
+- expiration token
+- signature HMAC
+- anti double paiement
+- anti fraude
+- limitation IP
+- validation backend.
+
+---
+
+Documentation SDK
+
+Modifier la documentation actuelle :
+
+- supprimer toutes références paymentUrl
+- supprimer redirection
+- supprimer checkout hébergé.
+
+Remplacer par :
+
+- SDK intégré
+- paiement inline
+- paiement embedded
+- paiement direct sur site marchand.
+
+---
+
+Interface utilisateur
+
+Créer :
+
+- modal paiement
+- popup paiement
+- inline checkout
+- thème clair/sombre
+- responsive mobile.
+
+---
+
+Important
+
+Le client ne doit jamais quitter :
+
+- le site du marchand
+- l’application du marchand.
+
+Toutes les opérations doivent fonctionner directement via API SDK SendavaPay intégrée.
