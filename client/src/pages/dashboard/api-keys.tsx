@@ -358,6 +358,8 @@ app.post('/api/webhook/sendavapay', (req, res) => {
                 ["Burkina Faso", "BF", "XOF", "Wallet Burkina"],
                 ["Cameroun", "CM", "XAF", "Wallet Cameroun"],
                 ["Guinée", "GN", "GNF", "Wallet Guinée"],
+                ["RD Congo", "COD", "CDF", "Wallet RD Congo"],
+                ["Congo Brazzaville", "COG", "XAF", "Wallet Congo Brazza"],
               ].map(([country, code, currency, wallet]) => (
                 <tr key={code} className="border-t hover:bg-muted/30">
                   <td className="p-3">{country}</td>
