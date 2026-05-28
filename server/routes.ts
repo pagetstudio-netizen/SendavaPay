@@ -252,6 +252,10 @@ export async function registerRoutes(
   // Mount Public API (v1 endpoints)
   app.use("/api", merchantApi);
 
+  // Mount SDK API
+  const sdkApi = (await import("./sdk-api")).default;
+  app.use("/api/sdk", sdkApi);
+
   app.post("/api/auth/register", registerRateLimit, async (req, res) => {
     try {
       const result = registerSchema.safeParse(req.body);
@@ -6769,6 +6773,21 @@ export async function registerRoutes(
     }
   });
 
+  // Get current user's API permissions
+  app.get("/api/user/api-permissions", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) return res.status(404).json({ message: "Utilisateur introuvable" });
+      res.json({
+        apiSdkEnabled: (user as any).apiSdkEnabled ?? false,
+        apiRedirectEnabled: (user as any).apiRedirectEnabled ?? false,
+      });
+    } catch (error) {
+      console.error("Get API permissions error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.get("/api/api-keys", requireAuth, async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
@@ -6790,9 +6809,18 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Compte non vérifié" });
       }
 
-      const { name, appName, webhookUrl, redirectUrl } = req.body;
+      const { name, appName, webhookUrl, redirectUrl, apiType } = req.body;
       if (!name) {
         return res.status(400).json({ message: "Nom requis" });
+      }
+
+      // Validate apiType against user permissions
+      const resolvedType = apiType === "sdk" ? "sdk" : "redirect";
+      if (resolvedType === "sdk" && !(user as any).apiSdkEnabled) {
+        return res.status(403).json({ message: "L'API SDK n'est pas activée sur votre compte" });
+      }
+      if (resolvedType === "redirect" && !(user as any).apiRedirectEnabled) {
+        return res.status(403).json({ message: "L'API Redirection n'est pas activée sur votre compte" });
       }
 
       const crypto = await import("crypto");
@@ -6805,7 +6833,8 @@ export async function registerRoutes(
         redirectUrl: redirectUrl || null,
         webhookUrl: webhookUrl || null,
         webhookSecret: webhookSecret || null,
-      });
+        apiType: resolvedType,
+      } as any);
 
       res.json(key);
     } catch (error) {
@@ -9602,6 +9631,29 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   });
 
   // ========== USER MANAGEMENT (ADMIN) ==========
+
+  // Admin: toggle API permissions for a user
+  app.put("/api/admin/users/:id/api-permissions", requireAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const { apiSdkEnabled, apiRedirectEnabled } = req.body;
+      const updates: any = {};
+      if (apiSdkEnabled !== undefined) updates.apiSdkEnabled = !!apiSdkEnabled;
+      if (apiRedirectEnabled !== undefined) updates.apiRedirectEnabled = !!apiRedirectEnabled;
+      const user = await storage.updateUser(userId, updates);
+      await storage.createAuditLog({
+        userId: req.session.userId,
+        action: "api_permissions_updated",
+        details: `Permissions API utilisateur #${userId} mises à jour: SDK=${updates.apiSdkEnabled}, Redirect=${updates.apiRedirectEnabled}`,
+        ipAddress: req.ip,
+      });
+      res.json(user);
+    } catch (error) {
+      console.error("Update API permissions error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.put("/api/admin/users/:id", requireAdmin, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
