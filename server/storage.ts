@@ -1543,7 +1543,7 @@ function generateLinkCode(): string {
 
 function generateApiKey(): string {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let result = "sk_live_";
+  let result = "sdk_";
   for (let i = 0; i < 32; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
