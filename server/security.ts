@@ -368,8 +368,14 @@ export async function unblockIp(ip: string): Promise<void> {
   }
 }
 
+// Paths/prefixes that must bypass the IP block check (API routes authenticated by key)
+const IP_BLOCK_BYPASS_PREFIXES = ["/api/sdk", "/api/v1", "/api/webhook", "/pay", "/api/partner-page"];
+
 // ─── IP BLOCK MIDDLEWARE ──────────────────────────────────────────────────────
 export function ipBlockMiddleware(req: Request, res: Response, next: NextFunction) {
+  // API routes authenticated by key — never block by IP (datacenter/VPS IPs are legitimate)
+  if (IP_BLOCK_BYPASS_PREFIXES.some(p => req.path === p || req.path.startsWith(p + "/"))) return next();
+
   const ip = getClientIp(req);
   // Liste blanche : jamais bloquée
   if (isIpAllowed(ip)) return next();
