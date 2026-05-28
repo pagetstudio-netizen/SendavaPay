@@ -25,6 +25,11 @@ export const users = pgTable("users", {
   adminNote: text("admin_note"),
   apiSdkEnabled: boolean("api_sdk_enabled").default(false).notNull(),
   apiRedirectEnabled: boolean("api_redirect_enabled").default(false).notNull(),
+  customDepositFeeRate: decimal("custom_deposit_fee_rate", { precision: 5, scale: 2 }),
+  customWithdrawalFeeRate: decimal("custom_withdrawal_fee_rate", { precision: 5, scale: 2 }),
+  customApiPaymentFeeRate: decimal("custom_api_payment_fee_rate", { precision: 5, scale: 2 }),
+  customApiSdkFeeRate: decimal("custom_api_sdk_fee_rate", { precision: 5, scale: 2 }),
+  customPersonalFeeRate: decimal("custom_personal_fee_rate", { precision: 5, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

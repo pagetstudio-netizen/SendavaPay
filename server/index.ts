@@ -106,6 +106,11 @@ async function initializePartnerTables() {
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS api_sdk_enabled BOOLEAN NOT NULL DEFAULT FALSE;`);
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS api_redirect_enabled BOOLEAN NOT NULL DEFAULT FALSE;`);
     await client.query(`ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS api_type TEXT NOT NULL DEFAULT 'redirect';`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_deposit_fee_rate DECIMAL(5,2);`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_withdrawal_fee_rate DECIMAL(5,2);`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_api_payment_fee_rate DECIMAL(5,2);`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_api_sdk_fee_rate DECIMAL(5,2);`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_personal_fee_rate DECIMAL(5,2);`);
     log("Partner tables initialized successfully", "init");
   } catch (error) {
     log(`Partner tables initialization error: ${(error as Error).message}`, "init");
