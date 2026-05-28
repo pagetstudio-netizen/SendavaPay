@@ -1,9 +1,9 @@
-modules = ["nodejs-20", "web", "postgresql-16"]
+modules = ["nodejs-20", "web", "python-3.12"]
 run = "npm run dev"
 hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
-channel = "stable-24_05"
+channel = "stable-25_05"
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -38,7 +38,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run dev"
+args = "NODE_ENV=development node_modules/.bin/tsx server/index.ts"
 waitForPort = 5000
 
 [agent]
@@ -54,4 +54,3 @@ defaultBucketID = "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567"
 [userenv.shared]
 PUBLIC_OBJECT_SEARCH_PATHS = "public"
 PRIVATE_OBJECT_DIR = ".private"
-SUPABASE_DATABASE_URL = "postgresql://postgres.vxucwodistvnlrieqmmq:W3FfiUn46LWll5H8@aws-1-eu-west-1.pooler.supabase.com:6543/postgres?sslmode=require"
