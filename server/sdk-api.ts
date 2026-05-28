@@ -828,6 +828,217 @@ router.get("/v1/health", async (_req: Request, res: Response) => {
   }
 });
 
+// ─── Helpers retrait ──────────────────────────────────────────────────────────
+function isE164Phone(phone: string): boolean {
+  return /^\+[1-9]\d{6,14}$/.test(phone.trim());
+}
+
+interface WithdrawValidation {
+  ok: boolean;
+  code?: string;
+  error?: string;
+  countryInfo?: typeof COUNTRY_CODE_MAP[string];
+  wallet?: any;
+  fee?: number;
+  netAmount?: number;
+  operatorStatus?: string;
+}
+
+async function validateWithdrawal(
+  sdkUser: User,
+  data: { amount: number; phoneNumber: string; operator: string; country: string; currency: string }
+): Promise<WithdrawValidation> {
+  const countryUpper = data.country.toUpperCase();
+  const countryInfo  = COUNTRY_CODE_MAP[countryUpper];
+
+  if (!countryInfo) {
+    return { ok: false, code: "UNSUPPORTED_COUNTRY", error: `Pays non supporté: ${data.country}. Supportés: ${Object.keys(COUNTRY_CODE_MAP).join(", ")}` };
+  }
+
+  // Vérification format téléphone E.164
+  if (!isE164Phone(data.phoneNumber)) {
+    return { ok: false, code: "INVALID_PHONE_FORMAT", error: `Format téléphone invalide. Utilisez le format E.164 (ex: +22890000000)` };
+  }
+
+  // Vérification opérateur compatible avec le pays
+  const countryServices = getServicesByCountry(countryUpper);
+  const compatibleOp = countryServices.find(
+    s => s.operator.toLowerCase() === data.operator.toLowerCase() ||
+         s.name.toLowerCase().includes(data.operator.toLowerCase())
+  );
+  if (countryServices.length > 0 && !compatibleOp) {
+    const opList = countryServices.map(s => s.operator).join(", ");
+    return { ok: false, code: "OPERATOR_COUNTRY_MISMATCH", error: `Opérateur '${data.operator}' non disponible pour ${countryInfo.countryName}. Disponibles: ${opList}` };
+  }
+
+  // Vérification statut opérateur (maintenance)
+  let operatorStatus = "online";
+  try {
+    const dbOperators = await storage.getOperators();
+    if (compatibleOp) {
+      const dbOp = dbOperators.find(op => op.code === String(compatibleOp.id));
+      if (dbOp?.inMaintenance || dbOp?.maintenanceWithdraw) {
+        operatorStatus = "maintenance";
+        return { ok: false, code: "PAYOUT_OPERATOR_OFFLINE", error: "Cet opérateur est temporairement indisponible pour les retraits" };
+      }
+    }
+  } catch (_) {}
+
+  // Limites montant
+  if (data.amount < 100) {
+    return { ok: false, code: "AMOUNT_TOO_LOW", error: "Montant minimum: 100" };
+  }
+  if (data.amount > 5_000_000) {
+    return { ok: false, code: "AMOUNT_TOO_HIGH", error: "Montant maximum par retrait: 5 000 000" };
+  }
+
+  // Wallet
+  const userWallets  = await storage.getUserWallets(sdkUser.id);
+  const targetWallet = userWallets.find(w => w.countryCode === countryUpper);
+  if (!targetWallet) {
+    return { ok: false, code: "WALLET_NOT_FOUND", error: `Wallet ${countryInfo.countryName} introuvable sur votre compte` };
+  }
+
+  // Solde
+  const walletBalance = parseFloat(targetWallet.balance);
+  const sdkFeeRate    = (sdkUser as any).customApiSdkFeeRate != null
+    ? parseFloat((sdkUser as any).customApiSdkFeeRate) : 1;
+  const fee      = parseFloat((data.amount * sdkFeeRate / 100).toFixed(2));
+  const netAmount = data.amount - fee;
+
+  if (walletBalance < data.amount) {
+    return {
+      ok: false, code: "INSUFFICIENT_BALANCE",
+      error: `Solde insuffisant. Disponible: ${walletBalance} ${countryInfo.currency}, requis: ${data.amount} ${countryInfo.currency}`,
+    };
+  }
+
+  return { ok: true, countryInfo, wallet: targetWallet, fee, netAmount, operatorStatus };
+}
+
+// ─── VALIDATE WITHDRAWAL (dry-run) ────────────────────────────────────────────
+router.post("/v1/validate-withdrawal", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
+  const sdkUser = (req as any).sdkUser as User;
+
+  try {
+    const schema = z.object({
+      amount:      z.number().positive(),
+      phoneNumber: z.string().min(6),
+      operator:    z.string(),
+      country:     z.string().min(2).max(3),
+      currency:    z.string().default("XOF"),
+    });
+
+    const data = schema.parse(req.body);
+    const v    = await validateWithdrawal(sdkUser, data);
+
+    if (!v.ok) {
+      return res.status(400).json({ success: false, error: v.error, code: v.code });
+    }
+
+    const userWallets = await storage.getUserWallets(sdkUser.id);
+    const wallet      = userWallets.find(w => w.countryCode === data.country.toUpperCase());
+
+    res.json({
+      success: true,
+      data: {
+        valid:          true,
+        amount:         data.amount,
+        currency:       data.currency,
+        fee:            v.fee,
+        netAmount:      v.netAmount,
+        walletBalance:  parseFloat(wallet?.balance || "0"),
+        operatorStatus: v.operatorStatus,
+        country:        data.country.toUpperCase(),
+        countryName:    v.countryInfo?.countryName,
+        message:        "Retrait valide. Vous pouvez procéder.",
+      },
+    });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: error.message || "Erreur de validation" });
+  }
+});
+
+// ─── WITHDRAWAL STATUS ────────────────────────────────────────────────────────
+router.get("/v1/withdrawal-status/:reference", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
+  const sdkUser = (req as any).sdkUser as User;
+
+  try {
+    const transaction = await storage.getApiTransactionByReference(req.params.reference);
+
+    if (!transaction || transaction.type !== "withdrawal") {
+      return res.status(404).json({ success: false, error: "Retrait introuvable", code: "NOT_FOUND" });
+    }
+    if (transaction.userId !== sdkUser.id) {
+      return res.status(403).json({ success: false, error: "Non autorisé", code: "UNAUTHORIZED" });
+    }
+
+    // Map statut lisible
+    const statusLabel: Record<string, string> = {
+      pending:    "En attente de traitement",
+      processing: "En cours de traitement",
+      completed:  "Retrait effectué avec succès",
+      failed:     "Retrait échoué",
+    };
+
+    res.json({
+      success: true,
+      data: {
+        reference:         transaction.reference,
+        externalReference: transaction.externalReference,
+        status:            transaction.status,
+        statusLabel:       statusLabel[transaction.status] || transaction.status,
+        amount:            transaction.amount,
+        fee:               transaction.fee,
+        netAmount:         transaction.netAmount,
+        currency:          transaction.currency,
+        phoneNumber:       transaction.customerPhone,
+        paymentMethod:     transaction.paymentMethod,
+        createdAt:         transaction.createdAt,
+        completedAt:       transaction.completedAt,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message || "Erreur serveur", code: "SERVER_ERROR" });
+  }
+});
+
+// ─── PAYOUT STATUS (disponibilité retraits par opérateur) ─────────────────────
+router.get("/v1/payout-status", checkApiMaintenance, authenticateSdkKey, async (_req: Request, res: Response) => {
+  try {
+    const dbOperators = await storage.getOperators();
+
+    const data = SOLEASPAY_SERVICES.map(service => {
+      const dbOp          = dbOperators.find(op => op.code === String(service.id));
+      const inMaintenance = dbOp?.inMaintenance || dbOp?.maintenanceWithdraw || false;
+      const gateway       = dbOp?.paymentGateway || service.paymentGateway || "soleaspay";
+
+      return {
+        id:       String(service.id),
+        operator: service.operator,
+        country:  service.countryCode,
+        currency: service.currency,
+        gateway,
+        payoutStatus:   inMaintenance ? "offline" : "online",
+        depositStatus:  (dbOp?.inMaintenance || dbOp?.maintenanceDeposit) ? "offline" : "online",
+      };
+    });
+
+    const online     = data.filter(d => d.payoutStatus === "online").length;
+    const offline    = data.filter(d => d.payoutStatus === "offline").length;
+
+    res.json({
+      success: true,
+      data: {
+        summary:   { online, offline, total: data.length },
+        operators: data,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: "Erreur serveur", code: "SERVER_ERROR" });
+  }
+});
+
 // ─── WITHDRAW ─────────────────────────────────────────────────────────────────
 router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
   const sdkUser = (req as any).sdkUser as User;
@@ -836,9 +1047,9 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
   try {
     const schema = z.object({
       amount:            z.number().positive(),
-      phoneNumber:       z.string().min(8),
+      phoneNumber:       z.string().min(6),
       operator:          z.string(),
-      country:           z.string().length(2),
+      country:           z.string().min(2).max(3),
       currency:          z.string().default("XOF"),
       description:       z.string().optional(),
       externalReference: z.string().optional(),
@@ -846,51 +1057,43 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
 
     const data         = schema.parse(req.body);
     const countryUpper = data.country.toUpperCase();
-    const countryInfo  = COUNTRY_CODE_MAP[countryUpper];
 
-    if (!countryInfo) {
-      return res.status(400).json({
-        success: false,
-        error:   `Pays non supporté: ${data.country}. Pays supportés: ${Object.keys(COUNTRY_CODE_MAP).join(", ")}`,
-        code:    "UNSUPPORTED_COUNTRY",
-      });
+    // ── Protection double retrait par externalReference ──
+    if (data.externalReference) {
+      const existing = await storage.getApiTransactionsByUser(sdkUser.id);
+      const dup = existing.find(
+        t => t.type === "withdrawal" &&
+             t.externalReference === data.externalReference &&
+             (t.status === "pending" || t.status === "processing" || t.status === "completed")
+      );
+      if (dup) {
+        return res.status(409).json({
+          success: false,
+          error:   "Un retrait avec cette référence existe déjà",
+          code:    "DUPLICATE_WITHDRAWAL",
+          data:    { reference: dup.reference, status: dup.status },
+        });
+      }
     }
 
-    const userWallets  = await storage.getUserWallets(sdkUser.id);
-    const targetWallet = userWallets.find(w => w.countryCode === countryUpper);
-
-    if (!targetWallet) {
-      return res.status(400).json({
-        success: false,
-        error:   `Wallet ${countryInfo.countryName} introuvable sur votre compte`,
-        code:    "WALLET_NOT_FOUND",
-      });
+    // ── Validation complète ──
+    const v = await validateWithdrawal(sdkUser, data);
+    if (!v.ok) {
+      return res.status(400).json({ success: false, error: v.error, code: v.code });
     }
 
-    const walletBalance = parseFloat(targetWallet.balance);
-    if (walletBalance < data.amount) {
-      return res.status(400).json({
-        success: false,
-        error:   `Solde insuffisant sur le wallet ${countryInfo.countryName}. Disponible: ${walletBalance} ${countryInfo.currency}`,
-        code:    "INSUFFICIENT_BALANCE",
-      });
-    }
-
-    const reference  = generateReference();
-    const sdkFeeRate = (sdkUser as any).customApiSdkFeeRate != null
-      ? parseFloat((sdkUser as any).customApiSdkFeeRate) : 1;
-    const fee        = parseFloat((data.amount * sdkFeeRate / 100).toFixed(2));
-    const netAmount  = data.amount - fee;
+    const { countryInfo, wallet: targetWallet, fee, netAmount } = v;
+    const reference = generateReference();
 
     const withdrawalRequest = await storage.createWithdrawalRequest({
       userId:        sdkUser.id,
       amount:        data.amount.toString(),
-      fee:           fee.toString(),
-      netAmount:     netAmount.toString(),
+      fee:           fee!.toString(),
+      netAmount:     netAmount!.toString(),
       paymentMethod: data.operator,
       mobileNumber:  data.phoneNumber,
       country:       countryUpper,
-      walletName:    countryInfo.countryName,
+      walletName:    countryInfo!.countryName,
       walletId:      targetWallet.id,
     });
 
@@ -902,8 +1105,9 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
       type:              "withdrawal",
       amount:            data.amount.toString(),
       currency:          data.currency,
-      description:       data.description || `Retrait API SDK vers ${data.phoneNumber}`,
+      description:       data.description || `Retrait SDK vers ${data.phoneNumber} (${data.operator})`,
       customerPhone:     data.phoneNumber,
+      paymentMethod:     data.operator,
       callbackUrl:       sdkKey.webhookUrl || null,
       ipAddress:         req.ip || null,
       userAgent:         req.get("User-Agent") || null,
@@ -912,23 +1116,27 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
     res.status(201).json({
       success: true,
       data: {
-        withdrawalId: withdrawalRequest.id,
+        withdrawalId:  withdrawalRequest.id,
         reference,
-        amount:       data.amount,
-        fee,
-        netAmount,
-        currency:     data.currency,
-        phoneNumber:  data.phoneNumber,
-        operator:     data.operator,
-        country:      countryUpper,
-        countryName:  countryInfo.countryName,
-        status:       "pending",
-        message:      "Demande de retrait créée. Elle sera traitée par l'administrateur.",
-        createdAt:    new Date().toISOString(),
+        externalReference: data.externalReference || null,
+        amount:        data.amount,
+        fee:           fee!,
+        netAmount:     netAmount!,
+        currency:      data.currency,
+        phoneNumber:   data.phoneNumber,
+        operator:      data.operator,
+        country:       countryUpper,
+        countryName:   countryInfo!.countryName,
+        status:        "pending",
+        statusLabel:   "En attente de traitement",
+        walletBalance: parseFloat(targetWallet.balance),
+        trackingUrl:   `GET /api/sdk/v1/withdrawal-status/${reference}`,
+        message:       "Demande de retrait enregistrée et en cours de traitement.",
+        createdAt:     new Date().toISOString(),
       },
     });
   } catch (error: any) {
-    res.status(400).json({ success: false, error: error.message || "Erreur lors du retrait" });
+    res.status(400).json({ success: false, error: error.message || "Erreur lors du retrait", code: "SERVER_ERROR" });
   }
 });
 
