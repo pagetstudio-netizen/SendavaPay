@@ -457,6 +457,7 @@ export default function ApiKeysPage() {
   const [selectedType, setSelectedType] = useState<"sdk" | "redirect" | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [keyToDelete, setKeyToDelete] = useState<ApiKey | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
 
   const { data: maintenanceStatus, isLoading: maintenanceLoading } = useQuery<{ enabled: boolean }>({
     queryKey: ["/api/api-maintenance-status"],
@@ -485,6 +486,7 @@ export default function ApiKeysPage() {
       setWebhookUrl("");
       setRedirectUrl("");
       setSelectedType(null);
+      setShowCreateForm(false);
       toast({ title: "Clé créée", description: "Votre nouvelle clé API a été créée avec succès" });
     },
     onError: (err: any) => {
@@ -604,40 +606,6 @@ export default function ApiKeysPage() {
 
   const sdkEnabled = permissions?.apiSdkEnabled ?? false;
   const redirectEnabled = permissions?.apiRedirectEnabled ?? true;
-  const anyEnabled = sdkEnabled || redirectEnabled;
-
-  if (!anyEnabled && !permissionsLoading) {
-    return (
-      <DashboardLayout>
-        <div className="space-y-6 p-6">
-          <div>
-            <h1 className="text-2xl font-bold">API de Paiement</h1>
-            <p className="text-muted-foreground">Intégrez SendavaPay dans vos applications</p>
-          </div>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Key className="h-5 w-5 text-muted-foreground" />
-                Accès API non activé
-              </CardTitle>
-              <CardDescription>L'accès à l'API n'est pas encore activé sur votre compte</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-muted-foreground">
-                Pour accéder à l'API SendavaPay, contactez l'équipe d'assistance pour demander l'activation sur votre compte.
-              </p>
-              <Link href="/dashboard">
-                <Button variant="outline">
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Retour au tableau de bord
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-        </div>
-      </DashboardLayout>
-    );
-  }
 
   const sdkKeys = apiKeys.filter((k) => k.apiType === "sdk");
   const redirectKeys = apiKeys.filter((k) => k.apiType === "redirect");
@@ -717,8 +685,8 @@ export default function ApiKeysPage() {
           </div>
         </div>
 
-        {/* Type selection if no type chosen */}
-        {!selectedType && anyEnabled && (
+        {/* When SDK is enabled: show type selection or SDK-specific form */}
+        {sdkEnabled && !selectedType && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -729,57 +697,53 @@ export default function ApiKeysPage() {
             </CardHeader>
             <CardContent>
               <div className="grid sm:grid-cols-2 gap-4">
-                {sdkEnabled && (
-                  <button
-                    className="p-5 border-2 rounded-xl text-left hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-900/10 transition-all group"
-                    onClick={() => setSelectedType("sdk")}
-                  >
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="h-10 w-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center group-hover:bg-purple-200 dark:group-hover:bg-purple-800/50 transition-colors">
-                        <Code2 className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                      </div>
-                      <div>
-                        <p className="font-semibold">API SDK</p>
-                        <p className="text-xs text-muted-foreground">Intégration complète</p>
-                      </div>
+                <button
+                  className="p-5 border-2 rounded-xl text-left hover:border-purple-500 hover:bg-purple-50 dark:hover:bg-purple-900/10 transition-all group"
+                  onClick={() => setSelectedType("sdk")}
+                >
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="h-10 w-10 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center group-hover:bg-purple-200 dark:group-hover:bg-purple-800/50 transition-colors">
+                      <Code2 className="h-5 w-5 text-purple-600 dark:text-purple-400" />
                     </div>
-                    <ul className="text-sm text-muted-foreground space-y-1">
-                      <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Paiements avec routage par pays</li>
-                      <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Retrait automatique Mobile Money</li>
-                      <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Gestion des wallets par pays</li>
-                      <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Webhooks + Documentation complète</li>
-                    </ul>
-                  </button>
-                )}
-                {redirectEnabled && (
-                  <button
-                    className="p-5 border-2 rounded-xl text-left hover:border-primary hover:bg-primary/5 transition-all group"
-                    onClick={() => setSelectedType("redirect")}
-                  >
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center group-hover:bg-blue-200 dark:group-hover:bg-blue-800/50 transition-colors">
-                        <ExternalLink className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                      </div>
-                      <div>
-                        <p className="font-semibold">API Redirection</p>
-                        <p className="text-xs text-muted-foreground">Simple et rapide</p>
-                      </div>
+                    <div>
+                      <p className="font-semibold">API SDK</p>
+                      <p className="text-xs text-muted-foreground">Intégration complète</p>
                     </div>
-                    <ul className="text-sm text-muted-foreground space-y-1">
-                      <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Liens de paiement générés</li>
-                      <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Redirection après paiement</li>
-                      <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Notifications webhook</li>
-                      <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Intégration sans SDK</li>
-                    </ul>
-                  </button>
-                )}
+                  </div>
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Paiements avec routage par pays</li>
+                    <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Retrait automatique Mobile Money</li>
+                    <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Gestion des wallets par pays</li>
+                    <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Webhooks + Documentation complète</li>
+                  </ul>
+                </button>
+                <button
+                  className="p-5 border-2 rounded-xl text-left hover:border-primary hover:bg-primary/5 transition-all group"
+                  onClick={() => setSelectedType("redirect")}
+                >
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center group-hover:bg-blue-200 dark:group-hover:bg-blue-800/50 transition-colors">
+                      <ExternalLink className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div>
+                      <p className="font-semibold">API Redirection</p>
+                      <p className="text-xs text-muted-foreground">Simple et rapide</p>
+                    </div>
+                  </div>
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Liens de paiement générés</li>
+                    <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Redirection après paiement</li>
+                    <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Notifications webhook</li>
+                    <li className="flex items-center gap-2"><Check className="h-3 w-3 text-green-500 flex-shrink-0" /> Intégration sans SDK</li>
+                  </ul>
+                </button>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Create key form when type is selected */}
-        {selectedType && (
+        {/* Create key form — SDK mode (with back button) or Redirect mode */}
+        {((sdkEnabled && selectedType) || (!sdkEnabled && showCreateForm)) && (
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -787,12 +751,19 @@ export default function ApiKeysPage() {
                   {selectedType === "sdk" ? (
                     <><Code2 className="h-5 w-5 text-purple-600" /> Nouvelle clé API SDK</>
                   ) : (
-                    <><ExternalLink className="h-5 w-5 text-blue-600" /> Nouvelle clé API Redirection</>
+                    <><Key className="h-5 w-5 text-primary" /> Nouvelle clé API</>
                   )}
                 </CardTitle>
-                <Button variant="ghost" size="sm" onClick={() => setSelectedType(null)}>
-                  <ArrowLeft className="h-4 w-4 mr-1" /> Changer
-                </Button>
+                {sdkEnabled && (
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedType(null)} data-testid="button-back-type">
+                    <ArrowLeft className="h-4 w-4 mr-1" /> Changer
+                  </Button>
+                )}
+                {!sdkEnabled && (
+                  <Button variant="ghost" size="sm" onClick={() => setShowCreateForm(false)} data-testid="button-cancel-create">
+                    <ArrowLeft className="h-4 w-4 mr-1" /> Annuler
+                  </Button>
+                )}
               </div>
               <CardDescription>
                 {selectedType === "sdk"
@@ -867,7 +838,7 @@ export default function ApiKeysPage() {
                 ) : (
                   <Key className="h-4 w-4 mr-2" />
                 )}
-                Générer la clé {selectedType === "sdk" ? "SDK" : "Redirection"}
+                Générer la clé
               </Button>
             </CardContent>
           </Card>
@@ -875,85 +846,135 @@ export default function ApiKeysPage() {
 
         {/* Keys list */}
         {!permissionsLoading && (
-          <Tabs defaultValue={sdkEnabled && sdkKeys.length > 0 ? "sdk" : "redirect"}>
-            <TabsList>
-              {sdkEnabled && (
-                <TabsTrigger value="sdk" className="gap-2">
-                  <Code2 className="h-4 w-4" />
-                  Clés SDK
-                  {sdkKeys.length > 0 && (
-                    <Badge variant="secondary" className="ml-1 h-5 text-xs">{sdkKeys.length}</Badge>
-                  )}
-                </TabsTrigger>
-              )}
-              {redirectEnabled && (
-                <TabsTrigger value="redirect" className="gap-2">
-                  <Globe className="h-4 w-4" />
-                  Clés Redirection
-                  {redirectKeys.length > 0 && (
-                    <Badge variant="secondary" className="ml-1 h-5 text-xs">{redirectKeys.length}</Badge>
-                  )}
-                </TabsTrigger>
-              )}
-            </TabsList>
-
-            {sdkEnabled && (
-              <TabsContent value="sdk" className="space-y-4 mt-4">
-                {/* SDK Keys */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <Code2 className="h-4 w-4 text-purple-600" />
-                      Clés API SDK
-                    </CardTitle>
-                    <CardDescription>{sdkKeys.length} clé{sdkKeys.length !== 1 ? "s" : ""} SDK</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {keysLoading ? (
-                      <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
-                    ) : sdkKeys.length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <Code2 className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                        <p>Aucune clé SDK créée</p>
-                        <p className="text-sm">Cliquez sur "Créer une clé API" pour commencer</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {sdkKeys.map((key) => <KeyCard key={key.id} keyItem={key} />)}
-                      </div>
+          <>
+            {sdkEnabled ? (
+              <Tabs defaultValue={sdkKeys.length > 0 ? "sdk" : "redirect"}>
+                <TabsList>
+                  <TabsTrigger value="sdk" className="gap-2">
+                    <Code2 className="h-4 w-4" />
+                    Clés SDK
+                    {sdkKeys.length > 0 && (
+                      <Badge variant="secondary" className="ml-1 h-5 text-xs">{sdkKeys.length}</Badge>
                     )}
-                  </CardContent>
-                </Card>
+                  </TabsTrigger>
+                  <TabsTrigger value="redirect" className="gap-2">
+                    <Globe className="h-4 w-4" />
+                    Clés Redirection
+                    {redirectKeys.length > 0 && (
+                      <Badge variant="secondary" className="ml-1 h-5 text-xs">{redirectKeys.length}</Badge>
+                    )}
+                  </TabsTrigger>
+                </TabsList>
 
-                {/* SDK Documentation */}
-                <div>
-                  <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                    <BookOpen className="h-5 w-5 text-purple-600" />
-                    Documentation API SDK
-                  </h2>
-                  <SdkDocumentation apiKeys={apiKeys} />
-                </div>
-              </TabsContent>
-            )}
+                <TabsContent value="sdk" className="space-y-4 mt-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <Code2 className="h-4 w-4 text-purple-600" />
+                        Clés API SDK
+                      </CardTitle>
+                      <CardDescription>{sdkKeys.length} clé{sdkKeys.length !== 1 ? "s" : ""} SDK</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {keysLoading ? (
+                        <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                      ) : sdkKeys.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Code2 className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                          <p>Aucune clé SDK créée</p>
+                          <p className="text-sm">Cliquez sur "Créer une clé API" pour commencer</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {sdkKeys.map((key) => <KeyCard key={key.id} keyItem={key} />)}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                  <div>
+                    <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+                      <BookOpen className="h-5 w-5 text-purple-600" />
+                      Documentation API SDK
+                    </h2>
+                    <SdkDocumentation apiKeys={apiKeys} />
+                  </div>
+                </TabsContent>
 
-            {redirectEnabled && (
-              <TabsContent value="redirect" className="space-y-4 mt-4">
+                <TabsContent value="redirect" className="space-y-4 mt-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <Globe className="h-4 w-4 text-blue-600" />
+                        Clés API Redirection
+                      </CardTitle>
+                      <CardDescription>{redirectKeys.length} clé{redirectKeys.length !== 1 ? "s" : ""} Redirection</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {keysLoading ? (
+                        <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                      ) : redirectKeys.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <Globe className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                          <p>Aucune clé créée</p>
+                          <p className="text-sm">Cliquez sur "Créer une clé API" pour commencer</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {redirectKeys.map((key) => <KeyCard key={key.id} keyItem={key} />)}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <BookOpen className="h-4 w-4" />
+                        Documentation
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Link href="/docs">
+                        <Button variant="outline" data-testid="button-docs-redirect">
+                          <BookOpen className="h-4 w-4 mr-2" />
+                          Voir la documentation
+                        </Button>
+                      </Link>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
+            ) : (
+              /* Redirect-only mode: no tabs, no SDK mentions */
+              <div className="space-y-4">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <Globe className="h-4 w-4 text-blue-600" />
-                      Clés API Redirection
-                    </CardTitle>
-                    <CardDescription>{redirectKeys.length} clé{redirectKeys.length !== 1 ? "s" : ""} Redirection</CardDescription>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <Key className="h-4 w-4 text-primary" />
+                          Mes clés API
+                        </CardTitle>
+                        <CardDescription>{redirectKeys.length} clé{redirectKeys.length !== 1 ? "s" : ""}</CardDescription>
+                      </div>
+                      {!showCreateForm && (
+                        <Button size="sm" onClick={() => { setShowCreateForm(true); setSelectedType("redirect"); }} data-testid="button-new-key">
+                          <Plus className="h-4 w-4 mr-2" />
+                          Nouvelle clé
+                        </Button>
+                      )}
+                    </div>
                   </CardHeader>
                   <CardContent>
                     {keysLoading ? (
                       <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
                     ) : redirectKeys.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
-                        <Globe className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                        <p>Aucune clé Redirection créée</p>
-                        <p className="text-sm">Cliquez sur "Créer une clé API" pour commencer</p>
+                        <Key className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                        <p>Aucune clé créée</p>
+                        <Button className="mt-3" size="sm" onClick={() => { setShowCreateForm(true); setSelectedType("redirect"); }} data-testid="button-create-first-key">
+                          <Plus className="h-4 w-4 mr-2" />
+                          Créer ma première clé
+                        </Button>
                       </div>
                     ) : (
                       <div className="space-y-3">
@@ -964,33 +985,27 @@ export default function ApiKeysPage() {
                 </Card>
 
                 <Card>
-                  <CardHeader>
-                    <CardTitle>Comment utiliser l'API Redirection</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <p className="text-muted-foreground">Incluez votre clé API dans l'en-tête de chaque requête :</p>
-                    <CodeBlock code="Authorization: Bearer VOTRE_CLE_API" />
-                    <p className="text-sm text-muted-foreground">
-                      <strong>Base URL :</strong> <code className="bg-muted px-1 rounded">https://sendavapay.com/api/v1</code>
-                    </p>
-                    <div className="grid sm:grid-cols-2 gap-3 text-sm">
-                      {[
-                        ["POST /api/v1/create-payment", "Créer un lien de paiement"],
-                        ["POST /api/v1/verify-payment", "Vérifier le statut"],
-                        ["GET /api/v1/balance", "Consulter le solde"],
-                        ["GET /api/v1/transactions", "Historique des transactions"],
-                      ].map(([endpoint, desc]) => (
-                        <div key={endpoint} className="p-3 bg-muted rounded-lg">
-                          <code className="text-xs block mb-1">{endpoint}</code>
-                          <p className="text-muted-foreground text-xs">{desc}</p>
-                        </div>
-                      ))}
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-4">
+                      <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <BookOpen className="h-5 w-5 text-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium">Documentation API</p>
+                        <p className="text-sm text-muted-foreground">Consultez la documentation pour intégrer SendavaPay dans votre application</p>
+                      </div>
+                      <Link href="/docs">
+                        <Button variant="outline" data-testid="button-docs">
+                          <BookOpen className="h-4 w-4 mr-2" />
+                          Voir la documentation
+                        </Button>
+                      </Link>
                     </div>
                   </CardContent>
                 </Card>
-              </TabsContent>
+              </div>
             )}
-          </Tabs>
+          </>
         )}
       </div>
 
