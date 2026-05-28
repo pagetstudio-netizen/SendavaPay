@@ -150,8 +150,11 @@ function SdkDocumentation({ apiKeys }: { apiKeys: ApiKey[] }) {
       { id: "s-status",    label: "Statut d'un paiement" },
       { id: "s-verify",    label: "Vérifier un paiement" },
       { id: "s-list",      label: "Lister les transactions" },
-      { id: "s-withdraw",  label: "Retrait (pay-out)" },
-      { id: "s-balance",   label: "Soldes wallets" },
+      { id: "s-withdraw",         label: "Retrait (pay-out)" },
+      { id: "s-validate-withdraw",label: "Valider un retrait" },
+      { id: "s-withdraw-status",  label: "Statut d'un retrait" },
+      { id: "s-payout-status",    label: "Dispo. opérateurs payout" },
+      { id: "s-balance",          label: "Soldes wallets" },
     ]},
     { label: "API Client (CORS)", children: [
       { id: "s-token",     label: "Détails par token" },
@@ -517,23 +520,222 @@ const { data } = await res.json();`
             <CodeBlock language="json" code={`{
   "success": true,
   "data": {
-    "withdrawalId": 87,
-    "reference":    "sdk_lcy1a3bx_z9y8w7v6u5t4s3r2",
-    "amount":       10000,
-    "fee":          100,
-    "netAmount":    9900,
-    "currency":     "XOF",
-    "phoneNumber":  "+22890123456",
-    "operator":     "tmoney",
-    "country":      "TG",
-    "countryName":  "Togo",
-    "status":       "pending",
-    "createdAt":    "2026-05-28T11:00:00.000Z"
+    "withdrawalId":      87,
+    "reference":         "sdk_lcy1a3bx_z9y8w7v6u5t4s3r2",
+    "externalReference": "payout_456",
+    "amount":            10000,
+    "fee":               100,
+    "netAmount":         9900,
+    "currency":          "XOF",
+    "phoneNumber":       "+22890123456",
+    "operator":          "tmoney",
+    "country":           "TG",
+    "countryName":       "Togo",
+    "status":            "pending",
+    "statusLabel":       "En attente de traitement",
+    "walletBalance":     85000,
+    "trackingUrl":       "GET /api/sdk/v1/withdrawal-status/sdk_lcy1a3bx_z9y8w7v6u5t4s3r2",
+    "createdAt":         "2026-05-28T11:00:00.000Z"
   }
 }`} />
             <InfoBox type="info" title="Traitement">
               Les retraits sont traités automatiquement pour les opérateurs pris en charge.
               Un webhook <code>withdrawal.completed</code> est envoyé à votre URL dès que le virement est effectué.
+              Utilisez <code>trackingUrl</code> pour suivre l'évolution du retrait.
+            </InfoBox>
+          </div>
+
+          {/* validate-withdrawal */}
+          <div id="s-validate-withdraw" className="scroll-mt-4 mb-14">
+            <h3 className="text-lg font-semibold mb-1">Valider un retrait <span className="ml-2 text-xs font-normal text-muted-foreground">(dry-run)</span></h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              Vérifie qu'un retrait peut être effectué <strong>sans l'exécuter</strong>. Idéal pour afficher les frais et valider le formulaire côté client avant confirmation.
+            </p>
+            <Endpoint method="POST" path="/api/sdk/v1/validate-withdrawal" />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Corps de la requête</h4>
+            <ParamTable params={[
+              { name: "amount",      type: "number", required: true, description: "Montant à vérifier" },
+              { name: "phoneNumber", type: "string", required: true, description: "Numéro E.164 du bénéficiaire" },
+              { name: "operator",    type: "string", required: true, description: "Slug opérateur (tmoney, moov, mtn…)" },
+              { name: "country",     type: "string", required: true, description: "Code pays ISO (TG, CM, COD…)" },
+              { name: "currency",    type: "string", required: false, description: "Devise (défaut XOF)" },
+            ]} />
+            <MultiCodeBlock tabs={[
+              { label: "curl", code:
+`curl -X POST https://sendavapay.com/api/sdk/v1/validate-withdrawal \\
+  -H "Authorization: Bearer \${KEY}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "amount": 10000,
+    "phoneNumber": "+22890123456",
+    "operator": "tmoney",
+    "country": "TG",
+    "currency": "XOF"
+  }'`
+              },
+              { label: "node.js", code:
+`const res = await fetch('https://sendavapay.com/api/sdk/v1/validate-withdrawal', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer \${KEY}',
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    amount: 10000,
+    phoneNumber: '+22890123456',
+    operator: 'tmoney',
+    country: 'TG',
+  }),
+});
+const { success, data } = await res.json();
+if (success) {
+  console.log(\`Frais: \${data.fee} | Net: \${data.netAmount} | Solde: \${data.walletBalance}\`);
+}`
+              },
+            ]} />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse <span className="text-green-600 dark:text-green-400">200 OK</span></h4>
+            <CodeBlock language="json" code={`{
+  "success": true,
+  "data": {
+    "valid":          true,
+    "amount":         10000,
+    "currency":       "XOF",
+    "fee":            100,
+    "netAmount":      9900,
+    "walletBalance":  85000,
+    "operatorStatus": "online",
+    "country":        "TG",
+    "countryName":    "Togo",
+    "message":        "Retrait valide. Vous pouvez procéder."
+  }
+}`} />
+            <InfoBox type="warning" title="Erreur côté validation">
+              Si <code>success: false</code>, le champ <code>code</code> indique la raison exacte :
+              <code>INSUFFICIENT_BALANCE</code>, <code>PAYOUT_OPERATOR_OFFLINE</code>, <code>INVALID_PHONE_FORMAT</code>, <code>OPERATOR_COUNTRY_MISMATCH</code>…
+            </InfoBox>
+          </div>
+
+          {/* withdrawal-status */}
+          <div id="s-withdraw-status" className="scroll-mt-4 mb-14">
+            <h3 className="text-lg font-semibold mb-1">Statut d'un retrait</h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              Suivez l'état d'un retrait à tout moment à partir de sa référence. Utilisez-le après un <code>POST /withdraw</code> pour savoir si le virement a été effectué.
+            </p>
+            <Endpoint method="GET" path="/api/sdk/v1/withdrawal-status/:reference" />
+            <MultiCodeBlock tabs={[
+              { label: "curl", code:
+`curl https://sendavapay.com/api/sdk/v1/withdrawal-status/sdk_lcy1a3bx_z9y8w7v6u5t4s3r2 \\
+  -H "Authorization: Bearer \${KEY}"`
+              },
+              { label: "node.js", code:
+`const ref = 'sdk_lcy1a3bx_z9y8w7v6u5t4s3r2';
+const res = await fetch(\`https://sendavapay.com/api/sdk/v1/withdrawal-status/\${ref}\`, {
+  headers: { 'Authorization': 'Bearer \${KEY}' },
+});
+const { data } = await res.json();
+console.log(data.status, data.statusLabel);`
+              },
+            ]} />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse <span className="text-green-600 dark:text-green-400">200 OK</span></h4>
+            <CodeBlock language="json" code={`{
+  "success": true,
+  "data": {
+    "reference":         "sdk_lcy1a3bx_z9y8w7v6u5t4s3r2",
+    "externalReference": "payout_456",
+    "status":            "completed",
+    "statusLabel":       "Retrait effectué avec succès",
+    "amount":            "10000.00",
+    "fee":               "100.00",
+    "netAmount":         "9900.00",
+    "currency":          "XOF",
+    "phoneNumber":       "+22890123456",
+    "paymentMethod":     "tmoney",
+    "createdAt":         "2026-05-28T11:00:00.000Z",
+    "completedAt":       "2026-05-28T11:04:17.000Z"
+  }
+}`} />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Statuts possibles</h4>
+            <div className="overflow-x-auto rounded-lg border text-sm">
+              <table className="w-full">
+                <thead className="bg-muted/70">
+                  <tr>
+                    <th className="text-left p-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">Statut</th>
+                    <th className="text-left p-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    ["pending",    "En attente de traitement"],
+                    ["processing", "En cours de traitement chez l'opérateur"],
+                    ["completed",  "Retrait effectué avec succès"],
+                    ["failed",     "Retrait échoué — fonds non débités"],
+                    ["cancelled",  "Retrait annulé"],
+                  ].map(([s, d], i) => (
+                    <tr key={i} className="border-t hover:bg-muted/20">
+                      <td className="p-3 font-mono text-xs">{s}</td>
+                      <td className="p-3 text-xs text-muted-foreground">{d}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* payout-status */}
+          <div id="s-payout-status" className="scroll-mt-4 mb-14">
+            <h3 className="text-lg font-semibold mb-1">Disponibilité opérateurs pay-out</h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              Retourne le statut temps réel de chaque opérateur pour les retraits. À interroger avant d'afficher les choix d'opérateur à vos utilisateurs.
+            </p>
+            <Endpoint method="GET" path="/api/sdk/v1/payout-status" />
+            <MultiCodeBlock tabs={[
+              { label: "curl", code:
+`curl https://sendavapay.com/api/sdk/v1/payout-status \\
+  -H "Authorization: Bearer \${KEY}"`
+              },
+              { label: "node.js", code:
+`const res = await fetch('https://sendavapay.com/api/sdk/v1/payout-status', {
+  headers: { 'Authorization': 'Bearer \${KEY}' },
+});
+const { data } = await res.json();
+const online = data.operators.filter(op => op.payoutStatus === 'online');
+console.log(\`\${data.summary.online} opérateurs disponibles\`);`
+              },
+            ]} />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse <span className="text-green-600 dark:text-green-400">200 OK</span></h4>
+            <CodeBlock language="json" code={`{
+  "success": true,
+  "data": {
+    "summary": {
+      "online":  12,
+      "offline": 2,
+      "total":   14
+    },
+    "operators": [
+      {
+        "id":            "1",
+        "operator":      "mtn",
+        "country":       "CM",
+        "currency":      "XAF",
+        "gateway":       "paydunya",
+        "payoutStatus":  "online",
+        "depositStatus": "online"
+      },
+      {
+        "id":            "11",
+        "operator":      "airtel",
+        "country":       "COG",
+        "currency":      "XAF",
+        "gateway":       "soleaspay",
+        "payoutStatus":  "offline",
+        "depositStatus": "offline"
+      }
+    ]
+  }
+}`} />
+            <InfoBox type="info" title="Bonne pratique">
+              Filtrez côté client <code>payoutStatus === "online"</code> avant d'afficher les opérateurs disponibles dans votre formulaire de retrait.
+              Combinez avec <code>POST /validate-withdrawal</code> pour confirmer avant envoi.
             </InfoBox>
           </div>
 
@@ -993,9 +1195,15 @@ def webhook():
                 {[
                   ["400", "INVALID_REQUEST",      "Paramètres manquants ou malformés"],
                   ["400", "DUPLICATE_REFERENCE",  "externalReference déjà utilisée pour un paiement actif"],
-                  ["400", "INSUFFICIENT_BALANCE", "Solde insuffisant sur le wallet pour le retrait"],
-                  ["400", "UNSUPPORTED_COUNTRY",  "Code pays non pris en charge"],
-                  ["400", "WALLET_NOT_FOUND",     "Wallet du pays introuvable sur votre compte"],
+                  ["400", "INSUFFICIENT_BALANCE",       "Solde insuffisant sur le wallet pour le retrait"],
+                  ["400", "UNSUPPORTED_COUNTRY",        "Code pays non pris en charge"],
+                  ["400", "WALLET_NOT_FOUND",           "Wallet du pays introuvable sur votre compte"],
+                  ["400", "INVALID_PHONE_FORMAT",       "Numéro de téléphone invalide — format E.164 requis (+22890…)"],
+                  ["400", "OPERATOR_COUNTRY_MISMATCH",  "Opérateur incompatible avec le pays demandé"],
+                  ["400", "PAYOUT_OPERATOR_OFFLINE",    "Opérateur en maintenance — retraits temporairement indisponibles"],
+                  ["400", "AMOUNT_TOO_LOW",             "Montant inférieur au minimum autorisé (100)"],
+                  ["400", "AMOUNT_TOO_HIGH",            "Montant supérieur au maximum autorisé (5 000 000)"],
+                  ["409", "DUPLICATE_WITHDRAWAL",       "Un retrait avec cet externalReference existe déjà"],
                   ["401", "UNAUTHORIZED",         "Header Authorization manquant ou malformé"],
                   ["401", "INVALID_API_KEY",      "Clé SDK invalide ou inexistante"],
                   ["403", "API_KEY_INACTIVE",     "Clé SDK désactivée"],
