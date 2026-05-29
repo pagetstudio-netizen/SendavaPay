@@ -234,7 +234,13 @@ export async function registerRoutes(
   app.use(
     session({
       store: sessionStore,
-      secret: process.env.SESSION_SECRET || "sendavapay-fallback-secret-change-me-in-production",
+      secret: (() => {
+        const s = process.env.SESSION_SECRET;
+        if (!s && process.env.NODE_ENV === "production") {
+          console.warn("[session] ⚠️  SESSION_SECRET non défini ! Définissez cette variable sur votre serveur Plesk.");
+        }
+        return s || "sendavapay-fallback-secret-change-me-in-production";
+      })(),
       resave: false,
       saveUninitialized: false,
       cookie: {
@@ -256,8 +262,12 @@ export async function registerRoutes(
   app.use("/uploads", express.static("uploads"));
   app.use("/sdk", express.static("sdk"));
 
-  // Register object storage routes for permanent file storage
-  registerObjectStorageRoutes(app);
+  // Register object storage routes (Replit only — graceful skip on other hosts)
+  try {
+    registerObjectStorageRoutes(app);
+  } catch (e) {
+    console.warn("[object-storage] Replit Object Storage non disponible — ignoré.");
+  }
 
   // Register partner routes
   registerPartnerRoutes(app);
