@@ -150,11 +150,14 @@ function SdkDocumentation({ apiKeys }: { apiKeys: ApiKey[] }) {
       { id: "s-status",    label: "Statut d'un paiement" },
       { id: "s-verify",    label: "Vérifier un paiement" },
       { id: "s-list",      label: "Lister les transactions" },
-      { id: "s-withdraw",         label: "Retrait (pay-out)" },
-      { id: "s-validate-withdraw",label: "Valider un retrait" },
-      { id: "s-withdraw-status",  label: "Statut d'un retrait" },
-      { id: "s-payout-status",    label: "Dispo. opérateurs payout" },
-      { id: "s-balance",          label: "Soldes wallets" },
+      { id: "s-withdraw",              label: "Retrait (pay-out)" },
+      { id: "s-withdrawals-list",      label: "Lister les retraits" },
+      { id: "s-validate-withdraw",     label: "Valider un retrait" },
+      { id: "s-withdraw-status",       label: "Statut d'un retrait" },
+      { id: "s-payout-status",         label: "Dispo. opérateurs payout" },
+      { id: "s-operators-status",      label: "Statuts opérateurs" },
+      { id: "s-balance",               label: "Soldes wallets" },
+      { id: "s-health",                label: "Health check" },
     ]},
     { label: "API Client (CORS)", children: [
       { id: "s-token",     label: "Détails par token" },
@@ -165,9 +168,11 @@ function SdkDocumentation({ apiKeys }: { apiKeys: ApiKey[] }) {
     ]},
     { label: "Webhooks", children: [
       { id: "s-wh-config",    label: "Configuration" },
+      { id: "s-wh-retry",     label: "Retry automatique" },
       { id: "s-wh-events",    label: "Événements" },
       { id: "s-wh-payload",   label: "Payload & headers" },
       { id: "s-wh-signature", label: "Vérification HMAC" },
+      { id: "s-wh-test",      label: "Tester le webhook" },
     ]},
     { id: "s-operators",  label: "Pays & Opérateurs" },
     { id: "s-statuses",   label: "Statuts de transaction" },
@@ -180,7 +185,7 @@ function SdkDocumentation({ apiKeys }: { apiKeys: ApiKey[] }) {
 
       {/* ── SIDEBAR ── */}
       <nav className="hidden xl:flex flex-col w-52 flex-shrink-0 border-r bg-muted/20 sticky top-0 max-h-screen overflow-y-auto py-5 gap-0.5">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-4 mb-2">SDK API v2.0</p>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-4 mb-2">SDK API v3</p>
         {nav.map((item, i) =>
           item.id ? (
             <button key={i} onClick={() => scrollTo(item.id!)}
@@ -531,18 +536,65 @@ const { data } = await res.json();`
     "operator":          "tmoney",
     "country":           "TG",
     "countryName":       "Togo",
-    "status":            "pending",
-    "statusLabel":       "En attente de traitement",
+    "status":            "queued",
+    "statusLabel":       "En file d'attente de traitement",
     "walletBalance":     85000,
     "trackingUrl":       "GET /api/sdk/v1/withdrawal-status/sdk_lcy1a3bx_z9y8w7v6u5t4s3r2",
     "createdAt":         "2026-05-28T11:00:00.000Z"
   }
 }`} />
-            <InfoBox type="info" title="Traitement">
-              Les retraits sont traités automatiquement pour les opérateurs pris en charge.
-              Un webhook <code>withdrawal.completed</code> est envoyé à votre URL dès que le virement est effectué.
-              Utilisez <code>trackingUrl</code> pour suivre l'évolution du retrait.
+            <InfoBox type="info" title="Traitement asynchrone">
+              Les retraits sont traités de façon <strong>asynchrone</strong> via une file d'attente (queue + worker).
+              Le statut initial est toujours <code>queued</code>. Suivez l'évolution via <code>GET /withdrawal-status/:ref</code>
+              ou recevez le résultat final par webhook <code>withdrawal.completed</code> / <code>withdrawal.failed</code>.
             </InfoBox>
+          </div>
+
+          {/* withdrawals-list */}
+          <div id="s-withdrawals-list" className="scroll-mt-4 mb-14">
+            <h3 className="text-lg font-semibold mb-1">Lister les retraits</h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              Retourne la liste paginée de vos retraits. Filtrable par pays, statut et date.
+            </p>
+            <Endpoint method="GET" path="/api/sdk/v1/withdrawals" />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Paramètres de requête</h4>
+            <ParamTable params={[
+              { name: "country", type: "string", description: "Filtrer par pays ISO (ex. TG, CM)" },
+              { name: "status",  type: "string", description: "Filtrer par statut : queued · processing · completed · failed · cancelled" },
+              { name: "from",    type: "string", description: "Date de début ISO 8601 (ex. 2026-05-01)" },
+              { name: "to",      type: "string", description: "Date de fin ISO 8601 (ex. 2026-05-31)" },
+              { name: "limit",   type: "number", description: "Nombre de résultats par page (défaut 20, max 100)" },
+              { name: "offset",  type: "number", description: "Décalage pour la pagination (défaut 0)" },
+            ]} />
+            <CodeBlock language="javascript" code={`const res = await fetch(
+  'https://sendavapay.com/api/sdk/v1/withdrawals?country=TG&status=completed&limit=20',
+  { headers: { 'Authorization': 'Bearer \${KEY}' } }
+);
+const { data } = await res.json();
+console.log(\`\${data.total} retraits, page \${data.offset / data.limit + 1}\`);`} />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse <span className="text-green-600 dark:text-green-400">200 OK</span></h4>
+            <CodeBlock language="json" code={`{
+  "success": true,
+  "data": {
+    "total":       47,
+    "limit":       20,
+    "offset":      0,
+    "withdrawals": [
+      {
+        "reference":   "sdk_lcy1a3bx_z9y8w7v6u5t4s3r2",
+        "amount":      "10000.00",
+        "fee":         "100.00",
+        "currency":    "XOF",
+        "phoneNumber": "+22890123456",
+        "operator":    "tmoney",
+        "country":     "TG",
+        "status":      "completed",
+        "createdAt":   "2026-05-28T11:00:00.000Z",
+        "completedAt": "2026-05-28T11:04:17.000Z"
+      }
+    ]
+  }
+}`} />
           </div>
 
           {/* validate-withdrawal */}
@@ -665,11 +717,13 @@ console.log(data.status, data.statusLabel);`
                 </thead>
                 <tbody>
                   {[
-                    ["pending",    "En attente de traitement"],
-                    ["processing", "En cours de traitement chez l'opérateur"],
-                    ["completed",  "Retrait effectué avec succès"],
-                    ["failed",     "Retrait échoué — fonds non débités"],
-                    ["cancelled",  "Retrait annulé"],
+                    ["queued",           "En file d'attente — le worker va le traiter"],
+                    ["processing",       "En cours de traitement chez l'opérateur"],
+                    ["provider_pending", "En attente de confirmation du fournisseur"],
+                    ["completed",        "Retrait effectué avec succès"],
+                    ["failed",           "Retrait échoué — fonds non débités"],
+                    ["reversed",         "Fonds retournés sur le wallet après échec"],
+                    ["cancelled",        "Retrait annulé avant traitement"],
                   ].map(([s, d], i) => (
                     <tr key={i} className="border-t hover:bg-muted/20">
                       <td className="p-3 font-mono text-xs">{s}</td>
@@ -685,21 +739,26 @@ console.log(data.status, data.statusLabel);`
           <div id="s-payout-status" className="scroll-mt-4 mb-14">
             <h3 className="text-lg font-semibold mb-1">Disponibilité opérateurs pay-out</h3>
             <p className="text-sm text-muted-foreground mb-3">
-              Retourne le statut temps réel de chaque opérateur pour les retraits. À interroger avant d'afficher les choix d'opérateur à vos utilisateurs.
+              Retourne le statut temps réel de chaque opérateur pour les retraits. Filtrez par pays avec <code className="bg-muted px-1 rounded text-xs">?country=TG</code>.
             </p>
-            <Endpoint method="GET" path="/api/sdk/v1/payout-status" />
+            <Endpoint method="GET" path="/api/sdk/v1/payout-status?country=TG" />
             <MultiCodeBlock tabs={[
               { label: "curl", code:
-`curl https://sendavapay.com/api/sdk/v1/payout-status \\
+`# Tous les pays
+curl https://sendavapay.com/api/sdk/v1/payout-status \\
+  -H "Authorization: Bearer \${KEY}"
+
+# Filtrer par pays
+curl "https://sendavapay.com/api/sdk/v1/payout-status?country=TG" \\
   -H "Authorization: Bearer \${KEY}"`
               },
               { label: "node.js", code:
-`const res = await fetch('https://sendavapay.com/api/sdk/v1/payout-status', {
+`const res = await fetch('https://sendavapay.com/api/sdk/v1/payout-status?country=TG', {
   headers: { 'Authorization': 'Bearer \${KEY}' },
 });
 const { data } = await res.json();
 const online = data.operators.filter(op => op.payoutStatus === 'online');
-console.log(\`\${data.summary.online} opérateurs disponibles\`);`
+console.log(\`\${data.summary.online} opérateurs disponibles au Togo\`);`
               },
             ]} />
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse <span className="text-green-600 dark:text-green-400">200 OK</span></h4>
@@ -713,29 +772,73 @@ console.log(\`\${data.summary.online} opérateurs disponibles\`);`
     },
     "operators": [
       {
-        "id":            "1",
-        "operator":      "mtn",
-        "country":       "CM",
-        "currency":      "XAF",
-        "gateway":       "paydunya",
-        "payoutStatus":  "online",
-        "depositStatus": "online"
+        "id":                    "1",
+        "operator":              "tmoney",
+        "country":               "TG",
+        "currency":              "XOF",
+        "gateway":               "soleaspay",
+        "payoutStatus":          "online",
+        "depositStatus":         "online",
+        "maintenanceReason":     null,
+        "estimatedRecoveryTime": null
       },
       {
-        "id":            "11",
-        "operator":      "airtel",
-        "country":       "COG",
-        "currency":      "XAF",
-        "gateway":       "soleaspay",
-        "payoutStatus":  "offline",
-        "depositStatus": "offline"
+        "id":                    "11",
+        "operator":              "airtel",
+        "country":               "COG",
+        "currency":              "XAF",
+        "gateway":               "soleaspay",
+        "payoutStatus":          "offline",
+        "depositStatus":         "offline",
+        "maintenanceReason":     "Maintenance opérateur programmée",
+        "estimatedRecoveryTime": "2026-05-29T08:00:00.000Z"
       }
     ]
   }
 }`} />
             <InfoBox type="info" title="Bonne pratique">
-              Filtrez côté client <code>payoutStatus === "online"</code> avant d'afficher les opérateurs disponibles dans votre formulaire de retrait.
-              Combinez avec <code>POST /validate-withdrawal</code> pour confirmer avant envoi.
+              Filtrez côté client <code>payoutStatus === "online"</code> avant d'afficher les opérateurs dans votre formulaire de retrait.
+              Affichez <code>maintenanceReason</code> et <code>estimatedRecoveryTime</code> pour informer vos utilisateurs en cas d'indisponibilité.
+            </InfoBox>
+          </div>
+
+          {/* operators-status */}
+          <div id="s-operators-status" className="scroll-mt-4 mb-14">
+            <h3 className="text-lg font-semibold mb-1">Statuts opérateurs (dépôt + retrait)</h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              Vue complète de tous les opérateurs — dépôt ET retrait — avec leur statut en temps réel. Permet de masquer les opérateurs offline dans votre UI.
+            </p>
+            <Endpoint method="GET" path="/api/sdk/v1/operators-status" />
+            <CodeBlock language="javascript" code={`const res = await fetch('https://sendavapay.com/api/sdk/v1/operators-status');
+const { data } = await res.json();
+// Masquer les opérateurs où deposit et payout sont tous les deux offline
+const available = data.filter(op => op.depositStatus === 'online' || op.payoutStatus === 'online');`} />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse <span className="text-green-600 dark:text-green-400">200 OK</span></h4>
+            <CodeBlock language="json" code={`{
+  "success": true,
+  "data": [
+    {
+      "id":            "5",
+      "name":          "TMoney",
+      "country":       "TG",
+      "currency":      "XOF",
+      "depositStatus": "online",
+      "payoutStatus":  "online",
+      "requiresOtp":   false
+    },
+    {
+      "id":            "12",
+      "name":          "Orange Money",
+      "country":       "SN",
+      "currency":      "XOF",
+      "depositStatus": "online",
+      "payoutStatus":  "offline",
+      "requiresOtp":   true
+    }
+  ]
+}`} />
+            <InfoBox type="tip" title="Endpoint public (CORS)">
+              Cet endpoint n'exige pas d'authentification. Appelez-le directement depuis votre frontend pour afficher uniquement les opérateurs disponibles.
             </InfoBox>
           </div>
 
@@ -769,6 +872,34 @@ curl "https://sendavapay.com/api/sdk/v1/balance?country=TG" \\
   }
 }`} />
           </div>
+
+          {/* health */}
+          <div id="s-health" className="scroll-mt-4 mb-14">
+            <h3 className="text-lg font-semibold mb-1">Health check</h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              Vérifie l'état de l'API, de la base de données et des opérateurs en temps réel. Endpoint public — aucune authentification requise.
+            </p>
+            <Endpoint method="GET" path="/api/sdk/v1/health" />
+            <CodeBlock language="javascript" code={`const res = await fetch('https://sendavapay.com/api/sdk/v1/health');
+const data = await res.json();
+if (data.status !== 'ok') console.warn('API dégradée:', data.database);`} />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse <span className="text-green-600 dark:text-green-400">200 OK</span></h4>
+            <CodeBlock language="json" code={`{
+  "status":   "ok",
+  "database": "connected",
+  "operators": {
+    "online":  12,
+    "offline": 2,
+    "total":   14
+  },
+  "payout": {
+    "online":  10,
+    "offline": 4
+  },
+  "maintenance": false,
+  "timestamp": "2026-05-29T08:00:00.000Z"
+}`} />
+          </div>
         </section>
 
         {/* ─── API CLIENT CORS ─── */}
@@ -788,9 +919,9 @@ curl "https://sendavapay.com/api/sdk/v1/balance?country=TG" \\
             <p className="text-sm text-muted-foreground mb-3">
               Retourne les informations de la transaction associée au token : montant, devise, description, statut, nom du marchand.
             </p>
-            <Endpoint method="GET" path="/api/sdk/v1/token/:paymentToken" />
+            <Endpoint method="GET" path="/api/sdk/v1/payment-token/:paymentToken" />
             <CodeBlock language="javascript" code={`const res = await fetch(
-  'https://sendavapay.com/api/sdk/v1/token/pay_tok_xxxx'
+  'https://sendavapay.com/api/sdk/v1/payment-token/pay_tok_xxxx'
 );
 const { data } = await res.json();
 // data.reference, data.amount, data.currency, data.description, data.ownerName, data.status`} />
@@ -1092,6 +1223,75 @@ def webhook():
               },
             ]} />
           </div>
+
+          {/* webhook retry */}
+          <div id="s-wh-retry" className="scroll-mt-4 mb-14">
+            <h3 className="text-lg font-semibold mb-1">Retry automatique</h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              SendavaPay réessaie automatiquement les webhooks en cas d'échec (timeout, HTTP 4xx/5xx). Votre endpoint doit répondre <strong>sous 10 secondes</strong>.
+            </p>
+            <div className="overflow-x-auto rounded-lg border text-sm">
+              <table className="w-full">
+                <thead className="bg-muted/70">
+                  <tr>
+                    <th className="text-left p-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">Tentative</th>
+                    <th className="text-left p-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">Délai</th>
+                    <th className="text-left p-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    ["1ère",  "Immédiat",    "Envoi initial"],
+                    ["2ème",  "1 minute",    "Premier retry"],
+                    ["3ème",  "5 minutes",   "Deuxième retry"],
+                    ["4ème",  "30 minutes",  "Troisième retry"],
+                    ["5ème",  "2 heures",    "Dernier retry — après, le webhook est marqué failed"],
+                  ].map(([t, d, n], i) => (
+                    <tr key={i} className="border-t hover:bg-muted/20">
+                      <td className="p-3 font-mono text-xs">{t}</td>
+                      <td className="p-3 text-xs">{d}</td>
+                      <td className="p-3 text-xs text-muted-foreground">{n}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <InfoBox type="tip" title="Idempotence">
+              Chaque webhook contient un champ <code>webhookId</code> unique. Stockez les IDs déjà traités pour ignorer les doublons en cas de retry.
+            </InfoBox>
+          </div>
+
+          {/* test-webhook */}
+          <div id="s-wh-test" className="scroll-mt-4 mb-14">
+            <h3 className="text-lg font-semibold mb-1">Tester votre endpoint webhook</h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              Envoie un webhook de test à votre URL configurée. Permet de vérifier que votre endpoint reçoit, vérifie la signature et répond correctement.
+            </p>
+            <Endpoint method="POST" path="/api/sdk/v1/test-webhook" />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Corps de la requête</h4>
+            <ParamTable params={[
+              { name: "event", type: "string", required: true, description: "Événement à simuler : payment.completed · payment.failed · withdrawal.completed · withdrawal.failed" },
+            ]} />
+            <CodeBlock language="javascript" code={`const res = await fetch('https://sendavapay.com/api/sdk/v1/test-webhook', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer \${KEY}',
+    'Content-Type':  'application/json',
+  },
+  body: JSON.stringify({ event: 'payment.completed' }),
+});
+const data = await res.json();
+// data.sent: true, data.responseStatus: 200, data.responseTime: 142`} />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse <span className="text-green-600 dark:text-green-400">200 OK</span></h4>
+            <CodeBlock language="json" code={`{
+  "success":      true,
+  "sent":         true,
+  "webhookUrl":   "https://your-server.com/webhooks/sendavapay",
+  "event":        "payment.completed",
+  "responseStatus": 200,
+  "responseTime": 142
+}`} />
+          </div>
         </section>
 
         {/* ─── PAYS & OPÉRATEURS ─── */}
@@ -1142,7 +1342,9 @@ def webhook():
         {/* ─── STATUTS ─── */}
         <section id="s-statuses">
           <h2 className="text-2xl font-bold border-b pb-3 mb-6">Statuts de transaction</h2>
-          <div className="overflow-x-auto rounded-lg border text-sm">
+
+          <h3 className="text-base font-semibold mb-3">Statuts de paiement (dépôt)</h3>
+          <div className="overflow-x-auto rounded-lg border text-sm mb-8">
             <table className="w-full">
               <thead className="bg-muted/70">
                 <tr>
@@ -1164,6 +1366,42 @@ def webhook():
                       <span className={`px-2 py-0.5 rounded text-xs font-mono font-medium ${
                         s === "completed"  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
                         s === "failed" || s === "cancelled" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
+                        "bg-muted text-muted-foreground"
+                      }`}>{s}</span>
+                    </td>
+                    <td className="p-3 text-xs text-muted-foreground">{desc}</td>
+                    <td className="p-3 text-xs text-muted-foreground">{type}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <h3 className="text-base font-semibold mb-3">Statuts de retrait (pay-out)</h3>
+          <div className="overflow-x-auto rounded-lg border text-sm">
+            <table className="w-full">
+              <thead className="bg-muted/70">
+                <tr>
+                  <th className="text-left p-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">Statut</th>
+                  <th className="text-left p-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">Description</th>
+                  <th className="text-left p-3 font-semibold text-xs uppercase tracking-wide text-muted-foreground">Type</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ["queued",           "En file d'attente — le worker va le traiter",              "transitoire"],
+                  ["processing",       "En cours de traitement chez l'opérateur",                  "transitoire"],
+                  ["provider_pending", "En attente de confirmation du fournisseur de paiement",    "transitoire"],
+                  ["completed",        "Retrait effectué — fonds virés sur le Mobile Money",       "terminal ✓"],
+                  ["failed",           "Retrait échoué — fonds non débités",                       "terminal"],
+                  ["reversed",         "Fonds retournés sur le wallet après un échec définitif",   "terminal"],
+                  ["cancelled",        "Retrait annulé avant traitement",                          "terminal"],
+                ].map(([s, desc, type]) => (
+                  <tr key={s} className="border-t hover:bg-muted/20">
+                    <td className="p-3">
+                      <span className={`px-2 py-0.5 rounded text-xs font-mono font-medium ${
+                        s === "completed"  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
+                        s === "failed" || s === "cancelled" || s === "reversed" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
                         "bg-muted text-muted-foreground"
                       }`}>{s}</span>
                     </td>
