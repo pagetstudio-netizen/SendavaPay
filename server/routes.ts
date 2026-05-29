@@ -219,7 +219,7 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
 // Called from PayDunya / OmniPay webhook handlers when a payment belongs to an
 // SDK api_transaction (personal account SDK) rather than a partner_transaction.
 // Row is a raw SQL row (snake_case columns) from the api_transactions table.
-async function completeApiTransactionFromWebhook(
+export async function completeApiTransactionFromWebhook(
   row: any,
   provider: string,
 ): Promise<void> {
