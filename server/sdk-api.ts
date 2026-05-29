@@ -954,9 +954,56 @@ router.post("/v1/verify-payment", checkApiMaintenance, authenticateSdkKey, async
 router.get("/v1/payment-status/:reference", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
   const sdkUser = (req as any).sdkUser as User;
   try {
-    const transaction = await storage.getApiTransactionByReference(req.params.reference);
+    let transaction = await storage.getApiTransactionByReference(req.params.reference);
     if (!transaction) return res.status(404).json({ success: false, error: "Paiement introuvable", code: "NOT_FOUND" });
     if (transaction.userId !== sdkUser.id) return res.status(403).json({ success: false, error: "Non autorisé", code: "UNAUTHORIZED" });
+
+    // ─── Auto-vérification PayDunya pour transactions bloquées en processing ────
+    // Si le paiement est toujours en processing et que c'est PayDunya,
+    // on interroge directement l'API PayDunya pour connaitre l'état réel.
+    if (
+      transaction.status === "processing" &&
+      (transaction.paymentMethod || "").toLowerCase().includes("paydunya")
+    ) {
+      try {
+        const extRef = (transaction as any).externalReference || (transaction as any).external_reference || "";
+        // Format: "API_sdk_xxx_ts|pd_invoice_token"  — le token est après le "|"
+        const parts = extRef.split("|");
+        const pdToken = parts.length >= 2 ? parts[parts.length - 1] : "";
+        // S'assurer que c'est bien un token PayDunya (pas un orderId API_xxx)
+        if (pdToken && !pdToken.startsWith("API_") && !pdToken.startsWith("api_")) {
+          const { confirmPayDunyaInvoice } = await import("./paydunya");
+          const pdStatus = await confirmPayDunyaInvoice(pdToken);
+          console.log(`[payment-status] Auto-check PayDunya ref=${transaction.reference} token=${pdToken} → status="${pdStatus.status}"`);
+
+          if (pdStatus.status === "completed" || pdStatus.status === "success") {
+            const { completeApiTransactionFromWebhook } = await import("./routes");
+            // Adapter en snake_case pour completeApiTransactionFromWebhook
+            const rawRow: Record<string, any> = {
+              id:               transaction.id,
+              user_id:          (transaction as any).userId       ?? (transaction as any).user_id,
+              api_key_id:       (transaction as any).apiKeyId     ?? (transaction as any).api_key_id,
+              reference:        transaction.reference,
+              amount:           transaction.amount,
+              fee:              (transaction as any).fee          ?? "0",
+              currency:         transaction.currency,
+              payment_method:   (transaction as any).paymentMethod  ?? (transaction as any).payment_method,
+              external_reference: extRef,
+              callback_url:     (transaction as any).callbackUrl  ?? (transaction as any).callback_url ?? (transaction as any).webhookUrl ?? null,
+              customer_name:    (transaction as any).payerName    ?? (transaction as any).customer_name ?? null,
+              customer_phone:   (transaction as any).payerPhone   ?? (transaction as any).customer_phone ?? null,
+              description:      (transaction as any).description  ?? null,
+              status:           transaction.status,
+            };
+            await completeApiTransactionFromWebhook(rawRow, "paydunya_autocheck");
+            // Refetch après complétion
+            transaction = await storage.getApiTransactionByReference(req.params.reference) ?? transaction;
+          }
+        }
+      } catch (autoCheckErr: any) {
+        console.warn(`[payment-status] Erreur auto-check PayDunya ref=${transaction.reference}:`, autoCheckErr?.message || autoCheckErr);
+      }
+    }
 
     res.json({
       success: true,
@@ -967,7 +1014,7 @@ router.get("/v1/payment-status/:reference", checkApiMaintenance, authenticateSdk
         currency:      transaction.currency,
         paymentMethod: transaction.paymentMethod,
         createdAt:     transaction.createdAt,
-        completedAt:   transaction.completedAt,
+        completedAt:   (transaction as any).completedAt ?? null,
       },
     });
   } catch (error: any) {
