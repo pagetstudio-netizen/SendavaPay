@@ -693,6 +693,7 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
           callbackUrl:  `${baseUrl}/api/webhook/paydunya`,
           returnUrl:    `${baseUrl}/success?reference=${transaction.reference}`,
           cancelUrl:    `${baseUrl}/pay/api/${transaction.reference}`,
+          customData:   { reference: transaction.reference, sdk: "1" },
         },
       });
 
@@ -862,6 +863,7 @@ router.post("/v1/submit-otp", sdkCors, async (req: Request, res: Response) => {
         callbackUrl:  `${baseUrl}/api/webhook/paydunya`,
         returnUrl:    `${baseUrl}/success?reference=${entry.reference}`,
         cancelUrl:    `${baseUrl}/pay/api/${entry.reference}`,
+        customData:   { reference: entry.reference, sdk: "1" },
       },
     });
 
