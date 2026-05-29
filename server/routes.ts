@@ -264,6 +264,18 @@ async function completeApiTransactionFromWebhook(
       const parts = (row.payment_method as string).split("_");
       const last  = parts[parts.length - 1]?.toUpperCase();
       if (last && last.length >= 2 && last.length <= 3) countryCode = last;
+      // Fallback: detect country from operator name (e.g. "paydunya_TMoney" → TG)
+      if (!countryCode) {
+        const m = (row.payment_method as string).toLowerCase();
+        if (m.includes("tmoney") || m.includes("t-money") || m.includes("t_money") || m.includes("flooz") || m.includes("moov-togo") || m.includes("moov_togo")) countryCode = "TG";
+        else if (m.includes("mtn_bj") || m.includes("moov_bj") || m.includes("mtn-benin") || m.includes("moov-benin")) countryCode = "BJ";
+        else if (m.includes("orange_sn") || m.includes("wave_sn") || m.includes("free-money") || m.includes("free_money") || m.includes("orange-money-senegal") || m.includes("wave-senegal") || m.includes("wizall") || m.includes("expresso")) countryCode = "SN";
+        else if (m.includes("orange_ci") || m.includes("mtn_ci") || m.includes("wave_ci") || m.includes("moov_ci") || m.includes("orange-money-ci") || m.includes("mtn-ci") || m.includes("moov-ci") || m.includes("wave-ci")) countryCode = "CI";
+        else if (m.includes("orange_ml") || m.includes("orange-money-mali") || m.includes("orange_mali")) countryCode = "ML";
+        else if (m.includes("orange_bf") || m.includes("moov_bf") || m.includes("orange-money-burkina") || m.includes("moov-burkina")) countryCode = "BF";
+        else if (m.includes("orange_cm") || m.includes("mtn_cm") || m.includes("orange-cameroun") || m.includes("mtn-cameroun")) countryCode = "CM";
+        else if (m.includes("mtn_bj") || m.includes("moov-benin")) countryCode = "BJ";
+      }
     }
     if (countryCode) {
       const countries = await storage.getCountries();
@@ -8466,7 +8478,25 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
 
         if (!partnerTx) {
           // ─── Fallback : SDK api_transaction (compte personnel) ───────────────
-          console.log(`[PayDunya] STEP 2 — Pas de partenaire — recherche api_transaction SDK pour token=${token}`);
+          console.log(`[PayDunya] STEP 2 — Pas de partenaire — recherche api_transaction SDK pour token=${token} customRef="${customRef}"`);
+
+          // Priorité 1 : customRef exact (sdk_xxx) — fiable depuis qu'on passe customData.reference
+          if (customRef && customRef.startsWith("sdk_")) {
+            const sdkByRefRows = await _pdDb2.execute(_pdSql2`
+              SELECT * FROM api_transactions
+              WHERE reference = ${customRef}
+                AND status IN ('processing', 'pending')
+              LIMIT 1
+            `).catch(() => ({ rows: [] }));
+            const sdkByRefTx = (sdkByRefRows as any)?.rows?.[0];
+            if (sdkByRefTx) {
+              console.log(`[PayDunya] STEP 2 — api_transaction SDK trouvée par customRef ref=${sdkByRefTx.reference} id=${sdkByRefTx.id}`);
+              await completeApiTransactionFromWebhook(sdkByRefTx, "paydunya");
+              return;
+            }
+          }
+
+          // Priorité 2 : token dans external_reference (LIKE) — fallback si customData absent
           const sdkRows = await _pdDb2.execute(_pdSql2`
             SELECT * FROM api_transactions
             WHERE external_reference LIKE ${"%" + token + "%"}
@@ -8476,7 +8506,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
           `).catch(() => ({ rows: [] }));
           const sdkTx = (sdkRows as any)?.rows?.[0];
           if (sdkTx) {
-            console.log(`[PayDunya] STEP 2 — api_transaction SDK trouvée ref=${sdkTx.reference} id=${sdkTx.id}`);
+            console.log(`[PayDunya] STEP 2 — api_transaction SDK trouvée par token ref=${sdkTx.reference} id=${sdkTx.id}`);
             await completeApiTransactionFromWebhook(sdkTx, "paydunya");
             return;
           }
