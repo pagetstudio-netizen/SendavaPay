@@ -215,6 +215,114 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+// ─── SDK API Transaction Completion ───────────────────────────────────────────
+// Called from PayDunya / OmniPay webhook handlers when a payment belongs to an
+// SDK api_transaction (personal account SDK) rather than a partner_transaction.
+// Row is a raw SQL row (snake_case columns) from the api_transactions table.
+async function completeApiTransactionFromWebhook(
+  row: any,
+  provider: string,
+): Promise<void> {
+  const { db: _cDb } = await import("./db");
+  const { sql: _cSql } = await import("drizzle-orm");
+
+  // 1. Atomically mark completed (idempotency guard)
+  const upd = await _cDb.execute(_cSql`
+    UPDATE api_transactions
+    SET status = 'completed', completed_at = NOW(), updated_at = NOW()
+    WHERE id = ${row.id}
+      AND status IN ('processing', 'pending')
+  `).catch(e => { console.error("[SDK webhook] UPDATE error:", e); return { rowCount: 0 }; });
+
+  if (((upd as any)?.rowCount || 0) === 0) {
+    console.log(`[SDK webhook/${provider}] Transaction déjà traitée id=${row.id} ref=${row.reference}`);
+    return;
+  }
+
+  const amount   = parseFloat(row.amount  || "0");
+  const fee      = parseFloat(row.fee     || "0");
+  const net      = amount - fee;
+  const currency = row.currency || "XOF";
+
+  // 2. Get api_key for webhookUrl / webhookSecret
+  let apiKey: any = null;
+  if (row.api_key_id) {
+    apiKey = await storage.getApiKeyById(Number(row.api_key_id)).catch(() => null);
+  }
+
+  // 3. Credit user's main balance
+  try {
+    await storage.updateUserBalance(Number(row.user_id), net.toString());
+  } catch (e) {
+    console.error("[SDK webhook] Erreur crédit balance utilisateur:", e);
+  }
+
+  // 4. Credit country wallet
+  try {
+    let countryCode: string | null = null;
+    if (row.payment_method) {
+      const parts = (row.payment_method as string).split("_");
+      const last  = parts[parts.length - 1]?.toUpperCase();
+      if (last && last.length >= 2 && last.length <= 3) countryCode = last;
+    }
+    if (countryCode) {
+      const countries = await storage.getCountries();
+      const cr = countries.find((c: any) => c.code.toUpperCase() === countryCode!.toUpperCase());
+      if (cr) {
+        await storage.creditWallet(Number(row.user_id), cr.code, cr.name, currency, net.toString());
+      }
+    }
+  } catch (e) {
+    console.error("[SDK webhook] Erreur crédit wallet pays:", e);
+  }
+
+  // 5. Create visible transaction in admin history
+  try {
+    await storage.createTransaction({
+      userId:        Number(row.user_id),
+      type:          "deposit",
+      amount:        amount.toString(),
+      fee:           fee.toString(),
+      netAmount:     net.toString(),
+      status:        "completed",
+      description:   row.description || `Encaissement API SDK via ${provider}`,
+      externalRef:   row.reference,
+      paymentMethod: row.payment_method || provider,
+    });
+  } catch (e) {
+    console.error("[SDK webhook] Erreur création transaction admin:", e);
+  }
+
+  // 6. Send webhook to merchant (HMAC-signed, with retry)
+  const webhookUrl    = row.callback_url || apiKey?.webhookUrl || null;
+  const webhookSecret = apiKey?.webhookSecret || null;
+  if (webhookUrl) {
+    try {
+      const { sendWebhookWithRetry: _swhr } = await import("./sdk-api");
+      await _swhr(webhookUrl, {
+        event:         "payment.completed",
+        reference:     row.reference,
+        status:        "completed",
+        amount,
+        fee,
+        netAmount:     net,
+        currency,
+        customerName:  row.customer_name  || null,
+        customerPhone: row.customer_phone || null,
+        paymentMethod: row.payment_method || provider,
+        provider,
+        completedAt:   new Date().toISOString(),
+      }, webhookSecret, row.reference, Number(row.id));
+    } catch (e) {
+      console.error("[SDK webhook] Erreur envoi webhook marchand:", e);
+    }
+  } else {
+    console.warn(`[SDK webhook/${provider}] Aucun webhook URL configuré pour api_key #${row.api_key_id} — marchand non notifié`);
+  }
+
+  console.log(`✅ [SDK webhook/${provider}] Transaction ${row.reference} complétée — net=${net} ${currency} → user #${row.user_id}`);
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -3739,6 +3847,28 @@ export async function registerRoutes(
         // Check partner transactions (deposit)
         const partnerTx = await storage.getPartnerTransactionByReference(reference);
         if (!partnerTx) {
+          // ─── Fallback : SDK api_transaction (compte personnel) ───────────────
+          console.log(`[OmniPay] Pas de partenaire — recherche api_transaction SDK pour ref=${reference}`);
+          const { db: _opSdkDb } = await import("./db");
+          const { sql: _opSdkSql } = await import("drizzle-orm");
+          const opSdkRows = await _opSdkDb.execute(_opSdkSql`
+            SELECT * FROM api_transactions
+            WHERE external_reference LIKE ${"%" + reference + "%"}
+              AND status IN ('processing', 'pending')
+            ORDER BY created_at DESC
+            LIMIT 1
+          `).catch(() => ({ rows: [] }));
+          const opSdkTx = (opSdkRows as any)?.rows?.[0];
+          if (opSdkTx) {
+            console.log(`[OmniPay] api_transaction SDK trouvée ref=${opSdkTx.reference} id=${opSdkTx.id}`);
+            const isSuccess = status === "1" || status === "3";
+            if (isSuccess) {
+              await completeApiTransactionFromWebhook(opSdkTx, "omnipay");
+            } else {
+              console.log(`[OmniPay] Statut non-succès (${status}) pour api_transaction SDK ref=${opSdkTx.reference} — ignoré`);
+            }
+            return;
+          }
           console.log(`⚠️ OmniPay webhook: Transaction partenaire non trouvée ref=${reference} status=${status} type=${data.type}`);
           return;
         }
@@ -8163,6 +8293,21 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         }
 
         if (!partnerTx) {
+          // ─── Fallback : SDK api_transaction (compte personnel) ───────────────
+          console.log(`[PayDunya] STEP 2 — Pas de partenaire — recherche api_transaction SDK pour token=${token}`);
+          const sdkRows = await _pdDb2.execute(_pdSql2`
+            SELECT * FROM api_transactions
+            WHERE external_reference LIKE ${"%" + token + "%"}
+              AND status IN ('processing', 'pending')
+            ORDER BY created_at DESC
+            LIMIT 1
+          `).catch(() => ({ rows: [] }));
+          const sdkTx = (sdkRows as any)?.rows?.[0];
+          if (sdkTx) {
+            console.log(`[PayDunya] STEP 2 — api_transaction SDK trouvée ref=${sdkTx.reference} id=${sdkTx.id}`);
+            await completeApiTransactionFromWebhook(sdkTx, "paydunya");
+            return;
+          }
           console.warn(`[PayDunya] STEP 2 — Transaction partenaire introuvable — customRef="${customRef}" token="${token}" — webhook ignoré`);
           return;
         }
