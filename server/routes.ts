@@ -7133,8 +7133,66 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         };
       });
 
+      // 3. api_transactions — paiements SDK compte personnel
+      const sdkRows = await db.execute(sql`
+        SELECT
+          at.id,
+          at.reference,
+          at.external_reference,
+          at.user_id,
+          at.api_key_id,
+          at.type,
+          at.amount,
+          at.fee,
+          at.currency,
+          at.status,
+          at.customer_name,
+          at.customer_phone,
+          at.customer_email,
+          at.payment_method,
+          at.description,
+          at.callback_url,
+          at.webhook_sent,
+          at.webhook_attempts,
+          at.created_at,
+          at.completed_at,
+          u.full_name             AS user_full_name,
+          u.email                 AS user_email
+        FROM api_transactions at
+        LEFT JOIN users u ON u.id = at.user_id
+        ORDER BY at.created_at DESC
+        LIMIT 500
+      `);
+
+      const sdkAttempts = (sdkRows.rows as any[]).map(r => ({
+        _table: "sdk",
+        id: `SDK-${r.id}`,
+        reference: r.reference,
+        source: r.type === "payout" ? "sdk_payout" : "sdk_payment",
+        sourceLabel: r.type === "payout" ? "API SDK (Retrait)" : "API SDK (Encaissement)",
+        status: r.status,
+        amount: r.amount,
+        currency: r.currency,
+        userId: r.user_id,
+        paymentLinkId: null,
+        userName: r.user_full_name || null,
+        userEmail: r.user_email || null,
+        payerName: r.customer_name || null,
+        payerPhone: r.customer_phone || null,
+        payerCountry: null,
+        paymentMethod: r.payment_method || null,
+        description: r.description || null,
+        errorInfo: null,
+        partnerName: null,
+        webhookUrl: r.callback_url || null,
+        webhookSent: r.webhook_sent ?? null,
+        webhookAttempts: r.webhook_attempts ?? 0,
+        createdAt: r.created_at,
+        completedAt: r.completed_at || null,
+      }));
+
       // Merge and sort by date desc
-      const all = [...leekpayAttempts, ...partnerAttempts]
+      const all = [...leekpayAttempts, ...partnerAttempts, ...sdkAttempts]
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, 1000);
 
@@ -7347,6 +7405,91 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     } catch (error) {
       console.error("Get admin API transactions error:", error);
       res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // ─── SDK : Force-complete une transaction bloquée ──────────────────────────
+  app.post("/api/admin/sdk-transactions/:reference/force-complete", requireAdmin, async (req, res) => {
+    try {
+      const { reference } = req.params;
+      const { db: _fcDb } = await import("./db");
+      const { sql: _fcSql } = await import("drizzle-orm");
+
+      const rows = await _fcDb.execute(_fcSql`
+        SELECT * FROM api_transactions WHERE reference = ${reference} LIMIT 1
+      `).catch(() => ({ rows: [] }));
+      const sdkTx = (rows as any)?.rows?.[0];
+
+      if (!sdkTx) return res.status(404).json({ message: "Transaction SDK introuvable" });
+      if (sdkTx.status === "completed") return res.status(400).json({ message: "Transaction déjà complétée" });
+      if (sdkTx.status === "failed" || sdkTx.status === "cancelled") {
+        return res.status(400).json({ message: `Impossible de forcer une transaction en statut "${sdkTx.status}"` });
+      }
+
+      await completeApiTransactionFromWebhook(sdkTx, "admin_force");
+
+      console.log(`✅ Admin force-complete SDK: ref=${reference} user_id=${sdkTx.user_id}`);
+      res.json({ success: true, message: "Transaction SDK complétée, wallet crédité et webhook envoyé", reference });
+    } catch (error: any) {
+      console.error("SDK force-complete error:", error);
+      res.status(500).json({ message: "Erreur serveur: " + error.message });
+    }
+  });
+
+  // ─── SDK : Renvoyer le webhook marchand ────────────────────────────────────
+  app.post("/api/admin/sdk-transactions/:reference/resend-webhook", requireAdmin, async (req, res) => {
+    try {
+      const { reference } = req.params;
+      const { db: _rwDb } = await import("./db");
+      const { sql: _rwSql } = await import("drizzle-orm");
+
+      const rows = await _rwDb.execute(_rwSql`
+        SELECT * FROM api_transactions WHERE reference = ${reference} LIMIT 1
+      `).catch(() => ({ rows: [] }));
+      const sdkTx = (rows as any)?.rows?.[0];
+
+      if (!sdkTx) return res.status(404).json({ message: "Transaction SDK introuvable" });
+      if (sdkTx.status !== "completed") {
+        return res.status(400).json({ message: `Le webhook ne peut être renvoyé que pour une transaction complétée (statut actuel: ${sdkTx.status})` });
+      }
+
+      let apiKey: any = null;
+      if (sdkTx.api_key_id) {
+        apiKey = await storage.getApiKeyById(Number(sdkTx.api_key_id)).catch(() => null);
+      }
+
+      const webhookUrl    = sdkTx.callback_url || apiKey?.webhookUrl || null;
+      const webhookSecret = apiKey?.webhookSecret || null;
+
+      if (!webhookUrl) {
+        return res.status(400).json({ message: "Aucun webhook URL configuré pour cette transaction" });
+      }
+
+      const { sendWebhookWithRetry: _swhr } = await import("./sdk-api");
+      const amount  = parseFloat(sdkTx.amount || "0");
+      const fee     = parseFloat(sdkTx.fee    || "0");
+      const net     = amount - fee;
+
+      await _swhr(webhookUrl, {
+        event:         "payment.completed",
+        reference:     sdkTx.reference,
+        status:        "completed",
+        amount,
+        fee,
+        netAmount:     net,
+        currency:      sdkTx.currency || "XOF",
+        customerName:  sdkTx.customer_name  || null,
+        customerPhone: sdkTx.customer_phone || null,
+        paymentMethod: sdkTx.payment_method || "admin_resend",
+        provider:      "admin_resend",
+        completedAt:   sdkTx.completed_at ? new Date(sdkTx.completed_at).toISOString() : new Date().toISOString(),
+      }, webhookSecret, sdkTx.reference, Number(sdkTx.id));
+
+      console.log(`✅ Admin resend-webhook SDK: ref=${reference} → ${webhookUrl}`);
+      res.json({ success: true, message: `Webhook renvoyé vers ${webhookUrl}`, reference, webhookUrl });
+    } catch (error: any) {
+      console.error("SDK resend-webhook error:", error);
+      res.status(500).json({ message: "Erreur serveur: " + error.message });
     }
   });
 
