@@ -645,7 +645,22 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
       }
 
       const phone    = formatPhoneForPayDunya(data.payerPhone, payerCountry);
-      const pdResult = await initiatePayDunySoftPay(service, phone, data.payerName, data.payerEmail || "client@sendavapay.com", amount, description, baseUrl, data.otp, data.address);
+      const pdResult = await initiatePayDunySoftPay({
+        operatorName: service.operator,
+        countryCode:  service.countryCode,
+        phone,
+        name:  data.payerName,
+        email: data.payerEmail || "client@sendavapay.com",
+        otp:   data.otp || undefined,
+        invoiceParams: {
+          totalAmount:  amount,
+          description,
+          storeName:    "SendavaPay",
+          callbackUrl:  `${baseUrl}/api/webhook/paydunya`,
+          returnUrl:    `${baseUrl}/success?reference=${transaction.reference}`,
+          cancelUrl:    `${baseUrl}/pay/api/${transaction.reference}`,
+        },
+      });
 
       if (!pdResult.success) {
         try {
@@ -799,7 +814,22 @@ router.post("/v1/submit-otp", sdkCors, async (req: Request, res: Response) => {
     const orderId = `API_${entry.reference}_${Date.now()}`;
     const baseUrl = process.env.APP_URL || process.env.SITE_URL || "https://sendavapay.com";
 
-    const pdResult = await initiatePayDunySoftPay(service, phone, entry.payerName, entry.payerEmail || "client@sendavapay.com", entry.amount, entry.description, baseUrl, otp);
+    const pdResult = await initiatePayDunySoftPay({
+      operatorName: service.operator,
+      countryCode:  service.countryCode,
+      phone,
+      name:  entry.payerName,
+      email: entry.payerEmail || "client@sendavapay.com",
+      otp:   otp || undefined,
+      invoiceParams: {
+        totalAmount:  entry.amount,
+        description:  entry.description,
+        storeName:    "SendavaPay",
+        callbackUrl:  `${baseUrl}/api/webhook/paydunya`,
+        returnUrl:    `${baseUrl}/success?reference=${entry.reference}`,
+        cancelUrl:    `${baseUrl}/pay/api/${entry.reference}`,
+      },
+    });
 
     otpStore.delete(otpToken);
 
