@@ -782,15 +782,15 @@ curl "https://sendavapay.com/api/sdk/v1/balance?country=TG" \\
             Le <code>paymentToken</code> a une validité de <strong>30 minutes</strong>. Après expiration, les appels retournent <code>410 Gone</code>.
           </InfoBox>
 
-          {/* widget/token */}
+          {/* token */}
           <div id="s-token" className="scroll-mt-4 mt-10 mb-14">
             <h3 className="text-lg font-semibold mb-1">Détails de la transaction par token</h3>
             <p className="text-sm text-muted-foreground mb-3">
               Retourne les informations de la transaction associée au token : montant, devise, description, statut, nom du marchand.
             </p>
-            <Endpoint method="GET" path="/api/sdk/widget/token/:paymentToken" />
+            <Endpoint method="GET" path="/api/sdk/v1/token/:paymentToken" />
             <CodeBlock language="javascript" code={`const res = await fetch(
-  'https://sendavapay.com/api/sdk/widget/token/pay_tok_xxxx'
+  'https://sendavapay.com/api/sdk/v1/token/pay_tok_xxxx'
 );
 const { data } = await res.json();
 // data.reference, data.amount, data.currency, data.description, data.ownerName, data.status`} />
