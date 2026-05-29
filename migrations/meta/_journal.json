@@ -8,6 +8,13 @@
       "when": 1778444871440,
       "tag": "0000_absurd_polaris",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780012760410,
+      "tag": "0001_init_sendavapay",
+      "breakpoints": true
     }
   ]
 }
