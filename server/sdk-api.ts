@@ -135,6 +135,23 @@ async function processWithdrawalQueue(): Promise<void> {
         withdrawalQueue.push(entry);
       } else if (wr.status === "completed") {
         await storage.updateApiTransaction(txn.id, { status: "completed", completedAt: new Date() });
+        // Créer une entrée visible dans l'historique admin
+        try {
+          const txAmt = parseFloat(txn.amount);
+          const txFee = parseFloat(txn.fee || "0");
+          await storage.createTransaction({
+            userId:        txn.userId,
+            type:          "withdrawal",
+            amount:        txAmt.toString(),
+            fee:           txFee.toString(),
+            netAmount:     (txAmt + txFee).toString(),
+            status:        "completed",
+            description:   txn.description || `Retrait API SDK vers ${txn.customerPhone || ""}`,
+            externalRef:   txn.reference,
+            paymentMethod: txn.paymentMethod || "sdk_payout",
+            mobileNumber:  txn.customerPhone || undefined,
+          });
+        } catch (e) { console.error("[sdk-withdrawal-queue] Erreur création transaction admin:", e); }
         if (entry.webhookUrl) {
           await sendWebhookWithRetry(entry.webhookUrl, {
             event: "payout.completed", reference: txn.reference, status: "completed",
@@ -144,6 +161,23 @@ async function processWithdrawalQueue(): Promise<void> {
         }
       } else if (wr.status === "rejected" || wr.status === "failed") {
         await storage.updateApiTransaction(txn.id, { status: "failed" });
+        // Créer une entrée visible dans l'historique admin (retrait échoué)
+        try {
+          const txAmt = parseFloat(txn.amount);
+          const txFee = parseFloat(txn.fee || "0");
+          await storage.createTransaction({
+            userId:        txn.userId,
+            type:          "withdrawal",
+            amount:        txAmt.toString(),
+            fee:           txFee.toString(),
+            netAmount:     (txAmt + txFee).toString(),
+            status:        "failed",
+            description:   txn.description || `Retrait API SDK échoué vers ${txn.customerPhone || ""}`,
+            externalRef:   txn.reference,
+            paymentMethod: txn.paymentMethod || "sdk_payout",
+            mobileNumber:  txn.customerPhone || undefined,
+          });
+        } catch (e) { console.error("[sdk-withdrawal-queue] Erreur création transaction admin (failed):", e); }
         try {
           await storage.creditWalletById((wr as any).walletId, txn.amount);
         } catch (_) {}
