@@ -2570,6 +2570,35 @@ export async function registerRoutes(
             return res.json({ received: true });
           }
         }
+
+        // ─── Fallback : SDK api_transaction (compte personnel) ───────────────
+        // SoleasPay: external_reference = notre orderId = "API_sdk_xxx_timestamp"
+        // stocké en BDD comme "API_sdk_xxx_timestamp|payId" → LIKE %searchKey%
+        if (success && status === "SUCCESS") {
+          const searchKey = external_reference || reference;
+          if (searchKey) {
+            console.log(`[SoleasPay] Recherche api_transaction SDK pour searchKey="${searchKey}"`);
+            const { db: _spSdkDb } = await import("./db");
+            const { sql: _spSdkSql } = await import("drizzle-orm");
+            const spSdkRows = await _spSdkDb.execute(_spSdkSql`
+              SELECT * FROM api_transactions
+              WHERE (
+                external_reference LIKE ${"%" + searchKey + "%"}
+                OR external_reference LIKE ${"%" + (reference || "") + "%"}
+              )
+                AND status IN ('processing', 'pending')
+              ORDER BY created_at DESC
+              LIMIT 1
+            `).catch(() => ({ rows: [] }));
+            const spSdkTx = (spSdkRows as any)?.rows?.[0];
+            if (spSdkTx) {
+              console.log(`[SoleasPay] api_transaction SDK trouvée ref=${spSdkTx.reference} id=${spSdkTx.id}`);
+              await completeApiTransactionFromWebhook(spSdkTx, "soleaspay");
+              return res.json({ received: true });
+            }
+          }
+        }
+
         console.log("⚠️ SoleasPay webhook: Paiement non trouvé");
         return res.json({ received: true });
       }
