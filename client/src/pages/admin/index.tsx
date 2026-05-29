@@ -1098,6 +1098,7 @@ function UsersContent() {
 
 interface PaymentAttempt {
   id: string;
+  _table?: string;
   reference: string;
   source: string;
   sourceLabel: string;
@@ -1114,10 +1115,15 @@ interface PaymentAttempt {
   description?: string | null;
   errorInfo?: string | null;
   partnerName?: string | null;
+  webhookUrl?: string | null;
+  webhookSent?: boolean | null;
+  webhookAttempts?: number;
+  completedAt?: string | null;
   createdAt: string;
 }
 
 function TransactionsContent() {
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<"confirmed" | "attempts">("confirmed");
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -1129,12 +1135,42 @@ function TransactionsContent() {
   const [attemptSearch, setAttemptSearch] = useState("");
   const [attemptStatusFilter, setAttemptStatusFilter] = useState("all");
   const [copiedRef, setCopiedRef] = useState<string | null>(null);
+  const [sdkActionRef, setSdkActionRef] = useState<string | null>(null);
 
   const copyRef = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopiedRef(text);
     setTimeout(() => setCopiedRef(null), 1500);
   };
+
+  const forceCompleteSdkMutation = useMutation({
+    mutationFn: async (reference: string) => {
+      const res = await apiRequest("POST", `/api/admin/sdk-transactions/${reference}/force-complete`, {});
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Erreur"); }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setSdkActionRef(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payment-attempts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/transactions"] });
+      toast({ title: "✅ Transaction complétée", description: data.message });
+    },
+    onError: (e: any) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
+  });
+
+  const resendWebhookSdkMutation = useMutation({
+    mutationFn: async (reference: string) => {
+      const res = await apiRequest("POST", `/api/admin/sdk-transactions/${reference}/resend-webhook`, {});
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Erreur"); }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setSdkActionRef(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payment-attempts"] });
+      toast({ title: "📡 Webhook renvoyé", description: data.message });
+    },
+    onError: (e: any) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
+  });
 
   const { data: attempts = [], isLoading: attemptsLoading } = useQuery<PaymentAttempt[]>({
     queryKey: ["/api/admin/payment-attempts"],
@@ -1347,15 +1383,21 @@ function TransactionsContent() {
                         <th className="text-left p-3 font-medium text-muted-foreground">Utilisateur / Payeur</th>
                         <th className="text-left p-3 font-medium text-muted-foreground">Méthode</th>
                         <th className="text-left p-3 font-medium text-muted-foreground">Statut</th>
-                        <th className="text-left p-3 font-medium text-muted-foreground">Erreur</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground">Info / Webhook</th>
+                        <th className="text-left p-3 font-medium text-muted-foreground">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {filteredAttempts.map(a => (
-                        <tr key={a.id} className="hover:bg-muted/30 transition-colors" data-testid={`row-attempt-${a.id}`}>
+                      {filteredAttempts.map(a => {
+                        const isSdk = a._table === "sdk";
+                        const isStuck = isSdk && (a.status === "processing" || a.status === "pending");
+                        const canResend = isSdk && a.status === "completed" && !!a.webhookUrl;
+                        const isActing = sdkActionRef === a.reference && (forceCompleteSdkMutation.isPending || resendWebhookSdkMutation.isPending);
+                        return (
+                        <tr key={a.id} className={`hover:bg-muted/30 transition-colors ${isStuck ? "bg-orange-50/40 dark:bg-orange-900/10" : ""}`} data-testid={`row-attempt-${a.id}`}>
                           <td className="p-3 whitespace-nowrap text-xs text-muted-foreground">{formatDate(a.createdAt)}</td>
                           <td className="p-3">
-                            <Badge variant="outline" className="text-xs whitespace-nowrap">
+                            <Badge variant="outline" className={`text-xs whitespace-nowrap ${isSdk ? "border-purple-300 text-purple-700 dark:text-purple-400" : ""}`}>
                               {a.sourceLabel}
                             </Badge>
                           </td>
@@ -1407,15 +1449,61 @@ function TransactionsContent() {
                                a.status === "cancelled" ? "Annulé" : a.status}
                             </Badge>
                           </td>
-                          <td className="p-3 max-w-[200px]">
+                          <td className="p-3 max-w-[180px]">
                             {a.errorInfo ? (
                               <span className="text-xs text-red-600 dark:text-red-400 truncate block" title={a.errorInfo}>
                                 {a.errorInfo}
                               </span>
-                            ) : <span className="text-muted-foreground text-xs">—</span>}
+                            ) : isSdk && a.webhookUrl ? (
+                              <div className="text-xs space-y-0.5">
+                                <div className={`font-medium ${a.webhookSent ? "text-green-600" : "text-orange-500"}`}>
+                                  Webhook: {a.webhookSent ? "✓ envoyé" : `✗ non envoyé${a.webhookAttempts ? ` (${a.webhookAttempts} essai${a.webhookAttempts > 1 ? "s" : ""})` : ""}`}
+                                </div>
+                                <div className="text-muted-foreground truncate max-w-[160px]" title={a.webhookUrl}>
+                                  {a.webhookUrl}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
+                          </td>
+                          <td className="p-3">
+                            {isSdk && (isStuck || canResend) ? (
+                              <div className="flex flex-col gap-1">
+                                {isStuck && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs border-orange-300 text-orange-700 hover:bg-orange-50 dark:text-orange-400 dark:border-orange-700 dark:hover:bg-orange-900/20 whitespace-nowrap"
+                                    disabled={isActing}
+                                    onClick={() => { setSdkActionRef(a.reference); forceCompleteSdkMutation.mutate(a.reference); }}
+                                    data-testid={`button-force-complete-sdk-${a.id}`}
+                                    title="Forcer la complétion : crédite le wallet et envoie le webhook"
+                                  >
+                                    {isActing && forceCompleteSdkMutation.isPending ? "…" : "⚡ Forcer"}
+                                  </Button>
+                                )}
+                                {canResend && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs border-blue-300 text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:border-blue-700 dark:hover:bg-blue-900/20 whitespace-nowrap"
+                                    disabled={isActing}
+                                    onClick={() => { setSdkActionRef(a.reference); resendWebhookSdkMutation.mutate(a.reference); }}
+                                    data-testid={`button-resend-webhook-sdk-${a.id}`}
+                                    title="Renvoyer le webhook payment.completed au marchand"
+                                  >
+                                    {isActing && resendWebhookSdkMutation.isPending ? "…" : "📡 Webhook"}
+                                  </Button>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
