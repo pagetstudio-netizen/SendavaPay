@@ -159,7 +159,7 @@ function SdkDocumentation({ apiKeys }: { apiKeys: ApiKey[] }) {
     { label: "API Client (CORS)", children: [
       { id: "s-token",     label: "Détails par token" },
       { id: "s-countries", label: "Pays disponibles" },
-      { id: "s-services",  label: "Opérateurs par pays" },
+      { id: "s-operators", label: "Opérateurs par pays" },
       { id: "s-initiate",  label: "Initier le paiement" },
       { id: "s-otp",       label: "Soumettre OTP" },
     ]},
@@ -814,8 +814,8 @@ const { data } = await res.json();
           <div id="s-countries" className="scroll-mt-4 mb-14">
             <h3 className="text-lg font-semibold mb-1">Pays disponibles</h3>
             <p className="text-sm text-muted-foreground mb-3">Retourne la liste des pays activés avec leur devise.</p>
-            <Endpoint method="GET" path="/api/soleaspay/countries" />
-            <CodeBlock language="javascript" code={`const res = await fetch('https://sendavapay.com/api/soleaspay/countries');
+            <Endpoint method="GET" path="/api/sdk/v1/countries" />
+            <CodeBlock language="javascript" code={`const res = await fetch('https://sendavapay.com/api/sdk/v1/countries');
 const { data } = await res.json();
 // [{ id: 'TG', name: 'Togo', currency: 'XOF' }, …]`} />
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse <span className="text-green-600 dark:text-green-400">200 OK</span></h4>
@@ -831,21 +831,21 @@ const { data } = await res.json();
 }`} />
           </div>
 
-          {/* services */}
-          <div id="s-services" className="scroll-mt-4 mb-14">
+          {/* operators */}
+          <div id="s-operators" className="scroll-mt-4 mb-14">
             <h3 className="text-lg font-semibold mb-1">Opérateurs par pays</h3>
             <p className="text-sm text-muted-foreground mb-3">Retourne les opérateurs Mobile Money disponibles pour un pays donné.</p>
-            <Endpoint method="GET" path="/api/soleaspay/services/:countryCode" />
-            <CodeBlock language="javascript" code={`const res = await fetch('https://sendavapay.com/api/soleaspay/services/SN');
+            <Endpoint method="GET" path="/api/sdk/v1/operators/:countryCode" />
+            <CodeBlock language="javascript" code={`const res = await fetch('https://sendavapay.com/api/sdk/v1/operators/TG');
 const { data } = await res.json();
-// [{ id: '12', name: 'Orange Money', slug: 'orange_sn' }, …]`} />
+// [{ id: '5', name: 'TMoney', requiresOtp: false, status: 'online' }, …]`} />
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse <span className="text-green-600 dark:text-green-400">200 OK</span></h4>
             <CodeBlock language="json" code={`{
   "success": true,
   "data": [
-    { "id": "12", "name": "Orange Money", "slug": "orange_sn" },
-    { "id": "15", "name": "Wave",         "slug": "wave_sn"   },
-    { "id": "18", "name": "Free Money",   "slug": "free_sn"   }
+    { "id": "5",  "name": "TMoney",     "requiresOtp": false, "status": "online" },
+    { "id": "6",  "name": "Flooz",      "requiresOtp": false, "status": "online" },
+    { "id": "12", "name": "Orange Money","requiresOtp": true,  "status": "online" }
   ]
 }`} />
           </div>
@@ -856,7 +856,7 @@ const { data } = await res.json();
             <p className="text-sm text-muted-foreground mb-3">
               Déclenche la demande de paiement Mobile Money. L'opérateur envoie une invite sur le téléphone du payeur (ou un SMS OTP selon l'opérateur).
             </p>
-            <Endpoint method="POST" path="/api/pay-api/:reference" />
+            <Endpoint method="POST" path="/api/sdk/v1/initiate-payment" />
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Corps de la requête</h4>
             <ParamTable params={[
               { name: "paymentToken", type: "string", required: true, description: "Token retourné par create-payment" },
@@ -864,10 +864,10 @@ const { data } = await res.json();
               { name: "payerPhone",   type: "string", required: true, description: "Numéro Mobile Money en E.164 (+22890000000)" },
               { name: "payerEmail",   type: "string",                 description: "Email du payeur" },
               { name: "payerCountry", type: "string", required: true, description: "Code pays ISO (TG, SN, CM…)" },
-              { name: "serviceId",    type: "string", required: true, description: "ID de l'opérateur retourné par /services/:countryCode" },
+              { name: "operatorId",   type: "string", required: true, description: "ID de l'opérateur retourné par /operators/:countryCode" },
             ]} />
             <CodeBlock language="javascript" code={`const res = await fetch(
-  'https://sendavapay.com/api/pay-api/sdk_lcy0u4wx_a1b2c3d4e5f6g7h8',
+  'https://sendavapay.com/api/sdk/v1/initiate-payment',
   {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -876,7 +876,7 @@ const { data } = await res.json();
       payerName:    'Jean Dupont',
       payerPhone:   '+22890000000',
       payerCountry: 'TG',
-      serviceId:    '5',
+      operatorId:   '5',
     }),
   }
 );
@@ -884,7 +884,6 @@ const result = await res.json();`} />
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse sans OTP</h4>
             <CodeBlock language="json" code={`{
   "success":     true,
-  "status":      "processing",
   "requiresOtp": false,
   "reference":   "sdk_lcy0u4wx_a1b2c3d4e5f6g7h8",
   "message":     "Invite de paiement envoyée sur le téléphone du client"
@@ -892,11 +891,17 @@ const result = await res.json();`} />
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse avec OTP requis (Orange Money)</h4>
             <CodeBlock language="json" code={`{
   "success":     true,
-  "status":      "processing",
   "requiresOtp": true,
-  "payId":       "PAY-XXXXXXXX",
-  "orderId":     "ORD-XXXXXXXX",
+  "otpToken":    "otp_xxxxxxxxxxxxxxxxxxxx",
+  "reference":   "sdk_lcy0u4wx_a1b2c3d4e5f6g7h8",
   "message":     "Code OTP envoyé par SMS au payeur"
+}`} />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse avec redirection (Wave, etc.)</h4>
+            <CodeBlock language="json" code={`{
+  "success":         true,
+  "requiresRedirect": true,
+  "redirectUrl":     "https://wave.com/checkout/...",
+  "reference":       "sdk_lcy0u4wx_a1b2c3d4e5f6g7h8"
 }`} />
           </div>
 
@@ -907,32 +912,29 @@ const result = await res.json();`} />
               Applicable uniquement pour les opérateurs Orange Money (BF, CI, GN, ML, SN).
               À appeler après réception de <code className="bg-muted px-1 rounded text-xs">requiresOtp: true</code>.
             </p>
-            <Endpoint method="POST" path="/api/pay-api/:reference/verify" />
+            <Endpoint method="POST" path="/api/sdk/v1/submit-otp" />
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Corps de la requête</h4>
             <ParamTable params={[
-              { name: "paymentToken", type: "string", required: true, description: "Token retourné par create-payment" },
-              { name: "payId",        type: "string", required: true, description: "payId retourné par l'initiation du paiement" },
-              { name: "orderId",      type: "string", required: true, description: "orderId retourné par l'initiation du paiement" },
-              { name: "otp",          type: "string", required: true, description: "Code OTP saisi par le payeur" },
+              { name: "otpToken", type: "string", required: true, description: "otpToken retourné par initiate-payment" },
+              { name: "otp",      type: "string", required: true, description: "Code OTP saisi par le payeur" },
             ]} />
             <CodeBlock language="javascript" code={`const res = await fetch(
-  'https://sendavapay.com/api/pay-api/sdk_lcy0u4wx_a1b2c3d4e5f6g7h8/verify',
+  'https://sendavapay.com/api/sdk/v1/submit-otp',
   {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      paymentToken: 'pay_tok_xxxx',
-      payId:        'PAY-XXXXXXXX',
-      orderId:      'ORD-XXXXXXXX',
-      otp:          '123456',
+      otpToken: 'otp_xxxxxxxxxxxxxxxxxxxx',
+      otp:      '123456',
     }),
   }
 );
 const result = await res.json();`} />
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse <span className="text-green-600 dark:text-green-400">200 OK</span></h4>
             <CodeBlock language="json" code={`{
-  "success": true,
-  "message": "OTP soumis, vérification en cours"
+  "success":   true,
+  "reference": "sdk_lcy0u4wx_a1b2c3d4e5f6g7h8",
+  "message":   "OTP accepté. Le paiement est en cours."
 }`} />
           </div>
         </section>
