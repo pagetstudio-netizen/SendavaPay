@@ -241,7 +241,7 @@ export async function completeApiTransactionFromWebhook(
 
   const amount   = parseFloat(row.amount  || "0");
   const fee      = parseFloat(row.fee     || "0");
-  const net      = amount - fee;
+  const net      = amount - fee; // conservé pour l'historique des transactions
   const currency = row.currency || "XOF";
 
   // 2. Get api_key for webhookUrl / webhookSecret
@@ -250,14 +250,19 @@ export async function completeApiTransactionFromWebhook(
     apiKey = await storage.getApiKeyById(Number(row.api_key_id)).catch(() => null);
   }
 
-  // 3. Credit user's main balance
+  // 3. Créditer le montant COMPLET au solde principal du marchand,
+  //    puis débiter les frais séparément (les frais sont pris sur le solde existant).
   try {
-    await storage.updateUserBalance(Number(row.user_id), net.toString());
+    await storage.updateUserBalance(Number(row.user_id), amount.toString());
+    if (fee > 0) {
+      // Débit des frais depuis le solde principal (updateUserBalance accepte les valeurs négatives)
+      await storage.updateUserBalance(Number(row.user_id), (-fee).toString());
+    }
   } catch (e) {
-    console.error("[SDK webhook] Erreur crédit balance utilisateur:", e);
+    console.error("[SDK webhook] Erreur crédit/débit balance utilisateur:", e);
   }
 
-  // 4. Credit country wallet
+  // 4. Créditer le wallet pays avec le montant COMPLET, puis débiter les frais
   try {
     let countryCode: string | null = null;
     if (row.payment_method) {
@@ -281,7 +286,14 @@ export async function completeApiTransactionFromWebhook(
       const countries = await storage.getCountries();
       const cr = countries.find((c: any) => c.code.toUpperCase() === countryCode!.toUpperCase());
       if (cr) {
-        await storage.creditWallet(Number(row.user_id), cr.code, cr.name, currency, net.toString());
+        // Créditer le montant complet
+        await storage.creditWallet(Number(row.user_id), cr.code, cr.name, currency, amount.toString());
+        // Débiter les frais depuis le wallet pays
+        if (fee > 0) {
+          const walletsList = await storage.getUserWallets(Number(row.user_id));
+          const w = walletsList.find((wl: any) => wl.countryCode.toUpperCase() === cr.code.toUpperCase());
+          if (w) await storage.debitWallet(w.id, fee.toString());
+        }
       }
     }
   } catch (e) {
