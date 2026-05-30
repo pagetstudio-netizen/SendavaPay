@@ -335,6 +335,64 @@ export async function completeApiTransactionFromWebhook(
   console.log(`✅ [SDK webhook/${provider}] Transaction ${row.reference} complétée — net=${net} ${currency} → user #${row.user_id}`);
 }
 
+// Appelé depuis les handlers de webhook des passerelles quand un paiement SDK échoue.
+export async function failApiTransactionFromWebhook(
+  row: any,
+  provider: string,
+  reason?: string,
+): Promise<void> {
+  const { db: _fDb } = await import("./db");
+  const { sql: _fSql } = await import("drizzle-orm");
+
+  // Atomiquement marquer failed (idempotence)
+  const upd = await _fDb.execute(_fSql`
+    UPDATE api_transactions
+    SET status = 'failed', updated_at = NOW()
+    WHERE id = ${row.id}
+      AND status IN ('processing', 'pending')
+  `).catch(() => ({ rowCount: 0 }));
+
+  if (((upd as any)?.rowCount || 0) === 0) {
+    console.log(`[SDK webhook fail/${provider}] Transaction déjà traitée id=${row.id} ref=${row.reference}`);
+    return;
+  }
+
+  // Récupérer la clé API pour webhookUrl / webhookSecret
+  let apiKey: any = null;
+  if (row.api_key_id) {
+    apiKey = await storage.getApiKeyById(Number(row.api_key_id)).catch(() => null);
+  }
+
+  const webhookUrl    = row.callback_url || apiKey?.webhookUrl || null;
+  const webhookSecret = apiKey?.webhookSecret || null;
+
+  if (webhookUrl) {
+    try {
+      const { sendWebhookWithRetry: _swhr } = await import("./sdk-api");
+      await _swhr(webhookUrl, {
+        event:         "payment.failed",
+        reference:     row.reference,
+        status:        "failed",
+        amount:        parseFloat(row.amount || "0"),
+        fee:           parseFloat(row.fee    || "0"),
+        currency:      row.currency || "XOF",
+        customerName:  row.customer_name  || null,
+        customerPhone: row.customer_phone || null,
+        paymentMethod: row.payment_method || provider,
+        provider,
+        reason:        reason || "Paiement échoué",
+        failedAt:      new Date().toISOString(),
+      }, webhookSecret, row.reference, Number(row.id));
+    } catch (e) {
+      console.error(`[SDK webhook fail/${provider}] Erreur envoi webhook:`, e);
+    }
+  } else {
+    console.warn(`[SDK webhook fail/${provider}] Aucun webhook URL pour api_key #${row.api_key_id}`);
+  }
+
+  console.warn(`❌ [SDK webhook fail/${provider}] Transaction ${row.reference} échouée — raison: ${reason || "N/A"}`);
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -3960,7 +4018,8 @@ export async function registerRoutes(
             if (isSuccess) {
               await completeApiTransactionFromWebhook(opSdkTx, "omnipay");
             } else {
-              console.log(`[OmniPay] Statut non-succès (${status}) pour api_transaction SDK ref=${opSdkTx.reference} — ignoré`);
+              console.log(`[OmniPay] Statut non-succès (${status}) pour api_transaction SDK ref=${opSdkTx.reference} — notification marchand`);
+              await failApiTransactionFromWebhook(opSdkTx, "omnipay", `Statut OmniPay: ${status}`);
             }
             return;
           }

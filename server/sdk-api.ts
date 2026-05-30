@@ -46,6 +46,40 @@ interface WebhookRetryEntry {
 
 const webhookRetryQueue = new Map<string, WebhookRetryEntry>();
 
+// ─── Helper : envoyer un webhook pour une api_transaction ─────────────────────
+// Utilisé dans initiate-payment (public) qui n'a pas sdkKey en contexte.
+async function sendTransactionWebhook(
+  transaction: any,
+  event: string,
+  extraData: Record<string, any> = {}
+): Promise<void> {
+  const cbUrl = (transaction as any).callbackUrl ?? (transaction as any).callback_url ?? null;
+  if (!cbUrl) return;
+  let webhookSecret: string | null = null;
+  try {
+    const apiKeyId = (transaction as any).apiKeyId ?? (transaction as any).api_key_id;
+    if (apiKeyId) {
+      const apiKey = await storage.getApiKeyById(Number(apiKeyId));
+      webhookSecret = (apiKey as any)?.webhookSecret ?? null;
+    }
+  } catch (_) {}
+  const txRef = (transaction as any).reference;
+  const txId  = (transaction as any).id;
+  await sendWebhookWithRetry(cbUrl, {
+    event,
+    reference:     txRef,
+    status:        extraData.status ?? event.replace("payment.", "").replace("payout.", ""),
+    amount:        (transaction as any).amount,
+    fee:           extraData.fee ?? (transaction as any).fee ?? "0",
+    currency:      (transaction as any).currency ?? "XOF",
+    customerPhone: (transaction as any).customerPhone ?? null,
+    customerName:  (transaction as any).customerName  ?? null,
+    paymentMethod: (transaction as any).paymentMethod ?? null,
+    ...extraData,
+    timestamp:     new Date().toISOString(),
+  }, webhookSecret, txRef, txId);
+}
+
 async function sendWebhookWithRetry(
   webhookUrl: string,
   payload: Record<string, any>,
@@ -237,6 +271,16 @@ export async function autoDispatchSdkWithdrawal(
   // Mark as dispatching (prevents double-dispatch on concurrent queue runs)
   await storage.updateWithdrawalRequest(wr.id, { status: "processing" }).catch(() => {});
   await storage.updateApiTransaction(txn.id, { status: "processing" }).catch(() => {});
+
+  // Webhook payout.processing — informer le marchand que le retrait est en cours
+  if (entry.webhookUrl) {
+    await sendWebhookWithRetry(entry.webhookUrl, {
+      event: "payout.processing", reference: txn.reference, status: "processing",
+      amount: txn.amount, fee: txn.fee ?? "0", currency: txn.currency,
+      phoneNumber: mobileNumber, operator: operatorName, country: countryCode,
+      gateway, timestamp: new Date().toISOString(),
+    }, entry.webhookSecret, txn.reference, txn.id).catch(() => {});
+  }
 
   // ─── PayDunya ──────────────────────────────────────────────────────────────
   if (gateway === "paydunya") {
@@ -969,18 +1013,21 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
           }
         } catch (_) {}
         await storage.updateApiTransaction(transaction.id, { status: "failed" });
+        sendTransactionWebhook(transaction, "payment.failed", { fee: payinFee, reason: pdResult.error || "Échec initiation PayDunya", status: "failed" }).catch(() => {});
         sdkLog({ req, endpoint: "initiate-payment", statusCode: 500, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry, error: pdResult.error });
         return res.status(500).json({ success: false, error: pdResult.error || "Échec de l'initiation du paiement", code: "PAYMENT_INITIATION_FAILED" });
       }
 
       if (pdResult.redirectUrl) {
         await storage.updateApiTransaction(transaction.id, { externalReference: `${orderId}|${pdResult.redirectUrl}` });
+        sendTransactionWebhook(transaction, "payment.processing", { fee: payinFee, requiresRedirect: true, redirectUrl: pdResult.redirectUrl, status: "processing" }).catch(() => {});
         sdkLog({ req, endpoint: "initiate-payment", statusCode: 200, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry });
         return res.json({ success: true, requiresOtp: false, requiresRedirect: true, redirectUrl: pdResult.redirectUrl, reference: transaction.reference, message: "Redirigez le client vers cette URL pour compléter le paiement" });
       }
 
       const invoiceToken = (pdResult as any).invoiceToken || orderId;
       await storage.updateApiTransaction(transaction.id, { externalReference: `${orderId}|${invoiceToken}` });
+      sendTransactionWebhook(transaction, "payment.processing", { fee: payinFee, status: "processing" }).catch(() => {});
       sdkLog({ req, endpoint: "initiate-payment", statusCode: 200, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry, reference: transaction.reference });
       return res.json({
         success:     true,
@@ -997,6 +1044,7 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
 
       if (opOperator === undefined) {
         await storage.updateApiTransaction(transaction.id, { status: "failed" });
+        sendTransactionWebhook(transaction, "payment.failed", { fee: payinFee, reason: "Opérateur non supporté", status: "failed" }).catch(() => {});
         sdkLog({ req, endpoint: "initiate-payment", statusCode: 400, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry });
         return res.status(400).json({ success: false, error: "Opérateur non supporté", code: "OPERATOR_UNAVAILABLE" });
       }
@@ -1016,12 +1064,14 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
 
       if (String(opResult.success) !== "1") {
         await storage.updateApiTransaction(transaction.id, { status: "failed" });
+        sendTransactionWebhook(transaction, "payment.failed", { fee: payinFee, reason: opResult.message || "Échec initiation OmniPay", status: "failed" }).catch(() => {});
         sdkLog({ req, endpoint: "initiate-payment", statusCode: 500, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry, error: opResult.message });
         return res.status(500).json({ success: false, error: opResult.message || "Échec de l'initiation du paiement", code: "PAYMENT_INITIATION_FAILED" });
       }
 
       const waveUrl = opResult.payment_url || opResult.wave_launch_url || opResult.redirect_url;
       await storage.updateApiTransaction(transaction.id, { externalReference: `${orderId}|${opResult.transaction_id || orderId}` });
+      sendTransactionWebhook(transaction, "payment.processing", { fee: payinFee, requiresRedirect: isWave && !!waveUrl, redirectUrl: waveUrl || null, status: "processing" }).catch(() => {});
 
       sdkLog({ req, endpoint: "initiate-payment", statusCode: 200, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry, reference: transaction.reference });
       return res.json({
@@ -1047,11 +1097,13 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
 
     if (!spResult?.success) {
       await storage.updateApiTransaction(transaction.id, { status: "failed" });
+      sendTransactionWebhook(transaction, "payment.failed", { fee: payinFee, reason: spResult?.message || "Échec initiation SoleasPay", status: "failed" }).catch(() => {});
       sdkLog({ req, endpoint: "initiate-payment", statusCode: 500, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry, error: spResult?.message });
       return res.status(500).json({ success: false, error: spResult?.message || "Échec de l'initiation du paiement", code: "PAYMENT_INITIATION_FAILED" });
     }
 
     await storage.updateApiTransaction(transaction.id, { externalReference: `${orderId}|${spResult.payId || orderId}` });
+    sendTransactionWebhook(transaction, "payment.processing", { fee: payinFee, status: "processing" }).catch(() => {});
 
     sdkLog({ req, endpoint: "initiate-payment", statusCode: 200, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry, reference: transaction.reference });
     return res.json({
@@ -1063,6 +1115,16 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
   } catch (error: any) {
     console.error("[initiate-payment]", error);
     sdkLog({ req, endpoint: "initiate-payment", statusCode: 500, responseTimeMs: Date.now() - t0, error: error.message });
+    // Webhook payment.failed sur erreur inattendue (si transaction créée et callback_url configuré)
+    try {
+      if (req.body?.paymentToken) {
+        const failedTxn = await storage.getApiTransactionByToken(req.body.paymentToken).catch(() => null);
+        if (failedTxn && failedTxn.status !== "completed") {
+          await storage.updateApiTransaction(failedTxn.id, { status: "failed" }).catch(() => {});
+          sendTransactionWebhook(failedTxn, "payment.failed", { reason: error.message || "Erreur serveur", status: "failed" }).catch(() => {});
+        }
+      }
+    } catch (_) {}
     res.status(500).json({ success: false, error: error.message || "Erreur serveur", code: "SERVER_ERROR" });
   }
 });
