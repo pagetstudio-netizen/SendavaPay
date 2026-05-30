@@ -170,8 +170,13 @@ export async function markSdkWithdrawalFailed(entry: WithdrawalQueueEntry, wr: a
       mobileNumber:  txn.customerPhone || undefined,
     });
   } catch (e) { console.error("[sdk-withdrawal] Erreur création transaction admin (failed):", e); }
-  // Rembourser le wallet
-  try { if (wr.walletId) await storage.creditWalletById(wr.walletId, txn.amount); } catch (_) {}
+  // Rembourser le wallet : montant + frais (le débit initial était amount + fee)
+  try {
+    if (wr.walletId) {
+      const refundAmount = parseFloat((parseFloat(txn.amount) + parseFloat(txn.fee || "0")).toFixed(2));
+      await storage.creditWalletById(wr.walletId, refundAmount.toString());
+    }
+  } catch (_) {}
   if (entry.webhookUrl) {
     await sendWebhookWithRetry(entry.webhookUrl, {
       event: "payout.failed", reference: txn.reference, status: "failed",
@@ -1322,6 +1327,7 @@ interface WithdrawValidation {
   wallet?: any;
   fee?: number;
   netAmount?: number;
+  totalToDebit?: number;
   operatorStatus?: string;
 }
 
@@ -1383,14 +1389,15 @@ async function validateWithdrawal(
     } catch (_) {}
   }
 
-  const fee       = parseFloat((data.amount * sdkFeeRate / 100).toFixed(2));
-  const netAmount = data.amount - fee;
+  const fee          = parseFloat((data.amount * sdkFeeRate / 100).toFixed(2));
+  const netAmount    = data.amount; // Le destinataire reçoit le montant exact demandé
+  const totalToDebit = parseFloat((data.amount + fee).toFixed(2)); // Montant + frais débités du wallet marchand
 
-  if (walletBalance < data.amount) {
-    return { ok: false, code: "INSUFFICIENT_BALANCE", error: `Solde insuffisant. Disponible: ${walletBalance} ${countryInfo.currency}, requis: ${data.amount} ${countryInfo.currency}` };
+  if (walletBalance < totalToDebit) {
+    return { ok: false, code: "INSUFFICIENT_BALANCE", error: `Solde insuffisant. Disponible: ${walletBalance} ${countryInfo.currency}, requis: ${totalToDebit} ${countryInfo.currency} (${data.amount} + ${fee} de frais)` };
   }
 
-  return { ok: true, countryInfo, wallet: targetWallet, fee, netAmount, operatorStatus };
+  return { ok: true, countryInfo, wallet: targetWallet, fee, netAmount, totalToDebit, operatorStatus };
 }
 
 // ─── VALIDATE WITHDRAWAL (dry-run) ────────────────────────────────────────────
@@ -1420,7 +1427,8 @@ router.post("/v1/validate-withdrawal", checkApiMaintenance, authenticateSdkKey, 
         amount:         data.amount,
         currency:       v.countryInfo!.currency,
         fee:            v.fee,
-        netAmount:      v.netAmount,
+        netAmount:      v.netAmount,       // Montant reçu par le destinataire (= amount)
+        totalToDebit:   v.totalToDebit,    // Montant total débité du wallet marchand (amount + fee)
         walletBalance:  parseFloat(wallet?.balance || "0"),
         operatorStatus: v.operatorStatus,
         country:        data.country.toUpperCase(),
@@ -1609,11 +1617,12 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
       return res.status(400).json({ success: false, error: v.error, code: v.code });
     }
 
-    const { countryInfo, wallet: targetWallet, fee, netAmount } = v;
+    const { countryInfo, wallet: targetWallet, fee, netAmount, totalToDebit } = v;
     const reference = generateReference();
 
-    // Débit immédiat du wallet (protection double-spend)
-    await storage.debitWallet(targetWallet.id, data.amount.toString());
+    // Débit immédiat du wallet = montant + frais (protection double-spend)
+    // Le destinataire reçoit le montant exact, les frais sont prélevés en plus sur le wallet marchand
+    await storage.debitWallet(targetWallet.id, totalToDebit!.toString());
 
     const withdrawalRequest = await storage.createWithdrawalRequest({
       userId:        sdkUser.id,
@@ -1669,7 +1678,11 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
     if ((sdkKey as any).webhookUrl) {
       await sendWebhookWithRetry((sdkKey as any).webhookUrl, {
         event: "payout.queued", reference, status: "queued",
-        amount: data.amount, fee: fee!, netAmount: netAmount!, currency: data.currency,
+        amount: data.amount,
+        fee: fee!,
+        netAmount: netAmount!,       // Montant reçu par le destinataire (= amount)
+        totalToDebit: totalToDebit!, // Montant total débité du wallet marchand (amount + fee)
+        currency: data.currency,
         phoneNumber: data.phoneNumber, operator: data.operator, country: countryUpper,
         createdAt: new Date().toISOString(),
       }, (sdkKey as any).webhookSecret, reference, sdkTxn.id);
@@ -1683,7 +1696,8 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
         externalReference: data.externalReference || null,
         amount:        data.amount,
         fee:           fee!,
-        netAmount:     netAmount!,
+        netAmount:     netAmount!,         // Montant reçu par le destinataire (= amount)
+        totalToDebit:  totalToDebit!,      // Montant total débité du wallet marchand (amount + fee)
         currency:      data.currency,
         phoneNumber:   data.phoneNumber,
         operator:      data.operator,
@@ -1691,7 +1705,7 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
         countryName:   countryInfo!.countryName,
         status:        "queued",
         statusLabel:   "En file d'attente",
-        walletBalance: parseFloat(targetWallet.balance) - data.amount,
+        walletBalance: parseFloat((parseFloat(targetWallet.balance) - totalToDebit!).toFixed(2)),
         trackingUrl:   `GET /api/sdk/v1/withdrawal-status/${reference}`,
         message:       "Retrait mis en file d'attente. Utilisez trackingUrl pour suivre l'avancement.",
         createdAt:     new Date().toISOString(),
