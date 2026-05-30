@@ -829,10 +829,27 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
     const orderId     = `API_${transaction.reference}_${Date.now()}`;
     const baseUrl     = process.env.APP_URL || process.env.SITE_URL || "https://sendavapay.com";
 
+    // ── Calcul du fee payin SDK ──────────────────────────────────────────────
+    // Priorité : customApiPaymentFeeRate (utilisateur) → encaissementRate (global)
+    let payinFeeRate = 5; // fallback ultime
+    try {
+      const [txUser, commSettings] = await Promise.all([
+        storage.getUser(transaction.userId!),
+        storage.getCommissionSettings(),
+      ]);
+      if ((txUser as any)?.customApiPaymentFeeRate != null) {
+        payinFeeRate = parseFloat((txUser as any).customApiPaymentFeeRate);
+      } else {
+        payinFeeRate = parseFloat((commSettings as any)?.encaissementRate || "5");
+      }
+    } catch (_) {}
+    const payinFee = parseFloat((amount * payinFeeRate / 100).toFixed(2));
+
     await storage.updateApiTransaction(transaction.id, {
       customerName:  data.payerName,
       customerPhone: data.payerPhone,
       customerEmail: data.payerEmail || null,
+      fee:           payinFee.toString(),
       paymentMethod: paymentGateway === "omnipay"
         ? `omnipay_${service.operator}`
         : paymentGateway === "paydunya"
@@ -1308,7 +1325,18 @@ async function validateWithdrawal(
   }
 
   const walletBalance = parseFloat(targetWallet.balance);
-  const sdkFeeRate    = (sdkUser as any).customApiSdkFeeRate != null ? parseFloat((sdkUser as any).customApiSdkFeeRate) : 1;
+
+  // Priorité fee payout : customApiSdkFeeRate (utilisateur) → encaissementRate (global)
+  let sdkFeeRate = 5; // fallback ultime
+  if ((sdkUser as any).customApiSdkFeeRate != null) {
+    sdkFeeRate = parseFloat((sdkUser as any).customApiSdkFeeRate);
+  } else {
+    try {
+      const commSettings = await storage.getCommissionSettings();
+      sdkFeeRate = parseFloat((commSettings as any)?.encaissementRate || "5");
+    } catch (_) {}
+  }
+
   const fee       = parseFloat((data.amount * sdkFeeRate / 100).toFixed(2));
   const netAmount = data.amount - fee;
 
