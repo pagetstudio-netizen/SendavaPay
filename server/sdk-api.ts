@@ -119,76 +119,265 @@ interface WithdrawalQueueEntry {
 }
 const withdrawalQueue: WithdrawalQueueEntry[] = [];
 
+// Mark SDK withdrawal as completed: update DB + admin history + send webhook
+async function markSdkWithdrawalCompleted(entry: WithdrawalQueueEntry, txn: any): Promise<void> {
+  if (txn.status === "completed") return; // idempotency
+  await storage.updateApiTransaction(txn.id, { status: "completed", completedAt: new Date() });
+  try {
+    const txAmt = parseFloat(txn.amount);
+    const txFee = parseFloat(txn.fee || "0");
+    await storage.createTransaction({
+      userId:        txn.userId,
+      type:          "withdrawal",
+      amount:        txAmt.toString(),
+      fee:           txFee.toString(),
+      netAmount:     (txAmt + txFee).toString(),
+      status:        "completed",
+      description:   txn.description || `Retrait API SDK vers ${txn.customerPhone || ""}`,
+      externalRef:   txn.reference,
+      paymentMethod: txn.paymentMethod || "sdk_payout",
+      mobileNumber:  txn.customerPhone || undefined,
+    });
+  } catch (e) { console.error("[sdk-withdrawal] Erreur création transaction admin:", e); }
+  if (entry.webhookUrl) {
+    await sendWebhookWithRetry(entry.webhookUrl, {
+      event: "payout.completed", reference: txn.reference, status: "completed",
+      amount: txn.amount, currency: txn.currency, phoneNumber: txn.customerPhone,
+      completedAt: new Date().toISOString(),
+    }, entry.webhookSecret, txn.reference, txn.id);
+  }
+  console.log(`✅ [sdk-withdrawal] Retrait ${txn.reference} complété — ${txn.amount} ${txn.currency} → ${txn.customerPhone}`);
+}
+
+// Mark SDK withdrawal as failed: update DB + admin history + refund wallet + send webhook
+async function markSdkWithdrawalFailed(entry: WithdrawalQueueEntry, wr: any, txn: any, reason: string): Promise<void> {
+  if (txn.status === "failed") return; // idempotency
+  await storage.updateApiTransaction(txn.id, { status: "failed" });
+  await storage.updateWithdrawalRequest(wr.id, { status: "failed", rejectionReason: reason }).catch(() => {});
+  try {
+    const txAmt = parseFloat(txn.amount);
+    const txFee = parseFloat(txn.fee || "0");
+    await storage.createTransaction({
+      userId:        txn.userId,
+      type:          "withdrawal",
+      amount:        txAmt.toString(),
+      fee:           txFee.toString(),
+      netAmount:     (txAmt + txFee).toString(),
+      status:        "failed",
+      description:   txn.description || `Retrait API SDK échoué vers ${txn.customerPhone || ""}`,
+      externalRef:   txn.reference,
+      paymentMethod: txn.paymentMethod || "sdk_payout",
+      mobileNumber:  txn.customerPhone || undefined,
+    });
+  } catch (e) { console.error("[sdk-withdrawal] Erreur création transaction admin (failed):", e); }
+  // Rembourser le wallet
+  try { if (wr.walletId) await storage.creditWalletById(wr.walletId, txn.amount); } catch (_) {}
+  if (entry.webhookUrl) {
+    await sendWebhookWithRetry(entry.webhookUrl, {
+      event: "payout.failed", reference: txn.reference, status: "failed",
+      amount: txn.amount, currency: txn.currency, reason,
+      failedAt: new Date().toISOString(),
+    }, entry.webhookSecret, txn.reference, txn.id);
+  }
+  console.warn(`❌ [sdk-withdrawal] Retrait ${txn.reference} échoué — raison: ${reason}`);
+}
+
+// Dispatch SDK withdrawal to the appropriate payment gateway
+export async function autoDispatchSdkWithdrawal(
+  entry: WithdrawalQueueEntry,
+  wr: any,
+  txn: any,
+): Promise<void> {
+  // Guard: only dispatch pending withdrawals
+  if (wr.status !== "pending") return;
+
+  const appUrl      = process.env.APP_URL || process.env.SITE_URL || "https://sendavapay.com";
+  const netAmount   = parseFloat(wr.netAmount || txn.amount);
+  const mobileNumber = wr.mobileNumber;
+  const currency    = txn.currency || "XOF";
+  const countryCode = (wr.country || "").toUpperCase();
+
+  // Look up operator in DB to detect gateway
+  let gateway = "soleaspay"; // default fallback
+  let operatorName = wr.paymentMethod || "";
+  try {
+    const countries = await storage.getCountries();
+    const operators = await storage.getOperators();
+    const selectedCountry = countries.find((c: any) => c.code.toUpperCase() === countryCode);
+    if (selectedCountry) {
+      const countryOps = operators.filter((op: any) => op.countryId === selectedCountry.id);
+      const selectedOperator = countryOps.find((op: any) =>
+        op.name.toLowerCase() === operatorName.toLowerCase() ||
+        op.code === operatorName
+      );
+      if (selectedOperator?.paymentGateway) gateway = selectedOperator.paymentGateway;
+      if (selectedOperator?.name) operatorName = selectedOperator.name;
+    }
+  } catch (e) {
+    console.warn("[sdk-withdrawal] Erreur lookup opérateur, fallback SoleasPay:", e);
+  }
+
+  console.log(`[sdk-withdrawal] Dispatch ref=${txn.reference} opérateur="${operatorName}" pays=${countryCode} gateway="${gateway}" montant=${netAmount} ${currency} → ${mobileNumber}`);
+
+  // Mark as dispatching (prevents double-dispatch on concurrent queue runs)
+  await storage.updateWithdrawalRequest(wr.id, { status: "processing" }).catch(() => {});
+  await storage.updateApiTransaction(txn.id, { status: "processing" }).catch(() => {});
+
+  // ─── PayDunya ──────────────────────────────────────────────────────────────
+  if (gateway === "paydunya") {
+    try {
+      const { payDunyaDisburse, formatPhoneForPayDunya, getPayDunyaWithdrawMode } = await import("./paydunya");
+      const withdrawMode = getPayDunyaWithdrawMode(operatorName, countryCode);
+      if (!withdrawMode) {
+        await markSdkWithdrawalFailed(entry, wr, txn, `Mode retrait PayDunya introuvable pour ${operatorName}/${countryCode}`);
+        return;
+      }
+      const cleanPhone = formatPhoneForPayDunya(mobileNumber, countryCode);
+      const pdRef = `PD-WD-SDK-${wr.id}-${Date.now()}`;
+      const pdResult = await payDunyaDisburse({
+        accountAlias: cleanPhone,
+        amount:       netAmount,
+        withdrawMode,
+        callbackUrl:  `${appUrl}/api/webhook/paydunya`,
+        disburseId:   pdRef,
+      });
+      if (!pdResult.success) {
+        await markSdkWithdrawalFailed(entry, wr, txn, pdResult.error || "Échec PayDunya disburse");
+        return;
+      }
+      await storage.updateWithdrawalRequest(wr.id, {
+        externalReference:    pdRef,
+        transactionReference: pdResult.transactionId || null,
+        status:               pdResult.status === "success" ? "approved" : "processing",
+      }).catch(() => {});
+      if (pdResult.status === "success") {
+        await markSdkWithdrawalCompleted(entry, txn);
+      } else {
+        withdrawalQueue.push(entry); // En attente du webhook PayDunya
+      }
+    } catch (e: any) {
+      await markSdkWithdrawalFailed(entry, wr, txn, `Erreur PayDunya: ${e?.message || e}`);
+    }
+    return;
+  }
+
+  // ─── OmniPay ───────────────────────────────────────────────────────────────
+  if (gateway === "omnipay") {
+    try {
+      const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
+      const opOperator = getOmnipayOperator(operatorName);
+      const cleanPhone = formatPhoneForOmnipay(mobileNumber, countryCode);
+      const opRef = `WD-SDK-${wr.id}-${Date.now()}`;
+      const nameParts = (wr.walletName || "Client").split(" ");
+      const opResult = await opClient.transfer({
+        msisdn:    cleanPhone,
+        amount:    netAmount,
+        reference: opRef,
+        firstName: nameParts[0],
+        lastName:  nameParts.slice(1).join(" ") || nameParts[0],
+        operator:  opOperator ?? undefined,
+      });
+      await storage.updateWithdrawalRequest(wr.id, {
+        externalReference:    opRef,
+        transactionReference: opResult.id?.toString() || null,
+      }).catch(() => {});
+      if (String(opResult.success) === "1") {
+        withdrawalQueue.push(entry); // En attente du webhook OmniPay
+      } else {
+        await markSdkWithdrawalFailed(entry, wr, txn, opResult.message || "Échec OmniPay transfer");
+      }
+    } catch (e: any) {
+      await markSdkWithdrawalFailed(entry, wr, txn, `Erreur OmniPay: ${e?.message || e}`);
+    }
+    return;
+  }
+
+  // ─── MbiyoPay ──────────────────────────────────────────────────────────────
+  if (gateway === "mbiyopay") {
+    try {
+      const { mbiyopay: mbClient, getMbiyoNetwork, getMbiyoCurrency, formatPhoneForMbiyo } = await import("./mbiyopay");
+      const network  = getMbiyoNetwork(operatorName, countryCode);
+      if (!network) {
+        await markSdkWithdrawalFailed(entry, wr, txn, `Réseau MbiyoPay introuvable pour ${operatorName}/${countryCode}`);
+        return;
+      }
+      const mbCurrency     = getMbiyoCurrency(countryCode);
+      const formattedPhone = formatPhoneForMbiyo(mobileNumber, countryCode);
+      const mbRef = `mb-wd-sdk-${wr.id}-${Date.now()}`;
+      const mbResult = await mbClient.payout({
+        amount:      netAmount,
+        currency:    mbCurrency,
+        network,
+        phoneNumber: formattedPhone,
+        countryCode,
+        orderId:     mbRef,
+        callbackUrl: `${appUrl}/api/webhook/mbiyopay`,
+        beneficiary: wr.walletName || "Client",
+      });
+      if (mbResult.status === "success" && mbResult.data) {
+        await storage.updateWithdrawalRequest(wr.id, {
+          externalReference:    mbRef,
+          transactionReference: mbResult.data.transaction_id || null,
+        }).catch(() => {});
+        withdrawalQueue.push(entry); // En attente du webhook MbiyoPay
+      } else {
+        await markSdkWithdrawalFailed(entry, wr, txn, mbResult.message || "Échec MbiyoPay payout");
+      }
+    } catch (e: any) {
+      await markSdkWithdrawalFailed(entry, wr, txn, `Erreur MbiyoPay: ${e?.message || e}`);
+    }
+    return;
+  }
+
+  // ─── SoleasPay (défaut) ────────────────────────────────────────────────────
+  try {
+    const { soleaspay, getWithdrawableServiceByCountryAndOperator } = await import("./soleaspay");
+    const service = getWithdrawableServiceByCountryAndOperator(countryCode, operatorName);
+    if (!service) {
+      await markSdkWithdrawalFailed(entry, wr, txn, `Opérateur SoleasPay introuvable pour ${operatorName}/${countryCode}`);
+      return;
+    }
+    const spResult = await soleaspay.withdraw({
+      wallet:    mobileNumber,
+      amount:    netAmount,
+      currency,
+      serviceId: service.id,
+    });
+    if (!spResult.success) {
+      await markSdkWithdrawalFailed(entry, wr, txn, spResult.message || "Échec SoleasPay withdraw");
+      return;
+    }
+    const extRef = spResult.data?.external_reference || spResult.data?.reference || `SP-WD-SDK-${wr.id}`;
+    await storage.updateWithdrawalRequest(wr.id, { externalReference: extRef }).catch(() => {});
+    withdrawalQueue.push(entry); // En attente du webhook SoleasPay
+  } catch (e: any) {
+    await markSdkWithdrawalFailed(entry, wr, txn, `Erreur SoleasPay: ${e?.message || e}`);
+  }
+}
+
 async function processWithdrawalQueue(): Promise<void> {
   if (!withdrawalQueue.length) return;
   const entries = withdrawalQueue.splice(0, 10);
   for (const entry of entries) {
     try {
       const txn = await storage.getApiTransactionByReference(entry.sdkTransactionRef);
-      if (!txn || (txn.status !== "queued" && txn.status !== "processing")) continue;
+      if (!txn || txn.status === "completed" || txn.status === "failed") continue;
 
       const wr = await storage.getWithdrawalRequest(entry.withdrawalRequestId);
       if (!wr) { await storage.updateApiTransaction(txn.id, { status: "failed" }); continue; }
 
-      if (wr.status === "approved" || wr.status === "processing") {
+      if (wr.status === "pending") {
+        // BUG FIX: appeler la passerelle au lieu de re-queuer indéfiniment
+        await autoDispatchSdkWithdrawal(entry, wr, txn);
+      } else if (wr.status === "processing") {
+        // En attente du webhook passerelle — re-queuer
         if (txn.status !== "processing") await storage.updateApiTransaction(txn.id, { status: "processing" });
         withdrawalQueue.push(entry);
-      } else if (wr.status === "completed") {
-        await storage.updateApiTransaction(txn.id, { status: "completed", completedAt: new Date() });
-        // Créer une entrée visible dans l'historique admin
-        try {
-          const txAmt = parseFloat(txn.amount);
-          const txFee = parseFloat(txn.fee || "0");
-          await storage.createTransaction({
-            userId:        txn.userId,
-            type:          "withdrawal",
-            amount:        txAmt.toString(),
-            fee:           txFee.toString(),
-            netAmount:     (txAmt + txFee).toString(),
-            status:        "completed",
-            description:   txn.description || `Retrait API SDK vers ${txn.customerPhone || ""}`,
-            externalRef:   txn.reference,
-            paymentMethod: txn.paymentMethod || "sdk_payout",
-            mobileNumber:  txn.customerPhone || undefined,
-          });
-        } catch (e) { console.error("[sdk-withdrawal-queue] Erreur création transaction admin:", e); }
-        if (entry.webhookUrl) {
-          await sendWebhookWithRetry(entry.webhookUrl, {
-            event: "payout.completed", reference: txn.reference, status: "completed",
-            amount: txn.amount, currency: txn.currency, phoneNumber: txn.customerPhone,
-            completedAt: new Date().toISOString(),
-          }, entry.webhookSecret, txn.reference, txn.id);
-        }
+      } else if (wr.status === "completed" || wr.status === "approved") {
+        // BUG FIX: "approved" = passerelle confirmée = compléter (SoleasPay marque "approved", pas "completed")
+        await markSdkWithdrawalCompleted(entry, txn);
       } else if (wr.status === "rejected" || wr.status === "failed") {
-        await storage.updateApiTransaction(txn.id, { status: "failed" });
-        // Créer une entrée visible dans l'historique admin (retrait échoué)
-        try {
-          const txAmt = parseFloat(txn.amount);
-          const txFee = parseFloat(txn.fee || "0");
-          await storage.createTransaction({
-            userId:        txn.userId,
-            type:          "withdrawal",
-            amount:        txAmt.toString(),
-            fee:           txFee.toString(),
-            netAmount:     (txAmt + txFee).toString(),
-            status:        "failed",
-            description:   txn.description || `Retrait API SDK échoué vers ${txn.customerPhone || ""}`,
-            externalRef:   txn.reference,
-            paymentMethod: txn.paymentMethod || "sdk_payout",
-            mobileNumber:  txn.customerPhone || undefined,
-          });
-        } catch (e) { console.error("[sdk-withdrawal-queue] Erreur création transaction admin (failed):", e); }
-        try {
-          await storage.creditWalletById((wr as any).walletId, txn.amount);
-        } catch (_) {}
-        if (entry.webhookUrl) {
-          await sendWebhookWithRetry(entry.webhookUrl, {
-            event: "payout.failed", reference: txn.reference, status: "failed",
-            amount: txn.amount, currency: txn.currency, completedAt: new Date().toISOString(),
-          }, entry.webhookSecret, txn.reference, txn.id);
-        }
-      } else {
-        withdrawalQueue.push(entry);
+        await markSdkWithdrawalFailed(entry, wr, txn, (wr as any).rejectionReason || "Retrait rejeté");
       }
     } catch (err) {
       console.error("[sdk-withdrawal-queue]", err);
@@ -1381,12 +1570,20 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
       userAgent:         req.get("User-Agent") || null,
     } as any);
 
-    // Enqueue pour traitement asynchrone
-    withdrawalQueue.push({
+    // Enqueue pour traitement asynchrone (et retry)
+    const queueEntry: WithdrawalQueueEntry = {
       sdkTransactionRef:   reference,
       withdrawalRequestId: withdrawalRequest.id,
       webhookUrl:          (sdkKey as any).webhookUrl || null,
       webhookSecret:       (sdkKey as any).webhookSecret || null,
+    };
+    withdrawalQueue.push(queueEntry);
+
+    // Déclenchement immédiat vers la passerelle (sans attendre les 60s de la queue)
+    setImmediate(() => {
+      autoDispatchSdkWithdrawal(queueEntry, withdrawalRequest, sdkTxn).catch(err =>
+        console.error("[sdk-withdrawal] Erreur dispatch immédiat:", err)
+      );
     });
 
     // Webhook immédiat : payout.queued
