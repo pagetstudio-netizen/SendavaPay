@@ -1121,6 +1121,60 @@ export async function registerRoutes(
     }
   });
 
+  // ── Pays disponibles pour le dépôt (utilisés par la page dépôt) ──────────
+  app.get("/api/soleaspay/countries", async (_req, res) => {
+    try {
+      let inactiveSet = new Set<string>();
+      try {
+        const dbCountries = await storage.getCountries();
+        inactiveSet = new Set(dbCountries.filter((c: any) => c.isActive === false).map((c: any) => c.code.toUpperCase()));
+      } catch { /* table may not exist yet — return all static countries */ }
+
+      const data = SOLEASPAY_COUNTRIES
+        .filter(c => !inactiveSet.has(c.code.toUpperCase()))
+        .filter(c => SOLEASPAY_SERVICES.some(s => s.countryCode.toUpperCase() === c.code.toUpperCase()));
+      res.json(data);
+    } catch (error) {
+      console.error("Get soleaspay countries error:", error);
+      res.json(SOLEASPAY_COUNTRIES);
+    }
+  });
+
+  // ── Opérateurs par pays pour le dépôt ────────────────────────────────────
+  app.get("/api/soleaspay/services/:countryCode", async (req, res) => {
+    try {
+      const countryCode = req.params.countryCode.toUpperCase();
+      const services    = getServicesByCountry(countryCode);
+
+      let dbOperators: any[] = [];
+      try {
+        dbOperators = await storage.getOperators();
+      } catch { /* table may not exist yet — use static data only */ }
+
+      const data = services.map(service => {
+        const dbOp          = dbOperators.find((op: any) => op.code === service.id.toString());
+        const gateway       = dbOp?.paymentGateway || service.paymentGateway || "soleaspay";
+        const inMaintenance = !!(dbOp?.inMaintenance || dbOp?.maintenanceApi);
+        return {
+          id:             service.id,
+          name:           service.name,
+          description:    service.description,
+          country:        service.country,
+          countryCode:    service.countryCode,
+          currency:       service.currency,
+          operator:       service.operator,
+          paymentGateway: gateway,
+          inMaintenance,
+        };
+      });
+
+      res.json(data);
+    } catch (error) {
+      console.error("Get soleaspay services error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   app.post("/api/deposit-soleaspay", requireAuth, async (req, res) => {
     try {
       const { amount, serviceId, phoneNumber, otp } = req.body;
