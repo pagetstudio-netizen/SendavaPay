@@ -111,7 +111,7 @@ async function processWebhookQueue(): Promise<void> {
 setInterval(processWebhookQueue, 30_000);
 
 // ─── Withdrawal Processing Queue ──────────────────────────────────────────────
-interface WithdrawalQueueEntry {
+export interface WithdrawalQueueEntry {
   sdkTransactionRef: string;
   withdrawalRequestId: number;
   webhookUrl: string | null;
@@ -120,7 +120,7 @@ interface WithdrawalQueueEntry {
 const withdrawalQueue: WithdrawalQueueEntry[] = [];
 
 // Mark SDK withdrawal as completed: update DB + admin history + send webhook
-async function markSdkWithdrawalCompleted(entry: WithdrawalQueueEntry, txn: any): Promise<void> {
+export async function markSdkWithdrawalCompleted(entry: WithdrawalQueueEntry, txn: any): Promise<void> {
   if (txn.status === "completed") return; // idempotency
   await storage.updateApiTransaction(txn.id, { status: "completed", completedAt: new Date() });
   try {
@@ -150,7 +150,7 @@ async function markSdkWithdrawalCompleted(entry: WithdrawalQueueEntry, txn: any)
 }
 
 // Mark SDK withdrawal as failed: update DB + admin history + refund wallet + send webhook
-async function markSdkWithdrawalFailed(entry: WithdrawalQueueEntry, wr: any, txn: any, reason: string): Promise<void> {
+export async function markSdkWithdrawalFailed(entry: WithdrawalQueueEntry, wr: any, txn: any, reason: string): Promise<void> {
   if (txn.status === "failed") return; // idempotency
   await storage.updateApiTransaction(txn.id, { status: "failed" });
   await storage.updateWithdrawalRequest(wr.id, { status: "failed", rejectionReason: reason }).catch(() => {});
@@ -197,8 +197,8 @@ export async function autoDispatchSdkWithdrawal(
   const currency    = txn.currency || "XOF";
   const countryCode = (wr.country || "").toUpperCase();
 
-  // Look up operator in DB to detect gateway
-  let gateway = "soleaspay"; // default fallback
+  // Look up operator in DB to detect gateway, fallback to static SOLEASPAY_SERVICES list
+  let gateway = ""; // empty = not yet resolved
   let operatorName = wr.paymentMethod || "";
   try {
     const countries = await storage.getCountries();
@@ -214,7 +214,17 @@ export async function autoDispatchSdkWithdrawal(
       if (selectedOperator?.name) operatorName = selectedOperator.name;
     }
   } catch (e) {
-    console.warn("[sdk-withdrawal] Erreur lookup opérateur, fallback SoleasPay:", e);
+    console.warn("[sdk-withdrawal] Erreur lookup opérateur DB:", e);
+  }
+
+  // Fallback: look up in static SOLEASPAY_SERVICES list
+  if (!gateway) {
+    const staticService = SOLEASPAY_SERVICES.find(s =>
+      s.countryCode.toUpperCase() === countryCode &&
+      s.operator.toLowerCase() === operatorName.toLowerCase()
+    );
+    gateway = staticService?.paymentGateway || "soleaspay";
+    console.log(`[sdk-withdrawal] Gateway détecté via liste statique: ${gateway} (opérateur=${operatorName}, pays=${countryCode})`);
   }
 
   console.log(`[sdk-withdrawal] Dispatch ref=${txn.reference} opérateur="${operatorName}" pays=${countryCode} gateway="${gateway}" montant=${netAmount} ${currency} → ${mobileNumber}`);
@@ -356,7 +366,7 @@ export async function autoDispatchSdkWithdrawal(
 }
 
 async function processWithdrawalQueue(): Promise<void> {
-  if (!withdrawalQueue.length) return;
+  // ── Traiter les entrées en mémoire ───────────────────────────────────────
   const entries = withdrawalQueue.splice(0, 10);
   for (const entry of entries) {
     try {
@@ -367,14 +377,11 @@ async function processWithdrawalQueue(): Promise<void> {
       if (!wr) { await storage.updateApiTransaction(txn.id, { status: "failed" }); continue; }
 
       if (wr.status === "pending") {
-        // BUG FIX: appeler la passerelle au lieu de re-queuer indéfiniment
         await autoDispatchSdkWithdrawal(entry, wr, txn);
       } else if (wr.status === "processing") {
-        // En attente du webhook passerelle — re-queuer
         if (txn.status !== "processing") await storage.updateApiTransaction(txn.id, { status: "processing" });
         withdrawalQueue.push(entry);
       } else if (wr.status === "completed" || wr.status === "approved") {
-        // BUG FIX: "approved" = passerelle confirmée = compléter (SoleasPay marque "approved", pas "completed")
         await markSdkWithdrawalCompleted(entry, txn);
       } else if (wr.status === "rejected" || wr.status === "failed") {
         await markSdkWithdrawalFailed(entry, wr, txn, (wr as any).rejectionReason || "Retrait rejeté");
@@ -382,6 +389,45 @@ async function processWithdrawalQueue(): Promise<void> {
     } catch (err) {
       console.error("[sdk-withdrawal-queue]", err);
     }
+  }
+
+  // ── Recovery : récupérer les retraits SDK orphelins après redémarrage ────
+  // (api_transactions type=payout, status=processing, pas déjà dans la queue)
+  try {
+    const queuedRefs = new Set(withdrawalQueue.map(e => e.sdkTransactionRef));
+    const allSdkTxns = await storage.getApiTransactionsByType?.("payout").catch(() => null);
+    if (allSdkTxns) {
+      const orphans = allSdkTxns.filter((t: any) =>
+        (t.status === "processing" || t.status === "pending") && !queuedRefs.has(t.reference)
+      );
+      for (const orphan of orphans.slice(0, 5)) {
+        // Find linked withdrawal_request via transactionReference
+        const allWrs = await storage.getAllWithdrawalRequests().catch(() => []);
+        const linkedWr = allWrs.find((r: any) => r.transactionReference === orphan.reference);
+        if (!linkedWr) continue;
+
+        const apiKey = orphan.apiKeyId ? await storage.getApiKeyById(Number(orphan.apiKeyId)).catch(() => null) : null;
+        const recoveredEntry: WithdrawalQueueEntry = {
+          sdkTransactionRef:   orphan.reference,
+          withdrawalRequestId: linkedWr.id,
+          webhookUrl:          (apiKey as any)?.webhookUrl || null,
+          webhookSecret:       (apiKey as any)?.webhookSecret || null,
+        };
+
+        if (linkedWr.status === "approved" || linkedWr.status === "completed") {
+          console.log(`🔄 [sdk-recovery] Retrait orphelin ${orphan.reference} → complétion`);
+          await markSdkWithdrawalCompleted(recoveredEntry, orphan);
+        } else if (linkedWr.status === "pending" && orphan.status === "pending") {
+          console.log(`🔄 [sdk-recovery] Retrait orphelin ${orphan.reference} → re-dispatch`);
+          withdrawalQueue.push(recoveredEntry);
+        } else {
+          // Processing → re-queue en attente du webhook passerelle
+          withdrawalQueue.push(recoveredEntry);
+        }
+      }
+    }
+  } catch (recoveryErr) {
+    // Recovery optionnel — ne pas crasher la queue principale
   }
 }
 setInterval(processWithdrawalQueue, 60_000);
@@ -1597,6 +1643,11 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
       ipAddress:         req.ip || null,
       userAgent:         req.get("User-Agent") || null,
     } as any);
+
+    // Lier withdrawal_request ↔ api_transaction pour la récupération après redémarrage
+    await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+      transactionReference: reference,
+    }).catch(() => {});
 
     // Enqueue pour traitement asynchrone (et retry)
     const queueEntry: WithdrawalQueueEntry = {

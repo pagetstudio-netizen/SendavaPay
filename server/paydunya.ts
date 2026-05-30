@@ -279,6 +279,9 @@ export function getPayDunyaWithdrawMode(operatorName: string, countryCode: strin
     if (cc === "bf") return "orange-money-burkina";
     if (cc === "ci") return "orange-money-ci";
   }
+  if (nameOnly.includes("orange")) {
+    if (cc === "cm") return "orange-money-cameroun";
+  }
   if (nameOnly.includes("mtn")) {
     if (cc === "bj") return "mtn-benin";
     if (cc === "ci") return "mtn-ci";

@@ -8377,6 +8377,45 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
           return;
         }
 
+        // ── Cas SDK : withdrawal_request lié à une api_transaction (payout SDK) ──
+        const sdkRef = withdrawalReq.transactionReference;
+        const isSdkWithdrawal = typeof sdkRef === "string" && sdkRef.startsWith("sdk_");
+        if (isSdkWithdrawal) {
+          console.log(`📥 PayDunya disburse webhook: retrait SDK détecté → ref=${sdkRef}`);
+          try {
+            const { markSdkWithdrawalCompleted: _sdkComplete, markSdkWithdrawalFailed: _sdkFail } = await import("./sdk-api");
+            const sdkTxn = await storage.getApiTransactionByReference(sdkRef);
+            if (sdkTxn) {
+              // Rebuild webhook entry from api_key
+              const sdkApiKey = sdkTxn.apiKeyId ? await storage.getApiKeyById(Number(sdkTxn.apiKeyId)).catch(() => null) : null;
+              const sdkEntry = {
+                sdkTransactionRef:   sdkRef,
+                withdrawalRequestId: withdrawalReq.id,
+                webhookUrl:          (sdkApiKey as any)?.webhookUrl || null,
+                webhookSecret:       (sdkApiKey as any)?.webhookSecret || null,
+              };
+              if (disburseStatus === "success") {
+                await storage.updateWithdrawalRequest(withdrawalReq.id, {
+                  status: "approved",
+                  processedAt: new Date(),
+                  transactionReference: sdkRef,
+                });
+                await _sdkComplete(sdkEntry, sdkTxn);
+                console.log(`✅ PayDunya webhook: retrait SDK ${sdkRef} complété et webhook marchand envoyé`);
+              } else if (disburseStatus === "failed") {
+                await _sdkFail(sdkEntry, withdrawalReq, sdkTxn, `PayDunya disbursement échoué (${transactionId || "N/A"})`);
+                console.log(`❌ PayDunya webhook: retrait SDK ${sdkRef} échoué — wallet remboursé, webhook marchand envoyé`);
+              }
+            } else {
+              console.warn(`⚠️ PayDunya disburse SDK: api_transaction introuvable pour ref=${sdkRef}`);
+            }
+          } catch (e) {
+            console.error("[PayDunya webhook SDK] Erreur completion SDK:", e);
+          }
+          return;
+        }
+
+        // ── Cas standard : retrait utilisateur classique ────────────────────
         if (disburseStatus === "success") {
           await storage.updateWithdrawalRequest(withdrawalReq.id, {
             status: "approved",
