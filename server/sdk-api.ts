@@ -231,7 +231,10 @@ export async function autoDispatchSdkWithdrawal(
   if (wr.status !== "pending") return;
 
   const appUrl      = process.env.APP_URL || process.env.SITE_URL || "https://sendavapay.com";
-  const netAmount   = parseFloat(wr.netAmount || txn.amount);
+  // Toujours envoyer le montant COMPLET demandé par le marchand au destinataire.
+  // Les frais ont déjà été débités du wallet marchand au moment de la création du retrait.
+  // Ne jamais utiliser wr.netAmount qui peut contenir amount-fee (ancienne logique).
+  const netAmount   = parseFloat(txn.amount);
   const mobileNumber = wr.mobileNumber;
   const currency    = txn.currency || "XOF";
   const countryCode = (wr.country || "").toUpperCase();
@@ -1567,7 +1570,7 @@ router.get("/v1/withdrawal-status/:reference", checkApiMaintenance, authenticate
         statusLabel:       WITHDRAWAL_STATUS_LABELS[transaction.status] || transaction.status,
         amount:            transaction.amount,
         fee:               transaction.fee,
-        netAmount:         (parseFloat(transaction.amount) - parseFloat(transaction.fee || "0")).toFixed(2),
+        netAmount:         transaction.amount, // Le destinataire reçoit le montant complet
         currency:          transaction.currency,
         phoneNumber:       transaction.customerPhone,
         paymentMethod:     transaction.paymentMethod,
@@ -1657,7 +1660,7 @@ router.get("/v1/withdrawals", checkApiMaintenance, authenticateSdkKey, async (re
           statusLabel:       WITHDRAWAL_STATUS_LABELS[t.status] || t.status,
           amount:            t.amount,
           fee:               t.fee,
-          netAmount:         (parseFloat(t.amount) - parseFloat(t.fee || "0")).toFixed(2),
+          netAmount:         t.amount, // Le destinataire reçoit le montant complet
           currency:          t.currency,
           phoneNumber:       t.customerPhone,
           paymentMethod:     t.paymentMethod,
