@@ -260,7 +260,7 @@ export interface IStorage {
   syncWalletsFromTransactions(userId: number): Promise<void>;
   getOrCreateWallet(userId: number, countryCode: string, countryName: string, currency: string): Promise<Wallet>;
   creditWallet(userId: number, countryCode: string, countryName: string, currency: string, amount: string): Promise<void>;
-  debitWallet(walletId: number, amount: string): Promise<boolean>;
+  debitWallet(walletId: number, amount: string): Promise<{ success: boolean; balanceBefore: number; balanceAfter: number } | false>;
   creditWalletById(walletId: number, amount: string): Promise<void>;
   getWalletById(walletId: number): Promise<Wallet | undefined>;
   createWalletExchange(data: { userId: number; fromWalletId: number; toWalletId: number; fromCountryCode: string; toCountryCode: string; currency: string; amount: string }): Promise<WalletExchange>;
@@ -1368,14 +1368,29 @@ export class DatabaseStorage implements IStorage {
       .where(eq(wallets.id, wallet.id));
   }
 
-  async debitWallet(walletId: number, amount: string): Promise<boolean> {
-    const [wallet] = await getDb().select().from(wallets).where(eq(wallets.id, walletId));
-    if (!wallet || parseFloat(wallet.balance) < parseFloat(amount)) return false;
-    const result = await getDb().update(wallets)
-      .set({ balance: sql`GREATEST(0, ${wallets.balance} - ${amount}::decimal)`, updatedAt: new Date() })
-      .where(and(eq(wallets.id, walletId), sql`${wallets.balance} >= ${amount}::decimal`))
-      .returning({ balance: wallets.balance });
-    return result.length > 0;
+  async debitWallet(walletId: number, amount: string): Promise<{ success: boolean; balanceBefore: number; balanceAfter: number } | false> {
+    // Atomique : un seul UPDATE avec WHERE balance >= amount.
+    // On récupère le solde avant ET après en une seule transaction SQL.
+    const result = await getDb().execute(
+      sql`UPDATE wallets
+          SET balance    = balance - ${amount}::decimal,
+              updated_at = NOW()
+          WHERE id = ${walletId}
+            AND balance >= ${amount}::decimal
+          RETURNING
+            (balance + ${amount}::decimal) AS balance_before,
+            balance                         AS balance_after`
+    ) as any;
+
+    const rows = result?.rows ?? result ?? [];
+    if (!rows || rows.length === 0) return false;
+
+    const row = rows[0];
+    return {
+      success:       true,
+      balanceBefore: parseFloat(row.balance_before ?? "0"),
+      balanceAfter:  parseFloat(row.balance_after  ?? "0"),
+    };
   }
 
   async creditWalletById(walletId: number, amount: string): Promise<void> {
