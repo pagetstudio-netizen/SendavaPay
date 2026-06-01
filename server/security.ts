@@ -37,6 +37,23 @@ const UPTIME_MONITOR_AGENTS = [
   "better uptime", "updown.io", "hyperping", "pulsetic", "monitis",
 ];
 
+// Search engine crawlers — must never be blocked (critical for SEO indexing)
+const SEARCH_ENGINE_BOTS = [
+  "googlebot", "google-inspectiontool", "google-structured-data-testing-tool",
+  "google-safety", "googlelc", "adsbot-google", "mediapartners-google",
+  "bingbot", "msnbot", "bingpreview",
+  "yandexbot", "yandeximages", "yandexvideo",
+  "duckduckbot",
+  "baiduspider",
+  "facebot", "facebookexternalhit",
+  "twitterbot",
+  "linkedinbot",
+  "slackbot",
+  "whatsapp",
+  "applebot",
+  "semrushbot", "ahrefsbot", "mj12bot", "dotbot",
+];
+
 // ─── IP INFO CACHE ────────────────────────────────────────────────────────────
 interface IpInfo {
   countryCode: string | null;
@@ -379,6 +396,10 @@ export function ipBlockMiddleware(req: Request, res: Response, next: NextFunctio
   // API routes authenticated by key — never block by IP (datacenter/VPS IPs are legitimate)
   if (IP_BLOCK_BYPASS_PREFIXES.some(p => req.path === p || req.path.startsWith(p + "/"))) return next();
 
+  // Search engine crawlers — never block even if their IP was previously auto-blocked
+  const ua = (req.headers["user-agent"] || "").toLowerCase();
+  if (SEARCH_ENGINE_BOTS.some(bot => ua.includes(bot))) return next();
+
   const ip = getClientIp(req);
   // Liste blanche : jamais bloquée
   if (isIpAllowed(ip)) return next();
@@ -410,6 +431,9 @@ export function geoAndVpnBlockMiddleware(req: Request, res: Response, next: Next
   // Skip known uptime monitoring services
   const ua = (req.headers["user-agent"] || "").toLowerCase();
   if (UPTIME_MONITOR_AGENTS.some(agent => ua.includes(agent))) return next();
+
+  // Skip search engine crawlers — never block (critical for SEO indexing)
+  if (SEARCH_ENGINE_BOTS.some(bot => ua.includes(bot))) return next();
 
   const ip = getClientIp(req);
 
