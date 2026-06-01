@@ -160,19 +160,33 @@ export async function markSdkWithdrawalCompleted(entry: WithdrawalQueueEntry, tx
   try {
     const txAmt = parseFloat(txn.amount);
     const txFee = parseFloat(txn.fee || "0");
-    await storage.createTransaction({
-      userId:        txn.userId,
-      type:          "withdrawal",
-      amount:        txAmt.toString(),
-      fee:           txFee.toString(),
-      netAmount:     (txAmt + txFee).toString(),
-      status:        "completed",
-      description:   txn.description || `Retrait API SDK vers ${txn.customerPhone || ""}`,
-      externalRef:   txn.reference,
-      paymentMethod: txn.paymentMethod || "sdk_payout",
-      mobileNumber:  txn.customerPhone || undefined,
-    });
-  } catch (e) { console.error("[sdk-withdrawal] Erreur création transaction admin:", e); }
+    const totalDebited = parseFloat((txAmt + txFee).toFixed(2));
+    // Chercher la transaction de débit créée au moment du retrait et la mettre à jour
+    const existingTxn = await storage.getTransactionByExternalRef(txn.reference);
+    if (existingTxn) {
+      await storage.updateTransaction(existingTxn.id, {
+        status: "completed" as any,
+        adminNote: `Retrait complété. Montant envoyé: ${txAmt}, Frais: ${txFee}, Total débité: ${totalDebited}`,
+      });
+      console.log(`[sdk-withdrawal] ✅ Transaction admin #${existingTxn.id} mise à jour → completed`);
+    } else {
+      // Fallback: créer la transaction si elle n'existe pas (ex: migration)
+      await storage.createTransaction({
+        userId:        txn.userId,
+        type:          "withdrawal",
+        amount:        txAmt.toString(),
+        fee:           txFee.toString(),
+        netAmount:     totalDebited.toString(),
+        status:        "completed",
+        description:   txn.description || `Retrait API SDK vers ${txn.customerPhone || ""}`,
+        externalRef:   txn.reference,
+        paymentMethod: txn.paymentMethod || "sdk_payout",
+        mobileNumber:  txn.customerPhone || undefined,
+        payerCountry:  (txn.paymentMethod || "").split("_").pop() || undefined,
+      });
+      console.log(`[sdk-withdrawal] ✅ Transaction admin créée (fallback) pour ref ${txn.reference}`);
+    }
+  } catch (e) { console.error("[sdk-withdrawal] Erreur mise à jour transaction admin (completed):", e); }
   if (entry.webhookUrl) {
     await sendWebhookWithRetry(entry.webhookUrl, {
       event: "payout.completed", reference: txn.reference, status: "completed",
@@ -206,37 +220,85 @@ export async function markSdkWithdrawalFailed(entry: WithdrawalQueueEntry, wr: a
   if (txn.status === "failed") return; // idempotency
   await storage.updateApiTransaction(txn.id, { status: "failed" });
   await storage.updateWithdrawalRequest(wr.id, { status: "failed", rejectionReason: reason }).catch(() => {});
+
+  // ── 1. Mettre à jour ou créer la transaction dans l'historique ──────────────
+  const txAmt = parseFloat(txn.amount);
+  const txFee = parseFloat(txn.fee || "0");
+  const totalDebited = parseFloat((txAmt + txFee).toFixed(2));
   try {
-    const txAmt = parseFloat(txn.amount);
-    const txFee = parseFloat(txn.fee || "0");
-    await storage.createTransaction({
-      userId:        txn.userId,
-      type:          "withdrawal",
-      amount:        txAmt.toString(),
-      fee:           txFee.toString(),
-      netAmount:     (txAmt + txFee).toString(),
-      status:        "failed",
-      description:   txn.description || `Retrait API SDK échoué vers ${txn.customerPhone || ""}`,
-      externalRef:   txn.reference,
-      paymentMethod: txn.paymentMethod || "sdk_payout",
-      mobileNumber:  txn.customerPhone || undefined,
-    });
-  } catch (e) { console.error("[sdk-withdrawal] Erreur création transaction admin (failed):", e); }
-  // Rembourser le wallet : montant + frais (le débit initial était amount + fee)
-  try {
-    if (wr.walletId) {
-      const refundAmount = parseFloat((parseFloat(txn.amount) + parseFloat(txn.fee || "0")).toFixed(2));
-      await storage.creditWalletById(wr.walletId, refundAmount.toString());
+    const existingTxn = await storage.getTransactionByExternalRef(txn.reference);
+    if (existingTxn) {
+      await storage.updateTransaction(existingTxn.id, {
+        status: "failed" as any,
+        adminNote: `Retrait échoué. Raison: ${reason}. Remboursement en cours.`,
+      });
+      console.log(`[sdk-withdrawal] ℹ️ Transaction admin #${existingTxn.id} mise à jour → failed`);
+    } else {
+      await storage.createTransaction({
+        userId:        txn.userId,
+        type:          "withdrawal",
+        amount:        txAmt.toString(),
+        fee:           txFee.toString(),
+        netAmount:     totalDebited.toString(),
+        status:        "failed",
+        description:   txn.description || `Retrait API SDK échoué vers ${txn.customerPhone || ""}`,
+        externalRef:   txn.reference,
+        paymentMethod: txn.paymentMethod || "sdk_payout",
+        mobileNumber:  txn.customerPhone || undefined,
+        payerCountry:  (txn.paymentMethod || "").split("_").pop() || undefined,
+        adminNote:     `Raison: ${reason}`,
+      });
     }
-  } catch (_) {}
+  } catch (e) { console.error("[sdk-withdrawal] Erreur mise à jour transaction admin (failed):", e); }
+
+  // ── 2. Rembourser le wallet (montant + frais) ───────────────────────────────
+  const walletId = wr.walletId ?? null;
+  if (walletId) {
+    try {
+      const walletBefore = await storage.getWalletById(walletId).catch(() => null);
+      const balanceBefore = walletBefore ? parseFloat(walletBefore.balance) : null;
+      await storage.creditWalletById(walletId, totalDebited.toString());
+      const walletAfter = await storage.getWalletById(walletId).catch(() => null);
+      const balanceAfter = walletAfter ? parseFloat(walletAfter.balance) : null;
+      console.log(
+        `[sdk-withdrawal] 🔄 REMBOURSEMENT WALLET — Ref: ${txn.reference} | ` +
+        `WalletId: ${walletId} | Montant remboursé: ${totalDebited} | ` +
+        `Solde avant: ${balanceBefore ?? "?"} | Solde après: ${balanceAfter ?? "?"}`
+      );
+      // Créer une transaction de remboursement dans l'historique
+      await storage.createTransaction({
+        userId:        txn.userId,
+        type:          "deposit",
+        amount:        totalDebited.toString(),
+        fee:           "0",
+        netAmount:     totalDebited.toString(),
+        status:        "completed",
+        description:   `Remboursement retrait SDK annulé — Réf: ${txn.reference}. Raison: ${reason}`,
+        externalRef:   `REFUND-${txn.reference}`,
+        paymentMethod: txn.paymentMethod || "sdk_payout",
+        mobileNumber:  txn.customerPhone || undefined,
+      }).catch(e => console.error("[sdk-withdrawal] Erreur création transaction remboursement:", e));
+    } catch (refundErr) {
+      console.error(
+        `[sdk-withdrawal] ❌ ERREUR REMBOURSEMENT WALLET — Ref: ${txn.reference} | ` +
+        `WalletId: ${walletId} | Montant: ${totalDebited} | Erreur:`, refundErr
+      );
+    }
+  } else {
+    console.error(
+      `[sdk-withdrawal] ❌ IMPOSSIBLE DE REMBOURSER — walletId manquant | ` +
+      `Ref: ${txn.reference} | Montant à rembourser: ${totalDebited}`
+    );
+  }
+
   if (entry.webhookUrl) {
     await sendWebhookWithRetry(entry.webhookUrl, {
       event: "payout.failed", reference: txn.reference, status: "failed",
-      amount: txn.amount, currency: txn.currency, reason,
+      amount: txn.amount, fee: txFee, currency: txn.currency, reason,
       failedAt: new Date().toISOString(),
     }, entry.webhookSecret, txn.reference, txn.id);
   }
-  console.warn(`❌ [sdk-withdrawal] Retrait ${txn.reference} échoué — raison: ${reason}`);
+  console.warn(`❌ [sdk-withdrawal] Retrait ${txn.reference} échoué — raison: ${reason} | Montant remboursé: ${totalDebited}`);
 }
 
 // Dispatch SDK withdrawal to the appropriate payment gateway
@@ -314,6 +376,7 @@ export async function autoDispatchSdkWithdrawal(
       }
       const cleanPhone = formatPhoneForPayDunya(mobileNumber, countryCode);
       const pdRef = `PD-WD-SDK-${wr.id}-${Date.now()}`;
+      console.log(`[sdk-withdrawal] 📤 PayDunya — Envoi retrait ref=${txn.reference} phone=${cleanPhone} montant=${netAmount} mode=${withdrawMode}`);
       const pdResult = await payDunyaDisburse({
         accountAlias: cleanPhone,
         amount:       netAmount,
@@ -321,6 +384,7 @@ export async function autoDispatchSdkWithdrawal(
         callbackUrl:  `${appUrl}/api/webhook/paydunya`,
         disburseId:   pdRef,
       });
+      console.log(`[sdk-withdrawal] 📥 PayDunya — Réponse ref=${txn.reference}: success=${pdResult.success} status=${pdResult.status} txId=${pdResult.transactionId} error=${pdResult.error || "aucun"}`);
       if (!pdResult.success) {
         await markSdkWithdrawalFailed(entry, wr, txn, pdResult.error || "Échec PayDunya disburse");
         return;
@@ -336,6 +400,7 @@ export async function autoDispatchSdkWithdrawal(
         withdrawalQueue.push(entry); // En attente du webhook PayDunya
       }
     } catch (e: any) {
+      console.error(`[sdk-withdrawal] ❌ PayDunya exception ref=${txn.reference}:`, e?.message || e);
       await markSdkWithdrawalFailed(entry, wr, txn, `Erreur PayDunya: ${e?.message || e}`);
     }
     return;
@@ -349,6 +414,7 @@ export async function autoDispatchSdkWithdrawal(
       const cleanPhone = formatPhoneForOmnipay(mobileNumber, countryCode);
       const opRef = `WD-SDK-${wr.id}-${Date.now()}`;
       const nameParts = (wr.walletName || "Client").split(" ");
+      console.log(`[sdk-withdrawal] 📤 OmniPay — Envoi retrait ref=${txn.reference} phone=${cleanPhone} montant=${netAmount} opérateur=${opOperator}`);
       const opResult = await opClient.transfer({
         msisdn:    cleanPhone,
         amount:    netAmount,
@@ -357,6 +423,7 @@ export async function autoDispatchSdkWithdrawal(
         lastName:  nameParts.slice(1).join(" ") || nameParts[0],
         operator:  opOperator ?? undefined,
       });
+      console.log(`[sdk-withdrawal] 📥 OmniPay — Réponse ref=${txn.reference}: success=${opResult.success} id=${opResult.id} message=${opResult.message || "aucun"}`);
       await storage.updateWithdrawalRequest(wr.id, {
         externalReference:    opRef,
         transactionReference: opResult.id?.toString() || null,
@@ -367,6 +434,7 @@ export async function autoDispatchSdkWithdrawal(
         await markSdkWithdrawalFailed(entry, wr, txn, opResult.message || "Échec OmniPay transfer");
       }
     } catch (e: any) {
+      console.error(`[sdk-withdrawal] ❌ OmniPay exception ref=${txn.reference}:`, e?.message || e);
       await markSdkWithdrawalFailed(entry, wr, txn, `Erreur OmniPay: ${e?.message || e}`);
     }
     return;
@@ -384,6 +452,7 @@ export async function autoDispatchSdkWithdrawal(
       const mbCurrency     = getMbiyoCurrency(countryCode);
       const formattedPhone = formatPhoneForMbiyo(mobileNumber, countryCode);
       const mbRef = `mb-wd-sdk-${wr.id}-${Date.now()}`;
+      console.log(`[sdk-withdrawal] 📤 MbiyoPay — Envoi retrait ref=${txn.reference} phone=${formattedPhone} montant=${netAmount} réseau=${network}`);
       const mbResult = await mbClient.payout({
         amount:      netAmount,
         currency:    mbCurrency,
@@ -394,6 +463,7 @@ export async function autoDispatchSdkWithdrawal(
         callbackUrl: `${appUrl}/api/webhook/mbiyopay`,
         beneficiary: wr.walletName || "Client",
       });
+      console.log(`[sdk-withdrawal] 📥 MbiyoPay — Réponse ref=${txn.reference}: status=${mbResult.status} txId=${mbResult.data?.transaction_id || "?"} message=${mbResult.message || "aucun"}`);
       if (mbResult.status === "success" && mbResult.data) {
         await storage.updateWithdrawalRequest(wr.id, {
           externalReference:    mbRef,
@@ -404,6 +474,7 @@ export async function autoDispatchSdkWithdrawal(
         await markSdkWithdrawalFailed(entry, wr, txn, mbResult.message || "Échec MbiyoPay payout");
       }
     } catch (e: any) {
+      console.error(`[sdk-withdrawal] ❌ MbiyoPay exception ref=${txn.reference}:`, e?.message || e);
       await markSdkWithdrawalFailed(entry, wr, txn, `Erreur MbiyoPay: ${e?.message || e}`);
     }
     return;
@@ -417,12 +488,14 @@ export async function autoDispatchSdkWithdrawal(
       await markSdkWithdrawalFailed(entry, wr, txn, `Opérateur SoleasPay introuvable pour ${operatorName}/${countryCode}`);
       return;
     }
+    console.log(`[sdk-withdrawal] 📤 SoleasPay — Envoi retrait ref=${txn.reference} phone=${mobileNumber} montant=${netAmount} serviceId=${service.id}`);
     const spResult = await soleaspay.withdraw({
       wallet:    mobileNumber,
       amount:    netAmount,
       currency,
       serviceId: service.id,
     });
+    console.log(`[sdk-withdrawal] 📥 SoleasPay — Réponse ref=${txn.reference}: success=${spResult.success} extRef=${spResult.data?.external_reference || spResult.data?.reference || "?"} message=${spResult.message || "aucun"}`);
     if (!spResult.success) {
       await markSdkWithdrawalFailed(entry, wr, txn, spResult.message || "Échec SoleasPay withdraw");
       return;
@@ -431,6 +504,7 @@ export async function autoDispatchSdkWithdrawal(
     await storage.updateWithdrawalRequest(wr.id, { externalReference: extRef }).catch(() => {});
     withdrawalQueue.push(entry); // En attente du webhook SoleasPay
   } catch (e: any) {
+    console.error(`[sdk-withdrawal] ❌ SoleasPay exception ref=${txn.reference}:`, e?.message || e);
     await markSdkWithdrawalFailed(entry, wr, txn, `Erreur SoleasPay: ${e?.message || e}`);
   }
 }
@@ -1734,13 +1808,60 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
     const { countryInfo, wallet: targetWallet, fee, netAmount, totalToDebit } = v;
     const reference = generateReference();
 
-    // Débit immédiat du wallet = montant + frais (protection double-spend)
-    // Le destinataire reçoit le montant exact, les frais sont prélevés en plus sur le wallet marchand
+    // ── DÉBIT IMMÉDIAT DU WALLET (protection double-spend) ──────────────────
+    // Le destinataire reçoit le montant exact, les frais sont prélevés en plus.
+    // Le débit est confirmé en base AVANT tout appel à l'opérateur.
+    const balanceBefore = parseFloat(targetWallet.balance);
+    const balanceAfter  = parseFloat((balanceBefore - totalToDebit!).toFixed(2));
+
+    console.log(
+      `[sdk-withdraw] 💳 TENTATIVE DÉBIT — Marchand: ${sdkUser.email} (id=${sdkUser.id}) | ` +
+      `Réf: ${reference} | Solde avant: ${balanceBefore} | Montant: ${data.amount} | ` +
+      `Frais: ${fee!} (${v.operatorStatus}) | Total à débiter: ${totalToDebit!} | ` +
+      `Solde attendu après: ${balanceAfter} | Opérateur: ${data.operator}/${countryUpper}`
+    );
+
     const debited = await storage.debitWallet(targetWallet.id, totalToDebit!.toString());
     if (!debited) {
+      console.error(
+        `[sdk-withdraw] ❌ DÉBIT ÉCHOUÉ — Marchand: ${sdkUser.email} | Réf: ${reference} | ` +
+        `Solde disponible: ${balanceBefore} | Requis: ${totalToDebit!}`
+      );
       sdkLog({ req, endpoint: "withdraw", statusCode: 400, responseTimeMs: Date.now() - t0, operator: data.operator, country: countryUpper, error: "DEBIT_FAILED" });
-      return res.status(400).json({ success: false, error: `Solde insuffisant au moment du débit. Disponible: ${parseFloat(targetWallet.balance).toFixed(2)}, requis: ${totalToDebit!.toFixed(2)}`, code: "DEBIT_FAILED" });
+      return res.status(400).json({
+        success: false,
+        error: `Solde insuffisant. Disponible: ${balanceBefore.toFixed(2)}, requis: ${totalToDebit!.toFixed(2)} (${data.amount} + ${fee!} frais)`,
+        code: "INSUFFICIENT_BALANCE",
+      });
     }
+
+    console.log(
+      `[sdk-withdraw] ✅ DÉBIT CONFIRMÉ — Marchand: ${sdkUser.email} | Réf: ${reference} | ` +
+      `Solde avant: ${balanceBefore} | Total débité: ${totalToDebit!} | Solde après: ${balanceAfter}`
+    );
+
+    // ── Créer immédiatement la transaction de débit dans l'historique ────────
+    // Statut "pending" : sera mis à jour "completed" ou "failed" via webhook opérateur.
+    // Cette transaction assure la traçabilité même en cas de crash/redémarrage.
+    const adminTxnRef = reference;
+    storage.createTransaction({
+      userId:        sdkUser.id,
+      type:          "withdrawal",
+      amount:        data.amount.toString(),
+      fee:           fee!.toString(),
+      netAmount:     totalToDebit!.toString(),
+      status:        "pending",
+      description:   `Retrait SDK vers ${data.phoneNumber} (${data.operator}/${countryUpper})`,
+      externalRef:   adminTxnRef,
+      paymentMethod: `${data.operator}_${countryUpper}`,
+      mobileNumber:  data.phoneNumber,
+      payerCountry:  countryUpper,
+      adminNote:     `Solde avant débit: ${balanceBefore} | Solde après débit: ${balanceAfter} | Total débité: ${totalToDebit!}`,
+    }).then(t => {
+      console.log(`[sdk-withdraw] 📋 Transaction admin #${t.id} créée (pending) pour réf ${reference}`);
+    }).catch(e => {
+      console.error(`[sdk-withdraw] ⚠️ Erreur création transaction admin (non bloquant):`, e);
+    });
 
     const withdrawalRequest = await storage.createWithdrawalRequest({
       userId:        sdkUser.id,
