@@ -2759,8 +2759,33 @@ export async function registerRoutes(
             `).catch(() => ({ rows: [] }));
             const spSdkTx = (spSdkRows as any)?.rows?.[0];
             if (spSdkTx) {
-              console.log(`[SoleasPay] api_transaction SDK trouvée ref=${spSdkTx.reference} id=${spSdkTx.id}`);
-              await completeApiTransactionFromWebhook(spSdkTx, "soleaspay");
+              console.log(`[SoleasPay] api_transaction SDK trouvée ref=${spSdkTx.reference} id=${spSdkTx.id} type=${spSdkTx.type}`);
+              if (spSdkTx.type === "payout") {
+                // SDK PAYOUT : wallet déjà débité lors de la création — NE PAS créditer via completeApiTransactionFromWebhook
+                try {
+                  const { markSdkWithdrawalCompleted: _spComp } = await import("./sdk-api");
+                  const allSpWrs = await storage.getAllWithdrawalRequests().catch(() => []);
+                  const spLinkedWr = allSpWrs.find((r: any) => r.transactionReference === spSdkTx.reference);
+                  if (spLinkedWr) {
+                    const spPKey = spSdkTx.api_key_id ? await storage.getApiKeyById(Number(spSdkTx.api_key_id)).catch(() => null) : null;
+                    await storage.updateWithdrawalRequest(spLinkedWr.id, { status: "approved", processedAt: new Date() });
+                    await _spComp({
+                      sdkTransactionRef:   spSdkTx.reference,
+                      withdrawalRequestId: spLinkedWr.id,
+                      webhookUrl:          (spPKey as any)?.webhookUrl || null,
+                      webhookSecret:       (spPKey as any)?.webhookSecret || null,
+                    }, spSdkTx);
+                    console.log(`[SoleasPay] ✅ Retrait SDK complété via webhook fallback ref=${spSdkTx.reference}`);
+                  } else {
+                    console.warn(`[SoleasPay] ⚠️ Retrait SDK: withdrawal_request introuvable pour ref=${spSdkTx.reference}`);
+                  }
+                } catch (spPayoutErr) {
+                  console.error("[SoleasPay] Erreur complétion payout SDK:", spPayoutErr);
+                }
+              } else {
+                // SDK PAY-IN : créditer le wallet normalement
+                await completeApiTransactionFromWebhook(spSdkTx, "soleaspay");
+              }
               return res.json({ received: true });
             }
           }
@@ -4160,10 +4185,35 @@ export async function registerRoutes(
           `).catch(() => ({ rows: [] }));
           const opSdkTx = (opSdkRows as any)?.rows?.[0];
           if (opSdkTx) {
-            console.log(`[OmniPay] api_transaction SDK trouvée ref=${opSdkTx.reference} id=${opSdkTx.id}`);
+            console.log(`[OmniPay] api_transaction SDK trouvée ref=${opSdkTx.reference} id=${opSdkTx.id} type=${opSdkTx.type}`);
             const isSuccess = status === "1" || status === "3";
             if (isSuccess) {
-              await completeApiTransactionFromWebhook(opSdkTx, "omnipay");
+              if (opSdkTx.type === "payout") {
+                // SDK PAYOUT : wallet déjà débité — NE PAS créditer
+                try {
+                  const { markSdkWithdrawalCompleted: _opComp2 } = await import("./sdk-api");
+                  const allOpWrs = await storage.getAllWithdrawalRequests().catch(() => []);
+                  const opLinkedWr = allOpWrs.find((r: any) => r.transactionReference === opSdkTx.reference);
+                  if (opLinkedWr) {
+                    const opPKey2 = opSdkTx.api_key_id ? await storage.getApiKeyById(Number(opSdkTx.api_key_id)).catch(() => null) : null;
+                    await storage.updateWithdrawalRequest(opLinkedWr.id, { status: "approved", processedAt: new Date() });
+                    await _opComp2({
+                      sdkTransactionRef:   opSdkTx.reference,
+                      withdrawalRequestId: opLinkedWr.id,
+                      webhookUrl:          (opPKey2 as any)?.webhookUrl || null,
+                      webhookSecret:       (opPKey2 as any)?.webhookSecret || null,
+                    }, opSdkTx);
+                    console.log(`[OmniPay] ✅ Retrait SDK complété via webhook fallback ref=${opSdkTx.reference}`);
+                  } else {
+                    console.warn(`[OmniPay] ⚠️ Retrait SDK: withdrawal_request introuvable pour ref=${opSdkTx.reference}`);
+                  }
+                } catch (opPayoutErr) {
+                  console.error("[OmniPay] Erreur complétion payout SDK:", opPayoutErr);
+                }
+              } else {
+                // SDK PAY-IN : créditer le wallet normalement
+                await completeApiTransactionFromWebhook(opSdkTx, "omnipay");
+              }
             } else {
               console.log(`[OmniPay] Statut non-succès (${status}) pour api_transaction SDK ref=${opSdkTx.reference} — notification marchand`);
               await failApiTransactionFromWebhook(opSdkTx, "omnipay", `Statut OmniPay: ${status}`);
@@ -8835,8 +8885,32 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
             `).catch(() => ({ rows: [] }));
             const sdkByRefTx = (sdkByRefRows as any)?.rows?.[0];
             if (sdkByRefTx) {
-              console.log(`[PayDunya] STEP 2 — api_transaction SDK trouvée par customRef ref=${sdkByRefTx.reference} id=${sdkByRefTx.id}`);
-              await completeApiTransactionFromWebhook(sdkByRefTx, "paydunya");
+              console.log(`[PayDunya] STEP 2 — api_transaction SDK trouvée par customRef ref=${sdkByRefTx.reference} id=${sdkByRefTx.id} type=${sdkByRefTx.type}`);
+              if (sdkByRefTx.type === "payout") {
+                // SDK PAYOUT : wallet déjà débité — NE PAS créditer
+                try {
+                  const { markSdkWithdrawalCompleted: _pdComp1 } = await import("./sdk-api");
+                  const allPdWrs1 = await storage.getAllWithdrawalRequests().catch(() => []);
+                  const pdLinkedWr1 = allPdWrs1.find((r: any) => r.transactionReference === sdkByRefTx.reference);
+                  if (pdLinkedWr1) {
+                    const pdPKey1 = sdkByRefTx.api_key_id ? await storage.getApiKeyById(Number(sdkByRefTx.api_key_id)).catch(() => null) : null;
+                    await storage.updateWithdrawalRequest(pdLinkedWr1.id, { status: "approved", processedAt: new Date() });
+                    await _pdComp1({
+                      sdkTransactionRef:   sdkByRefTx.reference,
+                      withdrawalRequestId: pdLinkedWr1.id,
+                      webhookUrl:          (pdPKey1 as any)?.webhookUrl || null,
+                      webhookSecret:       (pdPKey1 as any)?.webhookSecret || null,
+                    }, sdkByRefTx);
+                    console.log(`[PayDunya] ✅ Retrait SDK complété (customRef) ref=${sdkByRefTx.reference}`);
+                  } else {
+                    console.warn(`[PayDunya] ⚠️ Retrait SDK: withdrawal_request introuvable pour ref=${sdkByRefTx.reference}`);
+                  }
+                } catch (pdPayoutErr1) {
+                  console.error("[PayDunya] Erreur complétion payout SDK (customRef):", pdPayoutErr1);
+                }
+              } else {
+                await completeApiTransactionFromWebhook(sdkByRefTx, "paydunya");
+              }
               return;
             }
           }
@@ -8851,8 +8925,32 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
           `).catch(() => ({ rows: [] }));
           const sdkTx = (sdkRows as any)?.rows?.[0];
           if (sdkTx) {
-            console.log(`[PayDunya] STEP 2 — api_transaction SDK trouvée par token ref=${sdkTx.reference} id=${sdkTx.id}`);
-            await completeApiTransactionFromWebhook(sdkTx, "paydunya");
+            console.log(`[PayDunya] STEP 2 — api_transaction SDK trouvée par token ref=${sdkTx.reference} id=${sdkTx.id} type=${sdkTx.type}`);
+            if (sdkTx.type === "payout") {
+              // SDK PAYOUT : wallet déjà débité — NE PAS créditer
+              try {
+                const { markSdkWithdrawalCompleted: _pdComp2 } = await import("./sdk-api");
+                const allPdWrs2 = await storage.getAllWithdrawalRequests().catch(() => []);
+                const pdLinkedWr2 = allPdWrs2.find((r: any) => r.transactionReference === sdkTx.reference);
+                if (pdLinkedWr2) {
+                  const pdPKey2 = sdkTx.api_key_id ? await storage.getApiKeyById(Number(sdkTx.api_key_id)).catch(() => null) : null;
+                  await storage.updateWithdrawalRequest(pdLinkedWr2.id, { status: "approved", processedAt: new Date() });
+                  await _pdComp2({
+                    sdkTransactionRef:   sdkTx.reference,
+                    withdrawalRequestId: pdLinkedWr2.id,
+                    webhookUrl:          (pdPKey2 as any)?.webhookUrl || null,
+                    webhookSecret:       (pdPKey2 as any)?.webhookSecret || null,
+                  }, sdkTx);
+                  console.log(`[PayDunya] ✅ Retrait SDK complété (token fallback) ref=${sdkTx.reference}`);
+                } else {
+                  console.warn(`[PayDunya] ⚠️ Retrait SDK: withdrawal_request introuvable pour ref=${sdkTx.reference}`);
+                }
+              } catch (pdPayoutErr2) {
+                console.error("[PayDunya] Erreur complétion payout SDK (token):", pdPayoutErr2);
+              }
+            } else {
+              await completeApiTransactionFromWebhook(sdkTx, "paydunya");
+            }
             return;
           }
           console.warn(`[PayDunya] STEP 2 — Transaction partenaire introuvable — customRef="${customRef}" token="${token}" — webhook ignoré`);
