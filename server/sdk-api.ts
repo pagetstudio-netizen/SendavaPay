@@ -265,6 +265,18 @@ export async function markSdkWithdrawalFailed(entry: WithdrawalQueueEntry, wr: a
         `WalletId: ${walletId} | Montant remboursé: ${totalDebited} | ` +
         `Solde avant: ${balanceBefore ?? "?"} | Solde après: ${balanceAfter ?? "?"}`
       );
+      // Synchroniser users.balance après remboursement wallet
+      try {
+        const refundUser = await storage.getUser(txn.userId);
+        if (refundUser) {
+          const refundUserBal = parseFloat(refundUser.balance || "0");
+          const newRefundBal  = parseFloat((refundUserBal + totalDebited).toFixed(2));
+          await storage.setUserBalance(txn.userId, newRefundBal.toString());
+          console.log(`[sdk-withdrawal] 💰 users.balance REMBOURSÉ — userId: ${txn.userId} | Avant: ${refundUserBal} | Après: ${newRefundBal} | Réf: ${txn.reference}`);
+        }
+      } catch (ube) {
+        console.error(`[sdk-withdrawal] ⚠️ Erreur sync users.balance remboursement:`, ube);
+      }
       // Créer une transaction de remboursement dans l'historique
       await storage.createTransaction({
         userId:        txn.userId,
@@ -1821,6 +1833,26 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
       `Total débité: ${totalToDebit!} | Solde après débit: ${balanceAfter} ${countryInfo!.currency} | ` +
       `Opérateur: ${data.operator}/${countryUpper} → ${data.phoneNumber}`
     );
+
+    // ── SYNCHRONISER users.balance ───────────────────────────────────────────
+    // CRITIQUE : sans cette mise à jour, l'API /api/wallets détecte un écart
+    // entre users.balance (non modifié) et la somme des wallets (débité) et
+    // re-crédite automatiquement le wallet via syncWalletsFromTransactions —
+    // ce qui annule silencieusement le débit à chaque rafraîchissement.
+    try {
+      const currentUser = await storage.getUser(sdkUser.id);
+      if (currentUser) {
+        const currentUserBalance = parseFloat(currentUser.balance || "0");
+        const newUserBalance     = Math.max(0, parseFloat((currentUserBalance - totalToDebit!).toFixed(2)));
+        await storage.setUserBalance(sdkUser.id, newUserBalance.toString());
+        console.log(
+          `[sdk-withdraw] 💰 users.balance MIS À JOUR — Marchand: ${sdkUser.email} | ` +
+          `Avant: ${currentUserBalance} | Après: ${newUserBalance} | Réf: ${reference}`
+        );
+      }
+    } catch (syncErr) {
+      console.error(`[sdk-withdraw] ⚠️ Erreur sync users.balance (non bloquant) — Réf: ${reference}:`, syncErr);
+    }
 
     // ── Créer la transaction de débit dans l'historique (traçabilité complète) ─
     // Statut "pending" : sera mis à jour "completed" ou "failed" via webhook opérateur.
