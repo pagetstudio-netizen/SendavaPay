@@ -1718,7 +1718,11 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
 
     // Débit immédiat du wallet = montant + frais (protection double-spend)
     // Le destinataire reçoit le montant exact, les frais sont prélevés en plus sur le wallet marchand
-    await storage.debitWallet(targetWallet.id, totalToDebit!.toString());
+    const debited = await storage.debitWallet(targetWallet.id, totalToDebit!.toString());
+    if (!debited) {
+      sdkLog({ req, endpoint: "withdraw", statusCode: 400, responseTimeMs: Date.now() - t0, operator: data.operator, country: countryUpper, error: "DEBIT_FAILED" });
+      return res.status(400).json({ success: false, error: `Solde insuffisant au moment du débit. Disponible: ${parseFloat(targetWallet.balance).toFixed(2)}, requis: ${totalToDebit!.toFixed(2)}`, code: "DEBIT_FAILED" });
+    }
 
     const withdrawalRequest = await storage.createWithdrawalRequest({
       userId:        sdkUser.id,
