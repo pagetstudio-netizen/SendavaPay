@@ -377,10 +377,20 @@ export async function failApiTransactionFromWebhook(
   const { db: _fDb } = await import("./db");
   const { sql: _fSql } = await import("drizzle-orm");
 
+  // Construire le metadata enrichi avec la raison d'échec
+  let existingMeta: Record<string, any> = {};
+  try { existingMeta = JSON.parse(row.metadata || "{}"); } catch {}
+  const failedMetadata = JSON.stringify({
+    ...existingMeta,
+    failure_reason: reason || "Paiement échoué",
+    failure_provider: provider,
+    failed_at: new Date().toISOString(),
+  });
+
   // Atomiquement marquer failed (idempotence)
   const upd = await _fDb.execute(_fSql`
     UPDATE api_transactions
-    SET status = 'failed', updated_at = NOW()
+    SET status = 'failed', updated_at = NOW(), metadata = ${failedMetadata}
     WHERE id = ${row.id}
       AND status IN ('processing', 'pending')
   `).catch(() => ({ rowCount: 0 }));
@@ -7442,11 +7452,15 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
           at.customer_email,
           at.payment_method,
           at.description,
+          at.metadata,
           at.callback_url,
+          at.redirect_url,
           at.webhook_sent,
           at.webhook_attempts,
+          at.ip_address,
           at.created_at,
           at.completed_at,
+          at.updated_at,
           u.full_name             AS user_full_name,
           u.email                 AS user_email
         FROM api_transactions at
@@ -7455,32 +7469,45 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         LIMIT 500
       `);
 
-      const sdkAttempts = (sdkRows.rows as any[]).map(r => ({
-        _table: "sdk",
-        id: `SDK-${r.id}`,
-        reference: r.reference,
-        source: r.type === "payout" ? "sdk_payout" : "sdk_payment",
-        sourceLabel: r.type === "payout" ? "API SDK (Retrait)" : "API SDK (Encaissement)",
-        status: r.status,
-        amount: r.amount,
-        currency: r.currency,
-        userId: r.user_id,
-        paymentLinkId: null,
-        userName: r.user_full_name || null,
-        userEmail: r.user_email || null,
-        payerName: r.customer_name || null,
-        payerPhone: r.customer_phone || null,
-        payerCountry: null,
-        paymentMethod: r.payment_method || null,
-        description: r.description || null,
-        errorInfo: null,
-        partnerName: null,
-        webhookUrl: r.callback_url || null,
-        webhookSent: r.webhook_sent ?? null,
-        webhookAttempts: r.webhook_attempts ?? 0,
-        createdAt: r.created_at,
-        completedAt: r.completed_at || null,
-      }));
+      const sdkAttempts = (sdkRows.rows as any[]).map(r => {
+        let meta: Record<string, any> = {};
+        try { meta = JSON.parse(r.metadata || "{}"); } catch {}
+        const errorInfo = meta.failure_reason || meta.error || meta.description || null;
+        const gatewayProvider = meta.failure_provider || null;
+        return {
+          _table: "sdk",
+          id: `SDK-${r.id}`,
+          reference: r.reference,
+          externalReference: r.external_reference || null,
+          source: r.type === "payout" ? "sdk_payout" : "sdk_payment",
+          sourceLabel: r.type === "payout" ? "API SDK (Retrait)" : "API SDK (Encaissement)",
+          status: r.status,
+          amount: r.amount,
+          fee: r.fee || "0",
+          currency: r.currency,
+          userId: r.user_id,
+          paymentLinkId: null,
+          userName: r.user_full_name || null,
+          userEmail: r.user_email || null,
+          payerName: r.customer_name || null,
+          payerPhone: r.customer_phone || null,
+          payerEmail: r.customer_email || null,
+          payerCountry: null,
+          paymentMethod: r.payment_method || null,
+          description: r.description || null,
+          errorInfo,
+          gatewayProvider,
+          metadata: meta,
+          partnerName: null,
+          webhookUrl: r.callback_url || r.redirect_url || null,
+          webhookSent: r.webhook_sent ?? null,
+          webhookAttempts: r.webhook_attempts ?? 0,
+          ipAddress: r.ip_address || null,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at || null,
+          completedAt: r.completed_at || null,
+        };
+      });
 
       // Merge and sort by date desc
       const all = [...leekpayAttempts, ...partnerAttempts, ...sdkAttempts]
