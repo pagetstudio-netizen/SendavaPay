@@ -6822,6 +6822,35 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/api-keys/:id", requireAuth, async (req, res) => {
+    try {
+      const keyId = parseInt(req.params.id);
+      const userId = req.session.userId!;
+      const [existing] = await storage.getApiKeysByUser(userId).then(keys => keys.filter(k => k.id === keyId));
+      if (!existing) return res.status(404).json({ message: "Clé introuvable ou accès refusé" });
+
+      const { webhookUrl, redirectUrl } = req.body;
+      const updates: Record<string, any> = {};
+
+      if (webhookUrl !== undefined) {
+        updates.webhookUrl = webhookUrl || null;
+        // Régénérer le secret si une nouvelle URL webhook est définie
+        if (webhookUrl && !existing.webhookSecret) {
+          const crypto = await import("crypto");
+          updates.webhookSecret = `whsec_${crypto.randomBytes(24).toString("hex")}`;
+        }
+        if (!webhookUrl) updates.webhookSecret = null;
+      }
+      if (redirectUrl !== undefined) updates.redirectUrl = redirectUrl || null;
+
+      const updated = await storage.updateApiKey(keyId, updates);
+      res.json({ message: "Clé mise à jour", key: updated });
+    } catch (error) {
+      console.error("Update API key error:", error);
+      res.status(500).json({ message: "Erreur lors de la mise à jour" });
+    }
+  });
+
   app.delete("/api/api-keys/:id", requireAuth, async (req, res) => {
     try {
       const result = await storage.deleteApiKey(parseInt(req.params.id), req.session.userId!);

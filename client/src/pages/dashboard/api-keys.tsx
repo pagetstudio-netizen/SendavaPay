@@ -24,7 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Key, Shield, Code2, Loader2, Copy, Check, Trash2, Plus, ExternalLink,
   Wrench, ArrowLeft, Bell, Globe, Zap, ArrowUpRight, Info, BookOpen,
-  Terminal, Webhook,
+  Terminal, Webhook, Pencil, X, Save,
 } from "lucide-react";
 import type { ApiKey } from "@shared/schema";
 
@@ -1506,6 +1506,9 @@ export default function ApiKeysPage() {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [keyToDelete, setKeyToDelete] = useState<ApiKey | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingKeyId, setEditingKeyId] = useState<number | null>(null);
+  const [editWebhookUrl, setEditWebhookUrl] = useState("");
+  const [editRedirectUrl, setEditRedirectUrl] = useState("");
 
   const { data: maintenanceStatus, isLoading: maintenanceLoading } = useQuery<{ enabled: boolean }>({
     queryKey: ["/api/api-maintenance-status"],
@@ -1543,6 +1546,27 @@ export default function ApiKeysPage() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/api-keys"] }); toast({ title: "Clé supprimée" }); },
     onError: () => { toast({ title: "Erreur", description: "Impossible de supprimer la clé", variant: "destructive" }); },
   });
+
+  const updateKeyMutation = useMutation({
+    mutationFn: async ({ id, webhookUrl, redirectUrl }: { id: number; webhookUrl: string; redirectUrl: string }) => {
+      const res = await apiRequest("PATCH", `/api/api-keys/${id}`, { webhookUrl: webhookUrl || null, redirectUrl: redirectUrl || null });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/api-keys"] });
+      setEditingKeyId(null);
+      toast({ title: "Clé mise à jour", description: "Les URLs ont été enregistrées" });
+    },
+    onError: () => { toast({ title: "Erreur", description: "Impossible de mettre à jour la clé", variant: "destructive" }); },
+  });
+
+  const startEdit = (keyItem: ApiKey) => {
+    setEditingKeyId(keyItem.id);
+    setEditWebhookUrl(keyItem.webhookUrl || "");
+    setEditRedirectUrl(keyItem.redirectUrl || "");
+  };
+
+  const cancelEdit = () => { setEditingKeyId(null); setEditWebhookUrl(""); setEditRedirectUrl(""); };
 
   const copyToClipboard = (key: string) => {
     navigator.clipboard.writeText(key);
@@ -1609,62 +1633,123 @@ export default function ApiKeysPage() {
   const sdkKeys = apiKeys.filter((k) => k.apiType === "sdk");
   const redirectKeys = apiKeys.filter((k) => k.apiType === "redirect");
 
-  const KeyCard = ({ keyItem }: { keyItem: ApiKey }) => (
-    <div className="flex flex-col gap-3 p-4 border rounded-lg" data-testid={`api-key-${keyItem.id}`}>
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-        <div className="space-y-1 flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium">{keyItem.name}</span>
-            <Badge variant={keyItem.isActive ? "default" : "secondary"}>{keyItem.isActive ? "Active" : "Inactive"}</Badge>
-            <Badge variant="outline" className={keyItem.apiType === "sdk" ? "border-purple-400 text-purple-700 dark:text-purple-300" : ""}>
-              {keyItem.apiType === "sdk" ? "SDK" : "Redirection"}
-            </Badge>
+  const KeyCard = ({ keyItem }: { keyItem: ApiKey }) => {
+    const isEditing = editingKeyId === keyItem.id;
+    const isSaving  = updateKeyMutation.isPending && editingKeyId === keyItem.id;
+
+    return (
+      <div className="flex flex-col gap-3 p-4 border rounded-lg" data-testid={`api-key-${keyItem.id}`}>
+        {/* ── Header ── */}
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+          <div className="space-y-1 flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium">{keyItem.name}</span>
+              <Badge variant={keyItem.isActive ? "default" : "secondary"}>{keyItem.isActive ? "Active" : "Inactive"}</Badge>
+              <Badge variant="outline" className={keyItem.apiType === "sdk" ? "border-purple-400 text-purple-700 dark:text-purple-300" : ""}>
+                {keyItem.apiType === "sdk" ? "SDK" : "Redirection"}
+              </Badge>
+            </div>
+            {keyItem.appName && <p className="text-sm text-muted-foreground">Application : {keyItem.appName}</p>}
+            <code className="text-sm text-muted-foreground font-mono block truncate">{keyItem.apiKey}</code>
+            <p className="text-xs text-muted-foreground">
+              Créée le {new Date(keyItem.createdAt).toLocaleDateString("fr-FR")}
+              {keyItem.requestCount > 0 && ` • ${keyItem.requestCount} requêtes`}
+            </p>
           </div>
-          {keyItem.appName && <p className="text-sm text-muted-foreground">Application : {keyItem.appName}</p>}
-          <code className="text-sm text-muted-foreground font-mono block truncate">{keyItem.apiKey}</code>
-          <p className="text-xs text-muted-foreground">
-            Créée le {new Date(keyItem.createdAt).toLocaleDateString("fr-FR")}
-            {keyItem.requestCount > 0 && ` • ${keyItem.requestCount} requêtes`}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => copyToClipboard(keyItem.apiKey)} data-testid={`button-copy-${keyItem.id}`}>
-            {copiedKey === keyItem.apiKey ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setKeyToDelete(keyItem)} disabled={deleteKeyMutation.isPending} data-testid={`button-delete-${keyItem.id}`}>
-            <Trash2 className="h-4 w-4 text-destructive" />
-          </Button>
-        </div>
-      </div>
-      {(keyItem.redirectUrl || keyItem.webhookUrl) && (
-        <div className="space-y-2 border-t pt-3">
-          <div className="flex flex-wrap gap-4 text-xs">
-            {keyItem.redirectUrl && (
-              <div className="flex items-center gap-1 text-muted-foreground">
-                <ExternalLink className="h-3 w-3" /><span>Redirection:</span>
-                <span className="font-mono truncate max-w-[200px]">{keyItem.redirectUrl}</span>
-              </div>
-            )}
-            {keyItem.webhookUrl && (
-              <div className="flex items-center gap-1 text-muted-foreground">
-                <Bell className="h-3 w-3" /><span>Webhook:</span>
-                <span className="font-mono truncate max-w-[200px]">{keyItem.webhookUrl}</span>
-              </div>
-            )}
+          <div className="flex gap-2 flex-shrink-0">
+            <Button variant="outline" size="sm" onClick={() => copyToClipboard(keyItem.apiKey)} data-testid={`button-copy-${keyItem.id}`}>
+              {copiedKey === keyItem.apiKey ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => isEditing ? cancelEdit() : startEdit(keyItem)} data-testid={`button-edit-${keyItem.id}`}>
+              {isEditing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setKeyToDelete(keyItem)} disabled={deleteKeyMutation.isPending} data-testid={`button-delete-${keyItem.id}`}>
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
           </div>
-          {keyItem.webhookSecret && (
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-muted-foreground">Secret:</span>
-              <code className="font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded truncate max-w-[200px]">{keyItem.webhookSecret}</code>
-              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => copyToClipboard(keyItem.webhookSecret!)} data-testid={`button-copy-secret-${keyItem.id}`}>
-                {copiedKey === keyItem.webhookSecret ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+        </div>
+
+        {/* ── Formulaire d'édition inline ── */}
+        {isEditing && (
+          <div className="border-t pt-3 space-y-3 bg-muted/20 -mx-4 px-4 pb-3 rounded-b-lg">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Modifier les URLs</p>
+            <div className="space-y-1">
+              <Label htmlFor={`wh-${keyItem.id}`} className="text-xs flex items-center gap-1.5">
+                <Webhook className="h-3 w-3" />URL de webhook
+              </Label>
+              <Input
+                id={`wh-${keyItem.id}`}
+                type="url"
+                placeholder="https://monsite.com/webhooks/sendavapay"
+                value={editWebhookUrl}
+                onChange={(e) => setEditWebhookUrl(e.target.value)}
+                className="h-8 text-sm"
+                data-testid={`input-edit-webhook-${keyItem.id}`}
+              />
+              <p className="text-xs text-muted-foreground">Laisser vide pour désactiver les webhooks</p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor={`rd-${keyItem.id}`} className="text-xs flex items-center gap-1.5">
+                <ExternalLink className="h-3 w-3" />URL de redirection (après paiement)
+              </Label>
+              <Input
+                id={`rd-${keyItem.id}`}
+                type="url"
+                placeholder="https://monsite.com/paiement/succes"
+                value={editRedirectUrl}
+                onChange={(e) => setEditRedirectUrl(e.target.value)}
+                className="h-8 text-sm"
+                data-testid={`input-edit-redirect-${keyItem.id}`}
+              />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <Button
+                size="sm"
+                onClick={() => updateKeyMutation.mutate({ id: keyItem.id, webhookUrl: editWebhookUrl, redirectUrl: editRedirectUrl })}
+                disabled={isSaving}
+                data-testid={`button-save-${keyItem.id}`}
+              >
+                {isSaving ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Save className="h-3 w-3 mr-1.5" />}
+                Enregistrer
+              </Button>
+              <Button size="sm" variant="outline" onClick={cancelEdit} disabled={isSaving} data-testid={`button-cancel-edit-${keyItem.id}`}>
+                Annuler
               </Button>
             </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
+          </div>
+        )}
+
+        {/* ── Affichage URLs actuelles (quand pas en édition) ── */}
+        {!isEditing && (keyItem.redirectUrl || keyItem.webhookUrl) && (
+          <div className="space-y-2 border-t pt-3">
+            <div className="flex flex-wrap gap-4 text-xs">
+              {keyItem.redirectUrl && (
+                <div className="flex items-center gap-1 text-muted-foreground min-w-0">
+                  <ExternalLink className="h-3 w-3 flex-shrink-0" /><span className="flex-shrink-0">Redirection:</span>
+                  <span className="font-mono truncate max-w-[200px]">{keyItem.redirectUrl}</span>
+                </div>
+              )}
+              {keyItem.webhookUrl && (
+                <div className="flex items-center gap-1 text-muted-foreground min-w-0">
+                  <Bell className="h-3 w-3 flex-shrink-0" /><span className="flex-shrink-0">Webhook:</span>
+                  <span className="font-mono truncate max-w-[200px]">{keyItem.webhookUrl}</span>
+                </div>
+              )}
+            </div>
+            {keyItem.webhookSecret && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">Secret:</span>
+                <code className="font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded truncate max-w-[200px]">{keyItem.webhookSecret}</code>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => copyToClipboard(keyItem.webhookSecret!)} data-testid={`button-copy-secret-${keyItem.id}`}>
+                  {copiedKey === keyItem.webhookSecret ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <DashboardLayout>
