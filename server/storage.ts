@@ -98,6 +98,8 @@ export interface IStorage {
   createTransaction(transaction: InsertTransaction): Promise<Transaction>;
   updateTransactionStatus(id: number, status: string): Promise<Transaction | undefined>;
   updateTransactionNote(id: number, adminNote: string): Promise<Transaction | undefined>;
+  updateTransaction(id: number, updates: Partial<Transaction>): Promise<Transaction | undefined>;
+  getTransactionByExternalRef(externalRef: string): Promise<Transaction | undefined>;
   getAllTransactions(): Promise<Transaction[]>;
   
   createTransfer(transfer: InsertTransfer): Promise<Transfer>;
@@ -350,6 +352,23 @@ export class DatabaseStorage implements IStorage {
       .where(eq(transactions.id, id))
       .returning();
     return updated;
+  }
+
+  async updateTransaction(id: number, updates: Partial<Transaction>): Promise<Transaction | undefined> {
+    const [updated] = await getDb()
+      .update(transactions)
+      .set(updates as any)
+      .where(eq(transactions.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getTransactionByExternalRef(externalRef: string): Promise<Transaction | undefined> {
+    const [txn] = await getDb()
+      .select()
+      .from(transactions)
+      .where(eq(transactions.externalRef, externalRef));
+    return txn;
   }
 
   async getAllTransactions(): Promise<Transaction[]> {
