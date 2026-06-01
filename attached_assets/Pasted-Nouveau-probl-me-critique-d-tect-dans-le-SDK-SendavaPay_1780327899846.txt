@@ -1,0 +1,64 @@
+Nouveau problème critique détecté dans le SDK SendavaPay.
+
+Actuellement, lorsqu'un marchand utilise l'API SDK pour encaisser un paiement (collecte de fonds), le système retourne parfois l'erreur INSUFFICIENT_BALANCE lorsque le wallet du pays concerné est vide.
+
+Ce comportement est incorrect.
+
+Règle métier attendue :
+
+La collecte de fonds (Pay-In) ne doit jamais dépendre du solde disponible dans le wallet du marchand. Un marchand doit pouvoir recevoir des paiements même si son wallet est à 0 FCFA.
+
+Exemple :
+
+- Wallet Togo : 0 FCFA
+- Wallet Sénégal : 0 FCFA
+- Wallet Cameroun : 0 FCFA
+
+Le marchand doit quand même pouvoir encaisser un paiement de 1 000 FCFA, 10 000 FCFA ou 100 000 FCFA via Mobile Money.
+
+Le contrôle de solde doit être effectué uniquement pour les opérations de retrait (Pay-Out) et jamais pour les opérations d'encaissement (Pay-In).
+
+Corrections demandées :
+
+1. Supprimer toute vérification de solde lors de :
+   
+   - create-payment
+   - initiate-payment
+   - submit-otp
+   - verify-payment
+
+2. Conserver la vérification de solde uniquement pour :
+   
+   - withdraw
+   - validate-withdrawal
+
+3. Lorsqu'un paiement est confirmé avec le statut "completed" :
+   
+   - créditer automatiquement le wallet du pays concerné
+   - enregistrer la transaction dans l'historique
+   - mettre à jour le solde du wallet
+
+4. Vérifier que le code de validation "INSUFFICIENT_BALANCE" n'est jamais déclenché dans le flux Pay-In.
+
+5. Séparer clairement la logique :
+   
+   - Pay-In = réception d'argent → aucun contrôle de solde
+   - Pay-Out = envoi d'argent → contrôle de solde obligatoire
+
+6. Ajouter des tests automatiques :
+
+Cas 1 :
+
+- Solde wallet = 0 FCFA
+- Paiement entrant = 5 000 FCFA
+- Résultat attendu : paiement accepté
+
+Cas 2 :
+
+- Solde wallet = 0 FCFA
+- Retrait = 5 000 FCFA
+- Résultat attendu : INSUFFICIENT_BALANCE
+
+Objectif final :
+
+Un wallet vide ne doit jamais empêcher un marchand de recevoir de l'argent. Le contrôle de solde doit être réservé exclusivement aux retraits et non aux encaissements.
