@@ -31,6 +31,7 @@ const SuccessPage = lazy(() => import("@/pages/success"));
 const PaymentSuccessPage = lazy(() => import("@/pages/payment-success"));
 const AdminDashboardPage = lazy(() => import("@/pages/admin/index"));
 const AdminSecurityPage = lazy(() => import("@/pages/admin/security"));
+const AdminSdkWithdrawalLogsPage = lazy(() => import("@/pages/admin/sdk-withdrawal-logs"));
 const TermsPage = lazy(() => import("@/pages/terms"));
 const AboutPage = lazy(() => import("@/pages/about"));
 const HelpPage = lazy(() => import("@/pages/help"));
@@ -105,6 +106,7 @@ function Router() {
         <AdminRoute path="/admin/wallet-exchanges" component={AdminDashboardPage} />
         <AdminRoute path="/admin/settings" component={AdminDashboardPage} />
         <AdminRoute path="/admin/security" component={AdminSecurityPage} />
+        <AdminRoute path="/admin/sdk-withdrawal-logs" component={AdminSdkWithdrawalLogsPage} />
 
         <Route component={NotFound} />
       </Switch>

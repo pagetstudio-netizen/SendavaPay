@@ -10714,5 +10714,22 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     res.json({ message: "IP retirée de la liste blanche" });
   });
 
+  // ─── SDK Withdrawal Audit Logs ────────────────────────────────────────────────
+  app.get("/api/admin/sdk-withdrawal-logs", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const page   = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit  = Math.min(100, parseInt(req.query.limit as string) || 50);
+      const offset = (page - 1) * limit;
+      const [logs, total] = await Promise.all([
+        storage.getSdkWithdrawalLogs(limit, offset),
+        storage.countSdkWithdrawalLogs(),
+      ]);
+      res.json({ logs, total, page, limit, pages: Math.ceil(total / limit) });
+    } catch (err: any) {
+      console.error("GET /api/admin/sdk-withdrawal-logs:", err);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
   return httpServer;
 }
