@@ -122,6 +122,34 @@ async function initializePartnerTables() {
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_personal_fee_rate DECIMAL(5,2);`);
     await client.query(`ALTER TABLE leekpay_payments ADD COLUMN IF NOT EXISTS payer_country TEXT;`);
     await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payer_country TEXT;`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS partner_wallets (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        partner_id INTEGER NOT NULL REFERENCES partners(id),
+        country_code TEXT NOT NULL,
+        country_name TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        balance DECIMAL(15, 2) NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS partner_wallet_exchanges (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        partner_id INTEGER NOT NULL REFERENCES partners(id),
+        from_wallet_id INTEGER NOT NULL REFERENCES partner_wallets(id),
+        to_wallet_id INTEGER NOT NULL REFERENCES partner_wallets(id),
+        from_country_code TEXT NOT NULL,
+        to_country_code TEXT NOT NULL,
+        currency TEXT NOT NULL,
+        amount DECIMAL(15, 2) NOT NULL,
+        fee_rate DECIMAL(5, 2),
+        fee_amount DECIMAL(15, 2),
+        net_amount DECIMAL(15, 2),
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
     log("Partner tables initialized successfully", "init");
   } catch (error) {
     log(`Partner tables initialization error: ${(error as Error).message}`, "init");
