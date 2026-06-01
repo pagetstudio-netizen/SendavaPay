@@ -2869,42 +2869,69 @@ export async function registerRoutes(
         const withdrawalRequest = await storage.getWithdrawalRequestByExternalRef(reference);
         
         if (withdrawalRequest && withdrawalRequest.status === "processing") {
-          if (success && status === "SUCCESS") {
-            // Débiter le solde maintenant
-            const user = await storage.getUser(withdrawalRequest.userId);
-            if (user) {
-              const balance = parseFloat(user.balance);
-              const withdrawAmount = parseFloat(withdrawalRequest.amount);
-              const newBalance = balance - withdrawAmount;
-              await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
+          // Détecter si c'est un retrait SDK (wallet déjà débité à la création)
+          const spSdkRef = (withdrawalRequest as any).transactionReference;
+          const spIsSdk = typeof spSdkRef === "string" && spSdkRef.startsWith("sdk_");
+
+          if (spIsSdk) {
+            // ── Retrait SDK : wallet déjà débité — appeler les helpers SDK ──
+            try {
+              const { markSdkWithdrawalCompleted: _spComplete, markSdkWithdrawalFailed: _spFail } = await import("./sdk-api");
+              const spSdkTxn = await storage.getApiTransactionByReference(spSdkRef);
+              if (spSdkTxn) {
+                const spApiKey = spSdkTxn.apiKeyId ? await storage.getApiKeyById(Number(spSdkTxn.apiKeyId)).catch(() => null) : null;
+                const spSdkEntry = {
+                  sdkTransactionRef:   spSdkRef,
+                  withdrawalRequestId: withdrawalRequest.id,
+                  webhookUrl:          (spApiKey as any)?.webhookUrl || null,
+                  webhookSecret:       (spApiKey as any)?.webhookSecret || null,
+                };
+                if (success && status === "SUCCESS") {
+                  await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "approved", processedAt: new Date() });
+                  await _spComplete(spSdkEntry, spSdkTxn);
+                  console.log(`✅ SoleasPay webhook: Retrait SDK ${spSdkRef} complété — wallet marchand déjà débité`);
+                } else if (status === "FAILED" || status === "FAILURE") {
+                  await _spFail(spSdkEntry, withdrawalRequest, spSdkTxn, "SoleasPay: retrait échoué");
+                  console.log(`❌ SoleasPay webhook: Retrait SDK ${spSdkRef} échoué — wallet remboursé`);
+                }
+              } else {
+                console.warn(`⚠️ SoleasPay webhook: api_transaction SDK introuvable pour ref=${spSdkRef}`);
+              }
+            } catch (spSdkErr) {
+              console.error("[SoleasPay webhook SDK] Erreur:", spSdkErr);
             }
-            
-            // Mettre à jour le statut
-            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-              status: "approved",
-              processedAt: new Date(),
-            });
-
-            // Créer la transaction
-            await storage.createTransaction({
-              userId: withdrawalRequest.userId,
-              type: "withdrawal",
-              amount: withdrawalRequest.amount,
-              fee: withdrawalRequest.fee,
-              netAmount: withdrawalRequest.netAmount,
-              status: "completed",
-              description: `Retrait ${withdrawalRequest.paymentMethod} - ${withdrawalRequest.mobileNumber}`,
-              externalRef: reference,
-            });
-
-            console.log(`✅ SoleasPay webhook: Retrait confirmé utilisateur #${withdrawalRequest.userId}`);
-          } else if (status === "FAILED" || status === "FAILURE") {
-            // Marquer comme échec sans débiter
-            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-              status: "failed",
-              rejectionReason: "Le retrait a échoué auprès du service de paiement",
-            });
-            console.log(`❌ SoleasPay webhook: Retrait échoué ref=${reference}`);
+          } else {
+            // ── Retrait non-SDK : débiter user.balance au moment de la confirmation ──
+            if (success && status === "SUCCESS") {
+              const user = await storage.getUser(withdrawalRequest.userId);
+              if (user) {
+                const balance = parseFloat(user.balance);
+                const withdrawAmount = parseFloat(withdrawalRequest.amount);
+                const newBalance = balance - withdrawAmount;
+                await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
+              }
+              await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+                status: "approved",
+                processedAt: new Date(),
+              });
+              await storage.createTransaction({
+                userId: withdrawalRequest.userId,
+                type: "withdrawal",
+                amount: withdrawalRequest.amount,
+                fee: withdrawalRequest.fee,
+                netAmount: withdrawalRequest.netAmount,
+                status: "completed",
+                description: `Retrait ${withdrawalRequest.paymentMethod} - ${withdrawalRequest.mobileNumber}`,
+                externalRef: reference,
+              });
+              console.log(`✅ SoleasPay webhook: Retrait confirmé utilisateur #${withdrawalRequest.userId}`);
+            } else if (status === "FAILED" || status === "FAILURE") {
+              await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+                status: "failed",
+                rejectionReason: "Le retrait a échoué auprès du service de paiement",
+              });
+              console.log(`❌ SoleasPay webhook: Retrait échoué ref=${reference}`);
+            }
           }
         }
       }
@@ -3655,59 +3682,102 @@ export async function registerRoutes(
           const wNet = parseFloat(withdrawalReq.netAmount as string || (wAmount - wFee).toString());
           const wUser = await storage.getUser(withdrawalReq.userId);
 
+          // Détecter si c'est un retrait SDK (wallet déjà débité à la création)
+          const mbSdkRef = (withdrawalReq as any).transactionReference;
+          const mbIsSdk = typeof mbSdkRef === "string" && mbSdkRef.startsWith("sdk_");
+
           if (txStatus === "successful" || txStatus === "success") {
-            await storage.updateWithdrawalRequest(withdrawalReq.id, { status: "approved", processedAt: new Date() });
-            await storage.createTransaction({
-              userId: withdrawalReq.userId,
-              type: "withdrawal",
-              amount: wAmount.toString(),
-              fee: wFee.toString(),
-              netAmount: wNet.toString(),
-              status: "completed",
-              description: `Retrait automatique ${withdrawalReq.paymentMethod} - ${withdrawalReq.mobileNumber}`,
-              mobileNumber: withdrawalReq.mobileNumber,
-              paymentMethod: withdrawalReq.paymentMethod,
-            });
-            if (wUser?.email) {
-              sendWithdrawalEmail(wUser.email, {
-                userName: wUser.fullName,
-                amount: wNet,
-                currency: withdrawalReq.currency || "XOF",
-                transactionId: withdrawalReq.id.toString(),
-                phone: withdrawalReq.mobileNumber || "",
-                operator: withdrawalReq.paymentMethod || "MbiyoPay",
-              }).catch(() => {});
+            console.log(`✅ MbiyoPay webhook: Retrait #${withdrawalReq.id} confirmé ref=${mbWdRef} sdk=${mbIsSdk}`);
+            if (mbIsSdk) {
+              // ── SDK : appeler markSdkWithdrawalCompleted (wallet déjà débité) ──
+              try {
+                const { markSdkWithdrawalCompleted: _mbComplete } = await import("./sdk-api");
+                const mbSdkTxn = await storage.getApiTransactionByReference(mbSdkRef);
+                if (mbSdkTxn) {
+                  const mbApiKey = mbSdkTxn.apiKeyId ? await storage.getApiKeyById(Number(mbSdkTxn.apiKeyId)).catch(() => null) : null;
+                  await storage.updateWithdrawalRequest(withdrawalReq.id, { status: "approved", processedAt: new Date() });
+                  await _mbComplete({
+                    sdkTransactionRef:   mbSdkRef,
+                    withdrawalRequestId: withdrawalReq.id,
+                    webhookUrl:          (mbApiKey as any)?.webhookUrl || null,
+                    webhookSecret:       (mbApiKey as any)?.webhookSecret || null,
+                  }, mbSdkTxn);
+                  console.log(`✅ MbiyoPay webhook: Retrait SDK ${mbSdkRef} complété`);
+                }
+              } catch (mbSdkErr) { console.error("[MbiyoPay webhook SDK complete]", mbSdkErr); }
+            } else {
+              // ── Non-SDK : flux admin standard ──
+              await storage.updateWithdrawalRequest(withdrawalReq.id, { status: "approved", processedAt: new Date() });
+              await storage.createTransaction({
+                userId: withdrawalReq.userId,
+                type: "withdrawal",
+                amount: wAmount.toString(),
+                fee: wFee.toString(),
+                netAmount: wNet.toString(),
+                status: "completed",
+                description: `Retrait automatique ${withdrawalReq.paymentMethod} - ${withdrawalReq.mobileNumber}`,
+                mobileNumber: withdrawalReq.mobileNumber,
+                paymentMethod: withdrawalReq.paymentMethod,
+              });
+              if (wUser?.email) {
+                sendWithdrawalEmail(wUser.email, {
+                  userName: wUser.fullName,
+                  amount: wNet,
+                  currency: withdrawalReq.currency || "XOF",
+                  transactionId: withdrawalReq.id.toString(),
+                  phone: withdrawalReq.mobileNumber || "",
+                  operator: withdrawalReq.paymentMethod || "MbiyoPay",
+                }).catch(() => {});
+              }
+              notifyWithdrawalAutoProcessed({
+                userName: wUser?.fullName || "Client",
+                userId: withdrawalReq.userId,
+                amount: wAmount.toString(),
+                netAmount: wNet.toString(),
+                paymentMethod: withdrawalReq.paymentMethod || "MbiyoPay",
+                mobileNumber: withdrawalReq.mobileNumber || "",
+                payoutUuid: mbWdRef,
+                status: "success",
+                gateway: "MbiyoPay",
+              });
             }
-            notifyWithdrawalAutoProcessed({
-              userName: wUser?.fullName || "Client",
-              userId: withdrawalReq.userId,
-              amount: wAmount.toString(),
-              netAmount: wNet.toString(),
-              paymentMethod: withdrawalReq.paymentMethod || "MbiyoPay",
-              mobileNumber: withdrawalReq.mobileNumber || "",
-              payoutUuid: mbWdRef,
-              status: "success",
-              gateway: "MbiyoPay",
-            });
-            console.log(`✅ MbiyoPay webhook: Retrait #${withdrawalReq.id} confirmé ref=${mbWdRef}`);
           } else if (txStatus === "failed" || txStatus === "cancelled") {
-            await storage.updateWithdrawalRequest(withdrawalReq.id, {
-              status: "pending",
-              rejectionReason: `Échec MbiyoPay (${txStatus}) — en attente validation admin`,
-            });
-            notifyWithdrawalAutoProcessed({
-              userName: wUser?.fullName || "Client",
-              userId: withdrawalReq.userId,
-              amount: wAmount.toString(),
-              netAmount: wNet.toString(),
-              paymentMethod: withdrawalReq.paymentMethod || "MbiyoPay",
-              mobileNumber: withdrawalReq.mobileNumber || "",
-              payoutUuid: mbWdRef,
-              status: "failed",
-              errorDetail: `Transaction MbiyoPay échouée (${txStatus})`,
-              gateway: "MbiyoPay",
-            });
-            console.log(`❌ MbiyoPay webhook: Retrait #${withdrawalReq.id} ÉCHOUÉ ref=${mbWdRef}`);
+            console.log(`❌ MbiyoPay webhook: Retrait #${withdrawalReq.id} ÉCHOUÉ ref=${mbWdRef} sdk=${mbIsSdk}`);
+            if (mbIsSdk) {
+              // ── SDK : rembourser le wallet immédiatement ──
+              try {
+                const { markSdkWithdrawalFailed: _mbFail } = await import("./sdk-api");
+                const mbSdkTxn = await storage.getApiTransactionByReference(mbSdkRef);
+                if (mbSdkTxn) {
+                  const mbApiKey = mbSdkTxn.apiKeyId ? await storage.getApiKeyById(Number(mbSdkTxn.apiKeyId)).catch(() => null) : null;
+                  await _mbFail({
+                    sdkTransactionRef:   mbSdkRef,
+                    withdrawalRequestId: withdrawalReq.id,
+                    webhookUrl:          (mbApiKey as any)?.webhookUrl || null,
+                    webhookSecret:       (mbApiKey as any)?.webhookSecret || null,
+                  }, withdrawalReq, mbSdkTxn, `MbiyoPay payout échoué (${txStatus})`);
+                  console.log(`❌ MbiyoPay webhook: Retrait SDK ${mbSdkRef} échoué — wallet remboursé`);
+                }
+              } catch (mbSdkErr) { console.error("[MbiyoPay webhook SDK fail]", mbSdkErr); }
+            } else {
+              // ── Non-SDK : remettre en pending pour validation admin ──
+              await storage.updateWithdrawalRequest(withdrawalReq.id, {
+                status: "pending",
+                rejectionReason: `Échec MbiyoPay (${txStatus}) — en attente validation admin`,
+              });
+              notifyWithdrawalAutoProcessed({
+                userName: wUser?.fullName || "Client",
+                userId: withdrawalReq.userId,
+                amount: wAmount.toString(),
+                netAmount: wNet.toString(),
+                paymentMethod: withdrawalReq.paymentMethod || "MbiyoPay",
+                mobileNumber: withdrawalReq.mobileNumber || "",
+                payoutUuid: mbWdRef,
+                status: "failed",
+                errorDetail: `Transaction MbiyoPay échouée (${txStatus})`,
+                gateway: "MbiyoPay",
+              });
+            }
           }
         }
       }
@@ -3955,61 +4025,55 @@ export async function registerRoutes(
             const wFee = parseFloat(withdrawalReq.fee as string || "0");
             const wNet = parseFloat(withdrawalReq.netAmount as string || (wAmount - wFee).toString());
 
+            // Détecter si c'est un retrait SDK (wallet déjà débité à la création)
+            const opSdkRef = (withdrawalReq as any).transactionReference;
+            const opIsSdk = typeof opSdkRef === "string" && opSdkRef.startsWith("sdk_");
+
             if ((status === "1" || status === "3") && withdrawalReq.status === "processing") {
               // Transfer confirmed successful
-              console.log(`✅ OmniPay TRANSFER webhook: Retrait #${withdrawalReq.id} confirmé ref=${reference}`);
-              await storage.updateWithdrawalRequest(withdrawalReq.id, {
-                status: "approved",
-                processedAt: new Date(),
-              });
+              console.log(`✅ OmniPay TRANSFER webhook: Retrait #${withdrawalReq.id} confirmé ref=${reference} sdk=${opIsSdk}`);
 
-              await storage.createTransaction({
-                userId: withdrawalReq.userId,
-                type: "withdrawal",
-                amount: wAmount.toString(),
-                fee: wFee.toString(),
-                netAmount: wNet.toString(),
-                status: "completed",
-                description: `Retrait automatique ${withdrawalReq.paymentMethod} - ${withdrawalReq.mobileNumber}`,
-                mobileNumber: withdrawalReq.mobileNumber,
-                paymentMethod: withdrawalReq.paymentMethod,
-              });
-
-              if (wUser?.email) {
-                sendWithdrawalEmail(wUser.email, {
-                  userName: wUser.fullName,
-                  amount: wNet,
-                  currency: data.currency || "XOF",
-                  transactionId: withdrawalReq.id.toString(),
-                  phone: withdrawalReq.mobileNumber || "",
-                  operator: withdrawalReq.paymentMethod || "OmniPay",
-                }).catch(err => console.error("Failed to send withdrawal email:", err));
-              }
-
-              notifyWithdrawalAutoProcessed({
-                userName: wUser?.fullName || "Client",
-                userId: withdrawalReq.userId,
-                amount: wAmount.toString(),
-                netAmount: wNet.toString(),
-                paymentMethod: withdrawalReq.paymentMethod || "OmniPay",
-                mobileNumber: withdrawalReq.mobileNumber || "",
-                payoutUuid: reference,
-                status: "success",
-                gateway: "OmniPay",
-              });
-
-            } else if (status === "4") {
-              // Transfer failed — keep pending for manual admin validation (balance stays debited)
-              console.log(`❌ OmniPay TRANSFER webhook: Retrait #${withdrawalReq.id} ÉCHOUÉ ref=${reference} msg=${data.message}`);
-
-              if (withdrawalReq.status === "processing" || withdrawalReq.status === "approved") {
-                console.log(`⏳ OmniPay webhook: Retrait #${withdrawalReq.id} basculé en "pending" pour validation manuelle`);
-
-                await storage.updateWithdrawalRequest(withdrawalReq.id, {
-                  status: "pending",
-                  rejectionReason: data.message || "Échec du transfert mobile money (OmniPay) — en attente validation admin",
+              if (opIsSdk) {
+                // ── SDK : appeler markSdkWithdrawalCompleted (wallet déjà débité) ──
+                try {
+                  const { markSdkWithdrawalCompleted: _opComplete } = await import("./sdk-api");
+                  const opSdkTxn = await storage.getApiTransactionByReference(opSdkRef);
+                  if (opSdkTxn) {
+                    const opApiKey = opSdkTxn.apiKeyId ? await storage.getApiKeyById(Number(opSdkTxn.apiKeyId)).catch(() => null) : null;
+                    await storage.updateWithdrawalRequest(withdrawalReq.id, { status: "approved", processedAt: new Date() });
+                    await _opComplete({
+                      sdkTransactionRef:   opSdkRef,
+                      withdrawalRequestId: withdrawalReq.id,
+                      webhookUrl:          (opApiKey as any)?.webhookUrl || null,
+                      webhookSecret:       (opApiKey as any)?.webhookSecret || null,
+                    }, opSdkTxn);
+                    console.log(`✅ OmniPay webhook: Retrait SDK ${opSdkRef} complété`);
+                  }
+                } catch (opSdkErr) { console.error("[OmniPay webhook SDK complete]", opSdkErr); }
+              } else {
+                // ── Non-SDK : flux admin standard ──
+                await storage.updateWithdrawalRequest(withdrawalReq.id, { status: "approved", processedAt: new Date() });
+                await storage.createTransaction({
+                  userId: withdrawalReq.userId,
+                  type: "withdrawal",
+                  amount: wAmount.toString(),
+                  fee: wFee.toString(),
+                  netAmount: wNet.toString(),
+                  status: "completed",
+                  description: `Retrait automatique ${withdrawalReq.paymentMethod} - ${withdrawalReq.mobileNumber}`,
+                  mobileNumber: withdrawalReq.mobileNumber,
+                  paymentMethod: withdrawalReq.paymentMethod,
                 });
-
+                if (wUser?.email) {
+                  sendWithdrawalEmail(wUser.email, {
+                    userName: wUser.fullName,
+                    amount: wNet,
+                    currency: data.currency || "XOF",
+                    transactionId: withdrawalReq.id.toString(),
+                    phone: withdrawalReq.mobileNumber || "",
+                    operator: withdrawalReq.paymentMethod || "OmniPay",
+                  }).catch(err => console.error("Failed to send withdrawal email:", err));
+                }
                 notifyWithdrawalAutoProcessed({
                   userName: wUser?.fullName || "Client",
                   userId: withdrawalReq.userId,
@@ -4018,10 +4082,50 @@ export async function registerRoutes(
                   paymentMethod: withdrawalReq.paymentMethod || "OmniPay",
                   mobileNumber: withdrawalReq.mobileNumber || "",
                   payoutUuid: reference,
-                  status: "failed",
-                  errorDetail: data.message || "Transaction failed (OmniPay callback)",
+                  status: "success",
                   gateway: "OmniPay",
                 });
+              }
+
+            } else if (status === "4") {
+              console.log(`❌ OmniPay TRANSFER webhook: Retrait #${withdrawalReq.id} ÉCHOUÉ ref=${reference} sdk=${opIsSdk}`);
+
+              if (withdrawalReq.status === "processing" || withdrawalReq.status === "approved") {
+                if (opIsSdk) {
+                  // ── SDK : rembourser le wallet immédiatement ──
+                  try {
+                    const { markSdkWithdrawalFailed: _opFail } = await import("./sdk-api");
+                    const opSdkTxn = await storage.getApiTransactionByReference(opSdkRef);
+                    if (opSdkTxn) {
+                      const opApiKey = opSdkTxn.apiKeyId ? await storage.getApiKeyById(Number(opSdkTxn.apiKeyId)).catch(() => null) : null;
+                      await _opFail({
+                        sdkTransactionRef:   opSdkRef,
+                        withdrawalRequestId: withdrawalReq.id,
+                        webhookUrl:          (opApiKey as any)?.webhookUrl || null,
+                        webhookSecret:       (opApiKey as any)?.webhookSecret || null,
+                      }, withdrawalReq, opSdkTxn, data.message || "Échec OmniPay transfer (webhook)");
+                      console.log(`❌ OmniPay webhook: Retrait SDK ${opSdkRef} échoué — wallet remboursé`);
+                    }
+                  } catch (opSdkErr) { console.error("[OmniPay webhook SDK fail]", opSdkErr); }
+                } else {
+                  // ── Non-SDK : remettre en pending pour validation admin ──
+                  await storage.updateWithdrawalRequest(withdrawalReq.id, {
+                    status: "pending",
+                    rejectionReason: data.message || "Échec du transfert mobile money (OmniPay) — en attente validation admin",
+                  });
+                  notifyWithdrawalAutoProcessed({
+                    userName: wUser?.fullName || "Client",
+                    userId: withdrawalReq.userId,
+                    amount: wAmount.toString(),
+                    netAmount: wNet.toString(),
+                    paymentMethod: withdrawalReq.paymentMethod || "OmniPay",
+                    mobileNumber: withdrawalReq.mobileNumber || "",
+                    payoutUuid: reference,
+                    status: "failed",
+                    errorDetail: data.message || "Transaction failed (OmniPay callback)",
+                    gateway: "OmniPay",
+                  });
+                }
               }
             } else {
               console.log(`⚠️ OmniPay TRANSFER webhook: statut ignoré status=${status} withdrawal.status=${withdrawalReq.status} ref=${reference}`);
