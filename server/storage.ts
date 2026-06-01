@@ -1352,11 +1352,11 @@ export class DatabaseStorage implements IStorage {
   async debitWallet(walletId: number, amount: string): Promise<boolean> {
     const [wallet] = await getDb().select().from(wallets).where(eq(wallets.id, walletId));
     if (!wallet || parseFloat(wallet.balance) < parseFloat(amount)) return false;
-    const newBalance = (parseFloat(wallet.balance) - parseFloat(amount)).toFixed(4);
-    await getDb().update(wallets)
-      .set({ balance: newBalance, updatedAt: new Date() })
-      .where(eq(wallets.id, walletId));
-    return true;
+    const result = await getDb().update(wallets)
+      .set({ balance: sql`GREATEST(0, ${wallets.balance} - ${amount}::decimal)`, updatedAt: new Date() })
+      .where(and(eq(wallets.id, walletId), sql`${wallets.balance} >= ${amount}::decimal`))
+      .returning({ balance: wallets.balance });
+    return result.length > 0;
   }
 
   async creditWalletById(walletId: number, amount: string): Promise<void> {
