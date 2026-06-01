@@ -345,6 +345,27 @@ export async function completeApiTransactionFromWebhook(
   }
 
   console.log(`✅ [SDK webhook/${provider}] Transaction ${row.reference} complétée — net=${net} ${currency} → user #${row.user_id}`);
+
+  // 7. Notification Telegram pour paiement SDK complété
+  try {
+    const { notifyPartnerPayment } = await import("./telegram");
+    const sdkUser = await storage.getUser(Number(row.user_id)).catch(() => null);
+    notifyPartnerPayment({
+      partnerName: sdkUser?.fullName || `Marchand #${row.user_id}`,
+      partnerId: Number(row.user_id),
+      amount,
+      fee,
+      netAmount: net,
+      currency,
+      reference: row.reference,
+      customerPhone: row.customer_phone || undefined,
+      customerName: row.customer_name || undefined,
+      operator: row.payment_method || undefined,
+      provider,
+    });
+  } catch (e) {
+    console.error("[SDK webhook] Erreur notification Telegram paiement:", e);
+  }
 }
 
 // Appelé depuis les handlers de webhook des passerelles quand un paiement SDK échoue.

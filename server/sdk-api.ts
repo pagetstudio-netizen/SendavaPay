@@ -181,6 +181,24 @@ export async function markSdkWithdrawalCompleted(entry: WithdrawalQueueEntry, tx
     }, entry.webhookSecret, txn.reference, txn.id);
   }
   console.log(`✅ [sdk-withdrawal] Retrait ${txn.reference} complété — ${txn.amount} ${txn.currency} → ${txn.customerPhone}`);
+
+  // Notification Telegram pour retrait SDK complété
+  try {
+    const { notifyPartnerWithdrawal } = await import("./telegram");
+    const sdkUser = await storage.getUser(Number(txn.userId || txn.user_id)).catch(() => null);
+    notifyPartnerWithdrawal({
+      partnerName: sdkUser?.fullName || `Marchand #${txn.userId || txn.user_id}`,
+      partnerId: Number(txn.userId || txn.user_id),
+      amount: String(txn.amount || "0"),
+      fee: String(txn.fee || "0"),
+      netAmount: String(txn.amount || "0"),
+      paymentMethod: txn.paymentMethod || txn.payment_method || "sdk_payout",
+      mobileNumber: txn.customerPhone || txn.customer_phone || "",
+      country: txn.currency || "XOF",
+    });
+  } catch (e) {
+    console.error("[sdk-withdrawal] Erreur notification Telegram retrait:", e);
+  }
 }
 
 // Mark SDK withdrawal as failed: update DB + admin history + refund wallet + send webhook
