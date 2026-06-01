@@ -67,11 +67,14 @@ import {
   passwordResetTokens,
   wallets,
   walletExchanges,
+  sdkWithdrawalLogs,
   type Wallet,
   type WalletExchange,
   type PartnerWallet,
   type PartnerWalletExchange,
   type StatsOffset,
+  type SdkWithdrawalLog,
+  type InsertSdkWithdrawalLog,
 } from "@shared/schema";
 import { db as dbInstance } from "./db";
 import { eq, ne, or, and, desc, sql, inArray } from "drizzle-orm";
@@ -270,6 +273,10 @@ export interface IStorage {
   approveWalletExchange(id: number, adminId: number): Promise<WalletExchange | undefined>;
   rejectWalletExchange(id: number, adminId: number, note?: string): Promise<WalletExchange | undefined>;
   getAllPartnerWalletExchanges(): Promise<(PartnerWalletExchange & { partner?: Partner })[]>;
+  createSdkWithdrawalLog(data: InsertSdkWithdrawalLog): Promise<SdkWithdrawalLog>;
+  updateSdkWithdrawalLog(id: number, updates: Partial<SdkWithdrawalLog>): Promise<void>;
+  getSdkWithdrawalLogs(limit?: number, offset?: number): Promise<SdkWithdrawalLog[]>;
+  countSdkWithdrawalLogs(): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1369,28 +1376,53 @@ export class DatabaseStorage implements IStorage {
   }
 
   async debitWallet(walletId: number, amount: string): Promise<{ success: boolean; balanceBefore: number; balanceAfter: number } | false> {
+    const amountNum = parseFloat(amount);
+    console.log(`[debitWallet] ▶ DÉBUT — walletId=${walletId} amount=${amount} (${amountNum})`);
+
+    // Lire le solde actuel pour le log (lecture diagnostique uniquement)
+    try {
+      const pre = await getDb().select({ balance: wallets.balance }).from(wallets).where(eq(wallets.id, walletId)).limit(1);
+      if (pre.length === 0) {
+        console.error(`[debitWallet] ❌ Wallet introuvable — walletId=${walletId}`);
+        return false;
+      }
+      console.log(`[debitWallet] 📋 Solde en base avant UPDATE: ${pre[0].balance} | Requis: ${amount} | Suffisant: ${parseFloat(pre[0].balance) >= amountNum}`);
+    } catch (readErr) {
+      console.warn(`[debitWallet] ⚠️ Lecture pré-débit échouée (non bloquant):`, readErr);
+    }
+
     // Atomique : un seul UPDATE avec WHERE balance >= amount.
-    // On récupère le solde avant ET après en une seule transaction SQL.
-    const result = await getDb().execute(
-      sql`UPDATE wallets
-          SET balance    = balance - ${amount}::decimal,
-              updated_at = NOW()
-          WHERE id = ${walletId}
-            AND balance >= ${amount}::decimal
-          RETURNING
-            (balance + ${amount}::decimal) AS balance_before,
-            balance                         AS balance_after`
-    ) as any;
+    // Élimine toute race condition (TOCTOU) entre la lecture et l'écriture.
+    let result: any;
+    try {
+      result = await getDb().execute(
+        sql`UPDATE wallets
+            SET balance    = balance - ${amount}::decimal,
+                updated_at = NOW()
+            WHERE id = ${walletId}
+              AND balance >= ${amount}::decimal
+            RETURNING
+              (balance + ${amount}::decimal) AS balance_before,
+              balance                         AS balance_after`
+      ) as any;
+      console.log(`[debitWallet] 🗄️ Résultat SQL brut:`, JSON.stringify(result?.rows ?? result ?? "null").slice(0, 300));
+    } catch (sqlErr) {
+      console.error(`[debitWallet] ❌ ERREUR SQL UPDATE — walletId=${walletId} amount=${amount}:`, sqlErr);
+      return false;
+    }
 
     const rows = result?.rows ?? result ?? [];
-    if (!rows || rows.length === 0) return false;
+    if (!rows || rows.length === 0) {
+      console.error(`[debitWallet] ❌ DÉBIT REFUSÉ — 0 lignes retournées. walletId=${walletId} amount=${amount} → solde insuffisant ou wallet inexistant`);
+      return false;
+    }
 
     const row = rows[0];
-    return {
-      success:       true,
-      balanceBefore: parseFloat(row.balance_before ?? "0"),
-      balanceAfter:  parseFloat(row.balance_after  ?? "0"),
-    };
+    const balanceBefore = parseFloat(row.balance_before ?? "0");
+    const balanceAfter  = parseFloat(row.balance_after  ?? "0");
+    console.log(`[debitWallet] ✅ DÉBIT RÉUSSI — walletId=${walletId} | Avant: ${balanceBefore} | Débité: ${amount} | Après: ${balanceAfter}`);
+
+    return { success: true, balanceBefore, balanceAfter };
   }
 
   async creditWalletById(walletId: number, amount: string): Promise<void> {
@@ -1563,6 +1595,29 @@ export class DatabaseStorage implements IStorage {
 
   async markPasswordResetTokenUsed(id: number): Promise<void> {
     await getDb().update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, id));
+  }
+
+  async createSdkWithdrawalLog(data: InsertSdkWithdrawalLog): Promise<SdkWithdrawalLog> {
+    const [row] = await getDb().insert(sdkWithdrawalLogs).values(data).returning();
+    return row;
+  }
+
+  async updateSdkWithdrawalLog(id: number, updates: Partial<SdkWithdrawalLog>): Promise<void> {
+    await getDb().update(sdkWithdrawalLogs)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(sdkWithdrawalLogs.id, id));
+  }
+
+  async getSdkWithdrawalLogs(limit = 100, offset = 0): Promise<SdkWithdrawalLog[]> {
+    return getDb().select().from(sdkWithdrawalLogs)
+      .orderBy(desc(sdkWithdrawalLogs.createdAt))
+      .limit(limit)
+      .offset(offset);
+  }
+
+  async countSdkWithdrawalLogs(): Promise<number> {
+    const [row] = await getDb().select({ count: sql<number>`count(*)::int` }).from(sdkWithdrawalLogs);
+    return row?.count ?? 0;
   }
 }
 

@@ -867,3 +867,33 @@ export type OtpCode = typeof otpCodes.$inferSelect;
 export type BlockedIp = typeof blockedIps.$inferSelect;
 export type LoginAttempt = typeof loginAttempts.$inferSelect;
 export type SecurityEvent = typeof securityEvents.$inferSelect;
+
+// ─── SDK Withdrawal Audit Log ──────────────────────────────────────────────────
+export const sdkWithdrawalLogs = pgTable("sdk_withdrawal_logs", {
+  id:               integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  reference:        text("reference").notNull(),
+  merchantId:       integer("merchant_id").references(() => users.id),
+  merchantEmail:    text("merchant_email").notNull(),
+  walletId:         integer("wallet_id"),
+  walletCountry:    text("wallet_country"),
+  balanceBefore:    decimal("balance_before", { precision: 15, scale: 2 }),
+  amountRequested:  decimal("amount_requested", { precision: 15, scale: 2 }).notNull(),
+  feeApplied:       decimal("fee_applied", { precision: 15, scale: 2 }),
+  totalDebited:     decimal("total_debited", { precision: 15, scale: 2 }),
+  balanceAfter:     decimal("balance_after", { precision: 15, scale: 2 }),
+  userBalanceBefore: decimal("user_balance_before", { precision: 15, scale: 2 }),
+  userBalanceAfter:  decimal("user_balance_after", { precision: 15, scale: 2 }),
+  debitSuccess:     boolean("debit_success").default(false),
+  phoneNumber:      text("phone_number"),
+  operator:         text("operator"),
+  gateway:          text("gateway"),
+  gatewayReference: text("gateway_reference"),
+  gatewayRawResponse: text("gateway_raw_response"),
+  status:           text("status").default("pending").notNull(),
+  errorMessage:     text("error_message"),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+  updatedAt:        timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type SdkWithdrawalLog = typeof sdkWithdrawalLogs.$inferSelect;
+export type InsertSdkWithdrawalLog = typeof sdkWithdrawalLogs.$inferInsert;

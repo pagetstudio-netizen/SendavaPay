@@ -150,13 +150,22 @@ export interface WithdrawalQueueEntry {
   withdrawalRequestId: number;
   webhookUrl: string | null;
   webhookSecret: string | null;
+  auditLogId?: number;
 }
 const withdrawalQueue: WithdrawalQueueEntry[] = [];
 
 // Mark SDK withdrawal as completed: update DB + admin history + send webhook
-export async function markSdkWithdrawalCompleted(entry: WithdrawalQueueEntry, txn: any): Promise<void> {
+export async function markSdkWithdrawalCompleted(entry: WithdrawalQueueEntry, txn: any, gatewayRef?: string, gatewayRaw?: string): Promise<void> {
   if (txn.status === "completed") return; // idempotency
   await storage.updateApiTransaction(txn.id, { status: "completed", completedAt: new Date() });
+  if (entry.auditLogId) {
+    storage.updateSdkWithdrawalLog(entry.auditLogId, {
+      status: "completed",
+      gateway: (txn.paymentMethod || "").split("_")[0] || undefined,
+      gatewayReference: gatewayRef || undefined,
+      gatewayRawResponse: gatewayRaw || undefined,
+    }).catch(() => {});
+  }
   try {
     const txAmt = parseFloat(txn.amount);
     const txFee = parseFloat(txn.fee || "0");
@@ -216,10 +225,17 @@ export async function markSdkWithdrawalCompleted(entry: WithdrawalQueueEntry, tx
 }
 
 // Mark SDK withdrawal as failed: update DB + admin history + refund wallet + send webhook
-export async function markSdkWithdrawalFailed(entry: WithdrawalQueueEntry, wr: any, txn: any, reason: string): Promise<void> {
+export async function markSdkWithdrawalFailed(entry: WithdrawalQueueEntry, wr: any, txn: any, reason: string, gatewayRaw?: string): Promise<void> {
   if (txn.status === "failed") return; // idempotency
   await storage.updateApiTransaction(txn.id, { status: "failed" });
   await storage.updateWithdrawalRequest(wr.id, { status: "failed", rejectionReason: reason }).catch(() => {});
+  if (entry.auditLogId) {
+    storage.updateSdkWithdrawalLog(entry.auditLogId, {
+      status: "failed",
+      errorMessage: reason,
+      gatewayRawResponse: gatewayRaw || undefined,
+    }).catch(() => {});
+  }
 
   // ── 1. Mettre à jour ou créer la transaction dans l'historique ──────────────
   const txAmt = parseFloat(txn.amount);
@@ -396,9 +412,11 @@ export async function autoDispatchSdkWithdrawal(
         callbackUrl:  `${appUrl}/api/webhook/paydunya`,
         disburseId:   pdRef,
       });
+      const pdRaw = JSON.stringify({ success: pdResult.success, status: pdResult.status, transactionId: pdResult.transactionId, error: pdResult.error });
       console.log(`[sdk-withdrawal] 📥 PayDunya — Réponse ref=${txn.reference}: success=${pdResult.success} status=${pdResult.status} txId=${pdResult.transactionId} error=${pdResult.error || "aucun"}`);
+      if (entry.auditLogId) storage.updateSdkWithdrawalLog(entry.auditLogId, { gateway: "paydunya", gatewayReference: pdRef, gatewayRawResponse: pdRaw }).catch(() => {});
       if (!pdResult.success) {
-        await markSdkWithdrawalFailed(entry, wr, txn, pdResult.error || "Échec PayDunya disburse");
+        await markSdkWithdrawalFailed(entry, wr, txn, pdResult.error || "Échec PayDunya disburse", pdRaw);
         return;
       }
       await storage.updateWithdrawalRequest(wr.id, {
@@ -407,7 +425,7 @@ export async function autoDispatchSdkWithdrawal(
         status:               pdResult.status === "success" ? "approved" : "processing",
       }).catch(() => {});
       if (pdResult.status === "success") {
-        await markSdkWithdrawalCompleted(entry, txn);
+        await markSdkWithdrawalCompleted(entry, txn, pdResult.transactionId || pdRef, pdRaw);
       } else {
         withdrawalQueue.push(entry); // En attente du webhook PayDunya
       }
@@ -1854,6 +1872,36 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
       console.error(`[sdk-withdraw] ⚠️ Erreur sync users.balance (non bloquant) — Réf: ${reference}:`, syncErr);
     }
 
+    // ── Créer l'entrée d'audit dans le journal des retraits SDK ─────────────────
+    let auditLogId: number | undefined;
+    try {
+      const currentUserForLog = await storage.getUser(sdkUser.id);
+      const userBalBefore = parseFloat(currentUserForLog?.balance || "0") + totalToDebit!;
+      const userBalAfter  = parseFloat(currentUserForLog?.balance || "0");
+      const auditLog = await storage.createSdkWithdrawalLog({
+        reference,
+        merchantId:       sdkUser.id,
+        merchantEmail:    sdkUser.email,
+        walletId:         targetWallet.id,
+        walletCountry:    countryUpper,
+        balanceBefore:    balanceBefore.toString(),
+        amountRequested:  data.amount.toString(),
+        feeApplied:       fee!.toString(),
+        totalDebited:     totalToDebit!.toString(),
+        balanceAfter:     balanceAfter.toString(),
+        userBalanceBefore: userBalBefore.toFixed(2),
+        userBalanceAfter:  userBalAfter.toFixed(2),
+        debitSuccess:     true,
+        phoneNumber:      data.phoneNumber,
+        operator:         data.operator,
+        status:           "pending",
+      });
+      auditLogId = auditLog.id;
+      console.log(`[sdk-withdraw] 📒 Audit log #${auditLogId} créé — Réf: ${reference}`);
+    } catch (auditErr) {
+      console.error(`[sdk-withdraw] ⚠️ Erreur création audit log (non bloquant) — Réf: ${reference}:`, auditErr);
+    }
+
     // ── Créer la transaction de débit dans l'historique (traçabilité complète) ─
     // Statut "pending" : sera mis à jour "completed" ou "failed" via webhook opérateur.
     const adminTxnRef = reference;
@@ -1916,6 +1964,7 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
       withdrawalRequestId: withdrawalRequest.id,
       webhookUrl:          (sdkKey as any).webhookUrl || null,
       webhookSecret:       (sdkKey as any).webhookSecret || null,
+      auditLogId,
     };
     withdrawalQueue.push(queueEntry);
 
