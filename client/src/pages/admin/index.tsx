@@ -1100,25 +1100,32 @@ interface PaymentAttempt {
   id: string;
   _table?: string;
   reference: string;
+  externalReference?: string | null;
   source: string;
   sourceLabel: string;
   status: string;
   amount: string;
+  fee?: string | null;
   currency: string;
   userId?: number | null;
   userName?: string | null;
   userEmail?: string | null;
   payerName?: string | null;
   payerPhone?: string | null;
+  payerEmail?: string | null;
   payerCountry?: string | null;
   paymentMethod?: string | null;
   description?: string | null;
   errorInfo?: string | null;
+  gatewayProvider?: string | null;
+  metadata?: Record<string, any> | null;
   partnerName?: string | null;
   webhookUrl?: string | null;
   webhookSent?: boolean | null;
   webhookAttempts?: number;
+  ipAddress?: string | null;
   completedAt?: string | null;
+  updatedAt?: string | null;
   createdAt: string;
 }
 
@@ -1136,6 +1143,7 @@ function TransactionsContent() {
   const [attemptStatusFilter, setAttemptStatusFilter] = useState("all");
   const [copiedRef, setCopiedRef] = useState<string | null>(null);
   const [sdkActionRef, setSdkActionRef] = useState<string | null>(null);
+  const [selectedAttemptDetail, setSelectedAttemptDetail] = useState<PaymentAttempt | null>(null);
 
   const copyRef = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -1497,9 +1505,18 @@ function TransactionsContent() {
                                   </Button>
                                 )}
                               </div>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
-                            )}
+                            ) : null}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs text-muted-foreground hover:text-foreground whitespace-nowrap"
+                              onClick={() => setSelectedAttemptDetail(a)}
+                              data-testid={`button-detail-attempt-${a.id}`}
+                              title="Voir les détails de cette transaction"
+                            >
+                              <Eye className="h-3 w-3 mr-1" />
+                              Détails
+                            </Button>
                           </td>
                         </tr>
                         );
@@ -1512,6 +1529,226 @@ function TransactionsContent() {
           </Card>
         </div>
       )}
+
+      {/* ── MODALE DÉTAILS TENTATIVE DE TRANSACTION ───────────────── */}
+      <Dialog open={!!selectedAttemptDetail} onOpenChange={(open) => { if (!open) setSelectedAttemptDetail(null); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Détails de la transaction
+            </DialogTitle>
+            <DialogDescription className="font-mono text-xs break-all">
+              {selectedAttemptDetail?.reference}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedAttemptDetail && (() => {
+            const a = selectedAttemptDetail;
+            const isFailed = a.status === "failed" || a.status === "cancelled";
+            const meta = a.metadata || {};
+
+            // Classifier la source de l'erreur
+            const failureReason = a.errorInfo || meta.failure_reason || meta.error || null;
+            const isClientError = failureReason && (
+              /solde insuffisant|insufficient|balance|fonds|fund|invalid.*account|compte.*invalide|incorrect|wrong.*pin|pin.*wrong|mauvais/i.test(failureReason)
+            );
+            const isSendavaPayError = failureReason && (
+              /timeout|exception|internal|server error|unavailable|connexion|network/i.test(failureReason)
+            );
+            const errorSource = isClientError
+              ? "merchant"
+              : isSendavaPayError
+              ? "sendavapay"
+              : failureReason ? "gateway" : null;
+
+            return (
+              <div className="space-y-4 mt-2">
+
+                {/* Statut + classification erreur */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={
+                    a.status === "completed" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
+                    isFailed ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" :
+                    a.status === "processing" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" :
+                    "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                  }>
+                    {a.status === "pending" ? "⏳ En attente" :
+                     a.status === "processing" ? "🔄 En cours" :
+                     a.status === "completed" ? "✅ Complété" :
+                     a.status === "failed" ? "❌ Échoué" :
+                     a.status === "cancelled" ? "🚫 Annulé" : a.status}
+                  </Badge>
+                  <Badge variant="outline" className="text-xs">{a.sourceLabel}</Badge>
+                  {a.gatewayProvider && (
+                    <Badge variant="outline" className="text-xs text-purple-700 border-purple-300">
+                      via {a.gatewayProvider}
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Bloc erreur avec classification */}
+                {isFailed && (
+                  <div className={`rounded-lg border p-3 space-y-2 ${
+                    errorSource === "merchant"
+                      ? "bg-orange-50 border-orange-200 dark:bg-orange-900/10 dark:border-orange-800"
+                      : errorSource === "sendavapay"
+                      ? "bg-red-50 border-red-200 dark:bg-red-900/10 dark:border-red-800"
+                      : "bg-red-50 border-red-200 dark:bg-red-900/10 dark:border-red-800"
+                  }`}>
+                    <div className="flex items-center gap-2 font-semibold text-sm">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      <span>
+                        {errorSource === "merchant"
+                          ? "⚠️ Erreur côté client/marchand"
+                          : errorSource === "sendavapay"
+                          ? "🔴 Erreur interne SendavaPay"
+                          : "❌ Erreur de paiement"}
+                      </span>
+                    </div>
+                    {failureReason ? (
+                      <p className="text-sm font-mono bg-white/60 dark:bg-black/20 rounded px-2 py-1 break-all">
+                        {failureReason}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground italic">Aucun message d'erreur enregistré</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {errorSource === "merchant"
+                        ? "Le paiement a échoué à cause d'un problème du côté du payeur (solde insuffisant, mauvais PIN, compte invalide...). SendavaPay n'est pas en cause."
+                        : errorSource === "sendavapay"
+                        ? "Le paiement a échoué à cause d'un problème interne ou réseau. À investiguer côté SendavaPay."
+                        : "Le paiement a été refusé par la passerelle de paiement."}
+                    </p>
+                  </div>
+                )}
+
+                {/* Infos transaction */}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Montant</p>
+                    <p className="font-semibold">{parseFloat(a.amount).toLocaleString()} {a.currency}</p>
+                    {a.fee && parseFloat(a.fee) > 0 && (
+                      <p className="text-xs text-muted-foreground">Frais : {parseFloat(a.fee).toLocaleString()} {a.currency}</p>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Méthode</p>
+                    <p>{a.paymentMethod || <span className="text-muted-foreground">—</span>}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Compte marchand</p>
+                    <p>{a.userName || <span className="text-muted-foreground">—</span>}</p>
+                    {a.userEmail && <p className="text-xs text-muted-foreground">{a.userEmail}</p>}
+                    {a.userId && <p className="text-xs text-muted-foreground">ID {a.userId}</p>}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Payeur</p>
+                    <p>{a.payerName || <span className="text-muted-foreground">—</span>}</p>
+                    {a.payerPhone && <p className="text-xs font-mono text-muted-foreground">{a.payerPhone}</p>}
+                    {a.payerEmail && <p className="text-xs text-muted-foreground">{a.payerEmail}</p>}
+                  </div>
+                  {a.description && (
+                    <div className="col-span-2 space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Description</p>
+                      <p className="text-muted-foreground">{a.description}</p>
+                    </div>
+                  )}
+                  {a.partnerName && (
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Partenaire</p>
+                      <p>{a.partnerName}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Références */}
+                <div className="space-y-2 bg-muted/30 rounded-lg p-3 text-xs font-mono">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground shrink-0">Réf. interne :</span>
+                    <div className="flex items-center gap-1 min-w-0">
+                      <span className="truncate">{a.reference}</span>
+                      <Button size="icon" variant="ghost" className="h-5 w-5 shrink-0" onClick={() => copyRef(a.reference)}>
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                  {a.externalReference && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground shrink-0">Réf. gateway :</span>
+                      <div className="flex items-center gap-1 min-w-0">
+                        <span className="truncate">{a.externalReference}</span>
+                        <Button size="icon" variant="ghost" className="h-5 w-5 shrink-0" onClick={() => copyRef(a.externalReference!)}>
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {a.ipAddress && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground shrink-0">IP :</span>
+                      <span>{a.ipAddress}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Timeline */}
+                <div className="space-y-1 text-xs">
+                  <p className="font-medium text-muted-foreground uppercase tracking-wide">Chronologie</p>
+                  <div className="space-y-1 border-l-2 border-muted pl-3">
+                    <div className="flex gap-2">
+                      <span className="text-muted-foreground shrink-0">Créée :</span>
+                      <span>{new Date(a.createdAt).toLocaleString("fr-FR")}</span>
+                    </div>
+                    {a.updatedAt && a.updatedAt !== a.createdAt && (
+                      <div className="flex gap-2">
+                        <span className="text-muted-foreground shrink-0">Mise à jour :</span>
+                        <span>{new Date(a.updatedAt).toLocaleString("fr-FR")}</span>
+                      </div>
+                    )}
+                    {a.completedAt && (
+                      <div className="flex gap-2">
+                        <span className="text-muted-foreground shrink-0">Complétée :</span>
+                        <span>{new Date(a.completedAt).toLocaleString("fr-FR")}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Webhook */}
+                {a.webhookUrl && (
+                  <div className="space-y-1 text-xs">
+                    <p className="font-medium text-muted-foreground uppercase tracking-wide">Webhook marchand</p>
+                    <div className="bg-muted/30 rounded p-2 space-y-1">
+                      <p className="font-mono break-all">{a.webhookUrl}</p>
+                      <p className={a.webhookSent ? "text-green-600" : "text-orange-500"}>
+                        {a.webhookSent ? `✓ Envoyé` : `✗ Non envoyé`}
+                        {(a.webhookAttempts ?? 0) > 0 && ` (${a.webhookAttempts} tentative${(a.webhookAttempts ?? 0) > 1 ? "s" : ""})`}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Métadonnées brutes (debug) */}
+                {Object.keys(meta).length > 0 && (
+                  <details className="text-xs">
+                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground font-medium">
+                      Données gateway brutes (debug)
+                    </summary>
+                    <pre className="mt-2 bg-muted/40 rounded p-2 overflow-x-auto text-[10px] leading-relaxed whitespace-pre-wrap break-all">
+                      {JSON.stringify(meta, null, 2)}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            );
+          })()}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedAttemptDetail(null)}>Fermer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── CONFIRMED TRANSACTIONS VIEW (existing) ───────────────── */}
       {activeTab === "confirmed" && (
