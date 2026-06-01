@@ -1539,14 +1539,15 @@ async function validateWithdrawal(
 
   const walletBalance = parseFloat(targetWallet.balance);
 
-  // Priorité fee payout : customApiSdkFeeRate (utilisateur) → encaissementRate (global)
-  let sdkFeeRate = 5; // fallback ultime
+  // Priorité fee payout : customApiSdkFeeRate (utilisateur) → withdrawalRate (global)
+  // Les retraits doivent utiliser withdrawalRate, pas encaissementRate (qui est pour les dépôts).
+  let sdkFeeRate = 2; // fallback ultime pour les retraits
   if ((sdkUser as any).customApiSdkFeeRate != null) {
     sdkFeeRate = parseFloat((sdkUser as any).customApiSdkFeeRate);
   } else {
     try {
       const commSettings = await storage.getCommissionSettings();
-      sdkFeeRate = parseFloat((commSettings as any)?.encaissementRate || "5");
+      sdkFeeRate = parseFloat((commSettings as any)?.withdrawalRate || "2");
     } catch (_) {}
   }
 
@@ -1781,41 +1782,48 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
     const { countryInfo, wallet: targetWallet, fee, netAmount, totalToDebit } = v;
     const reference = generateReference();
 
-    // ── DÉBIT IMMÉDIAT DU WALLET (protection double-spend) ──────────────────
-    // Le destinataire reçoit le montant exact, les frais sont prélevés en plus.
-    // Le débit est confirmé en base AVANT tout appel à l'opérateur.
-    const balanceBefore = parseFloat(targetWallet.balance);
-    const balanceAfter  = parseFloat((balanceBefore - totalToDebit!).toFixed(2));
-
+    // ── DÉBIT IMMÉDIAT DU WALLET — atomique, AVANT tout appel opérateur ────
+    // Un seul UPDATE SQL avec WHERE balance >= totalToDebit garantit qu'aucun
+    // double-retrait n'est possible même en cas de requêtes concurrentes.
     console.log(
       `[sdk-withdraw] 💳 TENTATIVE DÉBIT — Marchand: ${sdkUser.email} (id=${sdkUser.id}) | ` +
-      `Réf: ${reference} | Solde avant: ${balanceBefore} | Montant: ${data.amount} | ` +
-      `Frais: ${fee!} (${v.operatorStatus}) | Total à débiter: ${totalToDebit!} | ` +
-      `Solde attendu après: ${balanceAfter} | Opérateur: ${data.operator}/${countryUpper}`
+      `WalletId: ${targetWallet.id} | Pays: ${countryUpper} | Réf: ${reference} | ` +
+      `Montant: ${data.amount} | Frais: ${fee!} (taux: ${v.operatorStatus}) | ` +
+      `Total à débiter: ${totalToDebit!} | Solde actuel (cache): ${targetWallet.balance}`
     );
 
-    const debited = await storage.debitWallet(targetWallet.id, totalToDebit!.toString());
-    if (!debited) {
+    const debitResult = await storage.debitWallet(targetWallet.id, totalToDebit!.toString());
+
+    if (!debitResult) {
+      // Le WHERE balance >= totalToDebit n'a pas matché → solde réellement insuffisant en base.
       console.error(
-        `[sdk-withdraw] ❌ DÉBIT ÉCHOUÉ — Marchand: ${sdkUser.email} | Réf: ${reference} | ` +
-        `Solde disponible: ${balanceBefore} | Requis: ${totalToDebit!}`
+        `[sdk-withdraw] ❌ DÉBIT REFUSÉ (solde insuffisant en base) — ` +
+        `Marchand: ${sdkUser.email} | WalletId: ${targetWallet.id} | ` +
+        `Réf: ${reference} | Requis: ${totalToDebit!} ${countryInfo!.currency}`
       );
-      sdkLog({ req, endpoint: "withdraw", statusCode: 400, responseTimeMs: Date.now() - t0, operator: data.operator, country: countryUpper, error: "DEBIT_FAILED" });
+      sdkLog({ req, endpoint: "withdraw", statusCode: 400, responseTimeMs: Date.now() - t0, operator: data.operator, country: countryUpper, error: "INSUFFICIENT_BALANCE" });
       return res.status(400).json({
         success: false,
-        error: `Solde insuffisant. Disponible: ${balanceBefore.toFixed(2)}, requis: ${totalToDebit!.toFixed(2)} (${data.amount} + ${fee!} frais)`,
+        error: `Solde insuffisant. Requis: ${totalToDebit!.toFixed(2)} ${countryInfo!.currency} (${data.amount} + ${fee!} frais)`,
         code: "INSUFFICIENT_BALANCE",
       });
     }
 
+    // Soldes réels lus depuis la base de données après débit atomique
+    const balanceBefore = debitResult.balanceBefore;
+    const balanceAfter  = debitResult.balanceAfter;
+
     console.log(
-      `[sdk-withdraw] ✅ DÉBIT CONFIRMÉ — Marchand: ${sdkUser.email} | Réf: ${reference} | ` +
-      `Solde avant: ${balanceBefore} | Total débité: ${totalToDebit!} | Solde après: ${balanceAfter}`
+      `[sdk-withdraw] ✅ DÉBIT CONFIRMÉ EN BASE — Marchand: ${sdkUser.email} | ` +
+      `WalletId: ${targetWallet.id} | Réf: ${reference} | ` +
+      `Solde avant débit: ${balanceBefore} ${countryInfo!.currency} | ` +
+      `Montant débité: ${data.amount} | Frais: ${fee!} | ` +
+      `Total débité: ${totalToDebit!} | Solde après débit: ${balanceAfter} ${countryInfo!.currency} | ` +
+      `Opérateur: ${data.operator}/${countryUpper} → ${data.phoneNumber}`
     );
 
-    // ── Créer immédiatement la transaction de débit dans l'historique ────────
+    // ── Créer la transaction de débit dans l'historique (traçabilité complète) ─
     // Statut "pending" : sera mis à jour "completed" ou "failed" via webhook opérateur.
-    // Cette transaction assure la traçabilité même en cas de crash/redémarrage.
     const adminTxnRef = reference;
     storage.createTransaction({
       userId:        sdkUser.id,
@@ -1829,9 +1837,9 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
       paymentMethod: `${data.operator}_${countryUpper}`,
       mobileNumber:  data.phoneNumber,
       payerCountry:  countryUpper,
-      adminNote:     `Solde avant débit: ${balanceBefore} | Solde après débit: ${balanceAfter} | Total débité: ${totalToDebit!}`,
+      adminNote:     `Solde avant débit: ${balanceBefore} ${countryInfo!.currency} | Montant: ${data.amount} | Frais: ${fee!} | Total débité: ${totalToDebit!} | Solde après débit: ${balanceAfter} ${countryInfo!.currency}`,
     }).then(t => {
-      console.log(`[sdk-withdraw] 📋 Transaction admin #${t.id} créée (pending) pour réf ${reference}`);
+      console.log(`[sdk-withdraw] 📋 Transaction admin #${t.id} créée (pending) | réf: ${reference} | walletId: ${targetWallet.id}`);
     }).catch(e => {
       console.error(`[sdk-withdraw] ⚠️ Erreur création transaction admin (non bloquant):`, e);
     });
@@ -1917,7 +1925,7 @@ router.post("/v1/withdraw", checkApiMaintenance, authenticateSdkKey, async (req:
         countryName:   countryInfo!.countryName,
         status:        "queued",
         statusLabel:   "En file d'attente",
-        walletBalance: parseFloat((parseFloat(targetWallet.balance) - totalToDebit!).toFixed(2)),
+        walletBalance: balanceAfter,
         trackingUrl:   `GET /api/sdk/v1/withdrawal-status/${reference}`,
         message:       "Retrait mis en file d'attente. Utilisez trackingUrl pour suivre l'avancement.",
         createdAt:     new Date().toISOString(),
