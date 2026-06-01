@@ -779,7 +779,7 @@ export async function registerRoutes(
       const { status } = req.query;
       const [userExchanges, partnerExchanges] = await Promise.all([
         storage.getAllWalletExchanges({ status: status as string }),
-        storage.getAllPartnerWalletExchanges(),
+        storage.getAllPartnerWalletExchanges().catch(() => []),
       ]);
 
       const partnerMapped = (status && status !== "all" && status !== "approved")
@@ -793,7 +793,7 @@ export async function registerRoutes(
             toCountryCode: e.toCountryCode,
             currency: e.currency,
             amount: e.amount,
-            fee: "0",
+            fee: e.feeAmount || "0",
             status: "approved",
             adminNote: null,
             reviewedBy: null,
