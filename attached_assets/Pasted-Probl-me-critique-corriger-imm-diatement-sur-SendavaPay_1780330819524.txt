@@ -1,0 +1,74 @@
+Problème critique à corriger immédiatement sur SendavaPay.
+
+Les retraits sont bien exécutés et les bénéficiaires reçoivent les fonds sur leur compte Mobile Money, mais le wallet du pays concerné n'est toujours pas débité après l'opération.
+
+Architecture actuelle :
+
+Chaque marchand possède un wallet distinct par pays :
+
+- Wallet Togo (TG)
+- Wallet Bénin (BJ)
+- Wallet Sénégal (SN)
+- Wallet Côte d'Ivoire (CI)
+- Wallet Cameroun (CM)
+- etc.
+
+Règle attendue :
+
+Lorsqu'un retrait est effectué depuis un pays, le système doit débiter le wallet correspondant à ce pays.
+
+Exemple :
+
+- Wallet TG : 696 FCFA
+- Retrait vers TMoney Togo : 250 FCFA
+- Frais : 5 FCFA
+- Total à débiter : 255 FCFA
+
+Résultat attendu :
+
+- Wallet TG avant retrait : 696 FCFA
+- Débit effectué : 255 FCFA
+- Wallet TG après retrait : 441 FCFA
+
+Problème observé :
+
+- Le bénéficiaire reçoit bien l'argent.
+- Le retrait passe au statut completed.
+- Le wallet TG reste à 696 FCFA.
+- Aucun débit n'est enregistré sur le wallet du pays.
+
+Corrections demandées :
+
+1. Identifier automatiquement le pays du retrait.
+
+2. Sélectionner le wallet correspondant au pays concerné.
+
+3. Vérifier que le wallet du pays dispose d'un solde suffisant.
+
+4. Débiter immédiatement le wallet du pays :
+   montant du retrait + frais.
+
+5. Enregistrer une transaction de débit associée à ce wallet.
+
+6. Mettre à jour le solde du wallet dans la base de données.
+
+7. Ajouter des logs :
+   
+   - pays utilisé
+   - wallet sélectionné
+   - solde avant
+   - montant retiré
+   - frais
+   - total débité
+   - solde après
+
+8. Si le retrait échoue chez l'opérateur :
+   
+   - recréditer automatiquement le même wallet du pays
+   - enregistrer une transaction de remboursement
+
+9. Aucun retrait ne doit être marqué completed tant que le débit du wallet du pays n'a pas été confirmé avec succès en base de données.
+
+Objectif final :
+
+Chaque retrait doit obligatoirement débiter le wallet du pays concerné. Les wallets sont indépendants et le système ne doit jamais utiliser un autre wallet ni laisser le solde inchangé après un retrait réussi.
