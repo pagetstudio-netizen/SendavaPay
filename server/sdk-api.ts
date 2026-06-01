@@ -1035,33 +1035,6 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
     } catch (_) {}
     const payinFee = parseFloat((amount * payinFeeRate / 100).toFixed(2));
 
-    // ── Vérifier que le marchand a assez de solde pour payer les frais ──────
-    try {
-      const merchantWallets = await storage.getUserWallets(transaction.userId!);
-      const merchantWallet  = merchantWallets.find((w: any) => w.countryCode === payerCountry);
-      const merchantBalance = merchantWallet ? parseFloat(merchantWallet.balance) : 0;
-      if (payinFee > 0 && merchantBalance < payinFee) {
-        await storage.updateApiTransaction(transaction.id, { status: "failed", fee: payinFee.toString() });
-        sendTransactionWebhook(
-          { ...transaction, fee: payinFee.toString() },
-          "payment.failed",
-          {
-            fee: payinFee,
-            reason: `Solde insuffisant pour couvrir les frais. Disponible: ${merchantBalance} ${merchantWallet?.currency || "XOF"}, requis: ${payinFee} ${merchantWallet?.currency || "XOF"}`,
-            status: "failed",
-          }
-        ).catch(() => {});
-        sdkLog({ req, endpoint: "initiate-payment", statusCode: 402, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry });
-        return res.status(402).json({
-          success: false,
-          error: `Solde insuffisant pour couvrir les frais de transaction. Disponible: ${merchantBalance} ${merchantWallet?.currency || "XOF"}, requis: ${payinFee} ${merchantWallet?.currency || "XOF"}`,
-          code: "INSUFFICIENT_BALANCE_FOR_FEES",
-        });
-      }
-    } catch (balErr) {
-      console.warn("[initiate-payment] Impossible de vérifier le solde marchand:", (balErr as Error).message);
-    }
-
     await storage.updateApiTransaction(transaction.id, {
       customerName:  data.payerName,
       customerPhone: data.payerPhone,
