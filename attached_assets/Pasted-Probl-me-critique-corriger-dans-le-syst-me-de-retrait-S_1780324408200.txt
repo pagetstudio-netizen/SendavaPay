@@ -1,0 +1,67 @@
+Problème critique à corriger dans le système de retrait SDK SendavaPay.
+
+Actuellement, lorsqu'un marchand utilise l'endpoint "/withdraw", le bénéficiaire reçoit correctement l'argent sur son compte Mobile Money, mais le solde du marchand n'est pas débité dans SendavaPay.
+
+Exemple réel :
+
+- Marchand : westpaysupport@gmail.com
+- Solde avant retrait : 696 FCFA
+- Montant du retrait : 250 FCFA
+- Frais : 2% (5 FCFA)
+- Débit attendu : 255 FCFA
+- Solde attendu après retrait : 441 FCFA
+
+Problème observé :
+
+- Le bénéficiaire reçoit bien les 250 FCFA.
+- Le retrait est traité avec succès.
+- Le solde du marchand reste à 696 FCFA.
+- Aucun débit n'est enregistré dans le wallet SendavaPay.
+
+Correction demandée :
+
+1. Avant d'envoyer le retrait à l'opérateur, vérifier que le wallet du marchand possède un solde suffisant pour couvrir :
+   
+   - le montant du retrait
+   - les frais de retrait
+
+2. Si le solde est insuffisant :
+   
+   - bloquer immédiatement l'opération
+   - retourner l'erreur "INSUFFICIENT_BALANCE"
+
+3. Si le solde est suffisant :
+   
+   - calculer le montant total à débiter
+   - montant_total = montant + frais
+
+4. Créer une transaction de débit dans la base de données.
+
+5. Débiter immédiatement le wallet SendavaPay du marchand dans une transaction SQL atomique afin d'éviter tout double retrait.
+
+6. Une fois le débit confirmé, envoyer la demande de paiement à l'opérateur Mobile Money.
+
+7. Si l'opérateur retourne une erreur ou si le retrait échoue :
+   
+   - recréditer automatiquement le wallet du marchand
+   - enregistrer une transaction de remboursement
+   - mettre le statut à "reversed" ou "failed"
+
+8. Chaque retrait doit obligatoirement générer :
+   
+   - une transaction de débit wallet
+   - une transaction payout
+   - un historique complet avec montant, frais, solde avant, solde après, référence et date
+
+9. Ajouter des logs détaillés pour suivre :
+   
+   - le solde avant retrait
+   - le montant débité
+   - les frais appliqués
+   - le solde après retrait
+   - la réponse de l'opérateur
+
+10. Aucun retrait ne doit être envoyé à l'opérateur tant que le débit du wallet marchand n'a pas été confirmé avec succès dans la base de données.
+
+Objectif final :
+Garantir que chaque retrait réussi entraîne automatiquement et immédiatement le débit du wallet du marchand dans SendavaPay.
