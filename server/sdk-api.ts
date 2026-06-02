@@ -644,7 +644,7 @@ const COUNTRY_CODE_MAP: Record<string, { countryCode: string; currency: string; 
   COG: { countryCode: "COG", currency: "XAF", countryName: "Congo Brazzaville" },
 };
 
-function detectCountryFromMethod(paymentMethod: string, payerCountry?: string): string {
+function detectCountryFromMethod(paymentMethod: string, payerCountry?: string): string | null {
   if (payerCountry && COUNTRY_CODE_MAP[payerCountry.toUpperCase()]) return payerCountry.toUpperCase();
   const method = (paymentMethod || "").toLowerCase();
   if (method.includes("tmoney") || method.includes("flooz")) return "TG";
@@ -654,7 +654,7 @@ function detectCountryFromMethod(paymentMethod: string, payerCountry?: string): 
   if (method.includes("orange_ml")) return "ML";
   if (method.includes("orange_bf") || method.includes("moov_bf")) return "BF";
   if (method.includes("orange_cm") || method.includes("mtn_cm")) return "CM";
-  return "TG";
+  return null;
 }
 
 // ─── SDK CORS ─────────────────────────────────────────────────────────────────
@@ -1075,6 +1075,7 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
         : paymentGateway === "paydunya"
           ? `paydunya_${service.operator}`
           : service.operator,
+      payerCountry:  payerCountry,
       status: "processing",
     });
 

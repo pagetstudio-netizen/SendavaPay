@@ -263,38 +263,55 @@ export async function completeApiTransactionFromWebhook(
   }
 
   // 4. Créditer le wallet pays avec le montant COMPLET, puis débiter les frais
+  //    Priorité : payer_country enregistré à l'initiation > détection via payment_method
   try {
-    let countryCode: string | null = null;
-    if (row.payment_method) {
-      const parts = (row.payment_method as string).split("_");
-      const last  = parts[parts.length - 1]?.toUpperCase();
-      if (last && last.length >= 2 && last.length <= 3) countryCode = last;
-      // Fallback: detect country from operator name (e.g. "paydunya_TMoney" → TG)
-      if (!countryCode) {
-        const m = (row.payment_method as string).toLowerCase();
-        if (m.includes("tmoney") || m.includes("t-money") || m.includes("t_money") || m.includes("flooz") || m.includes("moov-togo") || m.includes("moov_togo")) countryCode = "TG";
-        else if (m.includes("mtn_bj") || m.includes("moov_bj") || m.includes("mtn-benin") || m.includes("moov-benin")) countryCode = "BJ";
-        else if (m.includes("orange_sn") || m.includes("wave_sn") || m.includes("free-money") || m.includes("free_money") || m.includes("orange-money-senegal") || m.includes("wave-senegal") || m.includes("wizall") || m.includes("expresso")) countryCode = "SN";
-        else if (m.includes("orange_ci") || m.includes("mtn_ci") || m.includes("wave_ci") || m.includes("moov_ci") || m.includes("orange-money-ci") || m.includes("mtn-ci") || m.includes("moov-ci") || m.includes("wave-ci")) countryCode = "CI";
-        else if (m.includes("orange_ml") || m.includes("orange-money-mali") || m.includes("orange_mali")) countryCode = "ML";
-        else if (m.includes("orange_bf") || m.includes("moov_bf") || m.includes("orange-money-burkina") || m.includes("moov-burkina")) countryCode = "BF";
-        else if (m.includes("orange_cm") || m.includes("mtn_cm") || m.includes("orange-cameroun") || m.includes("mtn-cameroun")) countryCode = "CM";
-        else if (m.includes("mtn_bj") || m.includes("moov-benin")) countryCode = "BJ";
-      }
+    // Source 1 : payerCountry enregistré lors de initiate-payment (source fiable)
+    let countryCode: string | null = (row.payer_country as string | null | undefined)?.toUpperCase() || null;
+
+    // Source 2 : fallback sur payment_method uniquement si payer_country est absent
+    if (!countryCode && row.payment_method) {
+      const m = (row.payment_method as string).toLowerCase();
+      if (m.includes("tmoney") || m.includes("t-money") || m.includes("t_money") || m.includes("flooz") || m.includes("moov-togo") || m.includes("moov_togo")) countryCode = "TG";
+      else if (m.includes("mtn_bj") || m.includes("moov_bj") || m.includes("mtn-benin") || m.includes("moov-benin")) countryCode = "BJ";
+      else if (m.includes("orange_sn") || m.includes("wave_sn") || m.includes("free-money") || m.includes("free_money") || m.includes("orange-money-senegal") || m.includes("wave-senegal") || m.includes("wizall") || m.includes("expresso")) countryCode = "SN";
+      else if (m.includes("orange_ci") || m.includes("mtn_ci") || m.includes("wave_ci") || m.includes("moov_ci") || m.includes("orange-money-ci") || m.includes("mtn-ci") || m.includes("moov-ci") || m.includes("wave-ci")) countryCode = "CI";
+      else if (m.includes("orange_ml") || m.includes("orange-money-mali") || m.includes("orange_mali")) countryCode = "ML";
+      else if (m.includes("orange_bf") || m.includes("moov_bf") || m.includes("orange-money-burkina") || m.includes("moov-burkina")) countryCode = "BF";
+      else if (m.includes("orange_cm") || m.includes("mtn_cm") || m.includes("orange-cameroun") || m.includes("mtn-cameroun")) countryCode = "CM";
     }
+
     if (countryCode) {
       const countries = await storage.getCountries();
       const cr = countries.find((c: any) => c.code.toUpperCase() === countryCode!.toUpperCase());
       if (cr) {
+        // Solde avant pour le log
+        const walletsBeforeCredit = await storage.getUserWallets(Number(row.user_id));
+        const wBefore = walletsBeforeCredit.find((wl: any) => wl.countryCode.toUpperCase() === cr.code.toUpperCase());
+        const balanceBefore = wBefore ? parseFloat(wBefore.balance || "0") : 0;
+
         // Créditer le montant complet
         await storage.creditWallet(Number(row.user_id), cr.code, cr.name, currency, amount.toString());
+
         // Débiter les frais depuis le wallet pays
         if (fee > 0) {
           const walletsList = await storage.getUserWallets(Number(row.user_id));
           const w = walletsList.find((wl: any) => wl.countryCode.toUpperCase() === cr.code.toUpperCase());
           if (w) await storage.debitWallet(w.id, fee.toString());
         }
+
+        // Solde après pour le log
+        const walletsAfterCredit = await storage.getUserWallets(Number(row.user_id));
+        const wAfter = walletsAfterCredit.find((wl: any) => wl.countryCode.toUpperCase() === cr.code.toUpperCase());
+        const balanceAfter = wAfter ? parseFloat(wAfter.balance || "0") : 0;
+
+        console.log(
+          `[PAYMENT CREDIT ROUTING] reference=${row.reference} | payerCountry_db=${row.payer_country || "null"} | walletSélectionné=${cr.code} (${cr.name}) | montant=+${amount} fee=-${fee} net=+${amount - fee} ${currency} | soldeAvant=${balanceBefore} → soldeAprès=${balanceAfter} | provider=${provider}`
+        );
+      } else {
+        console.warn(`[PAYMENT CREDIT ROUTING] reference=${row.reference} | payerCountry=${countryCode} | WALLET NON TROUVÉ pour ce pays — crédit wallet ignoré`);
       }
+    } else {
+      console.warn(`[PAYMENT CREDIT ROUTING] reference=${row.reference} | payerCountry_db=${row.payer_country || "null"} | payment_method=${row.payment_method || "null"} | PAYS NON DÉTERMINÉ — crédit wallet ignoré`);
     }
   } catch (e) {
     console.error("[SDK webhook] Erreur crédit wallet pays:", e);
