@@ -1437,6 +1437,7 @@ router.get("/v1/payment-status/:reference", checkApiMaintenance, authenticateSdk
               fee:              (transaction as any).fee          ?? "0",
               currency:         transaction.currency,
               payment_method:   (transaction as any).paymentMethod  ?? (transaction as any).payment_method,
+              payer_country:    (transaction as any).payerCountry  ?? (transaction as any).payer_country ?? null,
               external_reference: extRef,
               callback_url:     (transaction as any).callbackUrl  ?? (transaction as any).callback_url ?? (transaction as any).webhookUrl ?? null,
               customer_name:    (transaction as any).payerName    ?? (transaction as any).customer_name ?? null,

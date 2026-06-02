@@ -369,6 +369,7 @@ export const apiTransactions = pgTable("api_transactions", {
   customerPhone: text("customer_phone"),
   customerName: text("customer_name"),
   paymentMethod: text("payment_method"),
+  payerCountry: text("payer_country"),
   callbackUrl: text("callback_url"),
   redirectUrl: text("redirect_url"),
   metadata: text("metadata"),

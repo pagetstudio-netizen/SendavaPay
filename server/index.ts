@@ -122,6 +122,7 @@ async function initializePartnerTables() {
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_personal_fee_rate DECIMAL(5,2);`);
     await client.query(`ALTER TABLE leekpay_payments ADD COLUMN IF NOT EXISTS payer_country TEXT;`);
     await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payer_country TEXT;`);
+    await client.query(`ALTER TABLE api_transactions ADD COLUMN IF NOT EXISTS payer_country TEXT;`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS partner_wallets (
         id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
