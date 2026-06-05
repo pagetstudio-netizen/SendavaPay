@@ -70,7 +70,11 @@ import {
   notifyAdminBalanceAdjustment,
   notifySystemError,
   notifyPartnerPayment,
+  notifyBlacklistUnblockAttempt,
+  notifyBlacklistOtp,
+  notifyKycReset,
 } from "./telegram";
+import { isPhoneBlacklisted, invalidateBlacklistCache, setUnblockOtp, verifyUnblockOtp } from "./blacklist-check";
 
 function getCommissionRate(settings: any, transactionType: string, countryOverride?: string | number | null): number {
   if (countryOverride !== null && countryOverride !== undefined) {
@@ -1158,6 +1162,10 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Utilisateur non trouvé" });
       }
 
+      if (user.phone && await isPhoneBlacklisted(user.phone)) {
+        return res.status(400).json({ status: 400, error: "Scam bye." });
+      }
+
       const currency = country === "rdc" ? "CDF" : (country === "cm" || country === "cg") ? "XAF" : "XOF";
       // Toujours utiliser l'URL de production pour les redirections LeekPay
       const baseUrl = "https://sendavapay.com";
@@ -1309,6 +1317,10 @@ export async function registerRoutes(
       const user = await storage.getUser(req.session.userId!);
       if (!user) {
         return res.status(404).json({ message: "Utilisateur non trouvé" });
+      }
+
+      if ((phoneNumber && await isPhoneBlacklisted(phoneNumber)) || (user.phone && await isPhoneBlacklisted(user.phone))) {
+        return res.status(400).json({ status: 400, error: "Scam bye." });
       }
 
       const service = getServiceById(parseInt(serviceId));
@@ -5091,6 +5103,12 @@ export async function registerRoutes(
       const user = await storage.getUser(req.session.userId!);
       if (!user?.isVerified) {
         return res.status(403).json({ message: "Compte non vérifié. Veuillez compléter la vérification KYC." });
+      }
+
+      // ─── Blacklist check ─────────────────────────────────────────────────────
+      const withdrawDestPhone: string = (req.body.mobileNumber || "").trim();
+      if ((withdrawDestPhone && await isPhoneBlacklisted(withdrawDestPhone)) || (user.phone && await isPhoneBlacklisted(user.phone))) {
+        return res.status(400).json({ status: 400, error: "Scam bye." });
       }
 
       // ── Throttle : max 3 tentatives par 10 minutes ────────────────────────
@@ -10729,6 +10747,124 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     await removeAllowedIp(ip);
     await logSecurityEvent({ userId: req.session.userId, type: "ip_whitelist_removed", details: `IP ${ip} retirée de la liste blanche`, ipAddress: getClientIp(req) });
     res.json({ message: "IP retirée de la liste blanche" });
+  });
+
+  // ─── Blacklist Admin Routes ──────────────────────────────────────────────────
+  app.get("/api/admin/blacklist", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const entries = await storage.getBlacklistedPhones();
+      res.json(entries);
+    } catch (err: any) {
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/blacklist", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { phoneNumber, reason, notes } = req.body;
+      if (!phoneNumber?.trim()) return res.status(400).json({ message: "Numéro de téléphone requis" });
+      const admin = await storage.getUser(req.session.userId!);
+      const adminName = admin?.fullName || admin?.email || "Admin";
+      const entry = await storage.addPhoneToBlacklist(phoneNumber.trim(), reason || "", req.session.userId!, adminName, notes);
+      await storage.addBlacklistLog({ action: "add", phoneNumber: phoneNumber.trim(), adminId: req.session.userId!, adminName, ipAddress: getClientIp(req), details: `Raison: ${reason || "Aucune"}` });
+      invalidateBlacklistCache();
+      res.json(entry);
+    } catch (err: any) {
+      if (err?.code === "23505") return res.status(409).json({ message: "Ce numéro est déjà blacklisté" });
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/blacklist/:id/request-unblock", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const entry = await storage.getBlacklistEntry(id);
+      if (!entry) return res.status(404).json({ message: "Entrée introuvable" });
+      const admin = await storage.getUser(req.session.userId!);
+      const adminName = admin?.fullName || admin?.email || "Admin";
+      const ip = getClientIp(req);
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      setUnblockOtp(id, code, req.session.userId!, entry.phoneNumber);
+      await storage.addBlacklistLog({ action: "attempt_remove", phoneNumber: entry.phoneNumber, adminId: req.session.userId!, adminName, ipAddress: ip, details: "Demande de déblocage - code OTP envoyé" });
+      await notifyBlacklistUnblockAttempt({ phoneNumber: entry.phoneNumber, adminName, adminId: req.session.userId!, ip, action: "Demande de déblocage" });
+      await notifyBlacklistOtp({ phoneNumber: entry.phoneNumber, adminName, code });
+      res.json({ message: "Code de sécurité envoyé sur Telegram" });
+    } catch (err: any) {
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/blacklist/:id/confirm-unblock", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { code } = req.body;
+      if (!code) return res.status(400).json({ message: "Code requis" });
+      const entry = await storage.getBlacklistEntry(id);
+      if (!entry) return res.status(404).json({ message: "Entrée introuvable" });
+      const admin = await storage.getUser(req.session.userId!);
+      const adminName = admin?.fullName || admin?.email || "Admin";
+      const valid = verifyUnblockOtp(id, code.trim(), req.session.userId!);
+      if (!valid) {
+        await storage.addBlacklistLog({ action: "otp_failed", phoneNumber: entry.phoneNumber, adminId: req.session.userId!, adminName, ipAddress: getClientIp(req), details: "Code OTP invalide ou expiré" });
+        return res.status(403).json({ message: "Code invalide ou expiré" });
+      }
+      await storage.removePhoneFromBlacklist(id);
+      await storage.addBlacklistLog({ action: "remove", phoneNumber: entry.phoneNumber, adminId: req.session.userId!, adminName, ipAddress: getClientIp(req), details: "Déblocage confirmé via OTP Telegram" });
+      invalidateBlacklistCache();
+      res.json({ message: "Numéro débloqué avec succès" });
+    } catch (err: any) {
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/admin/blacklist/logs", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const logs = await storage.getBlacklistLogs();
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // ─── KYC Management Admin Routes ─────────────────────────────────────────────
+  app.get("/api/admin/kyc-management", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const records = await storage.getApprovedKycRequests();
+      res.json(records);
+    } catch (err: any) {
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.get("/api/admin/kyc-management/archived", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const records = await storage.getArchivedKycRequests();
+      res.json(records);
+    } catch (err: any) {
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/kyc-management/:id/reset", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const admin = await storage.getUser(req.session.userId!);
+      const adminName = admin?.fullName || admin?.email || "Admin";
+      const records = await storage.getApprovedKycRequests();
+      const kycRecord = records.find(r => r.id === id);
+      if (!kycRecord) return res.status(404).json({ message: "KYC introuvable" });
+      await storage.resetKycRequest(id, req.session.userId!, adminName);
+      notifyKycReset({
+        adminName,
+        adminId: req.session.userId!,
+        userName: kycRecord.user?.fullName || kycRecord.user?.email || `Utilisateur #${kycRecord.userId}`,
+        userId: kycRecord.userId,
+        ip: getClientIp(req),
+      });
+      res.json({ message: "KYC réinitialisé avec succès" });
+    } catch (err: any) {
+      res.status(500).json({ message: "Erreur serveur" });
+    }
   });
 
   // ─── SDK Withdrawal Audit Logs ────────────────────────────────────────────────

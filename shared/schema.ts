@@ -898,3 +898,29 @@ export const sdkWithdrawalLogs = pgTable("sdk_withdrawal_logs", {
 
 export type SdkWithdrawalLog = typeof sdkWithdrawalLogs.$inferSelect;
 export type InsertSdkWithdrawalLog = typeof sdkWithdrawalLogs.$inferInsert;
+
+// ─── Phone Blacklist ──────────────────────────────────────────────────────────
+
+export const phoneBlacklist = pgTable("phone_blacklist", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  phoneNumber: text("phone_number").notNull().unique(),
+  reason: text("reason"),
+  addedBy: integer("added_by").references(() => users.id),
+  addedByName: text("added_by_name"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const blacklistLogs = pgTable("blacklist_logs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  action: text("action").notNull(),
+  phoneNumber: text("phone_number").notNull(),
+  adminId: integer("admin_id"),
+  adminName: text("admin_name"),
+  ipAddress: text("ip_address"),
+  details: text("details"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type PhoneBlacklist = typeof phoneBlacklist.$inferSelect;
+export type BlacklistLog = typeof blacklistLogs.$inferSelect;

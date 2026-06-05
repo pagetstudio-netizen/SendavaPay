@@ -43,6 +43,8 @@ import {
   RefreshCw,
   Mail,
   FileSearch,
+  Ban,
+  UserX,
 } from "lucide-react";
 import type { AdminNotification as AdminNotificationType, User as UserType } from "@shared/schema";
 
@@ -72,6 +74,8 @@ const navItems: NavItem[] = [
   { title: "Email Broadcast", href: "/admin/email-broadcast", icon: Mail },
   { title: "Partenaires", href: "/admin/partners", icon: Handshake },
   { title: "Journal retraits SDK", href: "/admin/sdk-withdrawal-logs", icon: FileSearch },
+  { title: "Blacklist", href: "/admin/blacklist", icon: Ban },
+  { title: "Gestion KYC", href: "/admin/kyc-management", icon: UserX },
   { title: "Logs & Sécurité", href: "/admin/logs", icon: Shield },
   { title: "Sécurité avancée", href: "/admin/security", icon: Shield },
   { title: "Paramètres", href: "/admin/settings", icon: Settings },

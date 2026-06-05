@@ -6,6 +6,7 @@ import { initializeAdminAccount } from "./init-admin";
 import { initializeOmnipayServices } from "./init-omnipay";
 import { testDatabaseConnection, isDatabaseConnected, startBackgroundReconnection, pool } from "./db";
 import { notifySystemError, notifyDailyReport } from "./telegram";
+import { refreshBlacklistCache } from "./blacklist-check";
 import { storage } from "./storage";
 import { loadCredentialsFromDb, getCredential } from "./credentials";
 
@@ -221,6 +222,45 @@ async function initializeSecurityTables() {
   }
 }
 
+async function initializeBlacklistTables() {
+  if (!pool) return;
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS phone_blacklist (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        phone_number TEXT NOT NULL UNIQUE,
+        reason TEXT,
+        added_by INTEGER REFERENCES users(id),
+        added_by_name TEXT,
+        notes TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_blacklist_phone ON phone_blacklist(phone_number);`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS blacklist_logs (
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        action TEXT NOT NULL,
+        phone_number TEXT NOT NULL,
+        admin_id INTEGER,
+        admin_name TEXT,
+        ip_address TEXT,
+        details TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`ALTER TABLE kyc_requests ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;`);
+    await client.query(`ALTER TABLE kyc_requests ADD COLUMN IF NOT EXISTS archived_by INTEGER;`);
+    await refreshBlacklistCache();
+    log("Blacklist tables initialized successfully", "init");
+  } catch (error) {
+    log(`Blacklist tables initialization error: ${(error as Error).message}`, "init");
+  } finally {
+    client.release();
+  }
+}
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -328,6 +368,12 @@ async function initializeWithTimeout<T>(
         initializePartnerTables(),
         20000,
         "Partner tables"
+      );
+
+      await initializeWithTimeout(
+        initializeBlacklistTables(),
+        20000,
+        "Blacklist tables"
       );
 
       await initializeWithTimeout(
