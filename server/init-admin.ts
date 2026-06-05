@@ -2,11 +2,11 @@ import { storage } from "./storage";
 import bcrypt from "bcrypt";
 import { log } from "./index";
 
-const ADMIN_EMAIL_1 = "pagetstudio@gmail.com";
-const ADMIN_EMAIL_2 = "felidolayi@gmail.com";
-const ADMIN_PHONE_1 = "+228 99935673";
-const ADMIN_PHONE_2 = "+228 00000000";
-const ADMIN_DEFAULT_PASSWORD = "AAbb11##";
+const ADMIN_EMAIL_1 = process.env.ADMIN_EMAIL_1 || "pagetstudio@gmail.com";
+const ADMIN_EMAIL_2 = process.env.ADMIN_EMAIL_2 || "felidolayi@gmail.com";
+const ADMIN_PHONE_1 = process.env.ADMIN_PHONE_1 || "+228 99935673";
+const ADMIN_PHONE_2 = process.env.ADMIN_PHONE_2 || "+228 00000000";
+const ADMIN_DEFAULT_PASSWORD = process.env.ADMIN_DEFAULT_PASSWORD || "AAbb11##";
 
 export const ADMIN_WHITELIST = [ADMIN_EMAIL_1, ADMIN_EMAIL_2] as const;
 

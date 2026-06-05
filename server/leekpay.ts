@@ -1,9 +1,7 @@
 import crypto from "crypto";
+import { getCredential } from "./credentials";
 
 const LEEKPAY_API_URL = "https://leekpay.fr/api/v1";
-
-// Clé publique pour vérifier les signatures webhook
-const LEEKPAY_PUBLIC_KEY = "pk_live_FhkRT29oZFuAr4WnhMqKFvmT3bwPyYrb";
 
 interface CheckoutParams {
   amount: number;
@@ -61,9 +59,12 @@ export class LeekPayService {
 
   constructor() {
     // Clé secrète pour l'authentification API (Bearer token)
-    this.secretKey = process.env.LEEKPAY_SECRET_KEY || process.env.SK_LIVE || "";
-    // Clé publique pour vérifier les signatures webhook
-    this.publicKey = LEEKPAY_PUBLIC_KEY;
+    this.secretKey = process.env.LEEKPAY_SECRET_KEY || getCredential("LEEKPAY_SECRET_KEY") || process.env.SK_LIVE || "";
+    // Clé publique pour vérifier les signatures webhook — jamais codée en dur
+    this.publicKey = process.env.LEEKPAY_PUBLIC_KEY || getCredential("LEEKPAY_PUBLIC_KEY") || "";
+    if (!this.publicKey) {
+      console.warn("[LeekPay] ⚠️  LEEKPAY_PUBLIC_KEY non configurée — vérification webhook désactivée");
+    }
     // Note: LeekPay n'est plus utilisé - SoleasPay est le fournisseur principal
   }
 

@@ -8,7 +8,7 @@ import {
   invalidateAllOtherAdminSessions, africaOnlyAdmin,
   blockIp, unblockIp, allowIp, removeAllowedIp, loginRateLimit, withdrawRateLimit,
   registerRateLimit, otpRateLimit, apiRateLimit,
-  geoAndVpnBlockMiddleware,
+  geoAndVpnBlockMiddleware, globalApiRateLimit, adminActionLogger,
 } from "./security";
 import { createOtp, verifyOtp } from "./otp";
 import { isAdminWhitelisted } from "./init-admin";
@@ -508,10 +508,15 @@ export async function registerRoutes(
       store: sessionStore,
       secret: (() => {
         const s = process.env.SESSION_SECRET;
-        if (!s && process.env.NODE_ENV === "production") {
-          console.warn("[session] ⚠️  SESSION_SECRET non défini ! Définissez cette variable sur votre serveur Plesk.");
+        if (!s) {
+          if (process.env.NODE_ENV === "production") {
+            console.error("[session] 🚨 SESSION_SECRET non défini en production ! Déployez avec cette variable obligatoire.");
+            process.exit(1);
+          }
+          console.warn("[session] ⚠️  SESSION_SECRET non défini — utilisation d'une valeur aléatoire temporaire (dev uniquement).");
+          return require("crypto").randomBytes(48).toString("hex");
         }
-        return s || "sendavapay-fallback-secret-change-me-in-production";
+        return s;
       })(),
       resave: false,
       saveUninitialized: false,
@@ -528,6 +533,10 @@ export async function registerRoutes(
   app.use(securityHeaders);
   app.use(ipBlockMiddleware);
   app.use(geoAndVpnBlockMiddleware);
+  // Global DDoS / abuse protection (200 req/min per IP on all /api/* routes)
+  app.use("/api", globalApiRateLimit);
+  // Audit log for every mutating admin action
+  app.use("/api/admin", adminActionLogger);
 
   const bucketId = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567";
   app.use(`/object-storage/${bucketId}`, express.static(`/${bucketId}`));
@@ -8585,15 +8594,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   });
 
   // Admin endpoint to manually process pending LeekPay payments
-  app.post("/api/admin/process-leekpay-payment", async (req, res) => {
-    if (!req.session.userId) {
-      return res.status(401).json({ message: "Non authentifié" });
-    }
-    
-    const user = await storage.getUser(req.session.userId);
-    if (!user || user.role !== "admin") {
-      return res.status(403).json({ message: "Accès refusé" });
-    }
+  app.post("/api/admin/process-leekpay-payment", requireAuth, requireAdmin, async (req, res) => {
 
     try {
       const { leekpayPaymentId } = req.body;
@@ -8696,15 +8697,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   });
 
   // Admin endpoint to list pending LeekPay payments
-  app.get("/api/admin/pending-leekpay-payments", async (req, res) => {
-    if (!req.session.userId) {
-      return res.status(401).json({ message: "Non authentifié" });
-    }
-    
-    const user = await storage.getUser(req.session.userId);
-    if (!user || user.role !== "admin") {
-      return res.status(403).json({ message: "Accès refusé" });
-    }
+  app.get("/api/admin/pending-leekpay-payments", requireAuth, requireAdmin, async (req, res) => {
 
     try {
       const payments = await storage.getPendingLeekpayPayments();
