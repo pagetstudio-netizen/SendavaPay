@@ -1,5 +1,5 @@
 import { storage } from "./storage";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { log } from "./index";
 
 const ADMIN_EMAIL_1 = process.env.ADMIN_EMAIL_1 || "pagetstudio@gmail.com";

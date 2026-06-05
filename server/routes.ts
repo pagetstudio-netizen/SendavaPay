@@ -19,7 +19,7 @@ import {
 } from "./paydunya";
 import { getSoftPayOperator } from "./paydunya-softpay-map";
 import { getCredential, setCachedCredential, loadCredentialsFromDb, CREDENTIAL_KEYS } from "./credentials";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { v4 as uuidv4 } from "uuid";

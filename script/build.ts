@@ -2,11 +2,14 @@ import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
 import { rm, readFile } from "fs/promises";
 
-// server deps to bundle to reduce openat(2) syscalls
-// which helps cold start times
+// server deps to bundle — bundle everything that is pure-JS so the
+// resulting dist/index.cjs is fully self-contained and works on any
+// host without running `npm install`.
 const allowlist = [
   "@google/generative-ai",
+  "@google-cloud/storage",
   "axios",
+  "bcryptjs",
   "connect-pg-simple",
   "cors",
   "date-fns",
@@ -24,6 +27,7 @@ const allowlist = [
   "passport",
   "passport-local",
   "pg",
+  "resend",
   "stripe",
   "uuid",
   "ws",
