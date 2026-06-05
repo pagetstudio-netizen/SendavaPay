@@ -86,6 +86,7 @@ import {
   Zap,
   ToggleLeft,
   ToggleRight,
+  ShieldAlert,
 } from "lucide-react";
 import { PartnersContent } from "@/pages/admin/partners";
 import type { 
@@ -430,6 +431,28 @@ function UsersContent() {
     },
   });
 
+  const emergencyKillMutation = useMutation({
+    mutationFn: async (userId: number) => {
+      const res = await apiRequest("POST", `/api/admin/users/${userId}/emergency-kill`);
+      return res as { message: string; actions: string[] };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({
+        title: "🚨 Compte neutralisé",
+        description: (
+          <div className="text-xs space-y-1 mt-1">
+            {data.actions?.map((a: string, i: number) => (
+              <div key={i}>{a}</div>
+            ))}
+          </div>
+        ),
+        duration: 8000,
+      });
+    },
+    onError: () => toast({ title: "Erreur", description: "Emergency kill échoué", variant: "destructive" }),
+  });
+
   const { data: selectedUserWallets } = useQuery<{ id: number; countryCode: string; countryName: string; currency: string; balance: string }[]>({
     queryKey: ["/api/admin/users", selectedUser?.id, "wallets"],
     queryFn: async () => {
@@ -708,6 +731,21 @@ function UsersContent() {
                           title={user.isBlocked ? "Débloquer" : "Bloquer"}
                         >
                           {user.isBlocked ? <Unlock className="h-4 w-4 text-green-600" /> : <Ban className="h-4 w-4 text-orange-600" />}
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => {
+                            if (confirm(`🚨 EMERGENCY KILL\n\nCela va immédiatement :\n• Bloquer le compte\n• Détruire TOUTES les sessions actives\n• Désactiver TOUTES les clés API\n• Blacklister le téléphone\n\nUtilisateur : ${user.email}\n\nConfirmer ?`)) {
+                              emergencyKillMutation.mutate(user.id);
+                            }
+                          }}
+                          disabled={user.role === "admin" || emergencyKillMutation.isPending}
+                          title="🚨 Emergency Kill — Neutraliser immédiatement"
+                          data-testid={`button-emergency-kill-${user.id}`}
+                          className="hover:bg-red-50 dark:hover:bg-red-950"
+                        >
+                          <ShieldAlert className="h-4 w-4 text-red-600" />
                         </Button>
                         <Button
                           size="icon"

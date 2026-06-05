@@ -282,6 +282,9 @@ export interface IStorage {
   getSdkWithdrawalLogs(limit?: number, offset?: number): Promise<SdkWithdrawalLog[]>;
   countSdkWithdrawalLogs(): Promise<number>;
 
+  // Security: disable all API keys for a user (used on block)
+  disableAllUserApiKeys(userId: number): Promise<void>;
+
   // Blacklist
   getBlacklistedPhones(): Promise<PhoneBlacklist[]>;
   addPhoneToBlacklist(phoneNumber: string, reason: string, adminId: number, adminName: string, notes?: string): Promise<PhoneBlacklist>;
@@ -1635,6 +1638,10 @@ export class DatabaseStorage implements IStorage {
   async countSdkWithdrawalLogs(): Promise<number> {
     const [row] = await getDb().select({ count: sql<number>`count(*)::int` }).from(sdkWithdrawalLogs);
     return row?.count ?? 0;
+  }
+
+  async disableAllUserApiKeys(userId: number): Promise<void> {
+    await getDb().update(apiKeys).set({ isActive: false }).where(eq(apiKeys.userId, userId));
   }
 
   async getBlacklistedPhones(): Promise<PhoneBlacklist[]> {

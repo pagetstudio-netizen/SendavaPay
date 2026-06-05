@@ -76,6 +76,32 @@ import {
 } from "./telegram";
 import { isPhoneBlacklisted, invalidateBlacklistCache, setUnblockOtp, verifyUnblockOtp } from "./blacklist-check";
 
+// ─── Fast in-memory blocked users cache ──────────────────────────────────────
+// Set of user IDs that are currently blocked. Updated immediately on block/unblock.
+// This avoids a DB hit on every authenticated request.
+const blockedUserIds = new Set<number>();
+
+export async function loadBlockedUsersCache(): Promise<void> {
+  if (!pool) return;
+  try {
+    const res = await pool.query(`SELECT id FROM users WHERE is_blocked = true`);
+    blockedUserIds.clear();
+    for (const row of res.rows) blockedUserIds.add(Number(row.id));
+    console.log(`[security] ${blockedUserIds.size} utilisateur(s) bloqué(s) chargé(s) en mémoire`);
+  } catch (e) {
+    console.error("[security] Échec chargement cache utilisateurs bloqués:", e);
+  }
+}
+
+async function killUserSessions(userId: number): Promise<void> {
+  if (!pool) return;
+  try {
+    await pool.query(`DELETE FROM session WHERE sess->>'userId' = $1::text`, [String(userId)]);
+  } catch (e) {
+    console.error(`[security] Échec destruction sessions user #${userId}:`, e);
+  }
+}
+
 function getCommissionRate(settings: any, transactionType: string, countryOverride?: string | number | null): number {
   if (countryOverride !== null && countryOverride !== undefined) {
     const rate = parseFloat(countryOverride.toString());
@@ -204,6 +230,10 @@ const productImageUpload = multer({
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session.userId) {
     return res.status(401).json({ message: "Non authentifié" });
+  }
+  if (blockedUserIds.has(req.session.userId)) {
+    req.session.destroy(() => {});
+    return res.status(403).json({ message: "Compte bloqué. Contactez le support." });
   }
   next();
 }
@@ -7327,6 +7357,14 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     try {
       const userId = parseInt(req.params.id);
       const user = await storage.updateUser(userId, { isBlocked: true });
+      // 1. Update in-memory cache immediately
+      blockedUserIds.add(userId);
+      // 2. Destroy all active sessions for this user
+      await killUserSessions(userId);
+      // 3. Disable all API/SDK keys
+      await storage.disableAllUserApiKeys(userId);
+      // 4. Audit log
+      await logSecurityEvent({ userId: req.session.userId, type: "user_blocked", details: `Utilisateur #${userId} bloqué — sessions et clés API désactivées`, ipAddress: getClientIp(req) });
       res.json(user);
     } catch (error) {
       console.error("Block user error:", error);
@@ -7338,9 +7376,57 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     try {
       const userId = parseInt(req.params.id);
       const user = await storage.updateUser(userId, { isBlocked: false });
+      blockedUserIds.delete(userId);
+      await logSecurityEvent({ userId: req.session.userId, type: "user_unblocked", details: `Utilisateur #${userId} débloqué`, ipAddress: getClientIp(req) });
       res.json(user);
     } catch (error) {
       console.error("Unblock user error:", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // ─── Emergency kill switch ─────────────────────────────────────────────────
+  // Bloque + tue toutes sessions + désactive toutes clés en une seule requête.
+  // À utiliser en cas d'attaque active sur un compte.
+  app.post("/api/admin/users/:id/emergency-kill", requireAdmin, async (req, res) => {
+    try {
+      const userId = parseInt(req.params.id);
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) return res.status(404).json({ message: "Utilisateur introuvable" });
+      // 1. Block in DB
+      await storage.updateUser(userId, { isBlocked: true });
+      // 2. In-memory cache
+      blockedUserIds.add(userId);
+      // 3. Kill ALL sessions immediately
+      await killUserSessions(userId);
+      // 4. Disable ALL API keys
+      await storage.disableAllUserApiKeys(userId);
+      // 5. Blacklist phone if present
+      let phoneBanned = false;
+      if (targetUser.phone) {
+        try {
+          const admin = await storage.getUser(req.session.userId!);
+          const adminName = admin?.fullName || admin?.email || "Admin";
+          await storage.addPhoneToBlacklist(targetUser.phone, "Emergency kill — attaque active", req.session.userId!, adminName, `Compte: ${targetUser.email}`);
+          await storage.addBlacklistLog({ action: "add", phoneNumber: targetUser.phone, adminId: req.session.userId!, adminName, ipAddress: getClientIp(req), details: "Emergency kill — attaque active" });
+          invalidateBlacklistCache();
+          phoneBanned = true;
+        } catch (_) { /* already blacklisted, skip */ }
+      }
+      // 6. Audit log
+      await logSecurityEvent({ userId: req.session.userId, type: "emergency_kill", details: `EMERGENCY KILL sur #${userId} (${targetUser.email}) — sessions détruites, clés API désactivées${phoneBanned ? ", téléphone blacklisté" : ""}`, ipAddress: getClientIp(req) });
+      res.json({
+        message: `Compte #${userId} neutralisé`,
+        actions: [
+          "✅ Compte bloqué",
+          "✅ Toutes les sessions détruites",
+          "✅ Toutes les clés API désactivées",
+          phoneBanned ? "✅ Téléphone blacklisté" : "⚠️ Pas de téléphone enregistré",
+          "⚠️ Pensez aussi à faire tourner la clé SUPABASE_SERVICE_ROLE_KEY si l'attaquant utilise l'API Supabase directement",
+        ],
+      });
+    } catch (error) {
+      console.error("Emergency kill error:", error);
       res.status(500).json({ message: "Erreur serveur" });
     }
   });
