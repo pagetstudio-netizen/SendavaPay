@@ -285,6 +285,12 @@ export interface IStorage {
   // Security: disable all API keys for a user (used on block)
   disableAllUserApiKeys(userId: number): Promise<void>;
 
+  // Atomic balance operations — prevent race conditions and negative balances
+  // atomicDebitUserBalance: uses SQL WHERE balance >= amount; returns false if insufficient
+  atomicDebitUserBalance(userId: number, amount: string): Promise<boolean>;
+  // atomicCreditUserBalance: uses SQL balance = balance + amount; safe atomic add
+  atomicCreditUserBalance(userId: number, amount: string): Promise<void>;
+
   // Blacklist
   getBlacklistedPhones(): Promise<PhoneBlacklist[]>;
   addPhoneToBlacklist(phoneNumber: string, reason: string, adminId: number, adminName: string, notes?: string): Promise<PhoneBlacklist>;
@@ -1642,6 +1648,23 @@ export class DatabaseStorage implements IStorage {
 
   async disableAllUserApiKeys(userId: number): Promise<void> {
     await getDb().update(apiKeys).set({ isActive: false }).where(eq(apiKeys.userId, userId));
+  }
+
+  async atomicDebitUserBalance(userId: number, amount: string): Promise<boolean> {
+    const result = await getDb().execute(
+      sql`UPDATE users
+          SET balance = balance - ${amount}::decimal
+          WHERE id = ${userId} AND balance >= ${amount}::decimal
+          RETURNING id`
+    ) as any;
+    const rows = result?.rows ?? result ?? [];
+    return rows.length > 0;
+  }
+
+  async atomicCreditUserBalance(userId: number, amount: string): Promise<void> {
+    await getDb().execute(
+      sql`UPDATE users SET balance = balance + ${amount}::decimal WHERE id = ${userId}`
+    );
   }
 
   async getBlacklistedPhones(): Promise<PhoneBlacklist[]> {

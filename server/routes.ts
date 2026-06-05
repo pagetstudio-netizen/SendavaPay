@@ -2995,15 +2995,10 @@ export async function registerRoutes(
               console.error("[SoleasPay webhook SDK] Erreur:", spSdkErr);
             }
           } else {
-            // ── Retrait non-SDK : débiter user.balance au moment de la confirmation ──
+            // ── Retrait non-SDK : solde déjà débité à la création de la demande ──
+            // NE PAS débiter à nouveau ici — le doDebit() dans /api/withdraw a déjà débité.
+            // Un double débit ici causerait un solde négatif.
             if (success && status === "SUCCESS") {
-              const user = await storage.getUser(withdrawalRequest.userId);
-              if (user) {
-                const balance = parseFloat(user.balance);
-                const withdrawAmount = parseFloat(withdrawalRequest.amount);
-                const newBalance = balance - withdrawAmount;
-                await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
-              }
               await storage.updateWithdrawalRequest(withdrawalRequest.id, {
                 status: "approved",
                 processedAt: new Date(),
@@ -4529,14 +4524,10 @@ export async function registerRoutes(
 
           console.log(`✅ Paxity payout confirmé: id=${withdrawalReq.id} montant=${withdrawalReq.netAmount} ${currency}`);
         } else if (status === "REJECTED" || status === "FAILED") {
-          // Rembourser le solde
-          const user = await storage.getUser(withdrawalReq.userId);
-          if (user) {
-            const restoredBalance = parseFloat(user.balance) + parseFloat(withdrawalReq.amount);
-            await storage.setUserBalance(withdrawalReq.userId, restoredBalance.toString());
-            if (withdrawalReq.walletId) {
-              await storage.creditWalletById(withdrawalReq.walletId, withdrawalReq.amount);
-            }
+          // Rembourser le solde — opération atomique
+          await storage.atomicCreditUserBalance(withdrawalReq.userId, withdrawalReq.amount);
+          if (withdrawalReq.walletId) {
+            await storage.creditWalletById(withdrawalReq.walletId, withdrawalReq.amount);
           }
           await storage.updateWithdrawalRequest(withdrawalReq.id, {
             status: "failed",
@@ -5227,21 +5218,27 @@ export async function registerRoutes(
       }
 
       // Helpers wallet-aware pour débit et restauration
-      const userBalance = parseFloat(user.balance);
+      // ⚡ ATOMIC: utilise des opérations SQL atomiques pour éviter les race conditions
+      // et les soldes négatifs. Remplace les anciennes opérations basées sur snapshots stales.
       const doDebit = async () => {
         if (walletId) {
-          const ok = await storage.debitWallet(walletId, totalDeducted.toString());
-          if (!ok) throw new Error("Solde insuffisant dans ce portefeuille");
+          const walletOk = await storage.debitWallet(walletId, totalDeducted.toString());
+          if (!walletOk) throw new Error("Solde insuffisant dans ce portefeuille");
         }
-        // Toujours synchroniser users.balance (dashboard + sécurité)
-        await storage.setUserBalance(req.session.userId!, (userBalance - totalDeducted).toString());
+        // Atomic debit sur users.balance — empêche les débits concurrents et les soldes négatifs
+        const userOk = await storage.atomicDebitUserBalance(req.session.userId!, totalDeducted.toString());
+        if (!userOk) {
+          // Rembourser le wallet si déjà débité
+          if (walletId) await storage.creditWalletById(walletId, totalDeducted.toString());
+          throw new Error("Solde insuffisant");
+        }
       };
       const restore = async () => {
         if (walletId) {
           await storage.creditWalletById(walletId, totalDeducted.toString());
         }
-        // Toujours restaurer users.balance
-        await storage.setUserBalance(req.session.userId!, userBalance.toString());
+        // Atomic credit — évite les écrasements de snapshot stale
+        await storage.atomicCreditUserBalance(req.session.userId!, totalDeducted.toString());
       };
 
       // Débiter le solde immédiatement (en attente de validation admin)
@@ -5991,13 +5988,7 @@ export async function registerRoutes(
             console.log("📊 Statut SoleasPay:", transactionDetails.status);
             
             if (transactionDetails.status === "SUCCESS") {
-              const user = await storage.getUser(withdrawalRequest.userId);
-              if (user) {
-                const balance = parseFloat(user.balance);
-                const amount = parseFloat(withdrawalRequest.amount);
-                const newBalance = balance - amount;
-                await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
-              }
+              // Solde déjà débité à la création de la demande — ne pas débiter à nouveau
               
               await storage.updateWithdrawalRequest(requestId, {
                 status: "approved",
@@ -6161,19 +6152,13 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Veuillez fournir une raison de rejet" });
       }
       
-      // Rembourser le solde car il a été débité lors de la demande
-      const user = await storage.getUser(withdrawalRequest.userId);
-      if (user) {
-        const currentBalance = parseFloat(user.balance);
-        const refundAmount = parseFloat(withdrawalRequest.amount);
-        const newBalance = currentBalance + refundAmount;
-        await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
-        // Restaurer aussi le wallet si le retrait venait d'un wallet précis
-        if (withdrawalRequest.walletId) {
-          await storage.creditWalletById(withdrawalRequest.walletId, refundAmount.toString());
-        }
-        console.log("💰 Balance refunded for user", withdrawalRequest.userId, "Amount:", refundAmount, "New balance:", newBalance, "walletId:", withdrawalRequest.walletId || "none");
+      // Rembourser le solde — opération atomique (pas de snapshot stale)
+      const refundAmount = parseFloat(withdrawalRequest.amount);
+      await storage.atomicCreditUserBalance(withdrawalRequest.userId, refundAmount.toString());
+      if (withdrawalRequest.walletId) {
+        await storage.creditWalletById(withdrawalRequest.walletId, refundAmount.toString());
       }
+      console.log("💰 Remboursement (reject) user", withdrawalRequest.userId, "+", refundAmount, "walletId:", withdrawalRequest.walletId || "none");
       
       await storage.updateWithdrawalRequest(requestId, {
         status: "rejected",
@@ -6220,18 +6205,13 @@ export async function registerRoutes(
         console.log(`🚫 OmniPay cancel ref=${withdrawalRequest.externalReference} → success=${omnipayResult.success} msg=${omnipayResult.message}`);
       }
 
-      // Dans tous les cas : rembourser l'utilisateur et rejeter le retrait
-      const user = await storage.getUser(withdrawalRequest.userId);
-      if (user) {
-        const refundAmount = parseFloat(withdrawalRequest.amount as string);
-        const currentBalance = parseFloat(user.balance as string);
-        const newBalance = currentBalance + refundAmount;
-        await storage.setUserBalance(withdrawalRequest.userId, newBalance.toString());
-        if (withdrawalRequest.walletId) {
-          await storage.creditWalletById(withdrawalRequest.walletId, refundAmount.toString());
-        }
-        console.log(`💰 Remboursement annulation OmniPay: userId=${withdrawalRequest.userId} +${refundAmount} → ${newBalance} walletId=${withdrawalRequest.walletId || "none"}`);
+      // Rembourser l'utilisateur — opération atomique (pas de snapshot stale)
+      const omnipayRefund = parseFloat(withdrawalRequest.amount as string);
+      await storage.atomicCreditUserBalance(withdrawalRequest.userId, omnipayRefund.toString());
+      if (withdrawalRequest.walletId) {
+        await storage.creditWalletById(withdrawalRequest.walletId, omnipayRefund.toString());
       }
+      console.log(`💰 Remboursement annulation OmniPay: userId=${withdrawalRequest.userId} +${omnipayRefund} walletId=${withdrawalRequest.walletId || "none"}`);
 
       await storage.updateWithdrawalRequest(requestId, {
         status: "rejected",
@@ -8892,11 +8872,8 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
           const txAmount = parseFloat(withdrawalReq.amount);
           const txFee = parseFloat(withdrawalReq.fee || "0");
           const totalDeducted = txAmount + txFee;
-          const failedUser = await storage.getUser(withdrawalReq.userId);
-          if (failedUser) {
-            const restored = parseFloat(failedUser.balance) + totalDeducted;
-            await storage.setUserBalance(withdrawalReq.userId, restored.toString());
-          }
+          // Rembourser — opération atomique, pas de snapshot stale
+          await storage.atomicCreditUserBalance(withdrawalReq.userId, totalDeducted.toString());
           await storage.updateWithdrawalRequest(withdrawalReq.id, {
             status: "rejected",
             rejectionReason: `PayDunya: transaction échouée (${transactionId || "N/A"})`,
@@ -9428,15 +9405,11 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
 
         console.log(`✅ PayDunya disburse webhook: retrait #${withdrawalReq.id} approuvé`);
       } else if (status === "failed") {
-        // Restaurer le solde
+        // Restaurer le solde — opération atomique, pas de snapshot stale
         const txAmount = parseFloat(withdrawalReq.amount);
         const txFee = parseFloat(withdrawalReq.fee || "0");
         const totalDeducted = txAmount + txFee;
-        const failedUser = await storage.getUser(withdrawalReq.userId);
-        if (failedUser) {
-          const restored = parseFloat(failedUser.balance) + totalDeducted;
-          await storage.setUserBalance(withdrawalReq.userId, restored.toString());
-        }
+        await storage.atomicCreditUserBalance(withdrawalReq.userId, totalDeducted.toString());
         await storage.updateWithdrawalRequest(withdrawalReq.id, {
           status: "rejected",
           rejectionReason: `PayDunya: transaction échouée (${transactionId || "N/A"})`,
