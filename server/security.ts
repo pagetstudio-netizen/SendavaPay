@@ -206,25 +206,77 @@ export const apiRateLimit = rateLimit({
 
 // ─── SECURITY HEADERS ─────────────────────────────────────────────────────────
 export function securityHeaders(req: Request, res: Response, next: NextFunction) {
+  // Prevent MIME-type sniffing
   res.setHeader("X-Content-Type-Options", "nosniff");
+  // Forbid framing (clickjacking protection)
   res.setHeader("X-Frame-Options", "DENY");
+  // Legacy XSS filter
   res.setHeader("X-XSS-Protection", "1; mode=block");
+  // No referrer leakage cross-origin
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  // Disable unnecessary browser features
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+  // Never expose server technology
+  res.removeHeader("X-Powered-By");
+  res.setHeader("Server", "sendavapay");
+  // Hide internal paths from cross-origin requesters
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-site");
+  res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
+  // Content Security Policy
   res.setHeader(
     "Content-Security-Policy",
     [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "img-src 'self' data: https:",
+      "img-src 'self' data: blob: https:",
       "font-src 'self' data: https://fonts.gstatic.com",
       "connect-src 'self' https:",
       "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "object-src 'none'",
     ].join("; ")
   );
+  // HSTS — force HTTPS for 1 year
   if (req.secure || req.headers["x-forwarded-proto"] === "https") {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
+  }
+  next();
+}
+
+// ─── GLOBAL API RATE LIMITER ──────────────────────────────────────────────────
+// Broad DDoS/abuse protection: 200 req/min per IP across all /api/* routes.
+export const globalApiRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  blockDurationMs: 5 * 60 * 1000,
+  message: "Trop de requêtes. Réessayez dans quelques minutes.",
+});
+
+// ─── ADMIN ACTION LOGGER ──────────────────────────────────────────────────────
+// Logs every mutating request on /api/admin/* to the console and DB.
+export function adminActionLogger(req: Request, _res: Response, next: NextFunction): void {
+  if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") {
+    const userId = req.session?.userId ?? "anonymous";
+    const ip     = getClientIp(req);
+    console.log(`[admin-audit] ${req.method} ${req.path} — user=${userId} ip=${ip}`);
+    // Async DB log — never blocks the request
+    if (pool) {
+      pool.connect().then(client => {
+        client.query(
+          `INSERT INTO security_events (user_id, type, details, ip_address)
+           VALUES ($1, $2, $3, $4)`,
+          [
+            typeof userId === "number" ? userId : null,
+            "admin_action",
+            `${req.method} ${req.path}`,
+            ip,
+          ]
+        ).catch(() => {}).finally(() => client.release());
+      }).catch(() => {});
+    }
   }
   next();
 }
@@ -628,11 +680,11 @@ const SENSITIVE_PATH_PATTERNS: RegExp[] = [
   /^\/node_modules\//i,
   // Dotfiles (.replit, .env, .git, etc.)
   /^\/\./i,
-  // Root-level config / build files
-  /^\/(package(?:-lock)?\.json|drizzle\.config\.|tsconfig[^/]*\.json|vite\.config\.|tailwind\.config\.|postcss\.config\.|ecosystem\.config\.)$/i,
+  // Root-level config / build / lock files (any extension)
+  /^\/(package(-lock)?\.json|drizzle\.config\.[^/]+|tsconfig[^/]*\.json|vite\.config\.[^/]+|tailwind\.config\.[^/]+|postcss\.config\.[^/]+|ecosystem\.config\.[^/]+|build\.[^/]+)$/i,
   // Any TypeScript source file served directly
   /\.ts$/i,
-  // PHP / Python SDK sources (the /sdk route serves compiled JS only)
+  // PHP / Python SDK sources
   /\.(php|py)$/i,
 ];
 

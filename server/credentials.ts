@@ -20,6 +20,8 @@ export const CREDENTIAL_KEYS = [
   "SUPABASE_SERVICE_ROLE_KEY",
   "RESEND_API_KEY",
   "RESEND_FROM_EMAIL",
+  "LEEKPAY_SECRET_KEY",
+  "LEEKPAY_PUBLIC_KEY",
 ] as const;
 
 export type CredentialKey = (typeof CREDENTIAL_KEYS)[number];

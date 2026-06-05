@@ -271,6 +271,18 @@ declare module "http" {
 // ── Block access to source code / config files — must be FIRST ──────────────
 app.use(blockSensitivePaths);
 
+// ── Security headers on every response (including /api/health and static) ──
+app.use((_req, res, next) => {
+  res.removeHeader("X-Powered-By");
+  res.setHeader("Server", "sendavapay");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+  next();
+});
+
 app.use(
   express.json({
     verify: (req, _res, buf) => {
