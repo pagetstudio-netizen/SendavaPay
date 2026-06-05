@@ -1,0 +1,41 @@
+# ============================================================
+#  SendavaPay — Protection Apache (.htaccess)
+#  Bloque l'accès à tous les fichiers sources et configs
+# ============================================================
+
+Options -Indexes
+ServerSignature Off
+
+# ── Bloquer les fichiers TypeScript, Python, Shell, env ────
+<FilesMatch "\.(ts|tsx|py|sh|env|log|sql|bak|orig|swp|map)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# ── Bloquer les fichiers de configuration racine ────────────
+<FilesMatch "^(package(-lock)?\.json|drizzle\.config\..+|tsconfig.*\.json|vite\.config\..+|tailwind\.config\..+|postcss\.config\..+|ecosystem\.config\..+|replit\.md|README\.md)$">
+    Order Allow,Deny
+    Deny from all
+</FilesMatch>
+
+# ── Bloquer l'accès aux dossiers sources ───────────────────
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Bloquer dossiers sources
+    RewriteRule ^(server|shared|client|script|node_modules)/ - [F,L]
+
+    # Bloquer tous les dotfiles (.replit, .env, .git, etc.)
+    RewriteRule (^|/)\.(?!well-known) - [F,L]
+</IfModule>
+
+# ── Headers de sécurité Apache ─────────────────────────────
+<IfModule mod_headers.c>
+    Header always set X-Frame-Options "DENY"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Header unset Server
+    Header unset X-Powered-By
+</IfModule>
