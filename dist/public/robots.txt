@@ -17,5 +17,16 @@ Disallow: /merchant/
 Disallow: /api/
 Disallow: /success
 Disallow: /payment-success
+Disallow: /server/
+Disallow: /shared/
+Disallow: /client/
+Disallow: /script/
+Disallow: /node_modules/
+Disallow: /*.ts$
+Disallow: /*.env$
+Disallow: /package.json
+Disallow: /ecosystem.config.js
+Disallow: /drizzle.config.ts
+Disallow: /tsconfig.json
 
 Sitemap: https://sendavapay.com/sitemap.xml
