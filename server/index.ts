@@ -1,5 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
+import { registerRoutes, loadBlockedUsersCache } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initializeAdminAccount } from "./init-admin";
@@ -374,6 +374,12 @@ async function initializeWithTimeout<T>(
         initializeBlacklistTables(),
         20000,
         "Blacklist tables"
+      );
+
+      await initializeWithTimeout(
+        loadBlockedUsersCache(),
+        10000,
+        "Blocked users cache"
       );
 
       await initializeWithTimeout(
