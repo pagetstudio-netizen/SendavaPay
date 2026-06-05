@@ -614,3 +614,35 @@ loadBlockedIps().catch(() => {});
 setInterval(() => loadBlockedIps().catch(() => {}), CACHE_TTL);
 loadAllowedIps().catch(() => {});
 setInterval(() => loadAllowedIps().catch(() => {}), ALLOWED_CACHE_TTL);
+
+// ─── SOURCE FILE SHIELD ───────────────────────────────────────────────────────
+// Blocks any HTTP request that targets source code, config files, or dotfiles.
+// This is a defense-in-depth measure: even if the web server (Nginx/Plesk) is
+// misconfigured and routes these paths to Node, Express will return 403.
+const SENSITIVE_PATH_PATTERNS: RegExp[] = [
+  // Source directories
+  /^\/server\//i,
+  /^\/shared\//i,
+  /^\/client\//i,
+  /^\/script\//i,
+  /^\/node_modules\//i,
+  // Dotfiles (.replit, .env, .git, etc.)
+  /^\/\./i,
+  // Root-level config / build files
+  /^\/(package(?:-lock)?\.json|drizzle\.config\.|tsconfig[^/]*\.json|vite\.config\.|tailwind\.config\.|postcss\.config\.|ecosystem\.config\.)$/i,
+  // Any TypeScript source file served directly
+  /\.ts$/i,
+  // PHP / Python SDK sources (the /sdk route serves compiled JS only)
+  /\.(php|py)$/i,
+];
+
+export function blockSensitivePaths(req: Request, res: Response, next: NextFunction): void {
+  const url = req.path || req.url;
+  for (const pattern of SENSITIVE_PATH_PATTERNS) {
+    if (pattern.test(url)) {
+      res.status(403).json({ message: "Forbidden" });
+      return;
+    }
+  }
+  next();
+}

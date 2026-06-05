@@ -9,6 +9,7 @@ import { notifySystemError, notifyDailyReport } from "./telegram";
 import { refreshBlacklistCache } from "./blacklist-check";
 import { storage } from "./storage";
 import { loadCredentialsFromDb, getCredential } from "./credentials";
+import { blockSensitivePaths } from "./security";
 
 const app = express();
 const httpServer = createServer(app);
@@ -266,6 +267,9 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+// ── Block access to source code / config files — must be FIRST ──────────────
+app.use(blockSensitivePaths);
 
 app.use(
   express.json({
