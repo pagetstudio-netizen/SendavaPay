@@ -505,6 +505,58 @@ export async function notifyDailyReport(stats: {
   return sendTelegramMessage(msg);
 }
 
+export async function notifyBlacklistUnblockAttempt(data: {
+  phoneNumber: string;
+  adminName: string;
+  adminId: number;
+  ip: string;
+  action: string;
+}): Promise<void> {
+  const msg =
+    `⚠️ <b>TENTATIVE DE SUPPRESSION D'UN NUMÉRO BLACKLISTÉ</b>\n\n` +
+    `<b>Numéro :</b> <code>${data.phoneNumber}</code>\n` +
+    `<b>Administrateur :</b> ${data.adminName} (#${data.adminId})\n` +
+    `<b>IP :</b> <code>${data.ip}</code>\n` +
+    `<b>Action :</b> ${data.action}\n` +
+    `<b>Date :</b> ${formatDate()}\n\n` +
+    `Un code de sécurité a été envoyé dans ce groupe pour confirmer le déblocage.`;
+  await sendTelegramMessage(msg);
+}
+
+export async function notifyBlacklistOtp(data: {
+  phoneNumber: string;
+  adminName: string;
+  code: string;
+}): Promise<void> {
+  const msg =
+    `🔐 <b>CODE DE DÉBLOCAGE BLACKLIST</b>\n\n` +
+    `<b>Numéro à débloquer :</b> <code>${data.phoneNumber}</code>\n` +
+    `<b>Demandé par :</b> ${data.adminName}\n` +
+    `<b>Date :</b> ${formatDate()}\n\n` +
+    `<b>Code de sécurité :</b>\n<code>${data.code}</code>\n\n` +
+    `⚠️ Ce code expire dans 15 minutes. Ne partagez jamais ce code.`;
+  await sendTelegramMessage(msg);
+}
+
+export function notifyKycReset(data: {
+  adminName: string;
+  adminId: number;
+  userName: string;
+  userId: number;
+  ip: string;
+}): void {
+  const msg =
+    `🔄 <b>RÉINITIALISATION KYC</b>\n\n` +
+    `<b>Utilisateur :</b> ${data.userName} (#${data.userId})\n` +
+    `<b>Administrateur :</b> ${data.adminName} (#${data.adminId})\n` +
+    `<b>IP :</b> <code>${data.ip}</code>\n` +
+    `<b>Date :</b> ${formatDate()}\n\n` +
+    `Le statut KYC a été réinitialisé. L'utilisateur devra soumettre à nouveau ses documents.`;
+  sendTelegramMessage(msg).catch(err =>
+    console.error("[Telegram] KYC reset notification error:", err)
+  );
+}
+
 export function notifyPartnerWalletExchange(data: {
   partnerName: string;
   partnerId: number;

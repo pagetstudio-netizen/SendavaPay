@@ -34,6 +34,8 @@ import {
   type PartnerLog,
   type PartnerTransaction,
   type PasswordResetToken,
+  type PhoneBlacklist,
+  type BlacklistLog,
   users,
   transactions,
   transfers,
@@ -58,6 +60,8 @@ import {
   merchantWebhooks,
   apiLogs,
   statsOffsets,
+  phoneBlacklist,
+  blacklistLogs,
   globalNotifications,
   partners,
   partnerLogs,
@@ -277,6 +281,19 @@ export interface IStorage {
   updateSdkWithdrawalLog(id: number, updates: Partial<SdkWithdrawalLog>): Promise<void>;
   getSdkWithdrawalLogs(limit?: number, offset?: number): Promise<SdkWithdrawalLog[]>;
   countSdkWithdrawalLogs(): Promise<number>;
+
+  // Blacklist
+  getBlacklistedPhones(): Promise<PhoneBlacklist[]>;
+  addPhoneToBlacklist(phoneNumber: string, reason: string, adminId: number, adminName: string, notes?: string): Promise<PhoneBlacklist>;
+  removePhoneFromBlacklist(id: number): Promise<void>;
+  getBlacklistEntry(id: number): Promise<PhoneBlacklist | undefined>;
+  addBlacklistLog(log: { action: string; phoneNumber: string; adminId?: number; adminName?: string; ipAddress?: string; details?: string }): Promise<BlacklistLog>;
+  getBlacklistLogs(limit?: number): Promise<BlacklistLog[]>;
+
+  // KYC management (archive/reset)
+  getApprovedKycRequests(): Promise<(KycRequest & { user?: User })[]>;
+  resetKycRequest(kycId: number, adminId: number, adminName: string): Promise<void>;
+  getArchivedKycRequests(): Promise<(KycRequest & { user?: User })[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1618,6 +1635,67 @@ export class DatabaseStorage implements IStorage {
   async countSdkWithdrawalLogs(): Promise<number> {
     const [row] = await getDb().select({ count: sql<number>`count(*)::int` }).from(sdkWithdrawalLogs);
     return row?.count ?? 0;
+  }
+
+  async getBlacklistedPhones(): Promise<PhoneBlacklist[]> {
+    return getDb().select().from(phoneBlacklist).orderBy(desc(phoneBlacklist.createdAt));
+  }
+
+  async addPhoneToBlacklist(phoneNumber: string, reason: string, adminId: number, adminName: string, notes?: string): Promise<PhoneBlacklist> {
+    const [row] = await getDb().insert(phoneBlacklist).values({ phoneNumber, reason, addedBy: adminId, addedByName: adminName, notes }).returning();
+    return row;
+  }
+
+  async removePhoneFromBlacklist(id: number): Promise<void> {
+    await getDb().delete(phoneBlacklist).where(eq(phoneBlacklist.id, id));
+  }
+
+  async getBlacklistEntry(id: number): Promise<PhoneBlacklist | undefined> {
+    const [row] = await getDb().select().from(phoneBlacklist).where(eq(phoneBlacklist.id, id));
+    return row;
+  }
+
+  async addBlacklistLog(log: { action: string; phoneNumber: string; adminId?: number; adminName?: string; ipAddress?: string; details?: string }): Promise<BlacklistLog> {
+    const [row] = await getDb().insert(blacklistLogs).values(log).returning();
+    return row;
+  }
+
+  async getBlacklistLogs(limit = 200): Promise<BlacklistLog[]> {
+    return getDb().select().from(blacklistLogs).orderBy(desc(blacklistLogs.createdAt)).limit(limit);
+  }
+
+  async getApprovedKycRequests(): Promise<(KycRequest & { user?: User })[]> {
+    const rows = await getDb()
+      .select()
+      .from(kycRequests)
+      .leftJoin(users, eq(kycRequests.userId, users.id))
+      .where(and(eq(kycRequests.status, "approved"), sql`${kycRequests}.archived_at IS NULL`))
+      .orderBy(desc(kycRequests.reviewedAt));
+    return rows.map(r => ({ ...r.kyc_requests, user: r.users ?? undefined }));
+  }
+
+  async resetKycRequest(kycId: number, adminId: number, adminName: string): Promise<void> {
+    const db = getDb();
+    const [kyc] = await db.select().from(kycRequests).where(eq(kycRequests.id, kycId));
+    if (!kyc) return;
+    await db.update(kycRequests).set({
+      status: "rejected",
+      rejectionReason: `KYC réinitialisé par l'administrateur (${adminName})`,
+      reviewedBy: adminId,
+      reviewedAt: new Date(),
+    }).where(eq(kycRequests.id, kycId));
+    await db.update(users).set({ isVerified: false }).where(eq(users.id, kyc.userId));
+    await db.execute(sql`UPDATE kyc_requests SET archived_at = NOW(), archived_by = ${adminId} WHERE id = ${kycId}`);
+  }
+
+  async getArchivedKycRequests(): Promise<(KycRequest & { user?: User })[]> {
+    const rows = await getDb()
+      .select()
+      .from(kycRequests)
+      .leftJoin(users, eq(kycRequests.userId, users.id))
+      .where(sql`${kycRequests}.archived_at IS NOT NULL`)
+      .orderBy(desc(kycRequests.reviewedAt));
+    return rows.map(r => ({ ...r.kyc_requests, user: r.users ?? undefined }));
   }
 }
 

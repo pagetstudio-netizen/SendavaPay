@@ -32,6 +32,8 @@ const PaymentSuccessPage = lazy(() => import("@/pages/payment-success"));
 const AdminDashboardPage = lazy(() => import("@/pages/admin/index"));
 const AdminSecurityPage = lazy(() => import("@/pages/admin/security"));
 const AdminSdkWithdrawalLogsPage = lazy(() => import("@/pages/admin/sdk-withdrawal-logs"));
+const AdminBlacklistPage = lazy(() => import("@/pages/admin/blacklist"));
+const AdminKycManagementPage = lazy(() => import("@/pages/admin/kyc-management"));
 const TermsPage = lazy(() => import("@/pages/terms"));
 const AboutPage = lazy(() => import("@/pages/about"));
 const HelpPage = lazy(() => import("@/pages/help"));
@@ -107,6 +109,8 @@ function Router() {
         <AdminRoute path="/admin/settings" component={AdminDashboardPage} />
         <AdminRoute path="/admin/security" component={AdminSecurityPage} />
         <AdminRoute path="/admin/sdk-withdrawal-logs" component={AdminSdkWithdrawalLogsPage} />
+        <AdminRoute path="/admin/blacklist" component={AdminBlacklistPage} />
+        <AdminRoute path="/admin/kyc-management" component={AdminKycManagementPage} />
 
         <Route component={NotFound} />
       </Switch>
