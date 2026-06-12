@@ -90,10 +90,10 @@ function PageShell({ isDarkMode, onToggle, children }: {
       <header className="w-full px-4 py-3 bg-white/80 dark:bg-gray-900/80 backdrop-blur border-b border-border/50 shadow-sm">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <a href="/" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
-            <img src={logoPath} alt="SendavaPay" className="h-7 sm:h-8" />
+            <img src={logoPath} alt="SendavaPay" className="h-8" />
           </a>
           <div className="flex items-center gap-2">
-            <div className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Lock className="h-3.5 w-3.5 text-green-500" />
               <span>Paiement sécurisé SSL</span>
             </div>
@@ -104,8 +104,8 @@ function PageShell({ isDarkMode, onToggle, children }: {
         </div>
       </header>
 
-      <main className="flex-1 flex items-start justify-center px-3 py-4 sm:px-4 sm:py-8">
-        <div className="w-full max-w-sm sm:max-w-md">
+      <main className="flex-1 flex items-start justify-center px-4 py-8">
+        <div className="w-full max-w-md">
           {children}
         </div>
       </main>
@@ -295,7 +295,7 @@ export default function PayApiPage() {
     return (
       <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
         <Card className="shadow-xl border-0">
-          <CardContent className="p-5 sm:p-7 space-y-5">
+          <CardContent className="p-7 space-y-5">
             <div className="flex items-center gap-3">
               <Skeleton className="h-12 w-12 rounded-xl flex-shrink-0" />
               <div className="flex-1 space-y-2">
@@ -323,11 +323,11 @@ export default function PayApiPage() {
     return (
       <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
         <Card className="shadow-xl border-0">
-          <CardContent className="p-6 sm:p-8 text-center space-y-4">
-            <div className="mx-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-              <XCircle className="h-8 w-8 sm:h-10 sm:w-10 text-destructive" />
+          <CardContent className="p-8 text-center space-y-4">
+            <div className="mx-auto w-20 h-20 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+              <XCircle className="h-10 w-10 text-destructive" />
             </div>
-            <h2 className="text-lg sm:text-xl font-semibold">Transaction introuvable</h2>
+            <h2 className="text-xl font-semibold">Transaction introuvable</h2>
             <p className="text-sm text-muted-foreground">Cette transaction n'existe pas ou a expiré.</p>
           </CardContent>
         </Card>
@@ -340,11 +340,11 @@ export default function PayApiPage() {
     return (
       <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
         <Card className="shadow-xl border-0">
-          <CardContent className="p-6 sm:p-8 text-center space-y-4">
-            <div className="mx-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-green-500 flex items-center justify-center">
-              <CheckCircle className="h-8 w-8 sm:h-10 sm:w-10 text-white" />
+          <CardContent className="p-8 text-center space-y-4">
+            <div className="mx-auto w-20 h-20 rounded-full bg-green-500 flex items-center justify-center">
+              <CheckCircle className="h-10 w-10 text-white" />
             </div>
-            <h2 className="text-lg sm:text-xl font-semibold text-green-600">Paiement déjà effectué</h2>
+            <h2 className="text-xl font-semibold text-green-600">Paiement déjà effectué</h2>
             <p className="text-sm text-muted-foreground">Cette transaction a déjà été payée.</p>
           </CardContent>
         </Card>
@@ -357,11 +357,11 @@ export default function PayApiPage() {
     return (
       <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
         <Card className="shadow-xl border-0">
-          <CardContent className="p-6 sm:p-8 text-center space-y-4">
-            <div className="mx-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-muted flex items-center justify-center">
-              <XCircle className="h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground" />
+          <CardContent className="p-8 text-center space-y-4">
+            <div className="mx-auto w-20 h-20 rounded-full bg-muted flex items-center justify-center">
+              <XCircle className="h-10 w-10 text-muted-foreground" />
             </div>
-            <h2 className="text-lg sm:text-xl font-semibold">Transaction invalide</h2>
+            <h2 className="text-xl font-semibold">Transaction invalide</h2>
             <p className="text-sm text-muted-foreground">Cette transaction n'est plus disponible.</p>
           </CardContent>
         </Card>
@@ -374,15 +374,15 @@ export default function PayApiPage() {
     return (
       <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
         <Card className="shadow-xl border-0">
-          <CardContent className="p-6 sm:p-8 text-center space-y-5">
-            <div className="mx-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-              <Loader2 className="h-8 w-8 sm:h-10 sm:w-10 text-blue-600 animate-spin" />
+          <CardContent className="p-8 text-center space-y-5">
+            <div className="mx-auto w-20 h-20 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+              <Loader2 className="h-10 w-10 text-blue-600 animate-spin" />
             </div>
             <div className="space-y-2">
-              <h2 className="text-lg sm:text-xl font-semibold">Vérification du paiement...</h2>
+              <h2 className="text-xl font-semibold">Vérification du paiement...</h2>
               <p className="text-sm text-muted-foreground px-2">{verificationMessage}</p>
             </div>
-            <div className="flex items-center justify-center gap-2 text-xs sm:text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">
+            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">
               <Clock className="h-3.5 w-3.5 flex-shrink-0" />
               <span>Vérification automatique toutes les 3 secondes</span>
             </div>
@@ -397,19 +397,19 @@ export default function PayApiPage() {
     return (
       <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
         <Card className="shadow-xl border-0">
-          <CardContent className="p-6 sm:p-8 text-center space-y-5">
-            <div className="mx-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-green-500 flex items-center justify-center">
-              <CheckCircle className="h-8 w-8 sm:h-10 sm:w-10 text-white" />
+          <CardContent className="p-8 text-center space-y-5">
+            <div className="mx-auto w-20 h-20 rounded-full bg-green-500 flex items-center justify-center">
+              <CheckCircle className="h-10 w-10 text-white" />
             </div>
             <div className="space-y-1.5">
-              <h2 className="text-lg sm:text-xl font-semibold text-green-600">Paiement réussi!</h2>
+              <h2 className="text-xl font-semibold text-green-600">Paiement réussi!</h2>
               <p className="text-sm text-muted-foreground">
                 Votre paiement de <span className="font-semibold text-foreground">{formatCurrency(transaction.amount, transaction.currency)}</span> a été effectué avec succès.
               </p>
             </div>
-            <div className="bg-muted/60 rounded-xl p-3 sm:p-4">
+            <div className="bg-muted/60 rounded-xl p-4">
               <p className="text-xs text-muted-foreground mb-1">Référence</p>
-              <p className="text-base sm:text-lg font-bold font-mono tracking-wide">{transaction.reference}</p>
+              <p className="text-lg font-bold font-mono tracking-wide">{transaction.reference}</p>
             </div>
             {redirectUrl && (
               <div className="space-y-2">
@@ -430,12 +430,12 @@ export default function PayApiPage() {
     return (
       <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
         <Card className="shadow-xl border-0">
-          <CardContent className="p-6 sm:p-8 text-center space-y-5">
-            <div className="mx-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-red-500 flex items-center justify-center">
-              <XCircle className="h-8 w-8 sm:h-10 sm:w-10 text-white" />
+          <CardContent className="p-8 text-center space-y-5">
+            <div className="mx-auto w-20 h-20 rounded-full bg-red-500 flex items-center justify-center">
+              <XCircle className="h-10 w-10 text-white" />
             </div>
             <div className="space-y-1.5">
-              <h2 className="text-lg sm:text-xl font-semibold text-red-600">Paiement échoué</h2>
+              <h2 className="text-xl font-semibold text-red-600">Paiement échoué</h2>
               <p className="text-sm text-muted-foreground px-2">{verificationMessage}</p>
             </div>
             <Button onClick={resetPayment} className="w-full" size="lg" data-testid="button-retry">
@@ -451,23 +451,23 @@ export default function PayApiPage() {
   return (
     <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
       <Card className="shadow-xl border-0">
-        <CardContent className="p-4 sm:p-6">
+        <CardContent className="p-6">
 
           {/* ── Step: Info ── */}
           {step === "info" && (
             <div className="space-y-5">
               {/* Merchant summary */}
-              <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-muted/50 rounded-xl">
-                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <Shield className="h-6 w-6 sm:h-7 sm:w-7 text-primary" />
+              <div className="flex items-start gap-4 p-4 bg-muted/50 rounded-xl">
+                <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <Shield className="h-7 w-7 text-primary" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-muted-foreground">Paiement à</p>
-                  <h2 className="font-semibold text-base sm:text-lg leading-tight">{transaction.ownerName}</h2>
+                  <h2 className="font-semibold text-lg leading-tight">{transaction.ownerName}</h2>
                   {transaction.description && (
-                    <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mt-0.5">{transaction.description}</p>
+                    <p className="text-sm text-muted-foreground line-clamp-2 mt-0.5">{transaction.description}</p>
                   )}
-                  <p className="text-primary font-bold text-base sm:text-lg mt-1">
+                  <p className="text-primary font-bold text-lg mt-1">
                     {formatCurrency(transaction.amount, transaction.currency)}
                   </p>
                 </div>
@@ -475,42 +475,42 @@ export default function PayApiPage() {
 
               {/* Personal info form */}
               <div className="space-y-3.5">
-                <h3 className="font-semibold text-sm sm:text-base">Vos informations</h3>
+                <h3 className="font-semibold text-base">Vos informations</h3>
 
-                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="firstName" className="text-xs sm:text-sm text-muted-foreground">Prénom</Label>
+                    <Label htmlFor="firstName" className="text-sm text-muted-foreground">Prénom</Label>
                     <Input
                       id="firstName"
                       value={firstName}
                       onChange={(e) => setFirstName(e.target.value)}
                       placeholder="John"
-                      className="h-10 sm:h-11 text-sm"
+                      className="h-11 text-sm"
                       data-testid="input-firstname"
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="lastName" className="text-xs sm:text-sm text-muted-foreground">Nom</Label>
+                    <Label htmlFor="lastName" className="text-sm text-muted-foreground">Nom</Label>
                     <Input
                       id="lastName"
                       value={lastName}
                       onChange={(e) => setLastName(e.target.value)}
                       placeholder="Doe"
-                      className="h-10 sm:h-11 text-sm"
+                      className="h-11 text-sm"
                       data-testid="input-lastname"
                     />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="email" className="text-xs sm:text-sm text-muted-foreground">Adresse e-mail</Label>
+                  <Label htmlFor="email" className="text-sm text-muted-foreground">Adresse e-mail</Label>
                   <Input
                     id="email"
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="email@exemple.com"
-                    className="h-10 sm:h-11 text-sm"
+                    className="h-11 text-sm"
                     data-testid="input-email"
                   />
                 </div>
@@ -538,7 +538,7 @@ export default function PayApiPage() {
               {/* Amount banner */}
               <div className="text-center py-3 px-4 bg-primary/5 border border-primary/20 rounded-xl">
                 <p className="text-xs text-muted-foreground mb-0.5">Total à payer</p>
-                <p className="text-2xl sm:text-3xl font-bold text-primary" data-testid="text-payment-amount">
+                <p className="text-3xl font-bold text-primary" data-testid="text-payment-amount">
                   {formatCurrency(transaction.amount, transaction.currency)}
                 </p>
               </div>
@@ -546,7 +546,7 @@ export default function PayApiPage() {
               <div className="space-y-4">
                 {/* Country */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs sm:text-sm text-muted-foreground">Pays</Label>
+                  <Label className="text-sm text-muted-foreground">Pays</Label>
                   <CountrySelect
                     options={countries.map(c => ({ value: c.code, label: c.name, flag: c.flag, subLabel: c.currency }))}
                     value={selectedCountry}
@@ -559,11 +559,11 @@ export default function PayApiPage() {
                 {/* Operator */}
                 {services.length > 0 && (
                   <div className="space-y-1.5">
-                    <Label className="text-xs sm:text-sm text-muted-foreground">Opérateur Mobile Money</Label>
+                    <Label className="text-sm text-muted-foreground">Opérateur Mobile Money</Label>
                     <RadioGroup
                       value={selectedServiceId}
                       onValueChange={setSelectedServiceId}
-                      className="grid grid-cols-3 sm:grid-cols-4 gap-2"
+                      className="grid grid-cols-4 gap-2"
                     >
                       {services.map((service) => (
                         <div key={service.id}>
@@ -574,15 +574,15 @@ export default function PayApiPage() {
                           />
                           <Label
                             htmlFor={`service-${service.id}`}
-                            className="flex flex-col items-center gap-1.5 rounded-xl border-2 p-2 sm:p-3 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 hover:bg-muted/50 transition-all"
+                            className="flex flex-col items-center gap-1.5 rounded-xl border-2 p-3 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 hover:bg-muted/50 transition-all"
                             data-testid={`radio-service-${service.id}`}
                           >
                             <img
                               src={operatorLogos[service.operator] || mtnLogo}
                               alt={service.operator}
-                              className="h-8 w-8 sm:h-10 sm:w-10 object-contain rounded-full bg-white shadow-sm p-0.5"
+                              className="h-10 w-10 object-contain rounded-full bg-white shadow-sm p-0.5"
                             />
-                            <span className="text-[10px] sm:text-xs font-semibold text-center leading-tight">
+                            <span className="text-xs font-semibold text-center leading-tight">
                               {service.operator}
                             </span>
                           </Label>
@@ -594,12 +594,12 @@ export default function PayApiPage() {
 
                 {/* Phone */}
                 <div className="space-y-1.5">
-                  <Label htmlFor="phone" className="text-xs sm:text-sm text-muted-foreground">
+                  <Label htmlFor="phone" className="text-sm text-muted-foreground">
                     Numéro {selectedService?.operator || "Mobile Money"}
                   </Label>
-                  <div className="flex h-10 sm:h-11">
+                  <div className="flex h-11">
                     {phonePrefix && (
-                      <div className="flex items-center px-2.5 sm:px-3 border border-r-0 rounded-l-md bg-muted text-sm font-mono font-semibold text-muted-foreground select-none shrink-0 whitespace-nowrap">
+                      <div className="flex items-center px-3 border border-r-0 rounded-l-md bg-muted text-sm font-mono font-semibold text-muted-foreground select-none shrink-0 whitespace-nowrap">
                         {phonePrefix}
                       </div>
                     )}
@@ -609,7 +609,7 @@ export default function PayApiPage() {
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ""))}
                       placeholder="90123456"
-                      className={`text-sm ${phonePrefix ? "rounded-l-none h-10 sm:h-11" : "h-10 sm:h-11"}`}
+                      className={`text-sm ${phonePrefix ? "rounded-l-none h-11" : "h-11"}`}
                       data-testid="input-phone"
                     />
                   </div>
@@ -630,7 +630,7 @@ export default function PayApiPage() {
                   )}
                 </Button>
 
-                <p className="text-[11px] sm:text-xs text-center text-muted-foreground leading-relaxed">
+                <p className="text-xs text-center text-muted-foreground leading-relaxed">
                   En continuant, vous acceptez les{" "}
                   <a href="/terms" target="_blank" className="underline hover:text-foreground transition-colors">
                     conditions générales
