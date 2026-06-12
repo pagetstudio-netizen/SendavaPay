@@ -689,6 +689,9 @@ const SENSITIVE_PATH_PATTERNS: RegExp[] = [
 ];
 
 export function blockSensitivePaths(req: Request, res: Response, next: NextFunction): void {
+  // In development, Vite serves .ts/.tsx source files directly — don't block them
+  if (process.env.NODE_ENV !== "production") return next();
+
   const url = req.path || req.url;
   for (const pattern of SENSITIVE_PATH_PATTERNS) {
     if (pattern.test(url)) {
