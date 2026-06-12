@@ -472,7 +472,7 @@ export class DatabaseStorage implements IStorage {
   async createApiKey(apiKey: InsertApiKey): Promise<ApiKey> {
     const [newKey] = await getDb().insert(apiKeys).values({
       ...apiKey,
-      apiKey: generateApiKey(),
+      apiKey: generateApiKey(apiKey.apiType || "redirect"),
     }).returning();
     return newKey;
   }
@@ -1738,9 +1738,10 @@ function generateLinkCode(): string {
   return result;
 }
 
-function generateApiKey(): string {
+function generateApiKey(apiType: string = "redirect"): string {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let result = "sdk_";
+  const prefix = apiType === "sdk" ? "sdk_" : "pk_live_";
+  let result = prefix;
   for (let i = 0; i < 32; i++) {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }

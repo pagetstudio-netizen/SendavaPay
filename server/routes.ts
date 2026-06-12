@@ -10936,5 +10936,243 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     }
   });
 
+  // ── Redirect API payment page routes (/pay/api/:reference) ─────────────────
+
+  // GET /api/pay-api/:reference — fetch transaction info for the payment page
+  app.get("/api/pay-api/:reference", async (req: Request, res: Response) => {
+    try {
+      const transaction = await storage.getApiTransactionByReference(req.params.reference);
+      if (!transaction) {
+        return res.status(404).json({ message: "Transaction introuvable" });
+      }
+      const owner = transaction.userId ? await storage.getUser(transaction.userId) : null;
+      res.json({
+        id: transaction.id,
+        reference: transaction.reference,
+        amount: transaction.amount,
+        currency: transaction.currency,
+        status: transaction.status,
+        description: transaction.description,
+        customerName: (transaction as any).customerName || null,
+        ownerName: owner?.fullName || "SendavaPay",
+      });
+    } catch (error: any) {
+      console.error("GET /api/pay-api/:reference", error);
+      res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  // POST /api/pay-api/:reference — initiate payment for a redirect transaction
+  app.post("/api/pay-api/:reference", async (req: Request, res: Response) => {
+    try {
+      const transaction = await storage.getApiTransactionByReference(req.params.reference);
+      if (!transaction) return res.status(404).json({ success: false, error: "Transaction introuvable" });
+      if ((transaction as any).status === "completed") return res.status(409).json({ success: false, error: "Ce paiement a déjà été complété" });
+      if ((transaction as any).status === "processing") return res.status(409).json({ success: false, error: "Un paiement est déjà en cours" });
+      if ((transaction as any).status !== "pending") return res.status(400).json({ success: false, error: "Ce paiement ne peut plus être traité" });
+
+      const { payerName, payerEmail, payerPhone, payerCountry, serviceId } = req.body;
+      if (!payerName || !payerPhone || !payerCountry || !serviceId) {
+        return res.status(400).json({ success: false, error: "Champs manquants: payerName, payerPhone, payerCountry, serviceId" });
+      }
+
+      const { getServiceById, formatPhoneForSoleasPay, soleaspay } = await import("./soleaspay");
+      const service = getServiceById(parseInt(serviceId));
+      if (!service) return res.status(400).json({ success: false, error: "Opérateur invalide" });
+
+      const amount = parseFloat((transaction as any).amount);
+      const description = (transaction as any).description || `Paiement ${transaction.reference}`;
+      const orderId = `RAPI_${transaction.reference}_${Date.now()}`;
+      const baseUrl = process.env.APP_URL || process.env.SITE_URL || "https://sendavapay.com";
+      const payerCountryUpper = payerCountry.toUpperCase();
+
+      // Calculate fee
+      let payinFeeRate = 7;
+      try {
+        const [txUser, commSettings] = await Promise.all([
+          transaction.userId ? storage.getUser(transaction.userId) : Promise.resolve(null),
+          storage.getCommissionSettings(),
+        ]);
+        if ((txUser as any)?.customApiPaymentFeeRate != null) {
+          payinFeeRate = parseFloat((txUser as any).customApiPaymentFeeRate);
+        } else {
+          payinFeeRate = parseFloat((commSettings as any)?.encaissementRate || "7");
+        }
+      } catch (_) {}
+      const payinFee = parseFloat((amount * payinFeeRate / 100).toFixed(2));
+
+      await storage.updateApiTransaction((transaction as any).id, {
+        customerName: payerName,
+        customerPhone: payerPhone,
+        customerEmail: payerEmail || null,
+        fee: payinFee.toString(),
+        paymentMethod: service.operator,
+        payerCountry: payerCountryUpper,
+        status: "processing",
+      } as any);
+
+      const gateway = service.paymentGateway || "soleaspay";
+
+      // ── PayDunya ──────────────────────────────────────────────────────────
+      if (gateway === "paydunya") {
+        const { initiatePayDunySoftPay, formatPhoneForPayDunya, createPayDunyaCheckout } = await import("./paydunya");
+        const { getSoftPayOperator } = await import("./paydunya-softpay-map");
+        const phone = formatPhoneForPayDunya(payerPhone, payerCountryUpper);
+        const pdResult = await initiatePayDunySoftPay({
+          operatorName: service.operator,
+          countryCode: service.countryCode,
+          phone,
+          name: payerName,
+          email: payerEmail || "client@sendavapay.com",
+          invoiceParams: {
+            totalAmount: amount, description, storeName: "SendavaPay",
+            callbackUrl: `${baseUrl}/api/webhook/paydunya`,
+            returnUrl: `${baseUrl}/success?reference=${transaction.reference}`,
+            cancelUrl: `${baseUrl}/pay/api/${transaction.reference}`,
+            customData: { reference: transaction.reference },
+          },
+        });
+
+        if (!pdResult.success) {
+          // Try checkout redirect
+          try {
+            const checkout = await createPayDunyaCheckout({
+              totalAmount: amount, description, storeName: "SendavaPay",
+              callbackUrl: `${baseUrl}/api/webhook/paydunya`,
+              returnUrl: `${baseUrl}/success?reference=${transaction.reference}`,
+              cancelUrl: `${baseUrl}/pay/api/${transaction.reference}`,
+            });
+            if (checkout.success && checkout.checkoutUrl) {
+              await storage.updateApiTransaction((transaction as any).id, { externalReference: checkout.token || orderId } as any);
+              return res.json({ success: true, payId: checkout.token || orderId, orderId, isRedirect: true, redirectUrl: checkout.checkoutUrl });
+            }
+          } catch (_) {}
+          await storage.updateApiTransaction((transaction as any).id, { status: "failed" } as any);
+          return res.status(500).json({ success: false, error: pdResult.error || "Échec de l'initiation du paiement" });
+        }
+
+        if ((pdResult as any).redirectUrl) {
+          await storage.updateApiTransaction((transaction as any).id, { externalReference: `${orderId}|${(pdResult as any).redirectUrl}` } as any);
+          return res.json({ success: true, payId: orderId, orderId, isRedirect: true, redirectUrl: (pdResult as any).redirectUrl });
+        }
+
+        const invoiceToken = (pdResult as any).invoiceToken || orderId;
+        await storage.updateApiTransaction((transaction as any).id, { externalReference: `${orderId}|${invoiceToken}` } as any);
+        return res.json({ success: true, payId: invoiceToken, orderId });
+      }
+
+      // ── OmniPay ───────────────────────────────────────────────────────────
+      if (gateway === "omnipay") {
+        const { omnipay: opClient, getOmnipayOperator, formatPhoneForOmnipay } = await import("./omnipay");
+        const opOperator = getOmnipayOperator(service.operator);
+        if (opOperator === undefined) {
+          await storage.updateApiTransaction((transaction as any).id, { status: "failed" } as any);
+          return res.status(400).json({ success: false, error: "Opérateur non supporté" });
+        }
+
+        const cleanPhone = formatPhoneForOmnipay(payerPhone, payerCountryUpper);
+        const isWave = opOperator === "wave";
+        const nameParts = payerName.split(" ");
+        const opResult = await opClient.requestPayment({
+          msisdn: cleanPhone, amount, reference: orderId,
+          firstName: nameParts[0], lastName: nameParts.slice(1).join(" ") || nameParts[0],
+          operator: opOperator ?? undefined,
+          returnUrl: isWave ? `${baseUrl}/success?reference=${orderId}` : undefined,
+          callbackUrl: `${baseUrl}/api/webhook/omnipay`,
+        });
+
+        if (String(opResult.success) !== "1") {
+          await storage.updateApiTransaction((transaction as any).id, { status: "failed" } as any);
+          return res.status(500).json({ success: false, error: opResult.message || "Échec de l'initiation du paiement" });
+        }
+
+        const waveUrl = opResult.payment_url || opResult.wave_launch_url || opResult.redirect_url;
+        const txId = opResult.transaction_id || orderId;
+        await storage.updateApiTransaction((transaction as any).id, { externalReference: `${orderId}|${txId}` } as any);
+        return res.json({ success: true, payId: txId, orderId, isWave: isWave && !!waveUrl, waveUrl: waveUrl || null });
+      }
+
+      // ── SoleasPay (default) ───────────────────────────────────────────────
+      const cleanPhone = formatPhoneForSoleasPay(payerPhone, payerCountryUpper);
+      const spResult = await soleaspay.collectPayment({
+        serviceId: parseInt(serviceId),
+        wallet: cleanPhone,
+        amount,
+        currency: service.currency,
+        orderId,
+        description,
+        payer: payerName,
+        payerEmail: payerEmail || undefined,
+      });
+
+      if (!spResult?.success) {
+        await storage.updateApiTransaction((transaction as any).id, { status: "failed" } as any);
+        return res.status(500).json({ success: false, error: (spResult as any)?.message || "Échec de l'initiation du paiement" });
+      }
+
+      const payId = (spResult as any).payId || orderId;
+      await storage.updateApiTransaction((transaction as any).id, { externalReference: `${orderId}|${payId}` } as any);
+      return res.json({ success: true, payId, orderId });
+    } catch (error: any) {
+      console.error("POST /api/pay-api/:reference", error);
+      res.status(500).json({ success: false, error: error.message || "Erreur serveur" });
+    }
+  });
+
+  // POST /api/pay-api/:reference/verify — poll payment status
+  app.post("/api/pay-api/:reference/verify", async (req: Request, res: Response) => {
+    try {
+      const transaction = await storage.getApiTransactionByReference(req.params.reference);
+      if (!transaction) return res.status(404).json({ success: false, error: "Transaction introuvable" });
+
+      const redirectUrl = (transaction as any).redirectUrl || null;
+
+      if ((transaction as any).status === "completed") {
+        return res.json({ status: "completed", message: "Paiement confirmé!", redirectUrl });
+      }
+      if ((transaction as any).status === "failed" || (transaction as any).status === "cancelled") {
+        return res.json({ status: "failed", message: "Le paiement a échoué", redirectUrl });
+      }
+
+      // For SoleasPay transactions, actively check with payId/orderId
+      const extRef: string = (transaction as any).externalReference || "";
+      const parts = extRef.split("|");
+      const storedOrderId = parts[0] || "";
+      const storedPayId = parts[1] || "";
+
+      const { payId, orderId, payerCountry } = req.body;
+      const checkPayId = payId || storedPayId;
+      const checkOrderId = orderId || storedOrderId;
+
+      const paymentMethod: string = (transaction as any).paymentMethod || "";
+      const isPayDunya = paymentMethod.toLowerCase().includes("paydunya") ||
+        paymentMethod === "Orange" || paymentMethod === "MTN" || paymentMethod === "Moov" ||
+        paymentMethod === "TMoney" || paymentMethod === "Wave";
+
+      // For PayDunya, rely on webhooks — just report DB status
+      if (!checkPayId || !checkOrderId || isPayDunya) {
+        return res.json({ status: (transaction as any).status || "processing", message: "En attente de confirmation..." });
+      }
+
+      // SoleasPay active check
+      const { soleaspay } = await import("./soleaspay");
+      const spVerify = await soleaspay.verifyPayment(checkOrderId, checkPayId);
+
+      if ((spVerify as any).success || (spVerify as any).status === "success" || (spVerify as any).status === "completed") {
+        await storage.updateApiTransaction((transaction as any).id, { status: "completed", completedAt: new Date() } as any);
+        return res.json({ status: "completed", message: "Paiement confirmé!", redirectUrl });
+      }
+      if ((spVerify as any).status === "failed" || (spVerify as any).status === "error") {
+        await storage.updateApiTransaction((transaction as any).id, { status: "failed" } as any);
+        return res.json({ status: "failed", message: (spVerify as any).message || "Le paiement a échoué", redirectUrl });
+      }
+
+      res.json({ status: "processing", message: (spVerify as any).message || "En attente de confirmation..." });
+    } catch (error: any) {
+      console.error("POST /api/pay-api/:reference/verify", error);
+      res.status(500).json({ success: false, error: error.message || "Erreur serveur" });
+    }
+  });
+
   return httpServer;
 }
