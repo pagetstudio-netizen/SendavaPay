@@ -24,7 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Key, Shield, Code2, Loader2, Copy, Check, Trash2, Plus, ExternalLink,
   Wrench, ArrowLeft, Bell, Globe, Zap, ArrowUpRight, Info, BookOpen,
-  Terminal, Webhook, Pencil, X, Save,
+  Terminal, Webhook, Pencil, X, Save, ImageIcon, Upload,
 } from "lucide-react";
 import type { ApiKey } from "@shared/schema";
 
@@ -1509,6 +1509,8 @@ export default function ApiKeysPage() {
   const [editingKeyId, setEditingKeyId] = useState<number | null>(null);
   const [editWebhookUrl, setEditWebhookUrl] = useState("");
   const [editRedirectUrl, setEditRedirectUrl] = useState("");
+  const [editLogoUrl, setEditLogoUrl] = useState("");
+  const [logoUploading, setLogoUploading] = useState(false);
 
   const { data: maintenanceStatus, isLoading: maintenanceLoading } = useQuery<{ enabled: boolean }>({
     queryKey: ["/api/api-maintenance-status"],
@@ -1547,9 +1549,37 @@ export default function ApiKeysPage() {
     onError: () => { toast({ title: "Erreur", description: "Impossible de supprimer la clé", variant: "destructive" }); },
   });
 
+  const uploadLogo = async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append("image", file);
+    const res = await fetch("/api/upload/product-image", {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Erreur lors de l'upload du logo");
+    const data = await res.json();
+    return data.imageUrl;
+  };
+
+  const handleLogoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLogoUploading(true);
+    try {
+      const url = await uploadLogo(file);
+      setEditLogoUrl(url);
+      toast({ title: "Logo chargé", description: "Le logo sera enregistré avec les autres modifications" });
+    } catch {
+      toast({ title: "Erreur", description: "Impossible de charger le logo", variant: "destructive" });
+    } finally {
+      setLogoUploading(false);
+    }
+  };
+
   const updateKeyMutation = useMutation({
-    mutationFn: async ({ id, webhookUrl, redirectUrl }: { id: number; webhookUrl: string; redirectUrl: string }) => {
-      const res = await apiRequest("PATCH", `/api/api-keys/${id}`, { webhookUrl: webhookUrl || null, redirectUrl: redirectUrl || null });
+    mutationFn: async ({ id, webhookUrl, redirectUrl, logoUrl }: { id: number; webhookUrl: string; redirectUrl: string; logoUrl: string }) => {
+      const res = await apiRequest("PATCH", `/api/api-keys/${id}`, { webhookUrl: webhookUrl || null, redirectUrl: redirectUrl || null, logoUrl: logoUrl || null });
       return res.json();
     },
     onSuccess: () => {
@@ -1564,9 +1594,10 @@ export default function ApiKeysPage() {
     setEditingKeyId(keyItem.id);
     setEditWebhookUrl(keyItem.webhookUrl || "");
     setEditRedirectUrl(keyItem.redirectUrl || "");
+    setEditLogoUrl((keyItem as any).logoUrl || "");
   };
 
-  const cancelEdit = () => { setEditingKeyId(null); setEditWebhookUrl(""); setEditRedirectUrl(""); };
+  const cancelEdit = () => { setEditingKeyId(null); setEditWebhookUrl(""); setEditRedirectUrl(""); setEditLogoUrl(""); };
 
   const copyToClipboard = (key: string) => {
     navigator.clipboard.writeText(key);
@@ -1643,6 +1674,9 @@ export default function ApiKeysPage() {
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div className="space-y-1 flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
+              {(keyItem as any).logoUrl && (
+                <img src={(keyItem as any).logoUrl} alt="Logo" className="h-6 w-6 rounded object-cover border" />
+              )}
               <span className="font-medium">{keyItem.name}</span>
               <Badge variant={keyItem.isActive ? "default" : "secondary"}>{keyItem.isActive ? "Active" : "Inactive"}</Badge>
               <Badge variant="outline" className={keyItem.apiType === "sdk" ? "border-purple-400 text-purple-700 dark:text-purple-300" : ""}>
@@ -1672,7 +1706,46 @@ export default function ApiKeysPage() {
         {/* ── Formulaire d'édition inline ── */}
         {isEditing && (
           <div className="border-t pt-3 space-y-3 bg-muted/20 -mx-4 px-4 pb-3 rounded-b-lg">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Modifier les URLs</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Modifier la clé</p>
+
+            {/* Logo upload */}
+            <div className="space-y-1">
+              <Label className="text-xs flex items-center gap-1.5">
+                <ImageIcon className="h-3 w-3" />Logo de l'application
+              </Label>
+              <div className="flex items-center gap-3">
+                {editLogoUrl && (
+                  <img src={editLogoUrl} alt="Logo" className="h-10 w-10 rounded object-cover border" />
+                )}
+                <label
+                  htmlFor={`logo-${keyItem.id}`}
+                  className="cursor-pointer inline-flex items-center gap-1.5 h-8 px-3 text-xs rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground"
+                >
+                  {logoUploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                  {editLogoUrl ? "Changer" : "Importer un logo"}
+                </label>
+                <input
+                  id={`logo-${keyItem.id}`}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleLogoChange}
+                  disabled={logoUploading}
+                  data-testid={`input-logo-${keyItem.id}`}
+                />
+                {editLogoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setEditLogoUrl("")}
+                    className="text-xs text-muted-foreground hover:text-destructive"
+                  >
+                    Supprimer
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">Ce logo s'affiche sur la page de paiement</p>
+            </div>
+
             <div className="space-y-1">
               <Label htmlFor={`wh-${keyItem.id}`} className="text-xs flex items-center gap-1.5">
                 <Webhook className="h-3 w-3" />URL de webhook
@@ -1705,8 +1778,8 @@ export default function ApiKeysPage() {
             <div className="flex gap-2 pt-1">
               <Button
                 size="sm"
-                onClick={() => updateKeyMutation.mutate({ id: keyItem.id, webhookUrl: editWebhookUrl, redirectUrl: editRedirectUrl })}
-                disabled={isSaving}
+                onClick={() => updateKeyMutation.mutate({ id: keyItem.id, webhookUrl: editWebhookUrl, redirectUrl: editRedirectUrl, logoUrl: editLogoUrl })}
+                disabled={isSaving || logoUploading}
                 data-testid={`button-save-${keyItem.id}`}
               >
                 {isSaving ? <Loader2 className="h-3 w-3 mr-1.5 animate-spin" /> : <Save className="h-3 w-3 mr-1.5" />}

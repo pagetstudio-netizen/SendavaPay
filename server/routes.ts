@@ -6940,10 +6940,10 @@ export async function registerRoutes(
     try {
       const keyId = parseInt(req.params.id);
       const userId = req.session.userId!;
-      const [existing] = await storage.getApiKeysByUser(userId).then(keys => keys.filter(k => k.id === keyId));
+      const [existing] = await storage.getApiKeys(userId).then(keys => keys.filter(k => k.id === keyId));
       if (!existing) return res.status(404).json({ message: "Clé introuvable ou accès refusé" });
 
-      const { webhookUrl, redirectUrl } = req.body;
+      const { webhookUrl, redirectUrl, logoUrl } = req.body;
       const updates: Record<string, any> = {};
 
       if (webhookUrl !== undefined) {
@@ -6956,6 +6956,7 @@ export async function registerRoutes(
         if (!webhookUrl) updates.webhookSecret = null;
       }
       if (redirectUrl !== undefined) updates.redirectUrl = redirectUrl || null;
+      if (logoUrl !== undefined) updates.logoUrl = logoUrl || null;
 
       const updated = await storage.updateApiKey(keyId, updates);
       res.json({ message: "Clé mise à jour", key: updated });
