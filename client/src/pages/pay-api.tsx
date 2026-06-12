@@ -18,9 +18,9 @@ import {
   Clock,
   ArrowRight,
   ArrowLeft,
-  Phone,
   Moon,
   Sun,
+  Lock,
 } from "lucide-react";
 import logoPath from "@assets/20251211_105226_1765450558306.png";
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
@@ -80,11 +80,51 @@ function formatCurrency(amount: string | number, currency: string = "XOF") {
   return new Intl.NumberFormat("fr-FR").format(num) + " " + currency;
 }
 
+function PageShell({ isDarkMode, onToggle, children }: {
+  isDarkMode: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-gray-950 dark:to-gray-900 flex flex-col">
+      <header className="w-full px-4 py-3 bg-white/80 dark:bg-gray-900/80 backdrop-blur border-b border-border/50 shadow-sm">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+          <a href="/" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+            <img src={logoPath} alt="SendavaPay" className="h-7 sm:h-8" />
+          </a>
+          <div className="flex items-center gap-2">
+            <div className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Lock className="h-3.5 w-3.5 text-green-500" />
+              <span>Paiement sécurisé SSL</span>
+            </div>
+            <Button variant="ghost" size="icon" onClick={onToggle} className="h-8 w-8" data-testid="button-theme-toggle">
+              {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 flex items-start justify-center px-3 py-4 sm:px-4 sm:py-8">
+        <div className="w-full max-w-sm sm:max-w-md">
+          {children}
+        </div>
+      </main>
+
+      <footer className="w-full py-4 text-center">
+        <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+          <Shield className="h-3.5 w-3.5" />
+          <span>Paiement sécurisé par <span className="font-medium">SendavaPay</span></span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
 export default function PayApiPage() {
   const [, params] = useRoute("/pay/api/:reference");
   const { toast } = useToast();
   const [isDarkMode, setIsDarkMode] = useState(false);
-  
+
   const [step, setStep] = useState<"info" | "payment" | "processing" | "complete" | "failed">("info");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -105,8 +145,20 @@ export default function PayApiPage() {
     setIsDarkMode(isDark);
   }, []);
 
+  const toggleDarkMode = () => {
+    const next = !isDarkMode;
+    setIsDarkMode(next);
+    document.documentElement.classList.toggle("dark", next);
+    localStorage.setItem("theme", next ? "dark" : "light");
+  };
+
   const { data: transaction, isLoading, error } = useQuery<ApiTransaction>({
     queryKey: ["/api/pay-api", params?.reference],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/pay-api/${params?.reference}`);
+      if (!res.ok) throw new Error("Transaction introuvable");
+      return res.json();
+    },
     enabled: !!params?.reference,
   });
 
@@ -120,9 +172,7 @@ export default function PayApiPage() {
   });
 
   useEffect(() => {
-    if (countries.length > 0 && !selectedCountry) {
-      setSelectedCountry(countries[0].code);
-    }
+    if (countries.length > 0 && !selectedCountry) setSelectedCountry(countries[0].code);
   }, [countries, selectedCountry]);
 
   useEffect(() => {
@@ -135,13 +185,6 @@ export default function PayApiPage() {
   const currency = selectedService?.currency || countries.find(c => c.code === selectedCountry)?.currency || transaction?.currency || "XOF";
   const phonePrefix = COUNTRY_PREFIXES[selectedService?.countryCode || selectedCountry] || "";
 
-  const toggleDarkMode = () => {
-    const newIsDark = !isDarkMode;
-    setIsDarkMode(newIsDark);
-    document.documentElement.classList.toggle("dark", newIsDark);
-    localStorage.setItem("theme", newIsDark ? "dark" : "light");
-  };
-
   const payMutation = useMutation({
     mutationFn: async (data: any) => {
       const response = await apiRequest("POST", `/api/pay-api/${params?.reference}`, data);
@@ -152,35 +195,27 @@ export default function PayApiPage() {
         setCurrentPayId(data.payId);
         setCurrentOrderId(data.orderId);
         setStep("processing");
-        
         if (data.isWave && data.waveUrl) {
-          toast({
-            title: "Redirection vers Wave",
-            description: "Vous allez être redirigé vers l'application Wave pour confirmer le paiement.",
-          });
+          toast({ title: "Redirection vers Wave", description: "Confirmez dans l'application Wave." });
           window.open(data.waveUrl, "_blank");
           setVerificationMessage("Confirmez le paiement dans l'application Wave, puis revenez ici.");
         } else {
           setVerificationMessage("Veuillez confirmer le paiement sur votre téléphone...");
         }
         startPolling();
+      } else {
+        toast({ title: "Erreur", description: data.error || "Erreur lors du paiement", variant: "destructive" });
       }
     },
     onError: (error: any) => {
-      toast({
-        title: "Erreur",
-        description: error.message || "Erreur lors du paiement",
-        variant: "destructive",
-      });
+      toast({ title: "Erreur", description: error.message || "Erreur lors du paiement", variant: "destructive" });
     },
   });
 
   const verifyMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("POST", `/api/pay-api/${params?.reference}/verify`, {
-        payId: currentPayId,
-        orderId: currentOrderId,
-        payerCountry: selectedCountry,
+        payId: currentPayId, orderId: currentOrderId, payerCountry: selectedCountry,
       });
       return response.json();
     },
@@ -190,67 +225,43 @@ export default function PayApiPage() {
     pollingAttemptsRef.current = 0;
     pollingRef.current = setInterval(async () => {
       pollingAttemptsRef.current++;
-      
       if (pollingAttemptsRef.current >= maxPollingAttempts) {
         stopPolling();
         setStep("failed");
         setVerificationMessage("Le délai de paiement a expiré. Veuillez réessayer.");
         return;
       }
-
       try {
         const result = await verifyMutation.mutateAsync();
-        
         if (result.status === "completed") {
-          stopPolling();
-          setStep("complete");
-          setVerificationMessage("Paiement réussi!");
-          if (result.redirectUrl) {
-            setRedirectUrl(result.redirectUrl);
-          }
+          stopPolling(); setStep("complete"); setVerificationMessage("Paiement réussi!");
+          if (result.redirectUrl) setRedirectUrl(result.redirectUrl);
         } else if (result.status === "failed") {
-          stopPolling();
-          setStep("failed");
-          setVerificationMessage(result.message || "Le paiement a échoué");
-          if (result.redirectUrl) {
-            setRedirectUrl(result.redirectUrl);
-          }
+          stopPolling(); setStep("failed"); setVerificationMessage(result.message || "Le paiement a échoué");
+          if (result.redirectUrl) setRedirectUrl(result.redirectUrl);
         } else {
           setVerificationMessage(result.message || "En attente de confirmation...");
         }
-      } catch (error) {
-        console.error("Polling error:", error);
-      }
+      } catch (e) { console.error("Polling error:", e); }
     }, 3000);
   };
 
   const stopPolling = () => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current);
-      pollingRef.current = null;
-    }
+    if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
   };
 
-  useEffect(() => {
-    return () => stopPolling();
-  }, []);
+  useEffect(() => { return () => stopPolling(); }, []);
 
   useEffect(() => {
     if (step === "complete" && redirectUrl) {
-      const timer = setTimeout(() => {
-        window.location.href = redirectUrl;
-      }, 3000);
-      return () => clearTimeout(timer);
+      const t = setTimeout(() => { window.location.href = redirectUrl; }, 3000);
+      return () => clearTimeout(t);
     }
   }, [step, redirectUrl]);
 
   const handleSubmitInfo = () => {
     if (!firstName || !lastName || !email) {
-      toast({
-        title: "Erreur",
-        description: "Veuillez remplir tous les champs",
-        variant: "destructive",
-      });
+      toast({ title: "Erreur", description: "Veuillez remplir tous les champs", variant: "destructive" });
       return;
     }
     setStep("payment");
@@ -258,14 +269,9 @@ export default function PayApiPage() {
 
   const handleSubmitPayment = () => {
     if (!selectedCountry || !selectedServiceId || !phoneNumber) {
-      toast({
-        title: "Erreur",
-        description: "Veuillez sélectionner un pays, un opérateur et entrer votre numéro",
-        variant: "destructive",
-      });
+      toast({ title: "Erreur", description: "Veuillez sélectionner un pays, un opérateur et entrer votre numéro", variant: "destructive" });
       return;
     }
-
     payMutation.mutate({
       payerName: `${firstName} ${lastName}`,
       payerEmail: email,
@@ -284,404 +290,358 @@ export default function PayApiPage() {
     stopPolling();
   };
 
+  // ── Loading ───────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <div className="flex items-center justify-between mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
-            <Skeleton className="h-8 w-32" />
-            <Skeleton className="h-9 w-9 rounded-md" />
-          </div>
-          <Card className="overflow-hidden shadow-lg">
-            <CardContent className="p-8 space-y-6">
-              <Skeleton className="h-6 w-3/4 mx-auto" />
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-4 w-1/2" />
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
+        <Card className="shadow-xl border-0">
+          <CardContent className="p-5 sm:p-7 space-y-5">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-12 w-12 rounded-xl flex-shrink-0" />
+              <div className="flex-1 space-y-2">
+                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="h-5 w-2/3" />
+                <Skeleton className="h-4 w-1/2" />
+              </div>
+            </div>
+            <Skeleton className="h-px w-full" />
+            <div className="space-y-3">
+              <Skeleton className="h-4 w-1/4" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-11 w-full rounded-lg" />
+            </div>
+          </CardContent>
+        </Card>
+      </PageShell>
     );
   }
 
+  // ── Not found ─────────────────────────────────────────────────────────────
   if (error || !transaction) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <div className="flex items-center justify-between mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
-            <img src={logoPath} alt="SendavaPay" className="h-8" />
-          </div>
-          <Card className="overflow-hidden shadow-lg">
-            <CardContent className="p-8 text-center space-y-4">
-              <div className="mx-auto w-20 h-20 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                <XCircle className="h-10 w-10 text-destructive" />
-              </div>
-              <h2 className="text-xl font-semibold">Transaction introuvable</h2>
-              <p className="text-muted-foreground">
-                Cette transaction n'existe pas ou a expiré.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
+        <Card className="shadow-xl border-0">
+          <CardContent className="p-6 sm:p-8 text-center space-y-4">
+            <div className="mx-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+              <XCircle className="h-8 w-8 sm:h-10 sm:w-10 text-destructive" />
+            </div>
+            <h2 className="text-lg sm:text-xl font-semibold">Transaction introuvable</h2>
+            <p className="text-sm text-muted-foreground">Cette transaction n'existe pas ou a expiré.</p>
+          </CardContent>
+        </Card>
+      </PageShell>
     );
   }
 
+  // ── Already completed ─────────────────────────────────────────────────────
   if (transaction.status === "completed") {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <div className="flex items-center justify-between mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
-            <img src={logoPath} alt="SendavaPay" className="h-8" />
-          </div>
-          <Card className="overflow-hidden shadow-lg">
-            <CardContent className="p-8 text-center space-y-4">
-              <div className="mx-auto w-20 h-20 rounded-full bg-green-500 flex items-center justify-center">
-                <CheckCircle className="h-10 w-10 text-white" />
-              </div>
-              <h2 className="text-xl font-semibold text-green-600">Paiement déjà effectué</h2>
-              <p className="text-muted-foreground">
-                Cette transaction a déjà été payée.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
+        <Card className="shadow-xl border-0">
+          <CardContent className="p-6 sm:p-8 text-center space-y-4">
+            <div className="mx-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-green-500 flex items-center justify-center">
+              <CheckCircle className="h-8 w-8 sm:h-10 sm:w-10 text-white" />
+            </div>
+            <h2 className="text-lg sm:text-xl font-semibold text-green-600">Paiement déjà effectué</h2>
+            <p className="text-sm text-muted-foreground">Cette transaction a déjà été payée.</p>
+          </CardContent>
+        </Card>
+      </PageShell>
     );
   }
 
-  if (transaction.status !== "pending") {
+  // ── Invalid status ────────────────────────────────────────────────────────
+  if (transaction.status !== "pending" && step !== "processing" && step !== "complete" && step !== "failed") {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <div className="flex items-center justify-between mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
-            <img src={logoPath} alt="SendavaPay" className="h-8" />
-          </div>
-          <Card className="overflow-hidden shadow-lg">
-            <CardContent className="p-8 text-center space-y-4">
-              <div className="mx-auto w-20 h-20 rounded-full bg-muted flex items-center justify-center">
-                <XCircle className="h-10 w-10 text-muted-foreground" />
-              </div>
-              <h2 className="text-xl font-semibold">Transaction invalide</h2>
-              <p className="text-muted-foreground">
-                Cette transaction n'est plus disponible.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
+        <Card className="shadow-xl border-0">
+          <CardContent className="p-6 sm:p-8 text-center space-y-4">
+            <div className="mx-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-muted flex items-center justify-center">
+              <XCircle className="h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground" />
+            </div>
+            <h2 className="text-lg sm:text-xl font-semibold">Transaction invalide</h2>
+            <p className="text-sm text-muted-foreground">Cette transaction n'est plus disponible.</p>
+          </CardContent>
+        </Card>
+      </PageShell>
     );
   }
 
+  // ── Processing ────────────────────────────────────────────────────────────
   if (step === "processing") {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <div className="flex items-center justify-between mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
-            <img src={logoPath} alt="SendavaPay" className="h-8" />
-          </div>
-          <Card className="overflow-hidden shadow-lg">
-            <CardContent className="p-8 text-center space-y-6">
-              <div className="mx-auto w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                <Loader2 className="h-8 w-8 text-blue-600 animate-spin" />
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-xl font-semibold">Vérification du paiement...</h2>
-                <p className="text-muted-foreground">{verificationMessage}</p>
-              </div>
-              <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                <Clock className="h-4 w-4" />
-                <span>Vérification automatique toutes les 3 secondes</span>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+      <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
+        <Card className="shadow-xl border-0">
+          <CardContent className="p-6 sm:p-8 text-center space-y-5">
+            <div className="mx-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+              <Loader2 className="h-8 w-8 sm:h-10 sm:w-10 text-blue-600 animate-spin" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-lg sm:text-xl font-semibold">Vérification du paiement...</h2>
+              <p className="text-sm text-muted-foreground px-2">{verificationMessage}</p>
+            </div>
+            <div className="flex items-center justify-center gap-2 text-xs sm:text-sm text-muted-foreground bg-muted/50 rounded-lg p-3">
+              <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+              <span>Vérification automatique toutes les 3 secondes</span>
+            </div>
+          </CardContent>
+        </Card>
+      </PageShell>
     );
   }
 
+  // ── Complete ──────────────────────────────────────────────────────────────
   if (step === "complete") {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <div className="flex items-center justify-between mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
-            <img src={logoPath} alt="SendavaPay" className="h-8" />
-          </div>
-          <Card className="overflow-hidden shadow-lg">
-            <CardContent className="p-8 text-center space-y-6">
-              <div className="mx-auto w-20 h-20 rounded-full bg-green-500 flex items-center justify-center">
-                <CheckCircle className="h-10 w-10 text-white" />
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-xl font-semibold text-green-600">Paiement réussi!</h2>
-                <p className="text-muted-foreground">
-                  Votre paiement de {formatCurrency(transaction.amount, transaction.currency)} a été effectué avec succès.
-                </p>
-              </div>
-              <div className="bg-muted/50 rounded-lg p-4">
-                <p className="text-sm text-muted-foreground">Référence</p>
-                <p className="text-lg font-bold">{transaction.reference}</p>
-              </div>
-              {redirectUrl && (
-                <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    Redirection automatique dans quelques secondes...
-                  </p>
-                  <Button 
-                    onClick={() => window.location.href = redirectUrl}
-                    className="w-full"
-                    size="lg"
-                    data-testid="button-redirect"
-                  >
-                    Retourner au site <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
-  if (step === "failed") {
-    return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <div className="flex items-center justify-between mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
-            <img src={logoPath} alt="SendavaPay" className="h-8" />
-          </div>
-          <Card className="overflow-hidden shadow-lg">
-            <CardContent className="p-8 text-center space-y-6">
-              <div className="mx-auto w-20 h-20 rounded-full bg-red-500 flex items-center justify-center">
-                <XCircle className="h-10 w-10 text-white" />
-              </div>
-              <div className="space-y-2">
-                <h2 className="text-xl font-semibold text-red-600">Paiement échoué</h2>
-                <p className="text-muted-foreground">{verificationMessage}</p>
-              </div>
-              <Button onClick={resetPayment} className="w-full" size="lg" data-testid="button-retry">
-                Réessayer
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="max-w-md mx-auto p-4">
-        <div className="flex items-center justify-between mb-6 p-4 bg-white dark:bg-gray-800 rounded-xl shadow-sm">
-          <a href="/" target="_blank" rel="noopener noreferrer" className="cursor-pointer hover:opacity-80 transition-opacity">
-            <img src={logoPath} alt="SendavaPay" className="h-8" />
-          </a>
-          <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleDarkMode}
-              data-testid="button-theme-toggle"
-            >
-              {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-            </Button>
-            <div className="flex items-center gap-1 px-2 py-1 bg-muted rounded-md text-sm">
-              <span>{countries.find(c => c.code === selectedCountry)?.flag || ""}</span>
-              <span className="font-medium">{currency}</span>
+      <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
+        <Card className="shadow-xl border-0">
+          <CardContent className="p-6 sm:p-8 text-center space-y-5">
+            <div className="mx-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-green-500 flex items-center justify-center">
+              <CheckCircle className="h-8 w-8 sm:h-10 sm:w-10 text-white" />
             </div>
-          </div>
-        </div>
-
-        <Card className="overflow-hidden shadow-lg">
-          <CardContent className="p-6">
-            {step === "info" && (
-              <>
-                <div className="flex items-start gap-4 mb-6 p-4 bg-muted/50 rounded-lg">
-                  <div className="w-16 h-16 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <Shield className="h-8 w-8 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-muted-foreground">Paiement à</p>
-                    <h2 className="font-semibold text-lg">{transaction.ownerName}</h2>
-                    {transaction.description && (
-                      <p className="text-sm text-muted-foreground line-clamp-2 mt-1">{transaction.description}</p>
-                    )}
-                    <p className="text-primary font-bold mt-1">{formatCurrency(transaction.amount, transaction.currency)}</p>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <h3 className="font-semibold">Informations personnelles</h3>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label htmlFor="firstName" className="text-sm text-muted-foreground">Prénom</Label>
-                      <Input
-                        id="firstName"
-                        value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
-                        placeholder="Ex. John"
-                        data-testid="input-firstname"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="lastName" className="text-sm text-muted-foreground">Nom</Label>
-                      <Input
-                        id="lastName"
-                        value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
-                        placeholder="Ex. Doe"
-                        data-testid="input-lastname"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="email" className="text-sm text-muted-foreground">Adresse e-mail</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="Ex. email@example.com"
-                      data-testid="input-email"
-                    />
-                  </div>
-                  <Button
-                    onClick={handleSubmitInfo}
-                    className="w-full"
-                    size="lg"
-                    data-testid="button-continue"
-                  >
-                    Continuer vers le paiement
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </div>
-              </>
-            )}
-
-            {step === "payment" && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setStep("info")}
-                  className="mb-4"
-                  data-testid="button-back"
-                >
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Retour
+            <div className="space-y-1.5">
+              <h2 className="text-lg sm:text-xl font-semibold text-green-600">Paiement réussi!</h2>
+              <p className="text-sm text-muted-foreground">
+                Votre paiement de <span className="font-semibold text-foreground">{formatCurrency(transaction.amount, transaction.currency)}</span> a été effectué avec succès.
+              </p>
+            </div>
+            <div className="bg-muted/60 rounded-xl p-3 sm:p-4">
+              <p className="text-xs text-muted-foreground mb-1">Référence</p>
+              <p className="text-base sm:text-lg font-bold font-mono tracking-wide">{transaction.reference}</p>
+            </div>
+            {redirectUrl && (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Redirection automatique dans quelques secondes...</p>
+                <Button onClick={() => window.location.href = redirectUrl!} className="w-full" size="lg" data-testid="button-redirect">
+                  Retourner au site <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
-
-                <div className="text-center mb-6 p-4 bg-muted/50 rounded-lg">
-                  <p className="text-sm text-muted-foreground">Total à payer</p>
-                  <p className="text-3xl font-bold text-primary" data-testid="text-payment-amount">
-                    {formatCurrency(transaction.amount, transaction.currency)}
-                  </p>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground">Pays</Label>
-                    <CountrySelect
-                      options={countries.map(c => ({ value: c.code, label: c.name, flag: c.flag, subLabel: c.currency }))}
-                      value={selectedCountry}
-                      onChange={(v) => { setSelectedCountry(v); setSelectedServiceId(""); }}
-                      placeholder="Sélectionnez votre pays"
-                      data-testid="select-country"
-                    />
-                  </div>
-
-                  {services.length > 0 && (
-                    <div className="space-y-2">
-                      <Label className="text-sm text-muted-foreground">Opérateur Mobile Money</Label>
-                      <RadioGroup
-                        value={selectedServiceId}
-                        onValueChange={setSelectedServiceId}
-                        className="grid grid-cols-2 gap-3"
-                      >
-                        {services.map((service) => (
-                          <div key={service.id}>
-                            <RadioGroupItem
-                              value={service.id.toString()}
-                              id={`service-${service.id}`}
-                              className="peer sr-only"
-                            />
-                            <Label
-                              htmlFor={`service-${service.id}`}
-                              className="flex flex-col items-center gap-2 rounded-xl border-2 p-3 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 transition-all"
-                              data-testid={`radio-service-${service.id}`}
-                            >
-                              <img
-                                src={operatorLogos[service.operator] || mtnLogo}
-                                alt={service.operator}
-                                className="h-10 w-10 object-contain rounded-full bg-white shadow-sm p-1"
-                              />
-                              <span className="text-xs font-bold text-center">{service.description || service.operator}</span>
-                            </Label>
-                          </div>
-                        ))}
-                      </RadioGroup>
-                    </div>
-                  )}
-
-                  <div className="space-y-2">
-                    <Label htmlFor="phone" className="text-sm text-muted-foreground">
-                      Numéro de téléphone {selectedService?.operator || "Mobile Money"}
-                    </Label>
-                    <div className="flex h-11">
-                      {phonePrefix && (
-                        <div className="flex items-center px-3 border border-r-0 rounded-l-md bg-muted text-sm font-mono font-semibold text-muted-foreground select-none shrink-0">
-                          {phonePrefix}
-                        </div>
-                      )}
-                      <Input
-                        id="phone"
-                        type="tel"
-                        value={phoneNumber}
-                        onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ""))}
-                        placeholder="90123456"
-                        className={phonePrefix ? "rounded-l-none h-11" : "h-11"}
-                        data-testid="input-phone"
-                      />
-                    </div>
-                  </div>
-
-                  <Button
-                    onClick={handleSubmitPayment}
-                    className="w-full"
-                    size="lg"
-                    disabled={!selectedServiceId || !phoneNumber || payMutation.isPending}
-                    data-testid="button-pay"
-                  >
-                    {payMutation.isPending ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Traitement...
-                      </>
-                    ) : (
-                      <>
-                        Payer {formatCurrency(transaction.amount, transaction.currency)}
-                      </>
-                    )}
-                  </Button>
-
-                  <p className="text-xs text-center text-muted-foreground">
-                    En continuant, vous acceptez les conditions générales de SendavaPay.
-                  </p>
-                </div>
-              </>
+              </div>
             )}
           </CardContent>
         </Card>
+      </PageShell>
+    );
+  }
 
-        <div className="mt-6 text-center">
-          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-            <Shield className="h-4 w-4" />
-            <span>Paiement sécurisé par SendavaPay</span>
-          </div>
-        </div>
-      </div>
-    </div>
+  // ── Failed ────────────────────────────────────────────────────────────────
+  if (step === "failed") {
+    return (
+      <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
+        <Card className="shadow-xl border-0">
+          <CardContent className="p-6 sm:p-8 text-center space-y-5">
+            <div className="mx-auto w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-red-500 flex items-center justify-center">
+              <XCircle className="h-8 w-8 sm:h-10 sm:w-10 text-white" />
+            </div>
+            <div className="space-y-1.5">
+              <h2 className="text-lg sm:text-xl font-semibold text-red-600">Paiement échoué</h2>
+              <p className="text-sm text-muted-foreground px-2">{verificationMessage}</p>
+            </div>
+            <Button onClick={resetPayment} className="w-full" size="lg" data-testid="button-retry">
+              Réessayer
+            </Button>
+          </CardContent>
+        </Card>
+      </PageShell>
+    );
+  }
+
+  // ── Main form ─────────────────────────────────────────────────────────────
+  return (
+    <PageShell isDarkMode={isDarkMode} onToggle={toggleDarkMode}>
+      <Card className="shadow-xl border-0">
+        <CardContent className="p-4 sm:p-6">
+
+          {/* ── Step: Info ── */}
+          {step === "info" && (
+            <div className="space-y-5">
+              {/* Merchant summary */}
+              <div className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-muted/50 rounded-xl">
+                <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                  <Shield className="h-6 w-6 sm:h-7 sm:w-7 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-muted-foreground">Paiement à</p>
+                  <h2 className="font-semibold text-base sm:text-lg leading-tight">{transaction.ownerName}</h2>
+                  {transaction.description && (
+                    <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mt-0.5">{transaction.description}</p>
+                  )}
+                  <p className="text-primary font-bold text-base sm:text-lg mt-1">
+                    {formatCurrency(transaction.amount, transaction.currency)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Personal info form */}
+              <div className="space-y-3.5">
+                <h3 className="font-semibold text-sm sm:text-base">Vos informations</h3>
+
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="firstName" className="text-xs sm:text-sm text-muted-foreground">Prénom</Label>
+                    <Input
+                      id="firstName"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      placeholder="John"
+                      className="h-10 sm:h-11 text-sm"
+                      data-testid="input-firstname"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="lastName" className="text-xs sm:text-sm text-muted-foreground">Nom</Label>
+                    <Input
+                      id="lastName"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      placeholder="Doe"
+                      className="h-10 sm:h-11 text-sm"
+                      data-testid="input-lastname"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" className="text-xs sm:text-sm text-muted-foreground">Adresse e-mail</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="email@exemple.com"
+                    className="h-10 sm:h-11 text-sm"
+                    data-testid="input-email"
+                  />
+                </div>
+
+                <Button onClick={handleSubmitInfo} className="w-full mt-1" size="lg" data-testid="button-continue">
+                  Continuer vers le paiement
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Step: Payment ── */}
+          {step === "payment" && (
+            <div className="space-y-4">
+              <button
+                onClick={() => setStep("info")}
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                data-testid="button-back"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Retour
+              </button>
+
+              {/* Amount banner */}
+              <div className="text-center py-3 px-4 bg-primary/5 border border-primary/20 rounded-xl">
+                <p className="text-xs text-muted-foreground mb-0.5">Total à payer</p>
+                <p className="text-2xl sm:text-3xl font-bold text-primary" data-testid="text-payment-amount">
+                  {formatCurrency(transaction.amount, transaction.currency)}
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {/* Country */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs sm:text-sm text-muted-foreground">Pays</Label>
+                  <CountrySelect
+                    options={countries.map(c => ({ value: c.code, label: c.name, flag: c.flag, subLabel: c.currency }))}
+                    value={selectedCountry}
+                    onChange={(v) => { setSelectedCountry(v); setSelectedServiceId(""); }}
+                    placeholder="Sélectionnez votre pays"
+                    data-testid="select-country"
+                  />
+                </div>
+
+                {/* Operator */}
+                {services.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs sm:text-sm text-muted-foreground">Opérateur Mobile Money</Label>
+                    <RadioGroup
+                      value={selectedServiceId}
+                      onValueChange={setSelectedServiceId}
+                      className="grid grid-cols-3 sm:grid-cols-4 gap-2"
+                    >
+                      {services.map((service) => (
+                        <div key={service.id}>
+                          <RadioGroupItem
+                            value={service.id.toString()}
+                            id={`service-${service.id}`}
+                            className="peer sr-only"
+                          />
+                          <Label
+                            htmlFor={`service-${service.id}`}
+                            className="flex flex-col items-center gap-1.5 rounded-xl border-2 p-2 sm:p-3 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 hover:bg-muted/50 transition-all"
+                            data-testid={`radio-service-${service.id}`}
+                          >
+                            <img
+                              src={operatorLogos[service.operator] || mtnLogo}
+                              alt={service.operator}
+                              className="h-8 w-8 sm:h-10 sm:w-10 object-contain rounded-full bg-white shadow-sm p-0.5"
+                            />
+                            <span className="text-[10px] sm:text-xs font-semibold text-center leading-tight">
+                              {service.operator}
+                            </span>
+                          </Label>
+                        </div>
+                      ))}
+                    </RadioGroup>
+                  </div>
+                )}
+
+                {/* Phone */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="phone" className="text-xs sm:text-sm text-muted-foreground">
+                    Numéro {selectedService?.operator || "Mobile Money"}
+                  </Label>
+                  <div className="flex h-10 sm:h-11">
+                    {phonePrefix && (
+                      <div className="flex items-center px-2.5 sm:px-3 border border-r-0 rounded-l-md bg-muted text-sm font-mono font-semibold text-muted-foreground select-none shrink-0 whitespace-nowrap">
+                        {phonePrefix}
+                      </div>
+                    )}
+                    <Input
+                      id="phone"
+                      type="tel"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ""))}
+                      placeholder="90123456"
+                      className={`text-sm ${phonePrefix ? "rounded-l-none h-10 sm:h-11" : "h-10 sm:h-11"}`}
+                      data-testid="input-phone"
+                    />
+                  </div>
+                </div>
+
+                {/* Pay button */}
+                <Button
+                  onClick={handleSubmitPayment}
+                  className="w-full"
+                  size="lg"
+                  disabled={!selectedServiceId || !phoneNumber || payMutation.isPending}
+                  data-testid="button-pay"
+                >
+                  {payMutation.isPending ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Traitement...</>
+                  ) : (
+                    <>Payer {formatCurrency(transaction.amount, transaction.currency)}</>
+                  )}
+                </Button>
+
+                <p className="text-[11px] sm:text-xs text-center text-muted-foreground leading-relaxed">
+                  En continuant, vous acceptez les{" "}
+                  <a href="/terms" target="_blank" className="underline hover:text-foreground transition-colors">
+                    conditions générales
+                  </a>{" "}
+                  de SendavaPay.
+                </p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </PageShell>
   );
 }
