@@ -115,6 +115,7 @@ export const apiKeys = pgTable("api_keys", {
   webhookUrl: text("webhook_url"),
   webhookSecret: text("webhook_secret"),
   apiType: text("api_type").default("redirect").notNull(),
+  logoUrl: text("logo_url"),
   isActive: boolean("is_active").default(true).notNull(),
   lastUsedAt: timestamp("last_used_at"),
   requestCount: integer("request_count").default(0).notNull(),
