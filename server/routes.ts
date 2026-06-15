@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import {
   securityHeaders, ipBlockMiddleware, getClientIp, logSecurityEvent,
   recordLoginAttempt, countRecentFailedAttempts, isNewIpForIdentifier,
-  checkCrossAccountBruteForce, suspiciousUaMiddleware,
+  checkCrossAccountBruteForce, suspiciousUaMiddleware, getIpCountry,
   invalidateAllOtherAdminSessions, africaOnlyAdmin,
   blockIp, unblockIp, allowIp, removeAllowedIp, loginRateLimit, withdrawRateLimit,
   registerRateLimit, otpRateLimit, apiRateLimit,
@@ -77,6 +77,7 @@ import {
   notifyUserLogin,
   notifyWebhookRejected,
   notifyBruteForceDetected,
+  notifyAdminGeoBlocked,
 } from "./telegram";
 import { isPhoneBlacklisted, invalidateBlacklistCache, setUnblockOtp, verifyUnblockOtp } from "./blacklist-check";
 
@@ -704,6 +705,17 @@ export async function registerRoutes(
           return res.status(401).json({ message: "Identifiants invalides" });
         }
 
+        // ── RESTRICTION GÉOGRAPHIQUE : Togo uniquement ───────────────────────
+        const geoAdmin = await getIpCountry(ip).catch(() => null);
+        if (geoAdmin && geoAdmin.countryCode !== "TG") {
+          await blockIp(ip, `Connexion admin hors Togo — pays: ${geoAdmin.countryCode || "inconnu"}`).catch(() => {});
+          await logSecurityEvent({ userId: user.id, type: "admin_geo_blocked", details: `Pays: ${geoAdmin.countryCode}, VPN: ${geoAdmin.isVpn}, IP: ${ip}`, ipAddress: ip, userAgent: req.headers["user-agent"] });
+          notifyAdminGeoBlocked({ adminName: user.fullName, email: user.email || emailOrPhone, ip, countryCode: geoAdmin.countryCode, isVpn: geoAdmin.isVpn });
+          console.error(`[SÉCURITÉ] Admin login bloqué — pays=${geoAdmin.countryCode} ip=${ip}`);
+          return res.status(403).json({ message: "Accès refusé depuis votre localisation." });
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         // Alert Telegram immediately on successful password entry
         notifyAdminLoginAttempt({ emailOrPhone, ip, success: true, adminName: user.fullName, adminId: user.id });
 
@@ -760,6 +772,16 @@ export async function registerRoutes(
       if (!user || user.role !== "admin") {
         return res.status(403).json({ message: "Accès refusé" });
       }
+
+      // ── Double vérification géographique à l'étape OTP ───────────────────
+      const geoOtp = await getIpCountry(ip).catch(() => null);
+      if (geoOtp && geoOtp.countryCode !== "TG") {
+        await blockIp(ip, `Connexion admin hors Togo (étape OTP) — pays: ${geoOtp.countryCode || "inconnu"}`).catch(() => {});
+        await logSecurityEvent({ userId: user.id, type: "admin_geo_blocked_otp", details: `Pays: ${geoOtp.countryCode}, VPN: ${geoOtp.isVpn}, IP: ${ip}`, ipAddress: ip });
+        notifyAdminGeoBlocked({ adminName: user.fullName, email: user.email || "", ip, countryCode: geoOtp.countryCode, isVpn: geoOtp.isVpn });
+        return res.status(403).json({ message: "Accès refusé depuis votre localisation." });
+      }
+      // ─────────────────────────────────────────────────────────────────────
 
       // Set session first, then invalidate all other admin sessions
       req.session.userId = user.id;

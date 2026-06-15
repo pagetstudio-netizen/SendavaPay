@@ -946,6 +946,31 @@ export async function notifyPartnerLogin(data: {
   );
 }
 
+// ── Restriction géographique admin — connexion hors Togo bloquée ─────────────
+export function notifyAdminGeoBlocked(data: {
+  adminName: string;
+  email: string;
+  ip: string;
+  countryCode: string | null;
+  isVpn: boolean;
+}): void {
+  const countryLabel = data.countryCode || "Inconnu";
+  const vpnNote = data.isVpn ? " (VPN/Proxy détecté)" : "";
+  const msg =
+    `<b>🚨 TENTATIVE CONNEXION ADMIN HORS TOGO</b>\n\n` +
+    `<b>Compte :</b> ${data.adminName}\n` +
+    `<b>Email :</b> ${data.email}\n` +
+    `<b>IP :</b> <code>${data.ip}</code>\n` +
+    `<b>Pays détecté :</b> ${countryLabel}${vpnNote}\n` +
+    `<b>Action :</b> Accès refusé — IP bloquée définitivement\n` +
+    `<b>Date :</b> ${formatDate()}\n\n` +
+    `⛔ Seule une connexion depuis le Togo est autorisée pour les comptes administrateurs.`;
+
+  sendTelegramAlert(msg, data.ip).catch(err =>
+    console.error("[Telegram] Admin geo blocked notification error:", err)
+  );
+}
+
 // ── Brute-force multi-comptes détecté par IP ─────────────────────────────────
 export function notifyBruteForceDetected(data: {
   ip: string;
