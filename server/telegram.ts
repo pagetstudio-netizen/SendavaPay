@@ -787,6 +787,186 @@ export async function notifyIpChanged(newIp: string) {
   return sendTelegramMessage(msg);
 }
 
+// ── Geolocation helper (ip-api.com — free, no key required) ──────────────────
+interface GeoInfo {
+  city: string;
+  country: string;
+  isp: string;
+}
+
+async function getGeoLocation(ip: string): Promise<GeoInfo | null> {
+  if (!ip || ip === "::1" || ip.startsWith("127.") || ip.startsWith("192.168.") || ip.startsWith("10.") || /^172\.(1[6-9]|2\d|3[01])\./.test(ip)) {
+    return null;
+  }
+  try {
+    const resp = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,city,isp`, {
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json() as any;
+    if (data.status !== "success") return null;
+    return { city: data.city || "", country: data.country || "", isp: data.isp || "" };
+  } catch {
+    return null;
+  }
+}
+
+// ── User-Agent parser ─────────────────────────────────────────────────────────
+interface UaInfo {
+  browser: string;
+  device: string;
+  deviceEmoji: string;
+}
+
+function parseUserAgent(ua?: string): UaInfo {
+  if (!ua) return { browser: "Inconnu", device: "Inconnu", deviceEmoji: "❓" };
+
+  let device: string;
+  let deviceEmoji: string;
+  if (/ipad/i.test(ua)) {
+    device = "Tablette"; deviceEmoji = "📱";
+  } else if (/mobile|android|iphone|ipod|blackberry|windows phone/i.test(ua)) {
+    device = "Mobile"; deviceEmoji = "📱";
+  } else {
+    device = "Bureau"; deviceEmoji = "💻";
+  }
+
+  let osHint = "";
+  if (/android/i.test(ua)) osHint = "Android";
+  else if (/iphone|ipad|ipod/i.test(ua)) osHint = "iOS";
+  else if (/windows nt/i.test(ua)) osHint = "Windows";
+  else if (/macintosh|mac os x/i.test(ua)) osHint = "Mac";
+  else if (/linux/i.test(ua)) osHint = "Linux";
+
+  let browserName: string;
+  if (/edg\//i.test(ua)) browserName = "Edge";
+  else if (/opr\/|opera/i.test(ua)) browserName = "Opera";
+  else if (/firefox\//i.test(ua)) browserName = "Firefox";
+  else if (/chrome\//i.test(ua)) browserName = "Chrome";
+  else if (/safari\//i.test(ua)) browserName = "Safari";
+  else browserName = "Autre";
+
+  const browser = osHint ? `${browserName} (${osHint})` : `${browserName} (Autre)`;
+  return { browser, device, deviceEmoji };
+}
+
+// ── Login notification — Utilisateur / Administrateur ────────────────────────
+export async function notifyUserLogin(data: {
+  accountType: "user" | "admin";
+  email: string;
+  ip: string;
+  userAgent?: string;
+  success: boolean;
+  isNewIp?: boolean;
+}): Promise<void> {
+  const typeLabel = data.accountType === "admin" ? "Administrateur" : "Utilisateur";
+  const prefix = data.isNewIp && data.success
+    ? `🆕 Nouvelle IP — Connexion ${typeLabel}`
+    : `${data.success ? "✅" : "⚠️"} Connexion ${typeLabel}`;
+
+  const [geo, ua] = await Promise.all([
+    getGeoLocation(data.ip),
+    Promise.resolve(parseUserAgent(data.userAgent)),
+  ]);
+
+  const statusLine = data.success
+    ? `🔐 Statut : ✅ Connexion réussie`
+    : `🔐 Statut : ❌ Tentative échouée`;
+
+  const ipLabel = data.isNewIp ? "Nouvelle IP" : "IP";
+
+  let msg = `<b>${prefix}</b>\n\n` +
+    `👤 Email : ${data.email}\n` +
+    `${statusLine}\n` +
+    `🌐 ${ipLabel} : <code>${data.ip}</code>\n`;
+
+  if (geo) {
+    msg += `📍 Localisation : ${geo.city}, ${geo.country}\n`;
+    if (data.isNewIp) msg += `🏢 FAI : ${geo.isp}\n`;
+  }
+
+  msg += `💻 Navigateur : ${ua.browser}\n` +
+    `📱 Appareil : ${ua.deviceEmoji} ${ua.device}\n` +
+    `🕒 Date : ${formatDate()} UTC`;
+
+  if (data.isNewIp && data.success) {
+    msg += `\n\n⚠️ Cette IP n'a jamais été utilisée pour ce compte.`;
+  }
+
+  sendTelegramAlert(msg, data.ip).catch(err =>
+    console.error("[Telegram] User login notification error:", err)
+  );
+}
+
+// ── Login notification — Marchand / Partenaire ────────────────────────────────
+export async function notifyPartnerLogin(data: {
+  partnerName: string;
+  email: string;
+  ip: string;
+  userAgent?: string;
+  success: boolean;
+  isNewIp?: boolean;
+}): Promise<void> {
+  const prefix = data.isNewIp && data.success
+    ? `🆕 Nouvelle IP — Connexion Marchand`
+    : `${data.success ? "✅" : "⚠️"} Connexion Marchand`;
+
+  const [geo, ua] = await Promise.all([
+    getGeoLocation(data.ip),
+    Promise.resolve(parseUserAgent(data.userAgent)),
+  ]);
+
+  const statusLine = data.success
+    ? `🔐 Statut : ✅ Connexion réussie`
+    : `🔐 Statut : ❌ Tentative échouée`;
+
+  const ipLabel = data.isNewIp ? "Nouvelle IP" : "IP";
+
+  let msg = `<b>${prefix}</b>\n\n` +
+    `🏪 Marchand : ${data.partnerName}\n` +
+    `👤 Email : ${data.email}\n` +
+    `${statusLine}\n` +
+    `🌐 ${ipLabel} : <code>${data.ip}</code>\n`;
+
+  if (geo) {
+    msg += `📍 Localisation : ${geo.city}, ${geo.country}\n`;
+    if (data.isNewIp) msg += `🏢 FAI : ${geo.isp}\n`;
+  }
+
+  msg += `💻 Navigateur : ${ua.browser}\n` +
+    `📱 Appareil : ${ua.deviceEmoji} ${ua.device}\n` +
+    `🕒 Date : ${formatDate()} UTC`;
+
+  if (data.isNewIp && data.success) {
+    msg += `\n\n⚠️ Cette IP n'a jamais été utilisée pour ce compte.`;
+  }
+
+  sendTelegramAlert(msg, data.ip).catch(err =>
+    console.error("[Telegram] Partner login notification error:", err)
+  );
+}
+
+// ── Webhook rejeté — signature invalide ───────────────────────────────────────
+export function notifyWebhookRejected(data: {
+  gateway: string;
+  ip: string;
+  reason: string;
+  path?: string;
+}): void {
+  const msg =
+    `<b>🚨 WEBHOOK REJETÉ — SIGNATURE INVALIDE</b>\n\n` +
+    `<b>Passerelle :</b> ${data.gateway}\n` +
+    `<b>Raison :</b> ${data.reason}\n` +
+    `<b>IP :</b> <code>${data.ip}</code>\n` +
+    (data.path ? `<b>Chemin :</b> ${data.path}\n` : "") +
+    `<b>Date :</b> ${formatDate()}\n\n` +
+    `⚠️ Possible tentative d'intrusion. Vérifiez vos journaux.`;
+
+  sendTelegramAlert(msg, data.ip).catch(err =>
+    console.error("[Telegram] Webhook rejected notification error:", err)
+  );
+}
+
 export async function notifyStartup() {
   const msg =
     `<b>🚀 SendavaPay Bot Active</b>\n\n` +

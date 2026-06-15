@@ -4,7 +4,7 @@ import express from "express";
 import { storage } from "./storage";
 import {
   securityHeaders, ipBlockMiddleware, getClientIp, logSecurityEvent,
-  recordLoginAttempt, countRecentFailedAttempts,
+  recordLoginAttempt, countRecentFailedAttempts, isNewIpForIdentifier,
   invalidateAllOtherAdminSessions, africaOnlyAdmin,
   blockIp, unblockIp, allowIp, removeAllowedIp, loginRateLimit, withdrawRateLimit,
   registerRateLimit, otpRateLimit, apiRateLimit,
@@ -73,6 +73,8 @@ import {
   notifyBlacklistUnblockAttempt,
   notifyBlacklistOtp,
   notifyKycReset,
+  notifyUserLogin,
+  notifyWebhookRejected,
 } from "./telegram";
 import { isPhoneBlacklisted, invalidateBlacklistCache, setUnblockOtp, verifyUnblockOtp } from "./blacklist-check";
 
@@ -642,11 +644,13 @@ export async function registerRoutes(
 
       if (!user) {
         await recordLoginAttempt(emailOrPhone, ip, false);
+        notifyUserLogin({ accountType: "user", email: emailOrPhone, ip, userAgent: req.headers["user-agent"], success: false }).catch(() => {});
         return res.status(401).json({ message: "Identifiants invalides" });
       }
 
       if (user.isBlocked) {
         await recordLoginAttempt(emailOrPhone, ip, false);
+        notifyUserLogin({ accountType: "user", email: user.email || emailOrPhone, ip, userAgent: req.headers["user-agent"], success: false }).catch(() => {});
         return res.status(403).json({ message: "Votre compte a été bloqué. Contactez le support." });
       }
 
@@ -658,6 +662,7 @@ export async function registerRoutes(
         if (user.role === "admin") {
           notifyAdminLoginAttempt({ emailOrPhone, ip, success: false, adminName: user.fullName, adminId: user.id });
         }
+        notifyUserLogin({ accountType: user.role === "admin" ? "admin" : "user", email: user.email || emailOrPhone, ip, userAgent: req.headers["user-agent"], success: false }).catch(() => {});
         return res.status(401).json({ message: "Identifiants invalides" });
       }
 
@@ -708,6 +713,10 @@ export async function registerRoutes(
       req.session.userId = user.id;
       storage.createDefaultWallets(user.id).catch(err => console.error("Failed to ensure default wallets on login:", err));
 
+      isNewIpForIdentifier(emailOrPhone, ip).then(isNewIp => {
+        notifyUserLogin({ accountType: "user", email: user.email || emailOrPhone, ip, userAgent: req.headers["user-agent"], success: true, isNewIp }).catch(() => {});
+      }).catch(() => {});
+
       const { password: _, ...userWithoutPassword } = user;
       res.json(userWithoutPassword);
     } catch (error) {
@@ -747,6 +756,9 @@ export async function registerRoutes(
         await invalidateAllOtherAdminSessions(user.id, (req.session as any).id || "");
         await logSecurityEvent({ userId: user.id, type: "admin_login_success", details: `Login admin réussi`, ipAddress: ip });
         notifyAdminLogin({ userName: user.fullName, userId: user.id, ip });
+        isNewIpForIdentifier(user.email || "", ip).then(isNewIp => {
+          notifyUserLogin({ accountType: "admin", email: user.email || "", ip, userAgent: req.headers["user-agent"], success: true, isNewIp }).catch(() => {});
+        }).catch(() => {});
         storage.createDefaultWallets(user.id).catch(() => {});
         const { password: _, ...userWithoutPassword } = user;
         res.json(userWithoutPassword);
@@ -2704,11 +2716,13 @@ export async function registerRoutes(
       if (spSecretKey) {
         if (!privateKey) {
           console.error("❌ SoleasPay webhook: x-private-key manquant — rejet");
+          notifyWebhookRejected({ gateway: "SoleasPay", ip: req.ip || "?", reason: "En-tête x-private-key manquant", path: "/api/webhook/soleaspay" });
           return res.status(401).json({ message: "Unauthorized" });
         }
         const signatureValid = soleaspay.verifyWebhookSignature(spSecretKey, privateKey);
         if (!signatureValid) {
           console.error(`❌ SoleasPay webhook: Signature invalide — rejet (ip=${req.ip})`);
+          notifyWebhookRejected({ gateway: "SoleasPay", ip: req.ip || "?", reason: "Signature invalide", path: "/api/webhook/soleaspay" });
           return res.status(401).json({ message: "Unauthorized" });
         }
         console.log("✅ SoleasPay webhook: Signature vérifiée");
@@ -4117,11 +4131,13 @@ export async function registerRoutes(
       if (callbackKey) {
         if (!data.signature) {
           console.error(`❌ OmniPay webhook: Signature manquante alors que OMNIPAY_CALLBACK_KEY est configurée — rejet (ip=${req.ip})`);
+          notifyWebhookRejected({ gateway: "OmniPay", ip: req.ip || "?", reason: "Signature absente (clé configurée)", path: "/api/webhook/omnipay" });
           return;
         }
         const valid = verifyOmnipaySignature(data, callbackKey);
         if (!valid) {
           console.error(`❌ OmniPay webhook: Signature invalide — rejet (ip=${req.ip})`);
+          notifyWebhookRejected({ gateway: "OmniPay", ip: req.ip || "?", reason: "Signature invalide", path: "/api/webhook/omnipay" });
           return;
         }
         console.log("✅ OmniPay webhook: Signature vérifiée");
@@ -9369,6 +9385,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         const _pdMk = _pdgc("PAYDUNYA_MASTER_KEY");
         if (_pdMk && !verifyPayDunyaWebhook(pdHash)) {
           console.error(`❌ PayDunya disburse webhook: Hash invalide — rejet (ip=${req.ip})`);
+          notifyWebhookRejected({ gateway: "PayDunya Disburse", ip: req.ip || "?", reason: "Hash invalide", path: "/api/webhook/paydunya-disburse" });
           return res.status(401).json({ message: "Unauthorized" });
         } else if (!_pdMk) {
           console.warn("⚠️ PayDunya disburse webhook: PAYDUNYA_MASTER_KEY non configurée, hash non vérifié");
@@ -9378,6 +9395,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         const _pdMk2 = _pdgc2("PAYDUNYA_MASTER_KEY");
         if (_pdMk2) {
           console.error(`❌ PayDunya disburse webhook: Hash manquant alors que PAYDUNYA_MASTER_KEY est configurée — rejet (ip=${req.ip})`);
+          notifyWebhookRejected({ gateway: "PayDunya Disburse", ip: req.ip || "?", reason: "Hash absent (clé configurée)", path: "/api/webhook/paydunya-disburse" });
           return res.status(401).json({ message: "Unauthorized" });
         }
         console.warn("⚠️ PayDunya disburse webhook: Hash absent et PAYDUNYA_MASTER_KEY non configurée — webhook accepté");
@@ -9488,12 +9506,14 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
       if (lkSecretKey) {
         if (!signature) {
           console.error(`❌ LeekPay webhook: Signature manquante alors que LEEKPAY_SECRET_KEY est configurée — rejet (ip=${req.ip})`);
+          notifyWebhookRejected({ gateway: "LeekPay", ip: req.ip || "?", reason: "Signature absente (clé configurée)", path: "/api/webhook/leekpay" });
           return res.status(401).json({ status: "error", message: "Unauthorized" });
         }
         const isValid = leekpay.verifyWebhookSignature(JSON.stringify(data), signature);
         console.log("🔐 Signature verification:", isValid ? "✅ VALID" : "❌ INVALID");
         if (!isValid) {
           console.error(`❌ LeekPay webhook: Signature invalide — rejet (ip=${req.ip})`);
+          notifyWebhookRejected({ gateway: "LeekPay", ip: req.ip || "?", reason: "Signature invalide", path: "/api/webhook/leekpay" });
           return res.status(401).json({ status: "error", message: "Unauthorized" });
         }
       } else if (signature) {
@@ -9501,6 +9521,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         console.log("🔐 Signature verification (best-effort):", isValid ? "✅ VALID" : "❌ INVALID");
         if (!isValid) {
           console.error(`❌ LeekPay webhook: Signature présente mais invalide — rejet (ip=${req.ip})`);
+          notifyWebhookRejected({ gateway: "LeekPay", ip: req.ip || "?", reason: "Signature présente mais invalide", path: "/api/webhook/leekpay" });
           return res.status(401).json({ status: "error", message: "Unauthorized" });
         }
       } else {
