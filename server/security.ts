@@ -607,6 +607,21 @@ export async function countRecentFailedAttempts(emailOrPhone: string, windowMs =
   }
 }
 
+export async function isNewIpForIdentifier(identifier: string, ip: string): Promise<boolean> {
+  if (!pool || !ip || ip === "::1" || ip.startsWith("127.")) return false;
+  try {
+    const client = await pool.connect();
+    const result = await client.query(
+      `SELECT 1 FROM login_attempts WHERE email_or_phone = $1 AND ip_address = $2 AND success = true LIMIT 1`,
+      [identifier, ip]
+    );
+    client.release();
+    return result.rows.length === 0;
+  } catch {
+    return false;
+  }
+}
+
 // ─── SESSION INVALIDATION (admin) ─────────────────────────────────────────────
 export async function invalidateAllOtherAdminSessions(userId: number, currentSid: string): Promise<void> {
   if (!pool) return;

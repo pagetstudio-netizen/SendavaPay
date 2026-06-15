@@ -7,7 +7,8 @@ import { partnerLoginSchema } from "@shared/schema";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { notifyPartnerWithdrawal, notifyPartnerWalletExchange, notifyWithdrawalAutoProcessed } from "./telegram";
+import { notifyPartnerWithdrawal, notifyPartnerWalletExchange, notifyWithdrawalAutoProcessed, notifyPartnerLogin } from "./telegram";
+import { getClientIp, isNewIpForIdentifier } from "./security";
 
 declare module "express-session" {
   interface SessionData {
@@ -90,17 +91,23 @@ export function registerPartnerRoutes(app: Express) {
         return res.status(400).json({ message: "Données invalides" });
       }
 
+      const ip = getClientIp(req);
+      const ua = req.headers["user-agent"];
+
       const partner = await storage.getPartnerByEmail(parsed.data.email);
       if (!partner) {
+        notifyPartnerLogin({ partnerName: parsed.data.email, email: parsed.data.email, ip, userAgent: ua, success: false }).catch(() => {});
         return res.status(401).json({ message: "Email ou mot de passe incorrect" });
       }
 
       if (partner.status !== "active") {
+        notifyPartnerLogin({ partnerName: partner.name || parsed.data.email, email: parsed.data.email, ip, userAgent: ua, success: false }).catch(() => {});
         return res.status(403).json({ message: "Votre compte partenaire est désactivé" });
       }
 
       const validPassword = await bcrypt.compare(parsed.data.password, partner.password);
       if (!validPassword) {
+        notifyPartnerLogin({ partnerName: partner.name || parsed.data.email, email: parsed.data.email, ip, userAgent: ua, success: false }).catch(() => {});
         return res.status(401).json({ message: "Email ou mot de passe incorrect" });
       }
 
@@ -111,10 +118,14 @@ export function registerPartnerRoutes(app: Express) {
         partnerId: partner.id,
         action: "login",
         details: "Connexion réussie",
-        ipAddress: req.ip || req.socket.remoteAddress,
+        ipAddress: ip,
       });
       // Ensure default wallets exist for all supported countries
       storage.createDefaultPartnerWallets(partner.id).catch(() => {});
+
+      isNewIpForIdentifier(parsed.data.email, ip).then(isNewIp => {
+        notifyPartnerLogin({ partnerName: partner.name || parsed.data.email, email: parsed.data.email, ip, userAgent: ua, success: true, isNewIp }).catch(() => {});
+      }).catch(() => {});
 
       const { password, apiSecret, ...safePartner } = partner;
       res.json(safePartner);
