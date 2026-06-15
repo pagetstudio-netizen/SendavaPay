@@ -8892,6 +8892,124 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     }
   });
 
+  // ── Changer le statut d'une tentative (valider / rejeter / remettre en attente) ──
+  app.post("/api/admin/payment-attempts/:reference/set-status", requireAuth, requireAdmin, async (req, res) => {
+    const { reference } = req.params;
+    const { action } = req.body as { action: "complete" | "failed" | "pending" };
+
+    if (!["complete", "failed", "pending"].includes(action)) {
+      return res.status(400).json({ message: "Action invalide (complete | failed | pending)" });
+    }
+
+    try {
+      const payment = await storage.getLeekpayPaymentById(reference);
+      if (!payment) return res.status(404).json({ message: "Tentative introuvable" });
+
+      // ── Juste changer le statut sans crédit ────────────────────────────────
+      if (action === "failed") {
+        await storage.updateLeekpayPayment(reference, { status: "failed" });
+        return res.json({ success: true, message: "Tentative marquée comme échouée" });
+      }
+      if (action === "pending") {
+        await storage.updateLeekpayPayment(reference, { status: "pending" });
+        return res.json({ success: true, message: "Tentative remise en attente" });
+      }
+
+      // ── Valider (complete) : crédit wallet + transaction ───────────────────
+      if (payment.status === "completed") {
+        return res.status(400).json({ message: "Ce paiement est déjà complété" });
+      }
+
+      const claimed = await storage.claimLeekpayPayment(reference);
+      if (!claimed) return res.status(400).json({ message: "Déjà traité par un autre processus" });
+
+      const amount = parseFloat(payment.amount);
+      const settings = await storage.getCommissionSettings();
+
+      const creditWalletForPayment = async (userId: number, netAmount: number) => {
+        const cc = payment.payerCountry || "";
+        const curr = payment.currency || "";
+        if (cc || curr) {
+          const countries = await storage.getCountries();
+          const country = countries.find((c: any) =>
+            cc ? c.code.toUpperCase() === cc.toUpperCase() : c.currency === curr
+          );
+          if (country) {
+            await storage.creditWallet(userId, country.code, country.name, curr || country.currency, netAmount.toString()).catch(() => {});
+          }
+        }
+      };
+
+      if (payment.type === "deposit" && payment.userId) {
+        const commissionRate = await getEffectiveFeeRate(payment.userId, "deposit", settings);
+        const fee = Math.round(amount * (commissionRate / 100));
+        const netAmount = amount - fee;
+
+        await storage.createTransaction({
+          userId: payment.userId,
+          type: "deposit",
+          amount: amount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          status: "completed",
+          description: payment.description || "Dépôt — validé manuellement par admin",
+          externalRef: reference,
+          paymentMethod: payment.paymentMethod || "manual",
+        });
+        await storage.updateUserBalance(payment.userId, netAmount.toString());
+        await creditWalletForPayment(payment.userId, netAmount);
+
+        const adminUser = await storage.getUser((req as any).session?.userId);
+        console.log(`[Admin] Dépôt validé manuellement — ref=${reference} user=${payment.userId} net=${netAmount} par admin ${adminUser?.email}`);
+        return res.json({ success: true, message: `Dépôt de ${netAmount} ${payment.currency} crédité` });
+
+      } else if (payment.type === "payment_link" && payment.paymentLinkId) {
+        const commissionRate = getCommissionRate(settings, "payment_received");
+        const fee = Math.round(amount * (commissionRate / 100));
+        const netAmount = amount - fee;
+
+        const link = await storage.getPaymentLink(payment.paymentLinkId);
+        if (!link) return res.status(404).json({ message: "Lien de paiement introuvable" });
+
+        await storage.updatePaymentLink(link.id, {
+          paidAt: new Date(),
+          paidAmount: amount.toString(),
+          payerName: payment.payerName,
+          payerPhone: payment.payerPhone,
+          payerCountry: payment.payerCountry,
+        });
+        await storage.createTransaction({
+          userId: link.userId,
+          type: "payment_received",
+          amount: amount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          status: "completed",
+          description: `Paiement reçu — ${link.title} (validé manuellement)`,
+          externalRef: reference,
+          paymentMethod: payment.paymentMethod || "manual",
+          mobileNumber: payment.payerPhone,
+          payerName: payment.payerName,
+          payerEmail: payment.customerEmail,
+          payerCountry: payment.payerCountry,
+          paymentLinkId: link.id,
+        });
+        await storage.updateUserBalance(link.userId, netAmount.toString());
+        await creditWalletForPayment(link.userId, netAmount);
+
+        const adminUser = await storage.getUser((req as any).session?.userId);
+        console.log(`[Admin] Paiement lien validé manuellement — ref=${reference} vendeur=${link.userId} net=${netAmount} par admin ${adminUser?.email}`);
+        return res.json({ success: true, message: `Paiement de ${netAmount} ${payment.currency} crédité` });
+
+      } else {
+        return res.status(400).json({ message: "Type de paiement non géré" });
+      }
+    } catch (err: any) {
+      console.error("[Admin] set-status error:", err);
+      return res.status(500).json({ message: err?.message || "Erreur serveur" });
+    }
+  });
+
   // Admin endpoint to list pending LeekPay payments
   app.get("/api/admin/pending-leekpay-payments", requireAuth, requireAdmin, async (req, res) => {
 
