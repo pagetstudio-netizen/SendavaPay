@@ -2665,6 +2665,21 @@ export async function registerRoutes(
 
           await storage.updateUserBalance(link.userId, netAmount.toString());
 
+          // Créditer le portefeuille pays du vendeur
+          try {
+            const _plcc = claimed.payerCountry || "";
+            const _plcurr = existingPayment.currency || claimed.currency || "";
+            if (_plcc || _plcurr) {
+              const allCPL = await storage.getCountries();
+              const cRecPL = allCPL.find((c: any) =>
+                (_plcc && c.code.toUpperCase() === _plcc.toUpperCase()) || (!_plcc && c.currency === _plcurr)
+              );
+              if (cRecPL) {
+                storage.creditWallet(link.userId, cRecPL.code, cRecPL.name, _plcurr || cRecPL.currency, netAmount.toString()).catch((e: any) => console.error("Wallet credit (SoleasPay verify lien) error:", e));
+              }
+            }
+          } catch (wErr) { console.error("Wallet credit (SoleasPay verify lien) error:", wErr); }
+
           // Crédit portefeuille partenaire si lien partenaire
           try {
             if (link.partnerId) {
@@ -3010,6 +3025,18 @@ export async function registerRoutes(
             });
 
             await storage.updateUserBalance(link.userId, netAmount.toString());
+            // Créditer le portefeuille pays du vendeur
+            try {
+              const _plcc2 = claimed.payerCountry || "";
+              const _plcurr2 = claimed.currency || "";
+              if (_plcc2 || _plcurr2) {
+                const allCPL2w = await storage.getCountries();
+                const cRec2w = allCPL2w.find((c: any) =>
+                  (_plcc2 && c.code.toUpperCase() === _plcc2.toUpperCase()) || (!_plcc2 && c.currency === _plcurr2)
+                );
+                if (cRec2w) storage.creditWallet(link.userId, cRec2w.code, cRec2w.name, _plcurr2 || cRec2w.currency, netAmount.toString()).catch((e: any) => console.error("Wallet credit (SoleasPay webhook lien) error:", e));
+              }
+            } catch (wErr2) { console.error("Wallet credit (SoleasPay webhook lien) error:", wErr2); }
             try {
               if (link.partnerId) {
                 const { db: _dbPL2 } = await import("./db");
@@ -3197,6 +3224,18 @@ export async function registerRoutes(
               paymentLinkId: link.id,
             });
             await storage.updateUserBalance(link.userId, netAmount.toString());
+            // Créditer le portefeuille pays du vendeur
+            try {
+              const _plcc3 = claimed.payerCountry || "";
+              const _plcurr3 = claimed.currency || "";
+              if (_plcc3 || _plcurr3) {
+                const allCPL3w = await storage.getCountries();
+                const cRec3w = allCPL3w.find((c: any) =>
+                  (_plcc3 && c.code.toUpperCase() === _plcc3.toUpperCase()) || (!_plcc3 && c.currency === _plcurr3)
+                );
+                if (cRec3w) storage.creditWallet(link.userId, cRec3w.code, cRec3w.name, _plcurr3 || cRec3w.currency, netAmount.toString()).catch((e: any) => console.error("Wallet credit (OmniPay verify lien) error:", e));
+              }
+            } catch (wErr3) { console.error("Wallet credit (OmniPay verify lien) error:", wErr3); }
             try {
               if (link.partnerId) {
                 const { db: _dbPL3 } = await import("./db");
@@ -3313,6 +3352,18 @@ export async function registerRoutes(
               paymentLinkId: link.id,
             });
             await storage.updateUserBalance(link.userId, netAmount.toString());
+            // Créditer le portefeuille pays du vendeur
+            try {
+              const _plcc4 = claimed.payerCountry || "";
+              const _plcurr4 = claimed.currency || "";
+              if (_plcc4 || _plcurr4) {
+                const allCPL4w = await storage.getCountries();
+                const cRec4w = allCPL4w.find((c: any) =>
+                  (_plcc4 && c.code.toUpperCase() === _plcc4.toUpperCase()) || (!_plcc4 && c.currency === _plcurr4)
+                );
+                if (cRec4w) storage.creditWallet(link.userId, cRec4w.code, cRec4w.name, _plcurr4 || cRec4w.currency, netAmount.toString()).catch((e: any) => console.error("Wallet credit (MaishaPay verify lien) error:", e));
+              }
+            } catch (wErr4) { console.error("Wallet credit (MaishaPay verify lien) error:", wErr4); }
             try {
               if (link.partnerId) {
                 const { db: _dbPL4 } = await import("./db");
@@ -3433,6 +3484,18 @@ export async function registerRoutes(
                 paymentLinkId: link.id,
               });
               await storage.updateUserBalance(link.userId, netAmount.toString());
+              // Créditer le portefeuille pays du vendeur
+              try {
+                const _plcc5 = claimed.payerCountry || "";
+                const _plcurr5 = claimed.currency || "";
+                if (_plcc5 || _plcurr5) {
+                  const allCPL5w = await storage.getCountries();
+                  const cRec5w = allCPL5w.find((c: any) =>
+                    (_plcc5 && c.code.toUpperCase() === _plcc5.toUpperCase()) || (!_plcc5 && c.currency === _plcurr5)
+                  );
+                  if (cRec5w) storage.creditWallet(link.userId, cRec5w.code, cRec5w.name, _plcurr5 || cRec5w.currency, netAmount.toString()).catch((e: any) => console.error("Wallet credit (Paxity verify lien) error:", e));
+                }
+              } catch (wErr5) { console.error("Wallet credit (Paxity verify lien) error:", wErr5); }
               try {
                 if (link.partnerId) {
                   const { db: _dbPL5 } = await import("./db");
@@ -3574,6 +3637,35 @@ export async function registerRoutes(
               paymentLinkId: link.id,
             });
             await storage.updateUserBalance(link.userId, netAmount.toString());
+            // Créditer le portefeuille pays du vendeur
+            try {
+              const _plccPD = claimed.payerCountry || "";
+              const _plcurrPD = claimed.currency || "";
+              if (_plccPD || _plcurrPD) {
+                const allCPLPD = await storage.getCountries();
+                const cRecPD = allCPLPD.find((c: any) =>
+                  (_plccPD && c.code.toUpperCase() === _plccPD.toUpperCase()) || (!_plccPD && c.currency === _plcurrPD)
+                );
+                if (cRecPD) storage.creditWallet(link.userId, cRecPD.code, cRecPD.name, _plcurrPD || cRecPD.currency, netAmount.toString()).catch((e: any) => console.error("Wallet credit (PayDunya verify lien) error:", e));
+              }
+            } catch (wErrPD) { console.error("Wallet credit (PayDunya verify lien) error:", wErrPD); }
+            // Crédit portefeuille partenaire si lien partenaire
+            try {
+              if (link.partnerId) {
+                const { db: _dbPLPD } = await import("./db");
+                const { sql: _sqlPLPD } = await import("drizzle-orm");
+                const allCPLPD2 = await storage.getCountries();
+                const payerCPLPD = claimed.payerCountry || "";
+                const currPLPD = claimed.currency || "";
+                const cRecPLPD = allCPLPD2.find((c: any) =>
+                  (payerCPLPD && c.code.toUpperCase() === payerCPLPD.toUpperCase()) || (!payerCPLPD && c.currency === currPLPD)
+                );
+                if (cRecPLPD) {
+                  await _dbPLPD.execute(_sqlPLPD`UPDATE partners SET balance = balance + ${netAmount.toString()} WHERE id = ${link.partnerId}`);
+                  await storage.creditPartnerWallet(link.partnerId, cRecPLPD.code, cRecPLPD.name, currPLPD || cRecPLPD.currency, netAmount.toString());
+                }
+              }
+            } catch (pwErrPD) { console.error("Partner wallet (PayDunya verify lien) error:", pwErrPD); }
           }
           return res.json({ status: "SUCCESS", message: "Paiement confirmé!", amount: netAmount });
         }
@@ -3807,6 +3899,18 @@ export async function registerRoutes(
               paymentLinkId: link.id,
             });
             await storage.updateUserBalance(link.userId, netAmount.toString());
+            // Créditer le portefeuille pays du vendeur
+            try {
+              const _plcc6 = claimed.payerCountry || "";
+              const _plcurr6 = claimed.currency || "";
+              if (_plcc6 || _plcurr6) {
+                const allCPL6w = await storage.getCountries();
+                const cRec6w = allCPL6w.find((c: any) =>
+                  (_plcc6 && c.code.toUpperCase() === _plcc6.toUpperCase()) || (!_plcc6 && c.currency === _plcurr6)
+                );
+                if (cRec6w) storage.creditWallet(link.userId, cRec6w.code, cRec6w.name, _plcurr6 || cRec6w.currency, netAmount.toString()).catch((e: any) => console.error("Wallet credit (MbiyoPay webhook lien) error:", e));
+              }
+            } catch (wErr6) { console.error("Wallet credit (MbiyoPay webhook lien) error:", wErr6); }
             try {
               if (link.partnerId) {
                 const { db: _dbPL6 } = await import("./db");
@@ -4126,6 +4230,18 @@ export async function registerRoutes(
               paymentLinkId: link.id,
             });
             await storage.updateUserBalance(link.userId, netAmount.toString());
+            // Créditer le portefeuille pays du vendeur
+            try {
+              const _plcc7 = claimed.payerCountry || "";
+              const _plcurr7 = claimed.currency || "";
+              if (_plcc7 || _plcurr7) {
+                const allCPL7w = await storage.getCountries();
+                const cRec7w = allCPL7w.find((c: any) =>
+                  (_plcc7 && c.code.toUpperCase() === _plcc7.toUpperCase()) || (!_plcc7 && c.currency === _plcurr7)
+                );
+                if (cRec7w) storage.creditWallet(link.userId, cRec7w.code, cRec7w.name, _plcurr7 || cRec7w.currency, netAmount.toString()).catch((e: any) => console.error("Wallet credit (MaishaPay webhook lien) error:", e));
+              }
+            } catch (wErr7) { console.error("Wallet credit (MaishaPay webhook lien) error:", wErr7); }
             try {
               if (link.partnerId) {
                 const { db: _dbPL7 } = await import("./db");
