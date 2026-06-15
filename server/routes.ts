@@ -2699,6 +2699,24 @@ export async function registerRoutes(
       console.log("📥 === SoleasPay Webhook reçu ===");
       console.log("📥 Data:", JSON.stringify(data));
 
+      // ── Vérification de signature obligatoire ────────────────────────────────
+      const spSecretKey = getCredential("SOLEASPAY_SECRET_KEY");
+      if (spSecretKey) {
+        if (!privateKey) {
+          console.error("❌ SoleasPay webhook: x-private-key manquant — rejet");
+          return res.status(401).json({ message: "Unauthorized" });
+        }
+        const signatureValid = soleaspay.verifyWebhookSignature(spSecretKey, privateKey);
+        if (!signatureValid) {
+          console.error(`❌ SoleasPay webhook: Signature invalide — rejet (ip=${req.ip})`);
+          return res.status(401).json({ message: "Unauthorized" });
+        }
+        console.log("✅ SoleasPay webhook: Signature vérifiée");
+      } else {
+        console.warn("⚠️ SoleasPay webhook: SOLEASPAY_SECRET_KEY non configurée — signature non vérifiée");
+      }
+      // ────────────────────────────────────────────────────────────────────────
+
       if (!data || !data.data) {
         console.error("❌ SoleasPay webhook: Données invalides");
         return res.status(400).json({ message: "Invalid data" });
@@ -4096,12 +4114,19 @@ export async function registerRoutes(
       const { verifyOmnipaySignature } = await import("./omnipay");
       const callbackKey = getCredential("OMNIPAY_CALLBACK_KEY");
 
-      if (callbackKey && data.signature) {
-        const valid = verifyOmnipaySignature(data, callbackKey);
-        if (!valid) {
-          console.error("❌ OmniPay webhook: Signature invalide");
+      if (callbackKey) {
+        if (!data.signature) {
+          console.error(`❌ OmniPay webhook: Signature manquante alors que OMNIPAY_CALLBACK_KEY est configurée — rejet (ip=${req.ip})`);
           return;
         }
+        const valid = verifyOmnipaySignature(data, callbackKey);
+        if (!valid) {
+          console.error(`❌ OmniPay webhook: Signature invalide — rejet (ip=${req.ip})`);
+          return;
+        }
+        console.log("✅ OmniPay webhook: Signature vérifiée");
+      } else {
+        console.warn("⚠️ OmniPay webhook: OMNIPAY_CALLBACK_KEY non configurée, signature non vérifiée");
       }
 
       const status = String(data.status);
@@ -9337,6 +9362,28 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
       console.log("📥 === PayDunya Webhook retrait reçu ===");
       console.log("📥 Data:", JSON.stringify(data));
 
+      // ── Vérification hash PayDunya ──────────────────────────────────────────
+      const pdHash = data?.hash;
+      if (pdHash) {
+        const { getCredential: _pdgc } = await import("./credentials");
+        const _pdMk = _pdgc("PAYDUNYA_MASTER_KEY");
+        if (_pdMk && !verifyPayDunyaWebhook(pdHash)) {
+          console.error(`❌ PayDunya disburse webhook: Hash invalide — rejet (ip=${req.ip})`);
+          return res.status(401).json({ message: "Unauthorized" });
+        } else if (!_pdMk) {
+          console.warn("⚠️ PayDunya disburse webhook: PAYDUNYA_MASTER_KEY non configurée, hash non vérifié");
+        }
+      } else {
+        const { getCredential: _pdgc2 } = await import("./credentials");
+        const _pdMk2 = _pdgc2("PAYDUNYA_MASTER_KEY");
+        if (_pdMk2) {
+          console.error(`❌ PayDunya disburse webhook: Hash manquant alors que PAYDUNYA_MASTER_KEY est configurée — rejet (ip=${req.ip})`);
+          return res.status(401).json({ message: "Unauthorized" });
+        }
+        console.warn("⚠️ PayDunya disburse webhook: Hash absent et PAYDUNYA_MASTER_KEY non configurée — webhook accepté");
+      }
+      // ────────────────────────────────────────────────────────────────────────
+
       res.status(200).json({ received: true });
 
       const status = (data?.status || "").toLowerCase();
@@ -9436,13 +9483,30 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         return res.status(400).json({ status: "error", message: "Requête vide ou malformée" });
       }
 
-      // Vérifier la signature si présente
-      if (signature) {
+      // ── Vérification de signature LeekPay ───────────────────────────────────
+      const lkSecretKey = getCredential("LEEKPAY_SECRET_KEY");
+      if (lkSecretKey) {
+        if (!signature) {
+          console.error(`❌ LeekPay webhook: Signature manquante alors que LEEKPAY_SECRET_KEY est configurée — rejet (ip=${req.ip})`);
+          return res.status(401).json({ status: "error", message: "Unauthorized" });
+        }
         const isValid = leekpay.verifyWebhookSignature(JSON.stringify(data), signature);
         console.log("🔐 Signature verification:", isValid ? "✅ VALID" : "❌ INVALID");
+        if (!isValid) {
+          console.error(`❌ LeekPay webhook: Signature invalide — rejet (ip=${req.ip})`);
+          return res.status(401).json({ status: "error", message: "Unauthorized" });
+        }
+      } else if (signature) {
+        const isValid = leekpay.verifyWebhookSignature(JSON.stringify(data), signature);
+        console.log("🔐 Signature verification (best-effort):", isValid ? "✅ VALID" : "❌ INVALID");
+        if (!isValid) {
+          console.error(`❌ LeekPay webhook: Signature présente mais invalide — rejet (ip=${req.ip})`);
+          return res.status(401).json({ status: "error", message: "Unauthorized" });
+        }
       } else {
-        console.warn("⚠️ LeekPay webhook: No signature provided");
+        console.warn("⚠️ LeekPay webhook: Aucune signature et LEEKPAY_SECRET_KEY non configurée — webhook accepté");
       }
+      // ────────────────────────────────────────────────────────────────────────
 
       // Extraire les données selon le format reçu
       let paymentReference: string | null = null;
