@@ -1182,6 +1182,7 @@ function TransactionsContent() {
   const [copiedRef, setCopiedRef] = useState<string | null>(null);
   const [sdkActionRef, setSdkActionRef] = useState<string | null>(null);
   const [selectedAttemptDetail, setSelectedAttemptDetail] = useState<PaymentAttempt | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ attempt: PaymentAttempt; action: "complete" | "failed" | "pending" } | null>(null);
 
   const copyRef = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -1221,6 +1222,21 @@ function TransactionsContent() {
   const { data: attempts = [], isLoading: attemptsLoading } = useQuery<PaymentAttempt[]>({
     queryKey: ["/api/admin/payment-attempts"],
     enabled: activeTab === "attempts",
+  });
+
+  const setAttemptStatusMutation = useMutation({
+    mutationFn: async ({ reference, action }: { reference: string; action: "complete" | "failed" | "pending" }) => {
+      const res = await apiRequest("POST", `/api/admin/payment-attempts/${encodeURIComponent(reference)}/set-status`, { action });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Erreur"); }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setConfirmAction(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payment-attempts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/transactions"] });
+      toast({ title: "✅ Mise à jour effectuée", description: data.message });
+    },
+    onError: (e: any) => { setConfirmAction(null); toast({ title: "Erreur", description: e.message, variant: "destructive" }); },
   });
 
   const saveNoteMutation = useMutation({
@@ -1514,47 +1530,83 @@ function TransactionsContent() {
                             )}
                           </td>
                           <td className="p-3">
-                            {isSdk && (isStuck || canResend) ? (
-                              <div className="flex flex-col gap-1">
-                                {isStuck && (
+                            <div className="flex flex-col gap-1">
+                              {/* ── Boutons SDK ── */}
+                              {isSdk && isStuck && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs border-orange-300 text-orange-700 hover:bg-orange-50 dark:text-orange-400 dark:border-orange-700 dark:hover:bg-orange-900/20 whitespace-nowrap"
+                                  disabled={isActing}
+                                  onClick={() => { setSdkActionRef(a.reference); forceCompleteSdkMutation.mutate(a.reference); }}
+                                  data-testid={`button-force-complete-sdk-${a.id}`}
+                                  title="Forcer la complétion : crédite le wallet et envoie le webhook"
+                                >
+                                  {isActing && forceCompleteSdkMutation.isPending ? "…" : "⚡ Forcer"}
+                                </Button>
+                              )}
+                              {isSdk && canResend && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs border-blue-300 text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:border-blue-700 dark:hover:bg-blue-900/20 whitespace-nowrap"
+                                  disabled={isActing}
+                                  onClick={() => { setSdkActionRef(a.reference); resendWebhookSdkMutation.mutate(a.reference); }}
+                                  data-testid={`button-resend-webhook-sdk-${a.id}`}
+                                  title="Renvoyer le webhook payment.completed au marchand"
+                                >
+                                  {isActing && resendWebhookSdkMutation.isPending ? "…" : "📡 Webhook"}
+                                </Button>
+                              )}
+                              {/* ── Boutons non-SDK (dépôt / lien de paiement) ── */}
+                              {!isSdk && (a.status === "pending" || a.status === "processing") && (
+                                <>
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-7 text-xs border-orange-300 text-orange-700 hover:bg-orange-50 dark:text-orange-400 dark:border-orange-700 dark:hover:bg-orange-900/20 whitespace-nowrap"
-                                    disabled={isActing}
-                                    onClick={() => { setSdkActionRef(a.reference); forceCompleteSdkMutation.mutate(a.reference); }}
-                                    data-testid={`button-force-complete-sdk-${a.id}`}
-                                    title="Forcer la complétion : crédite le wallet et envoie le webhook"
+                                    className="h-7 text-xs border-green-400 text-green-700 hover:bg-green-50 dark:text-green-400 dark:border-green-700 dark:hover:bg-green-900/20 whitespace-nowrap"
+                                    onClick={() => setConfirmAction({ attempt: a, action: "complete" })}
+                                    data-testid={`button-validate-attempt-${a.id}`}
+                                    title="Valider : crédite le wallet du vendeur"
                                   >
-                                    {isActing && forceCompleteSdkMutation.isPending ? "…" : "⚡ Forcer"}
+                                    ✅ Valider
                                   </Button>
-                                )}
-                                {canResend && (
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    className="h-7 text-xs border-blue-300 text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:border-blue-700 dark:hover:bg-blue-900/20 whitespace-nowrap"
-                                    disabled={isActing}
-                                    onClick={() => { setSdkActionRef(a.reference); resendWebhookSdkMutation.mutate(a.reference); }}
-                                    data-testid={`button-resend-webhook-sdk-${a.id}`}
-                                    title="Renvoyer le webhook payment.completed au marchand"
+                                    className="h-7 text-xs border-red-300 text-red-600 hover:bg-red-50 dark:text-red-400 dark:border-red-700 dark:hover:bg-red-900/20 whitespace-nowrap"
+                                    onClick={() => setConfirmAction({ attempt: a, action: "failed" })}
+                                    data-testid={`button-reject-attempt-${a.id}`}
+                                    title="Rejeter : marquer comme échoué"
                                   >
-                                    {isActing && resendWebhookSdkMutation.isPending ? "…" : "📡 Webhook"}
+                                    ❌ Rejeter
                                   </Button>
-                                )}
-                              </div>
-                            ) : null}
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 text-xs text-muted-foreground hover:text-foreground whitespace-nowrap"
-                              onClick={() => setSelectedAttemptDetail(a)}
-                              data-testid={`button-detail-attempt-${a.id}`}
-                              title="Voir les détails de cette transaction"
-                            >
-                              <Eye className="h-3 w-3 mr-1" />
-                              Détails
-                            </Button>
+                                </>
+                              )}
+                              {!isSdk && (a.status === "failed" || a.status === "cancelled") && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs border-yellow-400 text-yellow-700 hover:bg-yellow-50 dark:text-yellow-400 dark:border-yellow-700 dark:hover:bg-yellow-900/20 whitespace-nowrap"
+                                  onClick={() => setConfirmAction({ attempt: a, action: "pending" })}
+                                  data-testid={`button-reset-attempt-${a.id}`}
+                                  title="Remettre en attente"
+                                >
+                                  🔄 Réinitialiser
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 text-xs text-muted-foreground hover:text-foreground whitespace-nowrap"
+                                onClick={() => setSelectedAttemptDetail(a)}
+                                data-testid={`button-detail-attempt-${a.id}`}
+                                title="Voir les détails de cette transaction"
+                              >
+                                <Eye className="h-3 w-3 mr-1" />
+                                Détails
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                         );
@@ -1784,6 +1836,50 @@ function TransactionsContent() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setSelectedAttemptDetail(null)}>Fermer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── DIALOGUE CONFIRMATION ACTION SUR TENTATIVE ───────────── */}
+      <Dialog open={!!confirmAction} onOpenChange={(open) => { if (!open) setConfirmAction(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {confirmAction?.action === "complete" && "✅ Valider ce paiement ?"}
+              {confirmAction?.action === "failed"   && "❌ Rejeter ce paiement ?"}
+              {confirmAction?.action === "pending"  && "🔄 Remettre en attente ?"}
+            </DialogTitle>
+            <DialogDescription className="pt-2 space-y-2">
+              <div className="font-mono text-xs text-muted-foreground break-all">{confirmAction?.attempt.reference}</div>
+              {confirmAction?.action === "complete" && (
+                <p>
+                  Le montant de <strong>{parseFloat(confirmAction.attempt.amount).toLocaleString()} {confirmAction.attempt.currency}</strong> sera
+                  crédité sur le wallet de l&apos;utilisateur (après frais). Cette action est irréversible.
+                </p>
+              )}
+              {confirmAction?.action === "failed" && (
+                <p>Ce paiement sera marqué comme <strong>échoué</strong>. Aucun wallet ne sera crédité.</p>
+              )}
+              {confirmAction?.action === "pending" && (
+                <p>Ce paiement sera remis en statut <strong>en attente</strong>. Aucun crédit ne sera effectué.</p>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => setConfirmAction(null)} disabled={setAttemptStatusMutation.isPending}>
+              Annuler
+            </Button>
+            <Button
+              variant={confirmAction?.action === "complete" ? "default" : confirmAction?.action === "failed" ? "destructive" : "outline"}
+              disabled={setAttemptStatusMutation.isPending}
+              onClick={() => confirmAction && setAttemptStatusMutation.mutate({ reference: confirmAction.attempt.reference, action: confirmAction.action })}
+              data-testid="button-confirm-action-attempt"
+            >
+              {setAttemptStatusMutation.isPending ? "En cours…" :
+                confirmAction?.action === "complete" ? "Confirmer et créditer" :
+                confirmAction?.action === "failed"   ? "Confirmer le rejet" :
+                "Confirmer"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
