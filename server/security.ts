@@ -145,6 +145,17 @@ async function getIpInfo(ip: string): Promise<IpInfo | null> {
   }
 }
 
+// ─── COUNTRY CHECK (for admin geo-restriction) ───────────────────────────────
+export async function getIpCountry(ip: string): Promise<{ countryCode: string | null; isVpn: boolean } | null> {
+  if (isPrivateIp(ip)) return { countryCode: "TG", isVpn: false }; // local dev → always pass
+  const info = await getIpInfo(ip);
+  if (!info) return null;
+  return {
+    countryCode: info.countryCode,
+    isVpn: info.isProxy || info.isHosting,
+  };
+}
+
 // ─── BOT USER-AGENT DETECTION ────────────────────────────────────────────────
 // Known bot/script/automation UA patterns — block on sensitive endpoints
 const BOT_UA_PATTERNS = [
