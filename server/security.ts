@@ -16,17 +16,6 @@ const GEO_BYPASS_PATHS = new Set([
   // Health & monitoring
   "/api/health",
   "/api/health/",
-  // Telegram
-  "/api/webhook/telegram",
-  // Payment gateway webhooks — leurs serveurs sont des datacenters hors-Afrique
-  "/api/webhook/paydunya",
-  "/api/webhook/paydunya-disburse",
-  "/api/webhook/soleaspay",
-  "/api/webhook/maishapay",
-  "/api/webhook/omnipay",
-  "/api/webhook/mbiyopay",
-  "/api/webhook/paxity",
-  "/api/webhook/leekpay",
   // Public payment pages (clients externes)
   "/pay",
 ]);
@@ -576,7 +565,20 @@ export function ipBlockMiddleware(req: Request, res: Response, next: NextFunctio
 // /api/sdk  — routes marchands SDK (auth par clé API, IP datacenter légitimes)
 // /api/v1   — API marchands via merchant-api.ts (auth par clé API)
 // /api/partner-page — pages publiques partenaires (accès monde entier)
-const GEO_BYPASS_PREFIXES = ["/pay", "/api/sdk", "/api/v1", "/api/partner-page"];
+// Préfixes bypass — TOUS les sous-chemins de ces préfixes ignorent le filtre géo/VPN
+// /api/webhook  → webhooks des passerelles (serveurs hors-Afrique : SoleasPay, MaishaPay, OmniPay, Paxity, MbiyoPay, PayDunya, Telegram, LeekPay…)
+// /api/verify-  → vérifications manuelles initiées depuis la page de succès (appel navigateur)
+// /api/sdk      → SDK marchand public (accès mondial autorisé)
+// /api/v1       → API partenaires (accès mondial autorisé)
+// /api/partner-page → page publique partenaire
+const GEO_BYPASS_PREFIXES = [
+  "/pay",
+  "/api/webhook",
+  "/api/verify-",
+  "/api/sdk",
+  "/api/v1",
+  "/api/partner-page",
+];
 
 export function geoAndVpnBlockMiddleware(req: Request, res: Response, next: NextFunction) {
   // In development mode, skip geo/VPN blocking entirely (Replit proxy IPs are US datacenters)
