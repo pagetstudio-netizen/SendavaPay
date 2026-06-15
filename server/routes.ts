@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import {
   securityHeaders, ipBlockMiddleware, getClientIp, logSecurityEvent,
   recordLoginAttempt, countRecentFailedAttempts, isNewIpForIdentifier,
+  checkCrossAccountBruteForce, suspiciousUaMiddleware,
   invalidateAllOtherAdminSessions, africaOnlyAdmin,
   blockIp, unblockIp, allowIp, removeAllowedIp, loginRateLimit, withdrawRateLimit,
   registerRateLimit, otpRateLimit, apiRateLimit,
@@ -75,6 +76,7 @@ import {
   notifyKycReset,
   notifyUserLogin,
   notifyWebhookRejected,
+  notifyBruteForceDetected,
 } from "./telegram";
 import { isPhoneBlacklisted, invalidateBlacklistCache, setUnblockOtp, verifyUnblockOtp } from "./blacklist-check";
 
@@ -569,7 +571,7 @@ export async function registerRoutes(
   const sdkApi = (await import("./sdk-api")).default;
   app.use("/api/sdk", sdkApi);
 
-  app.post("/api/auth/register", registerRateLimit, async (req, res) => {
+  app.post("/api/auth/register", registerRateLimit, suspiciousUaMiddleware, async (req, res) => {
     try {
       const result = registerSchema.safeParse(req.body);
       if (!result.success) {
@@ -623,7 +625,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/auth/login", loginRateLimit, async (req, res) => {
+  app.post("/api/auth/login", loginRateLimit, suspiciousUaMiddleware, async (req, res) => {
     const ip = getClientIp(req);
     try {
       const result = loginSchema.safeParse(req.body);
@@ -645,6 +647,13 @@ export async function registerRoutes(
       if (!user) {
         await recordLoginAttempt(emailOrPhone, ip, false);
         notifyUserLogin({ accountType: "user", email: emailOrPhone, ip, userAgent: req.headers["user-agent"], success: false }).catch(() => {});
+        // Cross-account brute force check (fire-and-forget)
+        checkCrossAccountBruteForce(ip).then(async (isBrute) => {
+          if (isBrute) {
+            await blockIp(ip, `Brute force multi-comptes détecté (${emailOrPhone})`).catch(() => {});
+            notifyBruteForceDetected({ ip, distinctAccounts: 3, windowMinutes: 30 });
+          }
+        }).catch(() => {});
         return res.status(401).json({ message: "Identifiants invalides" });
       }
 
@@ -663,6 +672,13 @@ export async function registerRoutes(
           notifyAdminLoginAttempt({ emailOrPhone, ip, success: false, adminName: user.fullName, adminId: user.id });
         }
         notifyUserLogin({ accountType: user.role === "admin" ? "admin" : "user", email: user.email || emailOrPhone, ip, userAgent: req.headers["user-agent"], success: false }).catch(() => {});
+        // Cross-account brute force check (fire-and-forget)
+        checkCrossAccountBruteForce(ip).then(async (isBrute) => {
+          if (isBrute) {
+            await blockIp(ip, `Brute force multi-comptes détecté (${emailOrPhone})`).catch(() => {});
+            notifyBruteForceDetected({ ip, distinctAccounts: 3, windowMinutes: 30 });
+          }
+        }).catch(() => {});
         return res.status(401).json({ message: "Identifiants invalides" });
       }
 

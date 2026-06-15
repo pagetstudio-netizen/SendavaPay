@@ -8,7 +8,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { notifyPartnerWithdrawal, notifyPartnerWalletExchange, notifyWithdrawalAutoProcessed, notifyPartnerLogin } from "./telegram";
-import { getClientIp, isNewIpForIdentifier } from "./security";
+import { getClientIp, isNewIpForIdentifier, suspiciousUaMiddleware } from "./security";
 
 declare module "express-session" {
   interface SessionData {
@@ -84,7 +84,7 @@ export function registerPartnerRoutes(app: Express) {
   // PARTNER AUTH ROUTES
   // ==========================================
 
-  app.post("/api/partner/login", async (req: Request, res: Response) => {
+  app.post("/api/partner/login", suspiciousUaMiddleware, async (req: Request, res: Response) => {
     try {
       const parsed = partnerLoginSchema.safeParse(req.body);
       if (!parsed.success) {
