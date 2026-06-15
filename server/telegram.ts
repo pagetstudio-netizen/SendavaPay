@@ -946,6 +946,26 @@ export async function notifyPartnerLogin(data: {
   );
 }
 
+// ── Brute-force multi-comptes détecté par IP ─────────────────────────────────
+export function notifyBruteForceDetected(data: {
+  ip: string;
+  distinctAccounts: number;
+  windowMinutes: number;
+}): void {
+  const msg =
+    `<b>🤖 BRUTE FORCE MULTI-COMPTES DÉTECTÉ</b>\n\n` +
+    `<b>IP :</b> <code>${data.ip}</code>\n` +
+    `<b>Comptes ciblés :</b> ${data.distinctAccounts} comptes différents\n` +
+    `<b>Fenêtre :</b> ${data.windowMinutes} dernières minutes\n` +
+    `<b>Action :</b> IP bloquée définitivement\n` +
+    `<b>Date :</b> ${formatDate()}\n\n` +
+    `⚠️ Attaque par credential stuffing — IP bannie automatiquement.`;
+
+  sendTelegramAlert(msg, data.ip).catch(err =>
+    console.error("[Telegram] Brute force notification error:", err)
+  );
+}
+
 // ── Webhook rejeté — signature invalide ───────────────────────────────────────
 export function notifyWebhookRejected(data: {
   gateway: string;

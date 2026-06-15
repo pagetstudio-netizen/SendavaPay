@@ -81,6 +81,25 @@ setInterval(() => {
   }
 }, 15 * 60 * 1000); // toutes les 15 minutes
 
+// ─── SECONDARY VPN CHECK via proxycheck.io (free tier, no key required) ──────
+// Called only when ip-api.com doesn't flag an IP as proxy/hosting.
+// This catches VPNs with residential/African exit nodes that ip-api.com misses.
+async function checkProxyCheckIo(ip: string): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
+    const res = await fetch(`https://proxycheck.io/v2/${ip}?vpn=1&asn=1`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!res.ok) return false;
+    const data = await res.json() as Record<string, any>;
+    const entry = data[ip];
+    if (!entry) return false;
+    return entry.proxy === "yes" || entry.type === "VPN" || entry.type === "TOR";
+  } catch {
+    return false;
+  }
+}
+
 async function getIpInfo(ip: string): Promise<IpInfo | null> {
   const cached = ipInfoCache.get(ip);
   if (cached && Date.now() - cached.checkedAt < IP_CACHE_TTL) return cached;
@@ -101,17 +120,95 @@ async function getIpInfo(ip: string): Promise<IpInfo | null> {
       hosting?: boolean;
     };
     if (data.status !== "success") return null;
+
+    let isProxy = !!data.proxy;
+    const isHosting = !!data.hosting;
+    const isAfrica = data.countryCode ? AFRICAN_COUNTRY_CODES.has(data.countryCode) : false;
+
+    // Secondary VPN check: if ip-api.com didn't flag it as proxy/hosting,
+    // run proxycheck.io to catch VPNs with African/residential exit nodes.
+    if (!isProxy && !isHosting) {
+      isProxy = await checkProxyCheckIo(ip);
+    }
+
     const info: IpInfo = {
       countryCode: data.countryCode || null,
-      isProxy: !!data.proxy,
-      isHosting: !!data.hosting,
-      isAfrica: data.countryCode ? AFRICAN_COUNTRY_CODES.has(data.countryCode) : false,
+      isProxy,
+      isHosting,
+      isAfrica,
       checkedAt: Date.now(),
     };
     ipInfoCache.set(ip, info);
     return info;
   } catch {
     return null;
+  }
+}
+
+// ─── BOT USER-AGENT DETECTION ────────────────────────────────────────────────
+// Known bot/script/automation UA patterns — block on sensitive endpoints
+const BOT_UA_PATTERNS = [
+  /^curl\//i,
+  /^wget\//i,
+  /^python-requests\//i,
+  /^python\//i,
+  /^axios\//i,
+  /^node-fetch\//i,
+  /^got\//i,
+  /^undici\//i,
+  /^okhttp\//i,
+  /^java\//i,
+  /^go-http-client\//i,
+  /^libwww-perl\//i,
+  /^lwp-trivial\//i,
+  /^scrapy\//i,
+  /^httpie\//i,
+  /masscan/i,
+  /zgrab/i,
+  /nikto/i,
+  /sqlmap/i,
+  /nmap/i,
+  /nuclei/i,
+  /dirbuster/i,
+  /burpsuite/i,
+];
+
+// Middleware: rejects requests with bot/script User-Agents on sensitive endpoints
+export function suspiciousUaMiddleware(req: Request, res: Response, next: NextFunction) {
+  if (process.env.NODE_ENV !== "production") return next();
+  const ua = req.headers["user-agent"] || "";
+  // Block empty User-Agent
+  if (!ua.trim()) {
+    console.warn(`[security] Requête sans User-Agent bloquée — IP: ${getClientIp(req)} PATH: ${req.path}`);
+    return res.status(403).json({ message: "Accès refusé." });
+  }
+  // Block known bot/automation patterns
+  if (BOT_UA_PATTERNS.some(p => p.test(ua))) {
+    console.warn(`[security] Bot UA bloqué — IP: ${getClientIp(req)} UA: ${ua.slice(0, 80)}`);
+    return res.status(403).json({ message: "Accès refusé." });
+  }
+  next();
+}
+
+// ─── CROSS-ACCOUNT BRUTE FORCE DETECTION PER IP ──────────────────────────────
+// Detects when a single IP fails login on multiple *different* accounts
+// within a short window — typical credential stuffing / bot pattern.
+export async function checkCrossAccountBruteForce(ip: string): Promise<boolean> {
+  if (!pool || !ip || ip === "::1" || ip.startsWith("127.")) return false;
+  try {
+    const client = await pool.connect();
+    // Count distinct accounts targeted by this IP with failed attempts in last 30 minutes
+    const result = await client.query(
+      `SELECT COUNT(DISTINCT email_or_phone) AS cnt
+       FROM login_attempts
+       WHERE ip_address = $1 AND success = false AND created_at > NOW() - INTERVAL '30 minutes'`,
+      [ip]
+    );
+    client.release();
+    const cnt = parseInt(result.rows[0]?.cnt ?? "0");
+    return cnt >= 3; // 3+ different accounts targeted from same IP = brute force
+  } catch {
+    return false;
   }
 }
 
