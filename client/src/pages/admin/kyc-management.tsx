@@ -84,7 +84,10 @@ export default function AdminKycManagementPage() {
 
   // Step 1 — request OTP via Telegram
   const requestOtpMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/admin/kyc-management/cleanup-storage/request-otp"),
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/kyc-management/cleanup-storage/request-otp");
+      return res.json();
+    },
     onSuccess: (data: any) => {
       setOtpToken(data.token);
       setOtpCode("");
@@ -105,11 +108,13 @@ export default function AdminKycManagementPage() {
 
   // Step 2 — confirm with OTP and execute cleanup
   const confirmCleanupMutation = useMutation({
-    mutationFn: () =>
-      apiRequest("POST", "/api/admin/kyc-management/cleanup-storage/confirm", {
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/kyc-management/cleanup-storage/confirm", {
         token: otpToken,
         code: otpCode.trim(),
-      }),
+      });
+      return res.json();
+    },
     onSuccess: (data: any) => {
       setCleanupStep("idle");
       setOtpToken("");
