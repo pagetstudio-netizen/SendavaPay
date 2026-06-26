@@ -11418,47 +11418,63 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         const { initiatePayDunySoftPay, formatPhoneForPayDunya, createPayDunyaCheckout } = await import("./paydunya");
         const { getSoftPayOperator } = await import("./paydunya-softpay-map");
         const phone = formatPhoneForPayDunya(payerPhone, payerCountryUpper);
-        const pdResult = await initiatePayDunySoftPay({
-          operatorName: service.operator,
-          countryCode: service.countryCode,
-          phone,
-          name: payerName,
-          email: payerEmail || "client@sendavapay.com",
-          invoiceParams: {
+
+        // Vérifier si l'opérateur supporte SoftPay (Push/USSD direct)
+        const pdSoftPayOp = getSoftPayOperator(service.operator, service.countryCode);
+
+        if (pdSoftPayOp) {
+          // Opérateur SoftPay — paiement direct USSD/Push, pas de fallback checkout
+          const pdResult = await initiatePayDunySoftPay({
+            operatorName: service.operator,
+            countryCode: service.countryCode,
+            phone,
+            name: payerName,
+            email: payerEmail || "client@sendavapay.com",
+            invoiceParams: {
+              totalAmount: amount, description, storeName: "SendavaPay",
+              callbackUrl: `${baseUrl}/api/webhook/paydunya`,
+              returnUrl: `${baseUrl}/success?reference=${transaction.reference}`,
+              cancelUrl: `${baseUrl}/pay/api/${transaction.reference}`,
+              customData: { reference: transaction.reference },
+            },
+          });
+
+          if (!pdResult.success) {
+            // SoftPay échoué → erreur claire, pas de fallback checkout silencieux
+            await storage.updateApiTransaction((transaction as any).id, { status: "failed" } as any);
+            console.error(`[PayAPI] SoftPay failed for ${service.operator} (${service.countryCode}):`, pdResult.error);
+            return res.status(500).json({ success: false, error: pdResult.error || "Échec du paiement SoftPay" });
+          }
+
+          // Wave / Orange SN → redirect vers l'opérateur (pas PayDunya checkout)
+          if ((pdResult as any).redirectUrl) {
+            await storage.updateApiTransaction((transaction as any).id, { externalReference: `${orderId}|${(pdResult as any).redirectUrl}` } as any);
+            return res.json({ success: true, payId: orderId, orderId, isRedirect: true, redirectUrl: (pdResult as any).redirectUrl });
+          }
+
+          // USSD direct (MTN, Moov, T-Money…)
+          const invoiceToken = (pdResult as any).invoiceToken || orderId;
+          await storage.updateApiTransaction((transaction as any).id, { externalReference: `${orderId}|${invoiceToken}` } as any);
+          return res.json({ success: true, payId: invoiceToken, orderId });
+        }
+
+        // Opérateur sans SoftPay (ex: Orange Cameroun) → checkout PayDunya (redirection page)
+        console.log(`[PayAPI] Pas de SoftPay pour ${service.operator} (${service.countryCode}) → checkout PayDunya`);
+        try {
+          const checkout = await createPayDunyaCheckout({
             totalAmount: amount, description, storeName: "SendavaPay",
             callbackUrl: `${baseUrl}/api/webhook/paydunya`,
             returnUrl: `${baseUrl}/success?reference=${transaction.reference}`,
             cancelUrl: `${baseUrl}/pay/api/${transaction.reference}`,
             customData: { reference: transaction.reference },
-          },
-        });
-
-        if (!pdResult.success) {
-          // Try checkout redirect
-          try {
-            const checkout = await createPayDunyaCheckout({
-              totalAmount: amount, description, storeName: "SendavaPay",
-              callbackUrl: `${baseUrl}/api/webhook/paydunya`,
-              returnUrl: `${baseUrl}/success?reference=${transaction.reference}`,
-              cancelUrl: `${baseUrl}/pay/api/${transaction.reference}`,
-            });
-            if (checkout.success && checkout.checkoutUrl) {
-              await storage.updateApiTransaction((transaction as any).id, { externalReference: checkout.token || orderId } as any);
-              return res.json({ success: true, payId: checkout.token || orderId, orderId, isRedirect: true, redirectUrl: checkout.checkoutUrl });
-            }
-          } catch (_) {}
-          await storage.updateApiTransaction((transaction as any).id, { status: "failed" } as any);
-          return res.status(500).json({ success: false, error: pdResult.error || "Échec de l'initiation du paiement" });
-        }
-
-        if ((pdResult as any).redirectUrl) {
-          await storage.updateApiTransaction((transaction as any).id, { externalReference: `${orderId}|${(pdResult as any).redirectUrl}` } as any);
-          return res.json({ success: true, payId: orderId, orderId, isRedirect: true, redirectUrl: (pdResult as any).redirectUrl });
-        }
-
-        const invoiceToken = (pdResult as any).invoiceToken || orderId;
-        await storage.updateApiTransaction((transaction as any).id, { externalReference: `${orderId}|${invoiceToken}` } as any);
-        return res.json({ success: true, payId: invoiceToken, orderId });
+          });
+          if (checkout.success && checkout.checkoutUrl) {
+            await storage.updateApiTransaction((transaction as any).id, { externalReference: checkout.token || orderId } as any);
+            return res.json({ success: true, payId: checkout.token || orderId, orderId, isRedirect: true, redirectUrl: checkout.checkoutUrl });
+          }
+        } catch (_) {}
+        await storage.updateApiTransaction((transaction as any).id, { status: "failed" } as any);
+        return res.status(500).json({ success: false, error: `Opérateur ${service.operator} non supporté en mode Push. Essayez un autre opérateur.` });
       }
 
       // ── OmniPay ───────────────────────────────────────────────────────────
