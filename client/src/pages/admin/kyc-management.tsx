@@ -21,9 +21,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { UserX, RotateCcw, Archive, AlertTriangle, CheckCircle2, RefreshCw, Trash2 } from "lucide-react";
+import {
+  UserX, RotateCcw, Archive, AlertTriangle, CheckCircle2,
+  RefreshCw, Trash2, Send, ShieldCheck,
+} from "lucide-react";
 import type { KycRequest, User } from "@shared/schema";
 
 type KycWithUser = KycRequest & { user?: User };
@@ -49,7 +54,11 @@ function KycTypeLabel({ type }: { type: string }) {
 export default function AdminKycManagementPage() {
   const { toast } = useToast();
   const [resetTarget, setResetTarget] = useState<KycWithUser | null>(null);
-  const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
+
+  // Cleanup OTP flow state
+  const [cleanupStep, setCleanupStep] = useState<"idle" | "confirm" | "otp">("idle");
+  const [otpToken, setOtpToken] = useState("");
+  const [otpCode, setOtpCode] = useState("");
 
   const { data: approved = [], isLoading: approvedLoading } = useQuery<KycWithUser[]>({
     queryKey: ["/api/admin/kyc-management"],
@@ -73,24 +82,58 @@ export default function AdminKycManagementPage() {
     },
   });
 
-  const cleanupMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/admin/kyc-management/cleanup-storage"),
+  // Step 1 — request OTP via Telegram
+  const requestOtpMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/kyc-management/cleanup-storage/request-otp"),
     onSuccess: (data: any) => {
-      setCleanupDialogOpen(false);
+      setOtpToken(data.token);
+      setOtpCode("");
+      setCleanupStep("otp");
       toast({
-        title: "Nettoyage terminé",
-        description: data?.message || "Les fichiers KYC ont été supprimés du stockage Supabase.",
+        title: "Code envoyé sur Telegram",
+        description: "Consultez le groupe administrateur Telegram et saisissez le code reçu.",
       });
     },
     onError: (err: any) => {
-      setCleanupDialogOpen(false);
       toast({
-        title: "Erreur de nettoyage",
-        description: err?.message || "Une erreur est survenue pendant le nettoyage.",
+        title: "Erreur",
+        description: err?.message || "Impossible d'envoyer le code Telegram.",
         variant: "destructive",
       });
     },
   });
+
+  // Step 2 — confirm with OTP and execute cleanup
+  const confirmCleanupMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", "/api/admin/kyc-management/cleanup-storage/confirm", {
+        token: otpToken,
+        code: otpCode.trim(),
+      }),
+    onSuccess: (data: any) => {
+      setCleanupStep("idle");
+      setOtpToken("");
+      setOtpCode("");
+      toast({
+        title: "Nettoyage terminé ✅",
+        description: data?.message || "Les fichiers KYC ont été supprimés du stockage Supabase.",
+      });
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Code invalide",
+        description: err?.message || "Le code saisi est incorrect ou expiré.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  function closeCleanupDialog() {
+    if (requestOtpMutation.isPending || confirmCleanupMutation.isPending) return;
+    setCleanupStep("idle");
+    setOtpToken("");
+    setOtpCode("");
+  }
 
   return (
     <AdminLayout>
@@ -108,7 +151,7 @@ export default function AdminKycManagementPage() {
           <Button
             variant="destructive"
             size="sm"
-            onClick={() => setCleanupDialogOpen(true)}
+            onClick={() => setCleanupStep("confirm")}
             data-testid="button-cleanup-kyc-storage"
             className="flex items-center gap-2"
           >
@@ -255,19 +298,17 @@ export default function AdminKycManagementPage() {
               <strong>{resetTarget?.user?.fullName || `#${resetTarget?.userId}`}</strong>.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="rounded-lg bg-orange-500/10 border border-orange-500/20 p-4 flex gap-3">
-              <AlertTriangle className="h-5 w-5 text-orange-500 flex-shrink-0 mt-0.5" />
-              <div className="text-sm">
-                <p className="font-medium text-orange-600 dark:text-orange-400">Conséquences de cette action</p>
-                <ul className="mt-2 space-y-1 text-muted-foreground list-disc list-inside">
-                  <li>Le compte sera marqué comme "Non vérifié"</li>
-                  <li>L'utilisateur ne pourra plus effectuer de retraits</li>
-                  <li>Le dossier KYC sera archivé (jamais supprimé)</li>
-                  <li>Une notification Telegram sera envoyée</li>
-                  <li>L'utilisateur devra soumettre un nouveau dossier</li>
-                </ul>
-              </div>
+          <div className="rounded-lg bg-orange-500/10 border border-orange-500/20 p-4 flex gap-3">
+            <AlertTriangle className="h-5 w-5 text-orange-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-medium text-orange-600 dark:text-orange-400">Conséquences de cette action</p>
+              <ul className="mt-2 space-y-1 text-muted-foreground list-disc list-inside">
+                <li>Le compte sera marqué comme "Non vérifié"</li>
+                <li>L'utilisateur ne pourra plus effectuer de retraits</li>
+                <li>Le dossier KYC sera archivé (jamais supprimé)</li>
+                <li>Une notification Telegram sera envoyée</li>
+                <li>L'utilisateur devra soumettre un nouveau dossier</li>
+              </ul>
             </div>
           </div>
           <DialogFooter>
@@ -288,8 +329,8 @@ export default function AdminKycManagementPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Cleanup storage confirmation dialog */}
-      <Dialog open={cleanupDialogOpen} onOpenChange={open => { if (!open && !cleanupMutation.isPending) setCleanupDialogOpen(false); }}>
+      {/* Step 1 — Cleanup confirmation dialog */}
+      <Dialog open={cleanupStep === "confirm"} onOpenChange={open => { if (!open) closeCleanupDialog(); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -297,7 +338,8 @@ export default function AdminKycManagementPage() {
               Libérer l'espace Supabase
             </DialogTitle>
             <DialogDescription>
-              Cette action va supprimer tous les fichiers (photos de documents) stockés dans Supabase Storage pour libérer de l'espace.
+              Cette action supprimera tous les fichiers photos KYC de Supabase Storage.
+              Un code de confirmation vous sera envoyé sur Telegram.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -319,28 +361,86 @@ export default function AdminKycManagementPage() {
                   <li>Tous les utilisateurs et leurs comptes</li>
                   <li>Toutes les transactions</li>
                   <li>Les statuts KYC (approuvé/rejeté)</li>
-                  <li>Les données de la base de données</li>
+                  <li>Toutes les données de la base</li>
                 </ul>
               </div>
             </div>
           </div>
           <DialogFooter>
+            <Button variant="outline" onClick={closeCleanupDialog}>Annuler</Button>
             <Button
-              variant="outline"
-              onClick={() => setCleanupDialogOpen(false)}
-              disabled={cleanupMutation.isPending}
+              variant="destructive"
+              disabled={requestOtpMutation.isPending}
+              onClick={() => requestOtpMutation.mutate()}
+              data-testid="button-send-cleanup-otp"
             >
+              {requestOtpMutation.isPending
+                ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Envoi en cours...</>
+                : <><Send className="h-4 w-4 mr-2" />Recevoir le code sur Telegram</>
+              }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Step 2 — OTP entry dialog */}
+      <Dialog open={cleanupStep === "otp"} onOpenChange={open => { if (!open) closeCleanupDialog(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-blue-500" />
+              Vérification Telegram requise
+            </DialogTitle>
+            <DialogDescription>
+              Un code de 6 chiffres a été envoyé dans votre groupe administrateur Telegram.
+              Saisissez-le ci-dessous pour confirmer le nettoyage.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-3 flex gap-2 items-center text-sm">
+              <Send className="h-4 w-4 text-blue-500 flex-shrink-0" />
+              <span className="text-blue-700 dark:text-blue-300">
+                Consultez le groupe Telegram administrateur — le code expire dans <strong>10 minutes</strong>.
+              </span>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="otp-code">Code de confirmation</Label>
+              <Input
+                id="otp-code"
+                placeholder="123456"
+                maxLength={6}
+                value={otpCode}
+                onChange={e => setOtpCode(e.target.value.replace(/\D/g, ""))}
+                className="text-center text-2xl font-mono tracking-[0.5em] h-14"
+                data-testid="input-cleanup-otp-code"
+                onKeyDown={e => {
+                  if (e.key === "Enter" && otpCode.length === 6) {
+                    confirmCleanupMutation.mutate();
+                  }
+                }}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={closeCleanupDialog} disabled={confirmCleanupMutation.isPending}>
               Annuler
             </Button>
             <Button
-              variant="destructive"
-              disabled={cleanupMutation.isPending}
-              onClick={() => cleanupMutation.mutate()}
-              data-testid="button-confirm-cleanup-storage"
+              variant="outline"
+              onClick={() => { setCleanupStep("confirm"); setOtpCode(""); }}
+              disabled={confirmCleanupMutation.isPending}
             >
-              {cleanupMutation.isPending
-                ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Nettoyage en cours...</>
-                : <><Trash2 className="h-4 w-4 mr-2" />Supprimer les fichiers</>
+              Renvoyer le code
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={confirmCleanupMutation.isPending || otpCode.length !== 6}
+              onClick={() => confirmCleanupMutation.mutate()}
+              data-testid="button-confirm-cleanup-otp"
+            >
+              {confirmCleanupMutation.isPending
+                ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Vérification...</>
+                : <><Trash2 className="h-4 w-4 mr-2" />Confirmer le nettoyage</>
               }
             </Button>
           </DialogFooter>

@@ -777,6 +777,28 @@ export function notifyCredentialOtp(data: {
   );
 }
 
+export function notifyStorageCleanupOtp(data: {
+  userName: string;
+  userId: number;
+  code: string;
+  ip: string;
+}) {
+  const msg =
+    `<b>🗑️ CODE OTP — NETTOYAGE STOCKAGE KYC</b>\n\n` +
+    `<b>⚠️ Action irréversible demandée</b>\n\n` +
+    `<b>Admin:</b> ${data.userName} (#${data.userId})\n` +
+    `<b>Action:</b> Suppression de tous les fichiers KYC (photos de documents)\n` +
+    `<b>IP:</b> <code>${data.ip}</code>\n\n` +
+    `<b>Code de confirmation:</b>\n<code>${data.code}</code>\n\n` +
+    `<b>Expire dans:</b> 10 minutes\n` +
+    `<b>Date:</b> ${formatDate()}\n\n` +
+    `⚠️ <i>Si vous n'avez pas demandé cette action, alertez immédiatement l'équipe.</i>`;
+
+  sendTelegramAlert(msg, data.ip).catch(err =>
+    console.error("[Telegram] Storage cleanup OTP notification error:", err)
+  );
+}
+
 export async function notifyIpChanged(newIp: string) {
   const msg =
     `<b>⚠️ ALERTE IP SERVEUR CHANGEE</b>\n\n` +
