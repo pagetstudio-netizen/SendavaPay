@@ -11279,6 +11279,20 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   });
 
   // Step 1 — request OTP for storage cleanup (sends code to Telegram)
+  app.get("/api/admin/kyc-management/storage-stats", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { countKycStorageFiles, isSupabaseStorageConfigured } = await import("./supabase-storage");
+      if (!isSupabaseStorageConfigured()) {
+        return res.json({ count: null, sizeKb: null, configured: false });
+      }
+      const stats = await countKycStorageFiles();
+      res.json({ ...stats, configured: true });
+    } catch (err: any) {
+      console.error("[kyc-cleanup] Storage stats error:", err);
+      res.json({ count: null, sizeKb: null, configured: false, error: err.message });
+    }
+  });
+
   app.post("/api/admin/kyc-management/cleanup-storage/request-otp", requireAuth, requireAdmin, async (req, res) => {
     try {
       const userId = req.session.userId!;
