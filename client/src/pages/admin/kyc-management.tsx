@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { UserX, RotateCcw, Archive, AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
+import { UserX, RotateCcw, Archive, AlertTriangle, CheckCircle2, RefreshCw, Trash2 } from "lucide-react";
 import type { KycRequest, User } from "@shared/schema";
 
 type KycWithUser = KycRequest & { user?: User };
@@ -49,6 +49,7 @@ function KycTypeLabel({ type }: { type: string }) {
 export default function AdminKycManagementPage() {
   const { toast } = useToast();
   const [resetTarget, setResetTarget] = useState<KycWithUser | null>(null);
+  const [cleanupDialogOpen, setCleanupDialogOpen] = useState(false);
 
   const { data: approved = [], isLoading: approvedLoading } = useQuery<KycWithUser[]>({
     queryKey: ["/api/admin/kyc-management"],
@@ -72,17 +73,48 @@ export default function AdminKycManagementPage() {
     },
   });
 
+  const cleanupMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/kyc-management/cleanup-storage"),
+    onSuccess: (data: any) => {
+      setCleanupDialogOpen(false);
+      toast({
+        title: "Nettoyage terminé",
+        description: data?.message || "Les fichiers KYC ont été supprimés du stockage Supabase.",
+      });
+    },
+    onError: (err: any) => {
+      setCleanupDialogOpen(false);
+      toast({
+        title: "Erreur de nettoyage",
+        description: err?.message || "Une erreur est survenue pendant le nettoyage.",
+        variant: "destructive",
+      });
+    },
+  });
+
   return (
     <AdminLayout>
       <div className="space-y-6">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
-            <UserX className="h-5 w-5 text-orange-500" />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
+              <UserX className="h-5 w-5 text-orange-500" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">Gestion KYC</h1>
+              <p className="text-sm text-muted-foreground">Réinitialisez ou archivez les dossiers KYC vérifiés</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold">Gestion KYC</h1>
-            <p className="text-sm text-muted-foreground">Réinitialisez ou archivez les dossiers KYC vérifiés</p>
-          </div>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setCleanupDialogOpen(true)}
+            data-testid="button-cleanup-kyc-storage"
+            className="flex items-center gap-2"
+          >
+            <Trash2 className="h-4 w-4" />
+            Libérer l'espace Supabase
+          </Button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -251,6 +283,65 @@ export default function AdminKycManagementPage() {
                 : <RotateCcw className="h-4 w-4 mr-2" />
               }
               Confirmer la réinitialisation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cleanup storage confirmation dialog */}
+      <Dialog open={cleanupDialogOpen} onOpenChange={open => { if (!open && !cleanupMutation.isPending) setCleanupDialogOpen(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Libérer l'espace Supabase
+            </DialogTitle>
+            <DialogDescription>
+              Cette action va supprimer tous les fichiers (photos de documents) stockés dans Supabase Storage pour libérer de l'espace.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-4 flex gap-3">
+              <AlertTriangle className="h-5 w-5 text-destructive flex-shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium text-destructive">Ce qui sera supprimé</p>
+                <ul className="mt-2 space-y-1 text-muted-foreground list-disc list-inside">
+                  <li>Toutes les photos de pièces d'identité (recto/verso)</li>
+                  <li>Toutes les photos selfie des vérifications KYC</li>
+                </ul>
+              </div>
+            </div>
+            <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-4 flex gap-3">
+              <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium text-green-700 dark:text-green-400">Ce qui est conservé</p>
+                <ul className="mt-2 space-y-1 text-muted-foreground list-disc list-inside">
+                  <li>Tous les utilisateurs et leurs comptes</li>
+                  <li>Toutes les transactions</li>
+                  <li>Les statuts KYC (approuvé/rejeté)</li>
+                  <li>Les données de la base de données</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCleanupDialogOpen(false)}
+              disabled={cleanupMutation.isPending}
+            >
+              Annuler
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={cleanupMutation.isPending}
+              onClick={() => cleanupMutation.mutate()}
+              data-testid="button-confirm-cleanup-storage"
+            >
+              {cleanupMutation.isPending
+                ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Nettoyage en cours...</>
+                : <><Trash2 className="h-4 w-4 mr-2" />Supprimer les fichiers</>
+              }
             </Button>
           </DialogFooter>
         </DialogContent>

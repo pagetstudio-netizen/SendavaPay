@@ -102,3 +102,62 @@ export async function getKycSignedUrl(objectPath: string, expiresInSeconds = 360
 export function isSupabaseStorageConfigured(): boolean {
   return !!(getCredential("SUPABASE_URL") && getCredential("SUPABASE_SERVICE_ROLE_KEY"));
 }
+
+export async function cleanupKycStorage(): Promise<{ deleted: number; errors: string[] }> {
+  const supabase = getSupabaseAdmin();
+  let deleted = 0;
+  const errors: string[] = [];
+
+  // List all files in the kyc_documents bucket (paginated by 1000)
+  let offset = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data: files, error: listError } = await supabase.storage
+      .from(KYC_BUCKET)
+      .list("", { limit: pageSize, offset, sortBy: { column: "name", order: "asc" } });
+
+    if (listError) {
+      errors.push(`Erreur listage: ${listError.message}`);
+      break;
+    }
+    if (!files || files.length === 0) break;
+
+    // Collect all file paths including subfolders
+    const paths: string[] = [];
+    for (const file of files) {
+      if (file.id) {
+        // It's a file
+        paths.push(file.name);
+      } else {
+        // It's a folder — list its contents
+        const { data: subFiles, error: subErr } = await supabase.storage
+          .from(KYC_BUCKET)
+          .list(file.name, { limit: pageSize });
+        if (subErr) {
+          errors.push(`Erreur listage dossier ${file.name}: ${subErr.message}`);
+          continue;
+        }
+        for (const sf of subFiles || []) {
+          paths.push(`${file.name}/${sf.name}`);
+        }
+      }
+    }
+
+    if (paths.length > 0) {
+      const { error: delError } = await supabase.storage
+        .from(KYC_BUCKET)
+        .remove(paths);
+      if (delError) {
+        errors.push(`Erreur suppression: ${delError.message}`);
+      } else {
+        deleted += paths.length;
+      }
+    }
+
+    if (files.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return { deleted, errors };
+}

@@ -34,7 +34,7 @@ import { isDatabaseConnected, pool } from "./db";
 import merchantApi from "./merchant-api";
 import { registerPartnerRoutes } from "./partner-routes";
 import { registerObjectStorageRoutes, ObjectStorageService } from "./replit_integrations/object_storage";
-import { uploadKycFile, uploadProductImage, getKycSignedUrl, isSupabaseStorageConfigured } from "./supabase-storage";
+import { uploadKycFile, uploadProductImage, getKycSignedUrl, isSupabaseStorageConfigured, cleanupKycStorage } from "./supabase-storage";
 import { 
   sendWelcomeEmail, 
   sendPaymentReceivedEmail, 
@@ -11274,6 +11274,22 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
       res.json({ message: "KYC réinitialisé avec succès" });
     } catch (err: any) {
       res.status(500).json({ message: "Erreur serveur" });
+    }
+  });
+
+  app.post("/api/admin/kyc-management/cleanup-storage", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const result = await cleanupKycStorage();
+      const admin = await storage.getUser(req.session.userId!);
+      const adminName = admin?.fullName || admin?.email || "Admin";
+      console.log(`[kyc-cleanup] ${adminName} a supprimé ${result.deleted} fichiers KYC de Supabase Storage`);
+      res.json({
+        message: `Nettoyage terminé : ${result.deleted} fichier(s) supprimé(s) du stockage Supabase.`,
+        deleted: result.deleted,
+        errors: result.errors,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Erreur lors du nettoyage du stockage KYC" });
     }
   });
 
