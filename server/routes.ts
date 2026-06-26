@@ -60,6 +60,7 @@ import {
   notifyAdminOtp,
   notifyAdminLoginAttempt,
   notifyCredentialOtp,
+  notifyStorageCleanupOtp,
   notifyLargeAmount,
   notifyLiquidityEmpty,
   sendBotReply,
@@ -11277,18 +11278,43 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     }
   });
 
-  app.post("/api/admin/kyc-management/cleanup-storage", requireAuth, requireAdmin, async (req, res) => {
+  // Step 1 — request OTP for storage cleanup (sends code to Telegram)
+  app.post("/api/admin/kyc-management/cleanup-storage/request-otp", requireAuth, requireAdmin, async (req, res) => {
     try {
-      const result = await cleanupKycStorage();
+      const userId = req.session.userId!;
+      const admin = await storage.getUser(userId);
+      if (!admin) return res.status(401).json({ message: "Administrateur introuvable" });
+      const ip = getClientIp(req);
+      const { token, code } = await createOtp(userId, "storage_cleanup", ip);
+      notifyStorageCleanupOtp({ userName: admin.fullName || admin.email || "Admin", userId, code, ip });
+      res.json({ token, message: "Code envoyé sur Telegram. Saisissez-le pour confirmer le nettoyage." });
+    } catch (err: any) {
+      console.error("[kyc-cleanup] OTP request error:", err);
+      res.status(500).json({ message: err.message || "Erreur lors de l'envoi du code de vérification" });
+    }
+  });
+
+  // Step 2 — verify OTP and execute storage cleanup
+  app.post("/api/admin/kyc-management/cleanup-storage/confirm", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { token, code } = req.body as { token: string; code: string };
+      if (!token || !code) return res.status(400).json({ message: "Token et code requis" });
+      const ip = getClientIp(req);
+      const result = await verifyOtp(token, code.trim(), "storage_cleanup", ip);
+      if (!result.valid) {
+        return res.status(400).json({ message: result.errorMsg || "Code invalide ou expiré" });
+      }
       const admin = await storage.getUser(req.session.userId!);
       const adminName = admin?.fullName || admin?.email || "Admin";
-      console.log(`[kyc-cleanup] ${adminName} a supprimé ${result.deleted} fichiers KYC de Supabase Storage`);
+      const cleanup = await cleanupKycStorage();
+      console.log(`[kyc-cleanup] ${adminName} a supprimé ${cleanup.deleted} fichiers KYC de Supabase Storage`);
       res.json({
-        message: `Nettoyage terminé : ${result.deleted} fichier(s) supprimé(s) du stockage Supabase.`,
-        deleted: result.deleted,
-        errors: result.errors,
+        message: `Nettoyage terminé : ${cleanup.deleted} fichier(s) supprimé(s) du stockage Supabase.`,
+        deleted: cleanup.deleted,
+        errors: cleanup.errors,
       });
     } catch (err: any) {
+      console.error("[kyc-cleanup] Confirm error:", err);
       res.status(500).json({ message: err.message || "Erreur lors du nettoyage du stockage KYC" });
     }
   });

@@ -44,11 +44,12 @@ const OTP_EXPIRY: Record<string, string> = {
   admin_login:       "10 minutes",  // Login admin : 10 min (sécurité maximale)
   credential_update: "15 minutes",  // Modification de clé : 15 min
   withdrawal:        "30 minutes",  // Retrait : 30 min
+  storage_cleanup:   "10 minutes",  // Nettoyage stockage : 10 min
 };
 
 export async function createOtp(
   userId: number,
-  type: "admin_login" | "withdrawal" | "credential_update",
+  type: "admin_login" | "withdrawal" | "credential_update" | "storage_cleanup",
   ipAddress: string,
   metadata?: Record<string, unknown>
 ): Promise<{ token: string; code: string }> {
@@ -90,7 +91,7 @@ export async function createOtp(
 export async function verifyOtp(
   token: string,
   code: string,
-  type: "admin_login" | "withdrawal" | "credential_update",
+  type: "admin_login" | "withdrawal" | "credential_update" | "storage_cleanup",
   callerIp?: string
 ): Promise<{ valid: boolean; userId?: number; metadata?: Record<string, unknown>; errorMsg?: string }> {
   if (!pool) return { valid: false, errorMsg: "Base de données non disponible" };
