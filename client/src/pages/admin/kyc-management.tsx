@@ -27,7 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   UserX, RotateCcw, Archive, AlertTriangle, CheckCircle2,
-  RefreshCw, Trash2, Send, ShieldCheck,
+  RefreshCw, Trash2, Send, ShieldCheck, HardDrive, FileImage,
 } from "lucide-react";
 import type { KycRequest, User } from "@shared/schema";
 
@@ -59,6 +59,14 @@ export default function AdminKycManagementPage() {
   const [cleanupStep, setCleanupStep] = useState<"idle" | "confirm" | "otp">("idle");
   const [otpToken, setOtpToken] = useState("");
   const [otpCode, setOtpCode] = useState("");
+
+  const { data: storageStats, isLoading: statsLoading, refetch: refetchStats } = useQuery<{
+    count: number | null; sizeKb: number | null; configured: boolean;
+  }>({
+    queryKey: ["/api/admin/kyc-management/storage-stats"],
+    enabled: cleanupStep === "confirm",
+    staleTime: 0,
+  });
 
   const { data: approved = [], isLoading: approvedLoading } = useQuery<KycWithUser[]>({
     queryKey: ["/api/admin/kyc-management"],
@@ -348,6 +356,52 @@ export default function AdminKycManagementPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {/* Storage stats counter */}
+            <div className="rounded-lg border bg-muted/40 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <HardDrive className="h-4 w-4 text-muted-foreground" />
+                <p className="text-sm font-medium">Espace occupé actuellement</p>
+                <button
+                  onClick={() => refetchStats()}
+                  className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+                  title="Actualiser"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${statsLoading ? "animate-spin" : ""}`} />
+                </button>
+              </div>
+              {statsLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Calcul en cours...
+                </div>
+              ) : !storageStats?.configured ? (
+                <p className="text-sm text-muted-foreground italic">Stockage Supabase non configuré</p>
+              ) : (
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-2">
+                    <FileImage className="h-5 w-5 text-orange-500" />
+                    <div>
+                      <p className="text-2xl font-bold" data-testid="text-storage-file-count">
+                        {storageStats.count ?? 0}
+                      </p>
+                      <p className="text-xs text-muted-foreground">fichiers</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <HardDrive className="h-5 w-5 text-blue-500" />
+                    <div>
+                      <p className="text-2xl font-bold" data-testid="text-storage-size">
+                        {storageStats.sizeKb && storageStats.sizeKb > 1024
+                          ? `${(storageStats.sizeKb / 1024).toFixed(1)} Mo`
+                          : `${storageStats.sizeKb ?? 0} Ko`}
+                      </p>
+                      <p className="text-xs text-muted-foreground">utilisés</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-4 flex gap-3">
               <AlertTriangle className="h-5 w-5 text-destructive flex-shrink-0 mt-0.5" />
               <div className="text-sm">

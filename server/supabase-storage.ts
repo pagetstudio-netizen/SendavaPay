@@ -103,6 +103,42 @@ export function isSupabaseStorageConfigured(): boolean {
   return !!(getCredential("SUPABASE_URL") && getCredential("SUPABASE_SERVICE_ROLE_KEY"));
 }
 
+export async function countKycStorageFiles(): Promise<{ count: number; sizeKb: number }> {
+  const supabase = getSupabaseAdmin();
+  let count = 0;
+  let sizeKb = 0;
+  let offset = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data: files, error } = await supabase.storage
+      .from(KYC_BUCKET)
+      .list("", { limit: pageSize, offset, sortBy: { column: "name", order: "asc" } });
+
+    if (error || !files || files.length === 0) break;
+
+    for (const file of files) {
+      if (file.id) {
+        count++;
+        sizeKb += Math.round((file.metadata?.size || 0) / 1024);
+      } else {
+        const { data: subFiles } = await supabase.storage
+          .from(KYC_BUCKET)
+          .list(file.name, { limit: pageSize });
+        for (const sf of subFiles || []) {
+          count++;
+          sizeKb += Math.round((sf.metadata?.size || 0) / 1024);
+        }
+      }
+    }
+
+    if (files.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return { count, sizeKb };
+}
+
 export async function cleanupKycStorage(): Promise<{ deleted: number; errors: string[] }> {
   const supabase = getSupabaseAdmin();
   let deleted = 0;
