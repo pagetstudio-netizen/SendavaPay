@@ -20,6 +20,8 @@ fi
 echo ""
 echo "[1/3] Installation des dépendances..."
 npm install --omit=dev
+# sharp uses native binaries — must be rebuilt for the target platform
+npm rebuild sharp 2>/dev/null || true
 
 echo ""
 echo "[2/3] Migration base de données..."
