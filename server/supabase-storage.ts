@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import { getCredential } from "./credentials";
+import sharp from "sharp";
 
 export const KYC_BUCKET = "kyc_documents";
 export const PRODUCT_BUCKET = "product_images";
@@ -20,16 +21,41 @@ function getSupabaseAdmin() {
   });
 }
 
+async function compressKycImage(buffer: Buffer, mimetype: string): Promise<{ buffer: Buffer; mimetype: string }> {
+  try {
+    const originalKb = Math.round(buffer.length / 1024);
+
+    const compressed = await sharp(buffer)
+      .rotate()
+      .resize(1600, 1600, { fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 82, progressive: true })
+      .toBuffer();
+
+    const compressedKb = Math.round(compressed.length / 1024);
+    console.log(`[kyc-compress] ${originalKb} Ko → ${compressedKb} Ko (réduction ${Math.round((1 - compressed.length / buffer.length) * 100)}%)`);
+
+    return { buffer: compressed, mimetype: "image/jpeg" };
+  } catch (err) {
+    console.warn(`[kyc-compress] Compression échouée, envoi original: ${(err as Error).message}`);
+    return { buffer, mimetype };
+  }
+}
+
 export async function uploadKycFile(
   fileBuffer: Buffer,
   mimetype: string,
   userId: number,
   fileType: "front" | "back" | "selfie"
 ): Promise<string> {
-  const ext = mimetype.includes("png") ? ".png" : mimetype.includes("gif") ? ".gif" : ".jpg";
-  const objectPath = `user_${userId}/${Date.now()}_${fileType}${ext}`;
+  const originalKb = Math.round(fileBuffer.length / 1024);
+  console.log(`[kyc-upload] ${fileType} reçu: ${originalKb} Ko (${mimetype})`);
 
-  console.log(`[kyc-upload] Tentative upload ${fileType} vers Supabase Storage: ${objectPath} (${fileBuffer.length} octets)`);
+  let compressed = { buffer: fileBuffer, mimetype };
+  if (mimetype.startsWith("image/") && !mimetype.includes("gif")) {
+    compressed = await compressKycImage(fileBuffer, mimetype);
+  }
+
+  const objectPath = `user_${userId}/${Date.now()}_${fileType}.jpg`;
 
   let supabase: ReturnType<typeof createClient>;
   try {
@@ -41,17 +67,18 @@ export async function uploadKycFile(
 
   const { error } = await supabase.storage
     .from(KYC_BUCKET)
-    .upload(objectPath, fileBuffer, {
-      contentType: mimetype,
+    .upload(objectPath, compressed.buffer, {
+      contentType: compressed.mimetype,
       upsert: true,
     });
 
   if (error) {
-    console.error(`[kyc-upload] Échec upload ${fileType}: ${error.message}`, { objectPath, mimetype, userId });
+    console.error(`[kyc-upload] Échec upload ${fileType}: ${error.message}`, { objectPath, userId });
     throw new Error(`Échec de l'enregistrement du document (${fileType}). Réessayez ou contactez le support.`);
   }
 
-  console.log(`[kyc-upload] OK — ${fileType} enregistré: ${objectPath}`);
+  const finalKb = Math.round(compressed.buffer.length / 1024);
+  console.log(`[kyc-upload] OK — ${fileType} enregistré: ${objectPath} (${finalKb} Ko)`);
   return objectPath;
 }
 
