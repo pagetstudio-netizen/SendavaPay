@@ -2,17 +2,13 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
-import { ArrowLeft, ArrowRight, Code2, Webhook, Zap, MessageCircle } from "lucide-react";
+import { ArrowLeft, ArrowRight, Code2, Webhook, Zap, MessageCircle, BookOpen } from "lucide-react";
 import { SiWhatsapp } from "react-icons/si";
 import imgApiPaiement from "@assets/IMG_20260227_073944_233_1772177997425.jpg";
 
 const WHATSAPP_NUMBER = "22892299772";
 
 export default function ApiPaiementPage() {
-  const sdkRequestUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
-    "Bonjour SendavaPay,\n\nJe souhaite accéder à l'API SDK Payin/Payout (sans redirection) pour intégrer les paiements directement dans mon application.\n\nMerci de me contacter pour les prochaines étapes."
-  )}`;
-
   const supportUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
     "Bonjour, j'ai besoin d'aide concernant l'API SendavaPay."
   )}`;
@@ -80,15 +76,15 @@ export default function ApiPaiementPage() {
                 </p>
               </div>
             </div>
-            <a href={sdkRequestUrl} target="_blank" rel="noopener noreferrer">
+            <Link href="/sdk-docs">
               <Button
                 className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-xl gap-2"
                 data-testid="button-request-sdk-access"
               >
-                <SiWhatsapp className="h-4 w-4" />
-                Demander l'accès SDK
+                <BookOpen className="h-4 w-4" />
+                Voir la documentation SDK
               </Button>
-            </a>
+            </Link>
           </div>
 
           {/* Support WhatsApp */}

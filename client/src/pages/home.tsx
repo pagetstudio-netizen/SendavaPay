@@ -24,6 +24,8 @@ import {
   Megaphone,
   MousePointer,
   Mail,
+  Code2,
+  BookOpen,
 } from "lucide-react";
 
 import mtnLogo from "@assets/mtn_(1)_1763835082904-BVdEqpuz_1769443204393.png";
@@ -619,12 +621,18 @@ export default function HomePage() {
                     En savoir plus
                   </Button>
                 </Link>
-                <a href="mailto:contact@sendavapay.com?subject=Demande accès API white-label SendavaPay" className="block">
-                  <Button variant="outline" className="w-full font-semibold text-base py-3 rounded-xl" data-testid="button-api-contact-support">
-                    <Mail className="h-4 w-4 mr-2" />
-                    Contacter le support
+                <Link href="/docs">
+                  <Button variant="outline" className="w-full font-semibold text-sm py-3 rounded-xl gap-2" data-testid="button-api-docs-redirect">
+                    <Code2 className="h-4 w-4" />
+                    Doc API avec redirection
                   </Button>
-                </a>
+                </Link>
+                <Link href="/sdk-docs">
+                  <Button variant="outline" className="w-full font-semibold text-sm py-3 rounded-xl gap-2 border-purple-500 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/20" data-testid="button-api-docs-sdk">
+                    <BookOpen className="h-4 w-4" />
+                    Doc API SDK Payin & Payout
+                  </Button>
+                </Link>
               </div>
             </div>
           </div>

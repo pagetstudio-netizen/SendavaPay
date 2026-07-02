@@ -133,7 +133,7 @@ function ParamTable({ params }: { params: { name: string; type: string; required
   );
 }
 
-function SdkDocumentation({ apiKeys }: { apiKeys: ApiKey[] }) {
+export function SdkDocumentation({ apiKeys }: { apiKeys: ApiKey[] }) {
   const sdkKeys = apiKeys.filter((k) => k.apiType === "sdk" && k.isActive);
   const KEY = sdkKeys[0]?.apiKey || "sdk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
 
