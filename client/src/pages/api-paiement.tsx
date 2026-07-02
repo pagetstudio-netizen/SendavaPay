@@ -2,10 +2,21 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
-import { ArrowLeft, ArrowRight, Code2, Webhook } from "lucide-react";
+import { ArrowLeft, ArrowRight, Code2, Webhook, Zap, MessageCircle } from "lucide-react";
+import { SiWhatsapp } from "react-icons/si";
 import imgApiPaiement from "@assets/IMG_20260227_073944_233_1772177997425.jpg";
 
+const WHATSAPP_NUMBER = "22892299772";
+
 export default function ApiPaiementPage() {
+  const sdkRequestUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
+    "Bonjour SendavaPay,\n\nJe souhaite accéder à l'API SDK Payin/Payout (sans redirection) pour intégrer les paiements directement dans mon application.\n\nMerci de me contacter pour les prochaines étapes."
+  )}`;
+
+  const supportUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
+    "Bonjour, j'ai besoin d'aide concernant l'API SendavaPay."
+  )}`;
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Navbar />
@@ -40,20 +51,57 @@ export default function ApiPaiementPage() {
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex flex-col sm:flex-row gap-3 mb-8">
             <Link href="/docs" className="flex-1">
-              <Button variant="outline" className="w-full font-semibold py-3 rounded-xl gap-2">
+              <Button variant="outline" className="w-full font-semibold py-3 rounded-xl gap-2" data-testid="button-docs">
                 <Code2 className="h-4 w-4" />
                 Documentation
               </Button>
             </Link>
             <Link href="/auth?tab=register" className="flex-1">
-              <Button className="w-full bg-primary hover:bg-primary/90 text-white font-semibold py-3 rounded-xl gap-2">
+              <Button className="w-full bg-primary hover:bg-primary/90 text-white font-semibold py-3 rounded-xl gap-2" data-testid="button-get-api-key">
                 Obtenir ma clé API
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
           </div>
+
+          {/* SDK Payin / Payout sans redirection */}
+          <div className="border border-border rounded-2xl p-5 mb-4 bg-muted/30">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="bg-primary/10 rounded-xl p-2 shrink-0">
+                <Zap className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h2 className="font-bold text-base mb-1">API SDK — Payin & Payout sans redirection</h2>
+                <p className="text-sm text-muted-foreground">
+                  Collectez et envoyez des fonds Mobile Money directement depuis votre back-end, sans aucune page de redirection.
+                  Idéal pour les plateformes, marketplaces et applications qui ont besoin d'un contrôle total du flux de paiement.
+                </p>
+              </div>
+            </div>
+            <a href={sdkRequestUrl} target="_blank" rel="noopener noreferrer">
+              <Button
+                className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-3 rounded-xl gap-2"
+                data-testid="button-request-sdk-access"
+              >
+                <SiWhatsapp className="h-4 w-4" />
+                Demander l'accès SDK
+              </Button>
+            </a>
+          </div>
+
+          {/* Support WhatsApp */}
+          <a href={supportUrl} target="_blank" rel="noopener noreferrer">
+            <Button
+              variant="outline"
+              className="w-full border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-950/30 font-semibold py-3 rounded-xl gap-2"
+              data-testid="button-whatsapp-support"
+            >
+              <MessageCircle className="h-4 w-4" />
+              Contacter le support via WhatsApp
+            </Button>
+          </a>
         </div>
       </main>
       <Footer />
