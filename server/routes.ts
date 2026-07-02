@@ -9089,14 +9089,43 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         }
 
         // ── Cas SDK : withdrawal_request lié à une api_transaction (payout SDK) ──
-        const sdkRef = withdrawalReq.transactionReference;
-        const isSdkWithdrawal = typeof sdkRef === "string" && sdkRef.startsWith("sdk_");
+        // Détection primaire : transactionReference commence par "sdk_"
+        // Détection secondaire : externalReference commence par "PD-WD-SDK-"
+        //   (couvre les transactions créées avant le fix où transactionReference était écrasé)
+        let sdkRef = withdrawalReq.transactionReference;
+        const isSdkByTxRef   = typeof sdkRef === "string" && sdkRef.startsWith("sdk_");
+        const isSdkByExtRef  = typeof withdrawalReq.externalReference === "string"
+          && withdrawalReq.externalReference.startsWith("PD-WD-SDK-");
+        const isSdkWithdrawal = isSdkByTxRef || isSdkByExtRef;
+
         if (isSdkWithdrawal) {
-          console.log(`📥 PayDunya disburse webhook: retrait SDK détecté → ref=${sdkRef}`);
+          console.log(`📥 PayDunya disburse webhook: retrait SDK détecté (txRef=${sdkRef}, extRef=${withdrawalReq.externalReference})`);
           try {
             const { markSdkWithdrawalCompleted: _sdkComplete, markSdkWithdrawalFailed: _sdkFail } = await import("./sdk-api");
-            const sdkTxn = await storage.getApiTransactionByReference(sdkRef);
-            if (sdkTxn) {
+
+            // Si on a détecté via externalReference mais pas via transactionReference,
+            // chercher l'api_transaction par externalRef lié à ce withdrawal_request
+            let sdkTxn = sdkRef ? await storage.getApiTransactionByReference(sdkRef).catch(() => null) : null;
+            if (!sdkTxn && isSdkByExtRef) {
+              // Recherche de secours : api_transaction de type payout lié à ce withdrawal_request
+              const allPayouts = await storage.getApiTransactionsByType?.("payout").catch(() => null);
+              if (allPayouts) {
+                sdkTxn = allPayouts.find((t: any) =>
+                  t.status === "processing" || t.status === "pending"
+                ) || null;
+                // Affiner par userId
+                if (sdkTxn) {
+                  const matches = allPayouts.filter((t: any) =>
+                    String(t.userId) === String(withdrawalReq.userId) &&
+                    (t.status === "processing" || t.status === "pending")
+                  );
+                  if (matches.length > 0) sdkTxn = matches[0];
+                }
+              }
+              if (sdkTxn) sdkRef = sdkTxn.reference;
+            }
+
+            if (sdkTxn && sdkRef) {
               // Rebuild webhook entry from api_key
               const sdkApiKey = sdkTxn.apiKeyId ? await storage.getApiKeyById(Number(sdkTxn.apiKeyId)).catch(() => null) : null;
               const sdkEntry = {
@@ -9118,7 +9147,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
                 console.log(`❌ PayDunya webhook: retrait SDK ${sdkRef} échoué — wallet remboursé, webhook marchand envoyé`);
               }
             } else {
-              console.warn(`⚠️ PayDunya disburse SDK: api_transaction introuvable pour ref=${sdkRef}`);
+              console.warn(`⚠️ PayDunya disburse SDK: api_transaction introuvable — txRef=${sdkRef} extRef=${withdrawalReq.externalReference}`);
             }
           } catch (e) {
             console.error("[PayDunya webhook SDK] Erreur completion SDK:", e);
@@ -9697,6 +9726,43 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
 
       if (withdrawalReq.status === "approved" || withdrawalReq.status === "rejected") {
         console.log(`⚠️ PayDunya disburse webhook: demande déjà traitée id=${withdrawalReq.id}`);
+        return;
+      }
+
+      // ── Détection SDK (même logique que /api/webhook/paydunya) ──────────────
+      const _sdkRef2 = withdrawalReq.transactionReference;
+      const _isSdkByTxRef2 = typeof _sdkRef2 === "string" && _sdkRef2.startsWith("sdk_");
+      const _isSdkByExtRef2 = typeof withdrawalReq.externalReference === "string"
+        && withdrawalReq.externalReference.startsWith("PD-WD-SDK-");
+      if (_isSdkByTxRef2 || _isSdkByExtRef2) {
+        console.log(`📥 PayDunya disburse webhook: retrait SDK détecté via paydunya-disburse`);
+        try {
+          const { markSdkWithdrawalCompleted: _c2, markSdkWithdrawalFailed: _f2 } = await import("./sdk-api");
+          let _sdkRef2Resolved = _sdkRef2;
+          let _sdkTxn2 = _sdkRef2 ? await storage.getApiTransactionByReference(_sdkRef2).catch(() => null) : null;
+          if (!_sdkTxn2 && _isSdkByExtRef2) {
+            const _allP2 = await storage.getApiTransactionsByType?.("payout").catch(() => null);
+            if (_allP2) {
+              const _m2 = (_allP2 as any[]).filter((t: any) =>
+                String(t.userId) === String(withdrawalReq.userId) &&
+                (t.status === "processing" || t.status === "pending")
+              );
+              if (_m2.length > 0) { _sdkTxn2 = _m2[0]; _sdkRef2Resolved = _m2[0].reference; }
+            }
+          }
+          if (_sdkTxn2 && _sdkRef2Resolved) {
+            const _k2 = _sdkTxn2.apiKeyId ? await storage.getApiKeyById(Number(_sdkTxn2.apiKeyId)).catch(() => null) : null;
+            const _e2 = { sdkTransactionRef: _sdkRef2Resolved, withdrawalRequestId: withdrawalReq.id, webhookUrl: (_k2 as any)?.webhookUrl || null, webhookSecret: (_k2 as any)?.webhookSecret || null };
+            if (status === "success") {
+              await storage.updateWithdrawalRequest(withdrawalReq.id, { status: "approved", processedAt: new Date(), transactionReference: _sdkRef2Resolved });
+              await _c2(_e2, _sdkTxn2);
+              console.log(`✅ PayDunya disburse webhook (v2): retrait SDK ${_sdkRef2Resolved} complété`);
+            } else if (status === "failed") {
+              await _f2(_e2, withdrawalReq, _sdkTxn2, `PayDunya disbursement échoué (${transactionId || "N/A"})`);
+              console.log(`❌ PayDunya disburse webhook (v2): retrait SDK ${_sdkRef2Resolved} échoué`);
+            }
+          }
+        } catch (_e2err) { console.error("[PayDunya disburse-v2 SDK] Erreur:", _e2err); }
         return;
       }
 

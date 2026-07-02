@@ -430,10 +430,11 @@ export async function autoDispatchSdkWithdrawal(
         await markSdkWithdrawalFailed(entry, wr, txn, pdResult.error || "Échec PayDunya disburse", pdRaw);
         return;
       }
+      // NE PAS écraser transactionReference — il contient la ref SDK (sdk_...)
+      // indispensable pour que le webhook PayDunya détecte ce retrait comme un payout SDK.
       await storage.updateWithdrawalRequest(wr.id, {
-        externalReference:    pdRef,
-        transactionReference: pdResult.transactionId || null,
-        status:               pdResult.status === "success" ? "approved" : "processing",
+        externalReference: pdRef,
+        status:            pdResult.status === "success" ? "approved" : "processing",
       }).catch(() => {});
       if (pdResult.status === "success") {
         await markSdkWithdrawalCompleted(entry, txn, pdResult.transactionId || pdRef, pdRaw);
