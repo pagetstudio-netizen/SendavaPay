@@ -1219,6 +1219,44 @@ function TransactionsContent() {
     onError: (e: any) => toast({ title: "Erreur", description: e.message, variant: "destructive" }),
   });
 
+  const rejectSdkMutation = useMutation({
+    mutationFn: async (reference: string) => {
+      const res = await apiRequest("POST", `/api/admin/sdk-transactions/${reference}/force-reject`, {});
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Erreur"); }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setSdkActionRef(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/payment-attempts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/transactions"] });
+      toast({ title: "❌ Transaction rejetée", description: data.message });
+    },
+    onError: (e: any) => { setSdkActionRef(null); toast({ title: "Erreur", description: e.message, variant: "destructive" }); },
+  });
+
+  const checkGatewayStatusMutation = useMutation({
+    mutationFn: async (reference: string) => {
+      const res = await apiRequest("POST", `/api/admin/sdk-transactions/${reference}/check-gateway-status`, {});
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || "Erreur"); }
+      return res.json();
+    },
+    onSuccess: (data, reference) => {
+      setSdkActionRef(null);
+      const statusLabel: Record<string, string> = { success: "✅ Succès", pending: "⏳ En attente", failed: "❌ Échoué", unknown: "❓ Inconnu" };
+      const gwLabel = statusLabel[data.gatewayStatus] || data.gatewayStatus || "—";
+      const syncLabel = data.synced === true ? " (synchronisé)" : data.synced === false ? " ⚠️ désync avec la DB" : "";
+      toast({
+        title: `🔍 Statut ${data.gateway || "Passerelle"} : ${gwLabel}${syncLabel}`,
+        description: data.transactionId ? `ID transaction: ${data.transactionId}` : data.message || `Ref: ${reference}`,
+        duration: 8000,
+      });
+      if (data.synced === false) {
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/payment-attempts"] });
+      }
+    },
+    onError: (e: any) => { setSdkActionRef(null); toast({ title: "Erreur vérification", description: e.message, variant: "destructive" }); },
+  });
+
   const { data: attempts = [], isLoading: attemptsLoading } = useQuery<PaymentAttempt[]>({
     queryKey: ["/api/admin/payment-attempts"],
     enabled: activeTab === "attempts",
@@ -1454,7 +1492,7 @@ function TransactionsContent() {
                         const isSdk = a._table === "sdk";
                         const isStuck = isSdk && (a.status === "processing" || a.status === "pending");
                         const canResend = isSdk && a.status === "completed" && !!a.webhookUrl;
-                        const isActing = sdkActionRef === a.reference && (forceCompleteSdkMutation.isPending || resendWebhookSdkMutation.isPending);
+                        const isActing = sdkActionRef === a.reference && (forceCompleteSdkMutation.isPending || resendWebhookSdkMutation.isPending || rejectSdkMutation.isPending || checkGatewayStatusMutation.isPending);
                         return (
                         <tr key={a.id} className={`hover:bg-muted/30 transition-colors ${isStuck ? "bg-orange-50/40 dark:bg-orange-900/10" : ""}`} data-testid={`row-attempt-${a.id}`}>
                           <td className="p-3 whitespace-nowrap text-xs text-muted-foreground">{formatDate(a.createdAt)}</td>
@@ -1533,17 +1571,41 @@ function TransactionsContent() {
                             <div className="flex flex-col gap-1">
                               {/* ── Boutons SDK ── */}
                               {isSdk && isStuck && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 text-xs border-orange-300 text-orange-700 hover:bg-orange-50 dark:text-orange-400 dark:border-orange-700 dark:hover:bg-orange-900/20 whitespace-nowrap"
-                                  disabled={isActing}
-                                  onClick={() => { setSdkActionRef(a.reference); forceCompleteSdkMutation.mutate(a.reference); }}
-                                  data-testid={`button-force-complete-sdk-${a.id}`}
-                                  title="Forcer la complétion : crédite le wallet et envoie le webhook"
-                                >
-                                  {isActing && forceCompleteSdkMutation.isPending ? "…" : "⚡ Forcer"}
-                                </Button>
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs border-green-400 text-green-700 hover:bg-green-50 dark:text-green-400 dark:border-green-700 dark:hover:bg-green-900/20 whitespace-nowrap"
+                                    disabled={isActing}
+                                    onClick={() => { setSdkActionRef(a.reference); forceCompleteSdkMutation.mutate(a.reference); }}
+                                    data-testid={`button-force-complete-sdk-${a.id}`}
+                                    title="Approuver : crédite le wallet du marchand et envoie le webhook payment.completed"
+                                  >
+                                    {isActing && forceCompleteSdkMutation.isPending ? "…" : "✅ Approuver"}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs border-red-300 text-red-600 hover:bg-red-50 dark:text-red-400 dark:border-red-700 dark:hover:bg-red-900/20 whitespace-nowrap"
+                                    disabled={isActing}
+                                    onClick={() => { setSdkActionRef(a.reference); rejectSdkMutation.mutate(a.reference); }}
+                                    data-testid={`button-reject-sdk-${a.id}`}
+                                    title="Rejeter : rembourse le wallet du marchand et envoie le webhook payment.failed"
+                                  >
+                                    {isActing && rejectSdkMutation.isPending ? "…" : "❌ Rejeter"}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs border-blue-300 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:border-blue-700 dark:hover:bg-blue-900/20 whitespace-nowrap"
+                                    disabled={isActing}
+                                    onClick={() => { setSdkActionRef(a.reference); checkGatewayStatusMutation.mutate(a.reference); }}
+                                    data-testid={`button-check-status-sdk-${a.id}`}
+                                    title="Vérifier le statut réel auprès du fournisseur de paiement (PayDunya, etc.)"
+                                  >
+                                    {isActing && checkGatewayStatusMutation.isPending ? "…" : "🔍 Vérifier"}
+                                  </Button>
+                                </>
                               )}
                               {isSdk && canResend && (
                                 <Button
