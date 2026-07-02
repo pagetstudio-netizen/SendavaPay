@@ -557,7 +557,20 @@ export async function payDunyaDisburse(params: PayDunyaDisburseParams): Promise<
   const body2: Record<string, any> = { disburse_invoice: disburseToken };
   if (params.disburseId) body2.disburse_id = params.disburseId;
 
-  const res2 = await safePayDunyaFetch(url2, { method: "POST", body: JSON.stringify(body2) }, 25000);
+  const res2 = await safePayDunyaFetch(url2, { method: "POST", body: JSON.stringify(body2) }, 35000);
+
+  // Timeout réseau : PayDunya a peut-être accepté le retrait mais la réponse n'est pas arrivée.
+  // On traite ça comme "pending" plutôt que "failed" pour éviter un remboursement prématuré.
+  if (res2.error && (res2.error.includes("timeout") || res2.error.includes("Timeout"))) {
+    console.warn(`[PayDunya] ⏱️ submit-invoice timeout — traité comme pending (token=${disburseToken})`);
+    return {
+      success:       true,
+      disburseToken,
+      status:        "pending",
+      transactionId: undefined,
+    };
+  }
+
   if (res2.error) return { success: false, error: res2.error };
 
   const data2 = res2.data;
@@ -574,4 +587,35 @@ export async function payDunyaDisburse(params: PayDunyaDisburseParams): Promise<
     success: false,
     error: data2?.response_text || data2?.description || data2?.message || "Erreur submit-invoice PayDunya",
   };
+}
+
+// ─── Check disbursement status (Polling) ──────────────────────────────────────
+// Endpoint: GET https://app.paydunya.com/api/v2/disburse/get-status/{disburse_token}
+export async function checkPayDunyaDisburseStatus(disburseToken: string): Promise<{
+  status: "success" | "pending" | "failed" | "unknown";
+  transactionId?: string;
+}> {
+  const url = `${getBaseUrl()}/api/v2/disburse/get-status/${disburseToken}`;
+  console.log(`[PayDunya] checkPayDunyaDisburseStatus → token=${disburseToken}`);
+  const result = await safePayDunyaFetch(url, { method: "GET" }, 15000);
+  if (result.error || !result.data) return { status: "unknown" };
+  const data = result.data;
+  const st = (data.status || data.disburse_status || "").toLowerCase();
+  if (st === "success" || st === "completed") {
+    return { status: "success", transactionId: data.transaction_id || undefined };
+  }
+  if (st === "failed" || st === "error" || st === "cancelled") {
+    return { status: "failed" };
+  }
+  if (st === "pending" || st === "processing") {
+    return { status: "pending" };
+  }
+  // Fallback sur response_code
+  if (data.response_code === "00") {
+    const innerSt = (data.data?.status || "").toLowerCase();
+    if (innerSt === "success") return { status: "success", transactionId: data.data?.transaction_id };
+    if (innerSt === "failed") return { status: "failed" };
+    return { status: "pending" };
+  }
+  return { status: "unknown" };
 }

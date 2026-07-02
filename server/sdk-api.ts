@@ -151,6 +151,10 @@ export interface WithdrawalQueueEntry {
   webhookUrl: string | null;
   webhookSecret: string | null;
   auditLogId?: number;
+  // PayDunya polling support
+  paydunyaDisburseToken?: string;
+  paydunyaDispatchedAt?: number; // timestamp ms
+  paydunyaPollingCount?: number;
 }
 const withdrawalQueue: WithdrawalQueueEntry[] = [];
 
@@ -338,7 +342,14 @@ export async function autoDispatchSdkWithdrawal(
   // Guard: only dispatch pending withdrawals
   if (wr.status !== "pending") return;
 
-  const appUrl      = process.env.APP_URL || process.env.SITE_URL || "https://sendavapay.com";
+  // Résolution de l'URL publique — l'ordre de priorité garantit que PayDunya
+  // envoie son callback au bon serveur (production > Replit déployé > dev Replit).
+  const replitDomain = process.env.REPLIT_DOMAINS
+    ? `https://${process.env.REPLIT_DOMAINS.split(",")[0].trim()}`
+    : process.env.REPLIT_DEV_DOMAIN
+      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+      : null;
+  const appUrl = process.env.APP_URL || process.env.SITE_URL || replitDomain || "https://sendavapay.com";
   // Toujours envoyer le montant COMPLET demandé par le marchand au destinataire.
   // Les frais ont déjà été débités du wallet marchand au moment de la création du retrait.
   // Ne jamais utiliser wr.netAmount qui peut contenir amount-fee (ancienne logique).
@@ -427,7 +438,15 @@ export async function autoDispatchSdkWithdrawal(
       if (pdResult.status === "success") {
         await markSdkWithdrawalCompleted(entry, txn, pdResult.transactionId || pdRef, pdRaw);
       } else {
-        withdrawalQueue.push(entry); // En attente du webhook PayDunya
+        // En attente du webhook PayDunya — on enrichit l'entrée pour le polling actif
+        const enrichedEntry: WithdrawalQueueEntry = {
+          ...entry,
+          paydunyaDisburseToken: pdResult.disburseToken,
+          paydunyaDispatchedAt:  Date.now(),
+          paydunyaPollingCount:  0,
+        };
+        withdrawalQueue.push(enrichedEntry);
+        console.log(`[sdk-withdrawal] ⏳ PayDunya retrait en attente callback — token=${pdResult.disburseToken || pdRef} ref=${txn.reference}`);
       }
     } catch (e: any) {
       console.error(`[sdk-withdrawal] ❌ PayDunya exception ref=${txn.reference}:`, e?.message || e);
@@ -554,7 +573,52 @@ async function processWithdrawalQueue(): Promise<void> {
         await autoDispatchSdkWithdrawal(entry, wr, txn);
       } else if (wr.status === "processing") {
         if (txn.status !== "processing") await storage.updateApiTransaction(txn.id, { status: "processing" });
-        withdrawalQueue.push(entry);
+
+        // ── Polling actif PayDunya : si webhook non reçu après 10 min, on interroge l'API ──
+        const POLL_START_DELAY_MS  = 10 * 60_000;  // 1ère tentative après 10 min
+        const POLL_INTERVAL_MS     = 10 * 60_000;  // puis toutes les 10 min
+        const MAX_POLL_COUNT       = 18;            // 3h max (18 × 10 min)
+        const PAYDUNYA_STUCK_MS    = 3 * 60 * 60_000; // échec forcé après 3h
+
+        const hasPaydunyaToken = !!entry.paydunyaDisburseToken;
+        const dispatchedAt     = entry.paydunyaDispatchedAt || 0;
+        const pollingCount     = entry.paydunyaPollingCount || 0;
+        const elapsedMs        = Date.now() - dispatchedAt;
+
+        if (hasPaydunyaToken && elapsedMs > PAYDUNYA_STUCK_MS && pollingCount >= MAX_POLL_COUNT) {
+          // Trop longtemps en attente → on considère que le retrait a échoué
+          console.warn(`[sdk-withdrawal] ⏰ PayDunya timeout définitif (3h) pour ref=${txn.reference} — abandon`);
+          await markSdkWithdrawalFailed(entry, wr, txn, "Délai PayDunya dépassé (3h) — aucun callback reçu");
+          continue;
+        }
+
+        const shouldPoll = hasPaydunyaToken
+          && elapsedMs > POLL_START_DELAY_MS
+          && (pollingCount === 0 || elapsedMs > POLL_START_DELAY_MS + pollingCount * POLL_INTERVAL_MS);
+
+        if (shouldPoll) {
+          console.log(`[sdk-withdrawal] 🔍 Polling PayDunya statut — ref=${txn.reference} token=${entry.paydunyaDisburseToken} tentative=${pollingCount + 1}`);
+          try {
+            const { checkPayDunyaDisburseStatus } = await import("./paydunya");
+            const pollResult = await checkPayDunyaDisburseStatus(entry.paydunyaDisburseToken!);
+            console.log(`[sdk-withdrawal] 📊 PayDunya poll status=${pollResult.status} ref=${txn.reference}`);
+
+            if (pollResult.status === "success") {
+              await storage.updateWithdrawalRequest(wr.id, { status: "approved", processedAt: new Date() }).catch(() => {});
+              await markSdkWithdrawalCompleted(entry, txn, pollResult.transactionId, undefined);
+              continue; // ne pas re-queuer
+            } else if (pollResult.status === "failed") {
+              await markSdkWithdrawalFailed(entry, wr, txn, "PayDunya disbursement échoué (polling)");
+              continue;
+            }
+            // unknown ou pending → on continue à attendre
+          } catch (pollErr) {
+            console.warn(`[sdk-withdrawal] ⚠️ Polling PayDunya erreur (non bloquant):`, pollErr);
+          }
+          withdrawalQueue.push({ ...entry, paydunyaPollingCount: pollingCount + 1 });
+        } else {
+          withdrawalQueue.push(entry);
+        }
       } else if (wr.status === "completed" || wr.status === "approved") {
         await markSdkWithdrawalCompleted(entry, txn);
       } else if (wr.status === "rejected" || wr.status === "failed") {
@@ -1047,7 +1111,10 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
     const amount      = parseFloat(transaction.amount);
     const description = transaction.description || `Paiement ${transaction.reference}`;
     const orderId     = `API_${transaction.reference}_${Date.now()}`;
-    const baseUrl     = process.env.APP_URL || process.env.SITE_URL || "https://sendavapay.com";
+    const _replitDomain1 = process.env.REPLIT_DOMAINS
+      ? `https://${process.env.REPLIT_DOMAINS.split(",")[0].trim()}`
+      : process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null;
+    const baseUrl = process.env.APP_URL || process.env.SITE_URL || _replitDomain1 || "https://sendavapay.com";
 
     // ── Calcul du fee payin SDK ──────────────────────────────────────────────
     // Priorité : customApiPaymentFeeRate (utilisateur) → encaissementRate (global)
@@ -1292,7 +1359,10 @@ router.post("/v1/submit-otp", sdkCors, async (req: Request, res: Response) => {
     const { initiatePayDunySoftPay, formatPhoneForPayDunya } = await import("./paydunya");
     const phone   = formatPhoneForPayDunya(entry.payerPhone, entry.payerCountry);
     const orderId = `API_${entry.reference}_${Date.now()}`;
-    const baseUrl = process.env.APP_URL || process.env.SITE_URL || "https://sendavapay.com";
+    const _replitDomain2 = process.env.REPLIT_DOMAINS
+      ? `https://${process.env.REPLIT_DOMAINS.split(",")[0].trim()}`
+      : process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : null;
+    const baseUrl = process.env.APP_URL || process.env.SITE_URL || _replitDomain2 || "https://sendavapay.com";
 
     const pdResult = await initiatePayDunySoftPay({
       operatorName: service.operator,
