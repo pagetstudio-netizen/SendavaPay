@@ -8168,6 +8168,124 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     }
   });
 
+  // ─── SDK : Rejeter manuellement (remboursement + webhook d'échec) ─────────────
+  app.post("/api/admin/sdk-transactions/:reference/force-reject", requireAdmin, async (req, res) => {
+    try {
+      const { reference } = req.params;
+      const { db: _frDb } = await import("./db");
+      const { sql: _frSql } = await import("drizzle-orm");
+
+      const txRows = await _frDb.execute(_frSql`
+        SELECT * FROM api_transactions WHERE reference = ${reference} LIMIT 1
+      `).catch(() => ({ rows: [] }));
+      const sdkTx = (txRows as any)?.rows?.[0];
+      if (!sdkTx) return res.status(404).json({ message: "Transaction SDK introuvable" });
+      if (sdkTx.status === "completed") {
+        return res.status(400).json({ message: "Impossible de rejeter une transaction déjà complétée" });
+      }
+      if (sdkTx.status === "failed" || sdkTx.status === "cancelled") {
+        return res.status(400).json({ message: `Transaction déjà rejetée (statut: ${sdkTx.status})` });
+      }
+
+      const wrRows = await _frDb.execute(_frSql`
+        SELECT * FROM withdrawal_requests WHERE transaction_reference = ${reference} LIMIT 1
+      `).catch(() => ({ rows: [] }));
+      const wrRaw = (wrRows as any)?.rows?.[0];
+      if (!wrRaw) return res.status(404).json({ message: "Demande de retrait liée introuvable" });
+
+      // Map snake_case → camelCase pour markSdkWithdrawalFailed
+      const wr = {
+        id:              wrRaw.id,
+        walletId:        wrRaw.wallet_id,
+        rejectionReason: wrRaw.rejection_reason,
+        status:          wrRaw.status,
+      };
+      const txn = {
+        id:            sdkTx.id,
+        status:        sdkTx.status,
+        amount:        sdkTx.amount,
+        fee:           sdkTx.fee || "0",
+        reference:     sdkTx.reference,
+        userId:        sdkTx.user_id,
+        description:   sdkTx.description,
+        customerPhone: sdkTx.customer_phone,
+        paymentMethod: sdkTx.payment_method,
+      };
+
+      let apiKey: any = null;
+      if (sdkTx.api_key_id) {
+        apiKey = await storage.getApiKeyById(Number(sdkTx.api_key_id)).catch(() => null);
+      }
+      const entry = {
+        sdkTransactionRef:   reference,
+        withdrawalRequestId: wr.id,
+        webhookUrl:          sdkTx.callback_url || apiKey?.webhookUrl || null,
+        webhookSecret:       apiKey?.webhookSecret || null,
+      };
+
+      const { markSdkWithdrawalFailed: _frFail } = await import("./sdk-api");
+      await _frFail(entry, wr, txn, "Rejeté manuellement par l'administrateur");
+
+      console.log(`❌ Admin force-reject SDK: ref=${reference} user_id=${sdkTx.user_id}`);
+      res.json({ success: true, message: "Transaction rejetée, wallet remboursé et webhook d'échec envoyé au marchand", reference });
+    } catch (error: any) {
+      console.error("SDK force-reject error:", error);
+      res.status(500).json({ message: "Erreur serveur: " + error.message });
+    }
+  });
+
+  // ─── SDK : Vérifier le statut réel auprès du fournisseur de paiement ──────────
+  app.post("/api/admin/sdk-transactions/:reference/check-gateway-status", requireAdmin, async (req, res) => {
+    try {
+      const { reference } = req.params;
+      const { db: _cgDb } = await import("./db");
+      const { sql: _cgSql } = await import("drizzle-orm");
+
+      const txRows = await _cgDb.execute(_cgSql`
+        SELECT * FROM api_transactions WHERE reference = ${reference} LIMIT 1
+      `).catch(() => ({ rows: [] }));
+      const sdkTx = (txRows as any)?.rows?.[0];
+      if (!sdkTx) return res.status(404).json({ message: "Transaction SDK introuvable" });
+
+      const wrRows = await _cgDb.execute(_cgSql`
+        SELECT * FROM withdrawal_requests WHERE transaction_reference = ${reference} LIMIT 1
+      `).catch(() => ({ rows: [] }));
+      const wr = (wrRows as any)?.rows?.[0];
+
+      const extRef: string = wr?.external_reference || "";
+      const dbStatus: string = sdkTx.status;
+
+      // ── PayDunya ─────────────────────────────────────────────────────────────
+      if (extRef.startsWith("PD-WD-SDK-")) {
+        const { checkPayDunyaDisburseStatus: _cgPd } = await import("./paydunya");
+        const pdStatus = await _cgPd(extRef);
+        return res.json({
+          success:           true,
+          gateway:           "PayDunya",
+          externalReference: extRef,
+          gatewayStatus:     pdStatus.status,
+          transactionId:     pdStatus.transactionId || null,
+          dbStatus,
+          synced:            pdStatus.status === "success" ? dbStatus === "completed"
+                           : pdStatus.status === "failed"  ? (dbStatus === "failed" || dbStatus === "cancelled")
+                           : null,
+        });
+      }
+
+      // ── Pas de gateway identifiable (payout via autre opérateur sans extRef PD) ──
+      return res.json({
+        success:           false,
+        gateway:           null,
+        message:           "Aucun fournisseur de paiement identifiable pour cette transaction (extRef: " + (extRef || "vide") + ")",
+        externalReference: extRef || null,
+        dbStatus,
+      });
+    } catch (error: any) {
+      console.error("SDK check-gateway-status error:", error);
+      res.status(500).json({ message: "Erreur serveur: " + error.message });
+    }
+  });
+
   app.get("/api/admin/api-logs", requireAdmin, async (req, res) => {
     try {
       const logs = await storage.getAllApiLogs();
