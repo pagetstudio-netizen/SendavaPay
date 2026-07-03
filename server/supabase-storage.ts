@@ -4,9 +4,18 @@ import * as fs from "fs";
 import * as path from "path";
 import { getCredential } from "./credentials";
 import sharp from "sharp";
+import { db as dbInstance } from "./db";
+import { kycRequests } from "@shared/schema";
 
 export const KYC_BUCKET = "kyc_documents";
 export const PRODUCT_BUCKET = "product_images";
+
+function getDbSafe() {
+  if (!dbInstance) {
+    throw new Error("Base de données indisponible");
+  }
+  return dbInstance;
+}
 
 function getSupabaseAdmin() {
   const url = getCredential("SUPABASE_URL");
@@ -164,6 +173,93 @@ export async function countKycStorageFiles(): Promise<{ count: number; sizeKb: n
   }
 
   return { count, sizeKb };
+}
+
+export async function cleanupSupersededKycStorage(): Promise<{ deleted: number; usersAffected: number; errors: string[] }> {
+  const db = getDbSafe();
+  const rows = await db
+    .select({
+      id: kycRequests.id,
+      userId: kycRequests.userId,
+      createdAt: kycRequests.createdAt,
+      documentFrontPath: kycRequests.documentFrontPath,
+      documentBackPath: kycRequests.documentBackPath,
+      selfiePath: kycRequests.selfiePath,
+    })
+    .from(kycRequests);
+
+  const byUser = new Map<number, typeof rows>();
+  for (const r of rows) {
+    if (!byUser.has(r.userId)) byUser.set(r.userId, []);
+    byUser.get(r.userId)!.push(r);
+  }
+
+  const pathsToDelete: string[] = [];
+  let usersAffected = 0;
+
+  for (const userRows of Array.from(byUser.values())) {
+    if (userRows.length <= 1) continue;
+    userRows.sort((a, b) => new Date(b.createdAt as any).getTime() - new Date(a.createdAt as any).getTime());
+    const superseded = userRows.slice(1);
+    if (superseded.length === 0) continue;
+    usersAffected++;
+    for (const s of superseded) {
+      for (const p of [s.documentFrontPath, s.documentBackPath, s.selfiePath]) {
+        if (p && !p.startsWith("http") && !p.startsWith("/uploads")) pathsToDelete.push(p);
+      }
+    }
+  }
+
+  if (pathsToDelete.length === 0) {
+    return { deleted: 0, usersAffected: 0, errors: [] };
+  }
+
+  const supabase = getSupabaseAdmin();
+  const errors: string[] = [];
+  let deleted = 0;
+  const CHUNK = 500;
+
+  for (let i = 0; i < pathsToDelete.length; i += CHUNK) {
+    const chunk = pathsToDelete.slice(i, i + CHUNK);
+    const { error } = await supabase.storage.from(KYC_BUCKET).remove(chunk);
+    if (error) {
+      errors.push(error.message);
+    } else {
+      deleted += chunk.length;
+    }
+  }
+
+  console.log(`[kyc-cleanup-smart] ${deleted} fichier(s) superflus supprimés (${usersAffected} utilisateur(s) concerné(s))`);
+  return { deleted, usersAffected, errors };
+}
+
+export async function countSupersededKycFiles(): Promise<{ count: number; usersAffected: number }> {
+  const db = getDbSafe();
+  const rows = await db
+    .select({
+      userId: kycRequests.userId,
+      createdAt: kycRequests.createdAt,
+      documentFrontPath: kycRequests.documentFrontPath,
+      documentBackPath: kycRequests.documentBackPath,
+      selfiePath: kycRequests.selfiePath,
+    })
+    .from(kycRequests);
+
+  const byUser = new Map<number, typeof rows>();
+  for (const r of rows) {
+    if (!byUser.has(r.userId)) byUser.set(r.userId, []);
+    byUser.get(r.userId)!.push(r);
+  }
+
+  let count = 0;
+  let usersAffected = 0;
+  for (const userRows of Array.from(byUser.values())) {
+    if (userRows.length <= 1) continue;
+    usersAffected++;
+    count += (userRows.length - 1) * 3;
+  }
+
+  return { count, usersAffected };
 }
 
 export async function cleanupKycStorage(): Promise<{ deleted: number; errors: string[] }> {
