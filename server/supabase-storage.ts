@@ -175,6 +175,129 @@ export async function countKycStorageFiles(): Promise<{ count: number; sizeKb: n
   return { count, sizeKb };
 }
 
+export async function listAllKycStorageFiles(): Promise<string[]> {
+  const supabase = getSupabaseAdmin();
+  const paths: string[] = [];
+  let offset = 0;
+  const pageSize = 1000;
+
+  while (true) {
+    const { data: items, error } = await supabase.storage
+      .from(KYC_BUCKET)
+      .list("", { limit: pageSize, offset, sortBy: { column: "name", order: "asc" } });
+
+    if (error || !items || items.length === 0) break;
+
+    for (const item of items) {
+      if (item.id) {
+        paths.push(item.name);
+      } else {
+        let subOffset = 0;
+        while (true) {
+          const { data: subItems, error: subErr } = await supabase.storage
+            .from(KYC_BUCKET)
+            .list(item.name, { limit: pageSize, offset: subOffset });
+          if (subErr || !subItems || subItems.length === 0) break;
+          for (const sf of subItems) {
+            paths.push(`${item.name}/${sf.name}`);
+          }
+          if (subItems.length < pageSize) break;
+          subOffset += pageSize;
+        }
+      }
+    }
+
+    if (items.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return paths;
+}
+
+export async function countOrphanedKycFiles(): Promise<{ count: number; sizeKb: number }> {
+  const db = getDbSafe();
+  const rows = await db
+    .select({
+      documentFrontPath: kycRequests.documentFrontPath,
+      documentBackPath: kycRequests.documentBackPath,
+      selfiePath: kycRequests.selfiePath,
+    })
+    .from(kycRequests);
+
+  const referenced = new Set<string>();
+  for (const r of rows) {
+    for (const p of [r.documentFrontPath, r.documentBackPath, r.selfiePath]) {
+      if (p) referenced.add(p);
+    }
+  }
+
+  const allPaths = await listAllKycStorageFiles();
+  const orphanedPaths = allPaths.filter((p) => !referenced.has(p));
+
+  if (orphanedPaths.length === 0) return { count: 0, sizeKb: 0 };
+
+  const supabase = getSupabaseAdmin();
+  let sizeKb = 0;
+  const byFolder = new Map<string, string[]>();
+  for (const p of orphanedPaths) {
+    const folder = p.includes("/") ? p.split("/")[0] : "";
+    if (!byFolder.has(folder)) byFolder.set(folder, []);
+    byFolder.get(folder)!.push(p);
+  }
+  for (const [folder, files] of Array.from(byFolder.entries())) {
+    const { data: items } = await supabase.storage.from(KYC_BUCKET).list(folder, { limit: 1000 });
+    for (const item of items || []) {
+      const fullPath = folder ? `${folder}/${item.name}` : item.name;
+      if (files.includes(fullPath)) {
+        sizeKb += Math.round((item.metadata?.size || 0) / 1024);
+      }
+    }
+  }
+
+  return { count: orphanedPaths.length, sizeKb };
+}
+
+export async function cleanupOrphanedKycStorage(): Promise<{ deleted: number; errors: string[] }> {
+  const db = getDbSafe();
+  const rows = await db
+    .select({
+      documentFrontPath: kycRequests.documentFrontPath,
+      documentBackPath: kycRequests.documentBackPath,
+      selfiePath: kycRequests.selfiePath,
+    })
+    .from(kycRequests);
+
+  const referenced = new Set<string>();
+  for (const r of rows) {
+    for (const p of [r.documentFrontPath, r.documentBackPath, r.selfiePath]) {
+      if (p) referenced.add(p);
+    }
+  }
+
+  const allPaths = await listAllKycStorageFiles();
+  const orphanedPaths = allPaths.filter((p) => !referenced.has(p));
+
+  if (orphanedPaths.length === 0) return { deleted: 0, errors: [] };
+
+  const supabase = getSupabaseAdmin();
+  const errors: string[] = [];
+  let deleted = 0;
+  const CHUNK = 500;
+
+  for (let i = 0; i < orphanedPaths.length; i += CHUNK) {
+    const chunk = orphanedPaths.slice(i, i + CHUNK);
+    const { error } = await supabase.storage.from(KYC_BUCKET).remove(chunk);
+    if (error) {
+      errors.push(error.message);
+    } else {
+      deleted += chunk.length;
+    }
+  }
+
+  console.log(`[kyc-cleanup-orphaned] ${deleted} fichier(s) orphelin(s) supprimés (non liés à un dossier KYC)`);
+  return { deleted, errors };
+}
+
 export async function cleanupSupersededKycStorage(): Promise<{ deleted: number; usersAffected: number; errors: string[] }> {
   const db = getDbSafe();
   const rows = await db
