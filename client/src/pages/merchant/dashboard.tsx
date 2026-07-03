@@ -268,7 +268,7 @@ export default function MerchantDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setLocation("/docs")} data-testid="button-docs">
+            <Button variant="outline" size="sm" onClick={() => setLocation("/documentation")} data-testid="button-docs">
               <FileText className="h-4 w-4 mr-2" />
               Documentation
             </Button>

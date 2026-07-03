@@ -44,6 +44,7 @@ const LiensPaiementPage = lazy(() => import("@/pages/liens-paiement"));
 const AssistancePage = lazy(() => import("@/pages/assistance"));
 const ApiPaiementPage = lazy(() => import("@/pages/api-paiement"));
 const SdkDocsPage = lazy(() => import("@/pages/sdk-docs"));
+const DocumentationPage = lazy(() => import("@/pages/documentation"));
 const ForgotPasswordPage = lazy(() => import("@/pages/forgot-password"));
 
 function PageLoader() {
@@ -78,6 +79,7 @@ function Router() {
         <Route path="/assistance" component={AssistancePage} />
         <Route path="/api-de-paiement" component={ApiPaiementPage} />
         <Route path="/sdk-docs" component={SdkDocsPage} />
+        <Route path="/documentation" component={DocumentationPage} />
         <Route path="/forgot-password" component={ForgotPasswordPage} />
 
         <ProtectedRoute path="/dashboard" component={DashboardPage} />
