@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
 import { ArrowLeft, ArrowRight, Code2, Webhook, Zap, MessageCircle, BookOpen } from "lucide-react";
-import { SiWhatsapp } from "react-icons/si";
 import imgApiPaiement from "@assets/IMG_20260227_073944_233_1772177997425.jpg";
 
 const WHATSAPP_NUMBER = "22892299772";
