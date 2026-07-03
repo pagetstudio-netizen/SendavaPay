@@ -210,7 +210,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link href="/docs" className="w-full cursor-pointer">
+                  <Link href="/documentation" className="w-full cursor-pointer">
                     <FileText className="h-4 w-4 mr-2" />
                     Documentation API
                   </Link>
@@ -276,7 +276,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <Link href="/docs" className="w-full cursor-pointer">
+                    <Link href="/documentation" className="w-full cursor-pointer">
                       <FileText className="h-4 w-4 mr-2" />
                       Documentation API
                     </Link>

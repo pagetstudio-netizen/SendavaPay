@@ -24,7 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Key, Shield, Code2, Loader2, Copy, Check, Trash2, Plus, ExternalLink,
   Wrench, ArrowLeft, Bell, Globe, Zap, ArrowUpRight, Info, BookOpen,
-  Terminal, Webhook, Pencil, X, Save, ImageIcon, Upload,
+  Terminal, Webhook, Pencil, X, Save, ImageIcon, Upload, Search,
 } from "lucide-react";
 import type { ApiKey } from "@shared/schema";
 
@@ -136,6 +136,7 @@ function ParamTable({ params }: { params: { name: string; type: string; required
 export function SdkDocumentation({ apiKeys }: { apiKeys: ApiKey[] }) {
   const sdkKeys = apiKeys.filter((k) => k.apiType === "sdk" && k.isActive);
   const KEY = sdkKeys[0]?.apiKey || "sdk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+  const [navSearch, setNavSearch] = useState("");
 
   const scrollTo = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -180,13 +181,41 @@ export function SdkDocumentation({ apiKeys }: { apiKeys: ApiKey[] }) {
     { id: "s-rate",       label: "Rate Limiting" },
   ];
 
+  const q = navSearch.trim().toLowerCase();
+  const filteredNav: NavItem[] = q
+    ? nav
+        .map((item) => {
+          if (item.children) {
+            if (item.label.toLowerCase().includes(q)) return item;
+            const children = item.children.filter((c) => c.label.toLowerCase().includes(q));
+            return children.length > 0 ? { ...item, children } : null;
+          }
+          return item.label.toLowerCase().includes(q) ? item : null;
+        })
+        .filter((x): x is NavItem => x !== null)
+    : nav;
+
   return (
     <div className="flex -mx-6 border-t min-h-screen">
 
       {/* ── SIDEBAR ── */}
       <nav className="hidden xl:flex flex-col w-52 flex-shrink-0 border-r bg-muted/20 sticky top-0 max-h-screen overflow-y-auto py-5 gap-0.5">
         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground px-4 mb-2">SDK API v3</p>
-        {nav.map((item, i) =>
+        <div className="relative px-3 mb-3">
+          <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            type="text"
+            value={navSearch}
+            onChange={(e) => setNavSearch(e.target.value)}
+            placeholder="Rechercher..."
+            data-testid="input-search-sdk-docs"
+            className="w-full pl-7 pr-2 py-1.5 text-xs rounded-md border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+        </div>
+        {filteredNav.length === 0 && (
+          <p className="px-4 text-xs text-muted-foreground">Aucun résultat</p>
+        )}
+        {filteredNav.map((item, i) =>
           item.id ? (
             <button key={i} onClick={() => scrollTo(item.id!)}
               className="text-left px-4 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors rounded-sm mx-1">
@@ -2028,7 +2057,7 @@ export default function ApiKeysPage() {
                         <p className="font-medium">Documentation API</p>
                         <p className="text-sm text-muted-foreground">Consultez la documentation pour intégrer SendavaPay dans votre application</p>
                       </div>
-                      <Link href="/docs"><Button variant="outline" data-testid="button-docs"><BookOpen className="h-4 w-4 mr-2" />Voir la documentation</Button></Link>
+                      <Link href="/documentation"><Button variant="outline" data-testid="button-docs"><BookOpen className="h-4 w-4 mr-2" />Voir la documentation</Button></Link>
                     </div>
                   </CardContent>
                 </Card>
