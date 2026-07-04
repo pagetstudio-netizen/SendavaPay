@@ -7539,6 +7539,26 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     }
   });
 
+  // ─── Suppression des images KYC depuis Supabase (par IDs) ───────────────────
+  app.post("/api/admin/kyc/delete-images", requireAdmin, async (req, res) => {
+    try {
+      const { ids } = req.body as { ids: number[] };
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ message: "Aucun identifiant KYC fourni" });
+      }
+      const { deleteKycImagesById } = await import("./supabase-storage");
+      const result = await deleteKycImagesById(ids);
+      const adminName = req.session.userId
+        ? (await storage.getUser(req.session.userId))?.fullName || "Admin"
+        : "Admin";
+      log(`[kyc-delete-images] ${adminName} a supprimé les images de ${ids.length} dossier(s) KYC — ${result.deleted} fichier(s)`, "admin");
+      res.json(result);
+    } catch (error) {
+      console.error("Delete KYC images error:", error);
+      res.status(500).json({ message: "Erreur lors de la suppression des images" });
+    }
+  });
+
   app.post("/api/admin/users/:id/block", requireAdmin, async (req, res) => {
     try {
       const userId = parseInt(req.params.id);
