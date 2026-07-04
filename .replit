@@ -54,3 +54,4 @@ defaultBucketID = "replit-objstore-8601a2a0-2388-4798-b92e-bceaf2065567"
 [userenv.shared]
 PUBLIC_OBJECT_SEARCH_PATHS = "public"
 PRIVATE_OBJECT_DIR = ".private"
+SUPABASE_DATABASE_URL = "postgresql://postgres.vxucwodistvnlrieqmmq:0wciVRTro9S9JEfK@aws-1-eu-west-1.pooler.supabase.com:6543/postgres"
