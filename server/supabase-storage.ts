@@ -3,8 +3,21 @@ import { randomUUID } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import { getCredential } from "./credentials";
-import sharp from "sharp";
 import { db as dbInstance } from "./db";
+
+// sharp est un module natif optionnel — s'il n'est pas installé, la compression
+// est désactivée mais le serveur démarre quand même normalement.
+// On utilise require() synchrone (compatible CJS esbuild) plutôt que top-level await.
+let sharp: ((input: Buffer) => import("sharp").Sharp) | null = null;
+/* eslint-disable @typescript-eslint/no-require-imports */
+(function loadSharp() {
+  try {
+    sharp = require("sharp") as (input: Buffer) => import("sharp").Sharp;
+  } catch {
+    console.warn("[supabase-storage] sharp non disponible — compression KYC désactivée");
+  }
+})();
+/* eslint-enable @typescript-eslint/no-require-imports */
 import { kycRequests } from "@shared/schema";
 import { eq, inArray, sql } from "drizzle-orm";
 
@@ -32,6 +45,10 @@ function getSupabaseAdmin() {
 }
 
 async function compressKycImage(buffer: Buffer, mimetype: string): Promise<{ buffer: Buffer; mimetype: string }> {
+  if (!sharp) {
+    // sharp non disponible — on retourne le fichier original sans compression
+    return { buffer, mimetype };
+  }
   try {
     const originalKb = Math.round(buffer.length / 1024);
 

@@ -8,6 +8,7 @@ import { rm, readFile } from "fs/promises";
 const allowlist = [
   "@google/generative-ai",
   "@google-cloud/storage",
+  "@supabase/supabase-js",  // bundlé pour éviter les crashes si npm install échoue
   "axios",
   "bcryptjs",
   "connect-pg-simple",
@@ -34,6 +35,7 @@ const allowlist = [
   "xlsx",
   "zod",
   "zod-validation-error",
+  // sharp est intentionnellement absent (module natif, non bundlable)
 ];
 
 async function buildAll() {
