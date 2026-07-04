@@ -10,6 +10,7 @@ import {
   blockIp, unblockIp, allowIp, removeAllowedIp, loginRateLimit, withdrawRateLimit,
   registerRateLimit, otpRateLimit, apiRateLimit,
   geoAndVpnBlockMiddleware, globalApiRateLimit, adminActionLogger,
+  BLOCK_DURATION,
 } from "./security";
 import { createOtp, verifyOtp, verifyOtpByToken } from "./otp";
 import { isAdminWhitelisted } from "./init-admin";
@@ -766,7 +767,7 @@ export async function registerRoutes(
         // Cross-account brute force check (fire-and-forget)
         checkCrossAccountBruteForce(ip).then(async (isBrute) => {
           if (isBrute) {
-            await blockIp(ip, `Brute force multi-comptes détecté (${emailOrPhone})`).catch(() => {});
+            await blockIp(ip, `Brute force multi-comptes détecté (${emailOrPhone})`, undefined, BLOCK_DURATION.BRUTE_FORCE_MS).catch(() => {});
             notifyBruteForceDetected({ ip, distinctAccounts: 3, windowMinutes: 30 });
           }
         }).catch(() => {});
@@ -791,7 +792,7 @@ export async function registerRoutes(
         // Cross-account brute force check (fire-and-forget)
         checkCrossAccountBruteForce(ip).then(async (isBrute) => {
           if (isBrute) {
-            await blockIp(ip, `Brute force multi-comptes détecté (${emailOrPhone})`).catch(() => {});
+            await blockIp(ip, `Brute force multi-comptes détecté (${emailOrPhone})`, undefined, BLOCK_DURATION.BRUTE_FORCE_MS).catch(() => {});
             notifyBruteForceDetected({ ip, distinctAccounts: 3, windowMinutes: 30 });
           }
         }).catch(() => {});
@@ -823,7 +824,7 @@ export async function registerRoutes(
         // ── RESTRICTION GÉOGRAPHIQUE : Togo uniquement ───────────────────────
         const geoAdmin = await getIpCountry(ip).catch(() => null);
         if (geoAdmin && geoAdmin.countryCode !== "TG") {
-          await blockIp(ip, `Connexion admin hors Togo — pays: ${geoAdmin.countryCode || "inconnu"}`).catch(() => {});
+          await blockIp(ip, `Connexion admin hors Togo — pays: ${geoAdmin.countryCode || "inconnu"}`, undefined, BLOCK_DURATION.ADMIN_GEO_MS).catch(() => {});
           await logSecurityEvent({ userId: user.id, type: "admin_geo_blocked", details: `Pays: ${geoAdmin.countryCode}, VPN: ${geoAdmin.isVpn}, IP: ${ip}`, ipAddress: ip, userAgent: req.headers["user-agent"] });
           notifyAdminGeoBlocked({ adminName: user.fullName, email: user.email || emailOrPhone, ip, countryCode: geoAdmin.countryCode, isVpn: geoAdmin.isVpn });
           console.error(`[SÉCURITÉ] Admin login bloqué — pays=${geoAdmin.countryCode} ip=${ip}`);
@@ -919,7 +920,7 @@ export async function registerRoutes(
       // ── Double vérification géographique à l'étape OTP ───────────────────
       const geoOtp = await getIpCountry(ip).catch(() => null);
       if (geoOtp && geoOtp.countryCode !== "TG") {
-        await blockIp(ip, `Connexion admin hors Togo (étape OTP) — pays: ${geoOtp.countryCode || "inconnu"}`).catch(() => {});
+        await blockIp(ip, `Connexion admin hors Togo (étape OTP) — pays: ${geoOtp.countryCode || "inconnu"}`, undefined, BLOCK_DURATION.ADMIN_GEO_MS).catch(() => {});
         await logSecurityEvent({ userId: user.id, type: "admin_geo_blocked_otp", details: `Pays: ${geoOtp.countryCode}, VPN: ${geoOtp.isVpn}, IP: ${ip}`, ipAddress: ip });
         notifyAdminGeoBlocked({ adminName: user.fullName, email: user.email || "", ip, countryCode: geoOtp.countryCode, isVpn: geoOtp.isVpn });
         return res.status(403).json({ message: "Accès refusé depuis votre localisation." });
@@ -11263,9 +11264,9 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
           const ip = callbackData.slice("block_ip:".length).trim();
           if (ip) {
             try {
-              await blockIp(ip, "Bloqué via bouton Telegram", undefined);
+              await blockIp(ip, "Bloqué via bouton Telegram", undefined, BLOCK_DURATION.MANUAL_MS);
               await logSecurityEvent({ type: "ip_blocked_button", details: `IP ${ip} bloquée via bouton Telegram`, ipAddress: ip });
-              await answerCallbackQuery(cbq.id, `✅ IP ${ip} bloquée définitivement.`, true);
+              await answerCallbackQuery(cbq.id, `✅ IP ${ip} bloquée 24h.`, true);
               if (chatId && messageId) {
                 await editMessageRemoveButton(chatId, messageId, originalText + `\n\n<b>🚫 IP <code>${ip}</code> BLOQUÉE par admin Telegram</b>`);
               }
@@ -11383,8 +11384,8 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
           await sendBotReply(chatId, "❌ Usage: /bloquer_ip 192.168.1.1");
         } else {
           try {
-            await blockIp(ip, "Bloqué via Telegram", undefined);
-            await sendBotReply(chatId, `✅ IP <code>${ip}</code> bloquée avec succès.`);
+            await blockIp(ip, "Bloqué via Telegram", undefined, BLOCK_DURATION.MANUAL_MS);
+            await sendBotReply(chatId, `✅ IP <code>${ip}</code> bloquée 24h avec succès.`);
             await logSecurityEvent({ type: "ip_blocked_telegram", details: `IP ${ip} bloquée via Telegram`, ipAddress: ip });
           } catch {
             await sendBotReply(chatId, "❌ Erreur lors du blocage de l'IP.");
@@ -11411,7 +11412,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
           const client = await dbPool.connect();
           const eventsRes = await client.query(`SELECT COUNT(*) cnt FROM security_events WHERE type='failed_login' AND created_at > NOW() - INTERVAL '24 hours'`);
           const bruteRes = await client.query(`SELECT COUNT(*) cnt FROM security_events WHERE type='brute_force' AND created_at > NOW() - INTERVAL '24 hours'`);
-          const blockedRes = await client.query(`SELECT COUNT(*) cnt FROM blocked_ips WHERE (expires_at IS NULL OR expires_at > NOW())`);
+          const blockedRes = await client.query(`SELECT COUNT(*) cnt FROM blocked_ips WHERE expires_at > NOW()`);
           const attemptsRes = await client.query(`SELECT COUNT(*) cnt FROM login_attempts WHERE created_at > NOW() - INTERVAL '1 hour'`);
           client.release();
           const reply =
@@ -11492,7 +11493,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     const { pool: dbPool } = await import("./db");
     if (!dbPool) return res.json([]);
     const client = await dbPool.connect();
-    const result = await client.query(`SELECT * FROM blocked_ips WHERE (expires_at IS NULL OR expires_at > NOW()) ORDER BY created_at DESC`);
+    const result = await client.query(`SELECT * FROM blocked_ips WHERE expires_at > NOW() ORDER BY created_at DESC`);
     client.release();
     res.json(result.rows);
   });
@@ -11501,7 +11502,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     const { ip, reason, expiresAt } = req.body;
     if (!ip?.trim()) return res.status(400).json({ message: "IP requise" });
     const userId = req.session.userId!;
-    await blockIp(ip.trim(), reason?.trim() || "Bloqué manuellement", userId, expiresAt ? new Date(expiresAt) : undefined);
+    await blockIp(ip.trim(), reason?.trim() || "Bloqué manuellement", userId, expiresAt ? new Date(expiresAt) : BLOCK_DURATION.MANUAL_MS);
     await logSecurityEvent({ userId, type: "ip_blocked_admin", details: `IP ${ip} bloquée par admin`, ipAddress: getClientIp(req) });
     res.json({ message: "IP bloquée", ip: ip.trim() });
   });

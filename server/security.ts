@@ -471,6 +471,18 @@ export async function removeAllowedIp(ip: string): Promise<void> {
   }
 }
 
+// ─── BLOCK DURATION CONSTANTS ────────────────────────────────────────────────
+// Tous les blocages sont temporaires — jamais permanents.
+// En cas de récidive pendant le blocage, la durée est étendue.
+export const BLOCK_DURATION = {
+  DEFAULT_MS:    2  * 60 * 60 * 1000,  // 2h  — blocage géo/VPN auto
+  BRUTE_FORCE_MS: 1  * 60 * 60 * 1000, // 1h  — brute force
+  ADMIN_GEO_MS:   6  * 60 * 60 * 1000, // 6h  — connexion admin hors Togo
+  MANUAL_MS:     24  * 60 * 60 * 1000, // 24h — blocage manuel admin/Telegram
+  EXTENSION_MS:   6  * 60 * 60 * 1000, // +6h — extension à chaque récidive
+  MAX_MS:   7 * 24  * 60 * 60 * 1000,  // 7j  — durée maximale absolue
+};
+
 // ─── BLOCKED IPs CACHE ────────────────────────────────────────────────────────
 let blockedIpCache: Set<string> = new Set();
 let cacheLoadedAt = 0;
@@ -481,7 +493,7 @@ async function loadBlockedIps(): Promise<void> {
   try {
     const client = await pool.connect();
     const result = await client.query(
-      `SELECT ip_address FROM blocked_ips WHERE (expires_at IS NULL OR expires_at > NOW())`
+      `SELECT ip_address FROM blocked_ips WHERE expires_at > NOW()`
     );
     client.release();
     blockedIpCache = new Set(result.rows.map((r: any) => r.ip_address));
@@ -489,6 +501,18 @@ async function loadBlockedIps(): Promise<void> {
   } catch {
     // DB not ready yet
   }
+}
+
+// Purge des entrées expirées — appelée toutes les heures
+async function purgeExpiredBlocks(): Promise<void> {
+  if (!pool) return;
+  try {
+    const client = await pool.connect();
+    const r = await client.query(`DELETE FROM blocked_ips WHERE expires_at <= NOW()`);
+    client.release();
+    const count = (r as any).rowCount ?? 0;
+    if (count > 0) console.log(`[security] ${count} IP(s) expirée(s) supprimée(s) automatiquement.`);
+  } catch { /* silent */ }
 }
 
 export async function reloadBlockedIps(): Promise<void> {
@@ -502,23 +526,72 @@ export function isIpBlocked(ip: string): boolean {
   return blockedIpCache.has(ip);
 }
 
-export async function blockIp(ip: string, reason: string, blockedBy?: number, expiresAt?: Date): Promise<void> {
+/**
+ * Bloque une IP pour une durée limitée (jamais permanente).
+ * Si l'IP est déjà bloquée, on ne raccourcit pas la durée existante.
+ * @param durationMs Durée en ms. Défaut: 2h.
+ */
+export async function blockIp(
+  ip: string,
+  reason: string,
+  blockedBy?: number,
+  expiresAtOrDuration?: Date | number
+): Promise<void> {
   if (!pool) return;
   try {
+    let expiresAt: Date;
+
+    if (expiresAtOrDuration instanceof Date) {
+      expiresAt = expiresAtOrDuration;
+    } else {
+      const durationMs = typeof expiresAtOrDuration === "number"
+        ? expiresAtOrDuration
+        : BLOCK_DURATION.DEFAULT_MS;
+      expiresAt = new Date(Date.now() + durationMs);
+    }
+
+    // Ne jamais dépasser le maximum absolu
+    const maxExpiry = new Date(Date.now() + BLOCK_DURATION.MAX_MS);
+    if (expiresAt > maxExpiry) expiresAt = maxExpiry;
+
     const client = await pool.connect();
+    // Si déjà bloqué, on garde la durée la plus longue (pas de raccourcissement)
     await client.query(
       `INSERT INTO blocked_ips (ip_address, reason, blocked_by, expires_at)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (ip_address) DO UPDATE SET reason=$2, blocked_by=$3, expires_at=$4`,
-      [ip, reason, blockedBy ?? null, expiresAt ?? null]
+       ON CONFLICT (ip_address) DO UPDATE
+         SET reason=$2, blocked_by=$3,
+             expires_at=GREATEST(blocked_ips.expires_at, EXCLUDED.expires_at)`,
+      [ip, reason, blockedBy ?? null, expiresAt]
     );
     client.release();
     blockedIpCache.add(ip);
-    // Remove from geo cache so it doesn't bypass block check
     ipInfoCache.delete(ip);
   } catch (err) {
     console.error("[security] blockIp error:", err);
   }
+}
+
+/**
+ * Étend le blocage d'une IP déjà bloquée de +6h (max 7 jours).
+ * Appelé automatiquement quand une IP bloquée tente d'accéder à nouveau.
+ */
+async function extendIpBlock(ip: string): Promise<void> {
+  if (!pool) return;
+  try {
+    const maxExpiry = new Date(Date.now() + BLOCK_DURATION.MAX_MS);
+    const client = await pool.connect();
+    await client.query(
+      `UPDATE blocked_ips
+       SET expires_at = LEAST(
+         GREATEST(expires_at, NOW()) + INTERVAL '6 hours',
+         $1
+       )
+       WHERE ip_address = $2`,
+      [maxExpiry, ip]
+    );
+    client.release();
+  } catch { /* silent */ }
 }
 
 export async function unblockIp(ip: string): Promise<void> {
@@ -553,6 +626,8 @@ export function ipBlockMiddleware(req: Request, res: Response, next: NextFunctio
   // Liste blanche : jamais bloquée
   if (isIpAllowed(ip)) return next();
   if (isIpBlocked(ip)) {
+    // Récidive : étendre le blocage de +6h pour décourager les tentatives répétées
+    extendIpBlock(ip).catch(() => {});
     return res.status(403).json({ message: "Accès refusé." });
   }
   next();
@@ -622,8 +697,9 @@ export function geoAndVpnBlockMiddleware(req: Request, res: Response, next: Next
           ? `VPN/Proxy détecté automatiquement (${info.countryCode || "inconnu"})`
           : `Pays non-africain: ${info.countryCode || "inconnu"}`;
 
-        // Auto-block permanently in DB
-        await blockIp(ip, reason);
+        // Auto-block temporairement (2h pour géo, 4h pour VPN)
+        const blockDur = isVpn ? BLOCK_DURATION.DEFAULT_MS * 2 : BLOCK_DURATION.DEFAULT_MS;
+        await blockIp(ip, reason, undefined, blockDur);
 
         // Log security event
         await logSecurityEvent({
@@ -791,6 +867,8 @@ loadBlockedIps().catch(() => {});
 setInterval(() => loadBlockedIps().catch(() => {}), CACHE_TTL);
 loadAllowedIps().catch(() => {});
 setInterval(() => loadAllowedIps().catch(() => {}), ALLOWED_CACHE_TTL);
+// Purge des IPs expirées toutes les heures pour ne pas surcharger la DB
+setInterval(() => purgeExpiredBlocks().catch(() => {}), 60 * 60 * 1000);
 
 // ─── SOURCE FILE SHIELD ───────────────────────────────────────────────────────
 // Blocks any HTTP request that targets source code, config files, or dotfiles.
