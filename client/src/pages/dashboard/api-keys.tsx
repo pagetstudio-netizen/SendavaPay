@@ -2010,12 +2010,6 @@ export default function ApiKeysPage() {
                       )}
                     </CardContent>
                   </Card>
-                  <div>
-                    <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                      <BookOpen className="h-5 w-5 text-purple-600" />Référence API SDK
-                    </h2>
-                    <SdkDocumentation apiKeys={apiKeys} />
-                  </div>
                 </TabsContent>
 
                 <TabsContent value="redirect" className="space-y-4 mt-4">
