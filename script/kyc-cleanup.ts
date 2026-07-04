@@ -1,167 +1,176 @@
 import pg from "pg";
-import { createClient } from "@supabase/supabase-js";
 
 const { Pool } = pg;
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const SUPABASE_DATABASE_URL = process.env.SUPABASE_DATABASE_URL;
+const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const SUPABASE_DATABASE_URL = process.env.SUPABASE_DATABASE_URL!;
 const KYC_BUCKET = "kyc_documents";
 
+// Appel direct à l'API REST Supabase Storage (bypass du client JS et de sa validation JWT)
+async function storageRequest(path: string, method = "GET", body?: object) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      "Content-Type": "application/json",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let json: any;
+  try { json = JSON.parse(text); } catch { json = { raw: text }; }
+  return { ok: res.ok, status: res.status, json };
+}
+
+async function listAllStorageFiles(): Promise<string[]> {
+  const paths: string[] = [];
+
+  // Lister les dossiers (ex: user_123/)
+  const { ok, json, status } = await storageRequest(`/object/list/${KYC_BUCKET}`, "POST", {
+    prefix: "",
+    limit: 1000,
+    offset: 0,
+    sortBy: { column: "name", order: "asc" },
+  });
+
+  if (!ok) {
+    console.error(`❌ Erreur listage racine (${status}):`, JSON.stringify(json));
+    return paths;
+  }
+
+  const items: any[] = Array.isArray(json) ? json : [];
+  console.log(`   Dossiers/fichiers à la racine: ${items.length}`);
+
+  for (const item of items) {
+    if (item.id) {
+      // Fichier direct
+      paths.push(item.name);
+    } else {
+      // Dossier — lister son contenu
+      const sub = await storageRequest(`/object/list/${KYC_BUCKET}`, "POST", {
+        prefix: item.name + "/",
+        limit: 1000,
+        offset: 0,
+      });
+      if (sub.ok && Array.isArray(sub.json)) {
+        for (const sf of sub.json) {
+          if (sf.name) paths.push(`${item.name}/${sf.name}`);
+        }
+      }
+    }
+  }
+
+  return paths;
+}
+
+async function deleteFiles(paths: string[]): Promise<number> {
+  if (paths.length === 0) return 0;
+  let deleted = 0;
+  const CHUNK = 500;
+
+  for (let i = 0; i < paths.length; i += CHUNK) {
+    const chunk = paths.slice(i, i + CHUNK);
+    const res = await storageRequest(`/object/${KYC_BUCKET}`, "DELETE", { prefixes: chunk });
+    if (res.ok) {
+      const count = Array.isArray(res.json) ? res.json.length : chunk.length;
+      deleted += count;
+      console.log(`  ✅ Chunk ${i + 1}-${i + chunk.length}: ${count} fichier(s) supprimé(s)`);
+    } else {
+      console.error(`  ❌ Erreur suppression (${res.status}):`, JSON.stringify(res.json));
+    }
+  }
+
+  return deleted;
+}
+
 async function main() {
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_DATABASE_URL) {
-    console.error("❌ Clés manquantes:", {
-      SUPABASE_URL: !!SUPABASE_URL,
-      SUPABASE_SERVICE_ROLE_KEY: !!SUPABASE_SERVICE_ROLE_KEY,
-      SUPABASE_DATABASE_URL: !!SUPABASE_DATABASE_URL,
-    });
+  console.log("=== Diagnostic clés ===");
+  console.log("  SUPABASE_URL:", SUPABASE_URL);
+  console.log("  SERVICE_ROLE_KEY longueur:", SUPABASE_SERVICE_ROLE_KEY?.length);
+  const dots = (SUPABASE_SERVICE_ROLE_KEY || "").split(".").length - 1;
+  console.log("  Points dans la clé (doit être 2 pour un JWT valide):", dots);
+
+  // Test connexion API Storage
+  console.log("\n📦 Test connexion Storage API...");
+  const testRes = await storageRequest(`/bucket/${KYC_BUCKET}`);
+  if (!testRes.ok) {
+    console.error(`❌ Connexion Storage échouée (${testRes.status}):`, JSON.stringify(testRes.json));
+    console.log("\n⚠️  La clé service_role n'est pas valide. Elle contient", dots, "point(s) au lieu de 2.");
+    console.log("   Une clé JWT valide a exactement 3 parties séparées par 2 points.");
+    console.log("   Vérifiez dans Supabase → Settings → API → service_role et copiez la clé complète.");
     process.exit(1);
   }
+  console.log("✅ Connexion Storage OK:", testRes.json?.name || JSON.stringify(testRes.json));
 
-  // Diagnostic de la clé
-  console.log("🔑 Diagnostic clés:");
-  console.log("  SUPABASE_URL longueur:", SUPABASE_URL.length, "| début:", SUPABASE_URL.substring(0, 30));
-  console.log("  SERVICE_ROLE_KEY longueur:", SUPABASE_SERVICE_ROLE_KEY.length);
-  console.log("  SERVICE_ROLE_KEY début:", SUPABASE_SERVICE_ROLE_KEY.substring(0, 20) + "...");
-  console.log("  SERVICE_ROLE_KEY fin: ..." + SUPABASE_SERVICE_ROLE_KEY.substring(SUPABASE_SERVICE_ROLE_KEY.length - 20));
-
-  // Connexion Supabase Storage
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false },
-  });
-
-  // Test connexion Storage
-  console.log("\n📦 Test connexion Supabase Storage...");
-  const { data: buckets, error: bucketsErr } = await supabase.storage.listBuckets();
-  if (bucketsErr) {
-    console.error("❌ Erreur Storage:", bucketsErr.message);
-    console.log("   → La clé SUPABASE_SERVICE_ROLE_KEY est peut-être incorrecte ou tronquée.");
-    console.log("   → Vérifiez dans Supabase → Settings → API → service_role key");
-  } else {
-    console.log("✅ Buckets disponibles:", buckets?.map((b) => b.name).join(", ") || "aucun");
-  }
-
-  // Connexion base de données Supabase
-  console.log("\n🗄️  Connexion base de données Supabase...");
-  const cleanUrl = SUPABASE_DATABASE_URL.replace(/[?&]sslmode=[^&]*/g, "")
-    .replace(/\?&/, "?")
-    .replace(/\?$/, "");
-  const pool = new Pool({
-    connectionString: cleanUrl,
-    ssl: { rejectUnauthorized: false },
-    connectionTimeoutMillis: 15000,
-  });
-
+  // Connexion base de données
+  const cleanUrl = SUPABASE_DATABASE_URL.replace(/[?&]sslmode=[^&]*/g, "").replace(/\?&/, "?").replace(/\?$/, "");
+  const pool = new Pool({ connectionString: cleanUrl, ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 15000 });
   const client = await pool.connect();
-  const { rows } = await client.query(
+
+  // Lire les dossiers KYC
+  console.log("\n🗄️  Lecture des dossiers KYC...");
+  const { rows: kycRows } = await client.query(
     "SELECT id, user_id, status, document_front_path, document_back_path, selfie_path, created_at FROM kyc_requests ORDER BY user_id, created_at DESC"
   );
+  console.log(`   ✅ ${kycRows.length} dossiers KYC en base`);
   client.release();
-  console.log("✅ Dossiers KYC en base:", rows.length);
+  await pool.end();
 
-  // Identifier fichiers superflus (sans avoir besoin du storage API)
-  const byUser = new Map<number, typeof rows>();
-  for (const r of rows) {
+  // Lister les fichiers Storage
+  console.log("\n📂 Listage des fichiers dans Storage...");
+  const allFiles = await listAllStorageFiles();
+  console.log(`   ✅ ${allFiles.length} fichiers dans le bucket\n`);
+
+  // Fichiers référencés (à protéger)
+  const referenced = new Set<string>();
+  for (const r of kycRows) {
+    for (const p of [r.document_front_path, r.document_back_path, r.selfie_path]) {
+      if (p && !p.startsWith("http") && !p.startsWith("/uploads")) referenced.add(p);
+    }
+  }
+
+  // Orphelins
+  const orphans = allFiles.filter((p) => !referenced.has(p));
+
+  // Superflus (anciennes soumissions par utilisateur)
+  const byUser = new Map<number, typeof kycRows>();
+  for (const r of kycRows) {
     if (!byUser.has(r.user_id)) byUser.set(r.user_id, []);
     byUser.get(r.user_id)!.push(r);
   }
-
   const supersededPaths: string[] = [];
-  const keptPaths = new Set<string>();
   let usersAffected = 0;
-
   for (const userRows of byUser.values()) {
-    // userRows déjà trié DESC par created_at → le premier est le plus récent
-    const newest = userRows[0];
-    for (const p of [newest.document_front_path, newest.document_back_path, newest.selfie_path]) {
-      if (p) keptPaths.add(p);
-    }
     if (userRows.length <= 1) continue;
     usersAffected++;
-    const old = userRows.slice(1);
-    for (const r of old) {
+    for (const r of userRows.slice(1)) {
       for (const p of [r.document_front_path, r.document_back_path, r.selfie_path]) {
-        if (p && !p.startsWith("http") && !p.startsWith("/uploads")) {
-          supersededPaths.push(p);
-        }
+        if (p && !p.startsWith("http") && !p.startsWith("/uploads")) supersededPaths.push(p);
       }
     }
   }
 
-  console.log("\n=== Résultat du scan ===");
-  console.log("Fichiers superflus (anciennes soumissions):", supersededPaths.length, "|", usersAffected, "utilisateurs");
-  console.log("Fichiers actifs protégés:", keptPaths.size);
+  const allToDelete = [...new Set([...orphans, ...supersededPaths])];
 
-  if (supersededPaths.length > 0) {
-    console.log("\nAperçu des 5 premiers à supprimer:", supersededPaths.slice(0, 5));
+  console.log("=== RÉSUMÉ ===");
+  console.log(`  Fichiers dans Storage     : ${allFiles.length}`);
+  console.log(`  Orphelins                 : ${orphans.length}`);
+  console.log(`  Superflus (résoumissions) : ${supersededPaths.length} (${usersAffected} utilisateurs)`);
+  console.log(`  Total à supprimer         : ${allToDelete.length}`);
+  console.log(`  Fichiers protégés         : ${allFiles.length - allToDelete.length}`);
+
+  if (allToDelete.length === 0) {
+    console.log("\n✅ Rien à supprimer — le stockage est déjà propre !");
+    return;
   }
 
-  // Si le storage fonctionne, lister aussi les orphelins
-  if (!bucketsErr) {
-    console.log("\n📂 Listage des fichiers dans le bucket", KYC_BUCKET, "...");
-    const allFiles: string[] = [];
-    let offset = 0;
-    while (true) {
-      const { data: items, error: listErr } = await supabase.storage
-        .from(KYC_BUCKET)
-        .list("", { limit: 1000, offset, sortBy: { column: "name", order: "asc" } });
-      if (listErr) { console.error("Erreur liste:", listErr.message); break; }
-      if (!items || items.length === 0) break;
-      for (const item of items) {
-        if (item.id) {
-          allFiles.push(item.name);
-        } else {
-          const { data: subItems } = await supabase.storage.from(KYC_BUCKET).list(item.name, { limit: 1000 });
-          for (const sf of subItems || []) allFiles.push(`${item.name}/${sf.name}`);
-        }
-      }
-      if (items.length < 1000) break;
-      offset += 1000;
-    }
-    console.log("Fichiers dans Storage:", allFiles.length);
+  console.log("\n🗑️  Suppression en cours...");
+  const deleted = await deleteFiles(allToDelete);
 
-    const referenced = new Set<string>();
-    for (const r of rows) {
-      for (const p of [r.document_front_path, r.document_back_path, r.selfie_path]) {
-        if (p && !p.startsWith("http")) referenced.add(p);
-      }
-    }
-    const orphans = allFiles.filter((p) => !referenced.has(p));
-    console.log("Fichiers orphelins:", orphans.length);
-
-    const allToDelete = [...new Set([...orphans, ...supersededPaths])];
-    console.log("\n🗑️  Total à supprimer:", allToDelete.length, "fichiers");
-
-    if (allToDelete.length === 0) {
-      console.log("✅ Rien à supprimer !");
-      await pool.end();
-      return;
-    }
-
-    // Suppression par chunks de 500
-    let deleted = 0;
-    const errors: string[] = [];
-    const CHUNK = 500;
-    for (let i = 0; i < allToDelete.length; i += CHUNK) {
-      const chunk = allToDelete.slice(i, i + CHUNK);
-      const { error: delErr } = await supabase.storage.from(KYC_BUCKET).remove(chunk);
-      if (delErr) {
-        errors.push(delErr.message);
-        console.error(`❌ Erreur suppression chunk ${i}-${i + chunk.length}:`, delErr.message);
-      } else {
-        deleted += chunk.length;
-        console.log(`✅ Chunk ${i}-${i + chunk.length}: ${chunk.length} fichiers supprimés`);
-      }
-    }
-
-    console.log("\n=== Nettoyage terminé ===");
-    console.log("✅ Supprimés:", deleted);
-    if (errors.length > 0) console.log("❌ Erreurs:", errors);
-  } else {
-    console.log("\n⚠️  Nettoyage Storage impossible — corrigez SUPABASE_SERVICE_ROLE_KEY d'abord.");
-    console.log("   Les 60 fichiers superflus identifiés seront supprimés une fois la clé corrigée.");
-  }
-
-  await pool.end();
+  console.log("\n=== NETTOYAGE TERMINÉ ===");
+  console.log(`✅ Fichiers supprimés : ${deleted} / ${allToDelete.length}`);
+  console.log(`📦 Fichiers restants  : ~${allFiles.length - deleted}`);
 }
 
 main().catch((err) => {
