@@ -19,7 +19,7 @@ let sharp: ((input: Buffer) => import("sharp").Sharp) | null = null;
 })();
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { kycRequests } from "@shared/schema";
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 export const KYC_BUCKET = "kyc_documents";
 export const PRODUCT_BUCKET = "product_images";
@@ -418,53 +418,41 @@ export async function deleteKycImagesById(kycIds: number[]): Promise<{ deleted: 
   const pathsToDelete: string[] = [];
   for (const r of rows) {
     for (const p of [r.documentFrontPath, r.documentBackPath, r.selfiePath]) {
+      // Garder uniquement les chemins relatifs Supabase (pas les URLs complètes ni les uploads locaux)
       if (p && !p.startsWith("http") && !p.startsWith("/uploads")) pathsToDelete.push(p);
     }
   }
 
-  if (pathsToDelete.length === 0) return { deleted: 0, freed: 0, errors: [] };
-
-  const url = getCredential("SUPABASE_URL");
-  const key = getCredential("SUPABASE_SERVICE_ROLE_KEY");
   const errors: string[] = [];
   let deleted = 0;
-  let freed = 0;
+  const freed = 0;
 
-  if (url && key) {
+  if (pathsToDelete.length > 0) {
+    let supabase: ReturnType<typeof createClient>;
+    try {
+      supabase = getSupabaseAdmin();
+    } catch (err) {
+      return { deleted: 0, freed: 0, errors: [(err as Error).message] };
+    }
+
     const CHUNK = 500;
     for (let i = 0; i < pathsToDelete.length; i += CHUNK) {
       const chunk = pathsToDelete.slice(i, i + CHUNK);
-      try {
-        const res = await fetch(`${url}/storage/v1/object/${KYC_BUCKET}`, {
-          method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${key}`,
-            apikey: key,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ prefixes: chunk }),
-        });
-        const data = await res.json() as any[];
-        if (res.ok && Array.isArray(data)) {
-          deleted += data.length;
-          freed += data.reduce((sum: number, f: any) => sum + (f.metadata?.size || 0), 0);
-        } else {
-          const errMsg = res.ok ? "Réponse inattendue" : (data as any)?.message || `HTTP ${res.status}`;
-          errors.push(errMsg);
-        }
-      } catch (err) {
-        errors.push((err as Error).message);
+      const { error } = await supabase.storage.from(KYC_BUCKET).remove(chunk);
+      if (error) {
+        errors.push(error.message);
+      } else {
+        deleted += chunk.length;
       }
     }
-  } else {
-    errors.push("SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY non configuré");
   }
 
-  // Vider les chemins en base même si des erreurs partielles
-  if (deleted > 0 || errors.length === 0) {
+  // Vider les chemins en base dès qu'on a pu supprimer au moins un fichier,
+  // ou s'il n'y avait rien à supprimer (chemins déjà absents / en uploads locaux)
+  if (errors.length === 0) {
     for (const r of rows) {
       await db.update(kycRequests)
-        .set({ documentFrontPath: sql`null`, documentBackPath: sql`null`, selfiePath: sql`null` })
+        .set({ documentFrontPath: null, documentBackPath: null, selfiePath: null })
         .where(eq(kycRequests.id, r.id));
     }
   }
