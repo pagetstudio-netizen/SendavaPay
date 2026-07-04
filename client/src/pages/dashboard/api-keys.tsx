@@ -296,9 +296,6 @@ Base URL: https://sendavapay.com/api/sdk/v1`} />
               </tbody>
             </table>
           </div>
-          <InfoBox type="warning" title="Prérequis">
-            KYC validé et accès SDK activé par l'administrateur.
-          </InfoBox>
         </section>
 
         {/* ─── API BACKEND ─── */}
