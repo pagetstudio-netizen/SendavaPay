@@ -87,6 +87,9 @@ import {
   ToggleLeft,
   ToggleRight,
   ShieldAlert,
+  ImageOff,
+  FileImage,
+  SquareCheck,
 } from "lucide-react";
 import { PartnersContent } from "@/pages/admin/partners";
 import type { 
@@ -2823,6 +2826,8 @@ function KycContent() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedKyc, setSelectedKyc] = useState<KycRequestWithUser | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
+  const [showDeleteImagesConfirm, setShowDeleteImagesConfirm] = useState(false);
 
   const { data: requests, isLoading } = useQuery<KycRequestWithUser[]>({ queryKey: ["/api/admin/kyc"] });
 
@@ -2888,6 +2893,42 @@ function KycContent() {
       toast({ title: "Succès", description: "Demande KYC traitée" });
     },
   });
+
+  const deleteImagesMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const res = await apiRequest("POST", "/api/admin/kyc/delete-images", { ids });
+      return res.json();
+    },
+    onSuccess: (data: { deleted: number; freed: number; errors: string[] }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/kyc"] });
+      setCheckedIds(new Set());
+      setShowDeleteImagesConfirm(false);
+      const freed = data.freed > 0 ? ` (~${Math.round(data.freed / 1024 / 1024)} Mo libérés)` : "";
+      toast({
+        title: "Images supprimées ✅",
+        description: `${data.deleted} fichier(s) supprimé(s) de Supabase${freed}.${data.errors?.length ? ` (${data.errors.length} erreur(s))` : ""}`,
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Erreur", description: err?.message || "Impossible de supprimer les images.", variant: "destructive" });
+    },
+  });
+
+  const toggleCheck = (id: number) => {
+    setCheckedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (checkedIds.size === filteredRequests.length) {
+      setCheckedIds(new Set());
+    } else {
+      setCheckedIds(new Set(filteredRequests.map(r => r.id)));
+    }
+  };
 
   const handleDownload = (url: string, filename: string) => {
     const link = document.createElement('a');
@@ -2988,11 +3029,43 @@ function KycContent() {
             </Select>
           </div>
         </CardHeader>
+        {/* Barre de sélection groupée */}
+        {checkedIds.size > 0 && (
+          <div className="flex items-center gap-3 px-4 py-2 bg-orange-50 dark:bg-orange-950/30 border-b border-orange-200 dark:border-orange-800">
+            <SquareCheck className="h-4 w-4 text-orange-600" />
+            <span className="text-sm font-medium text-orange-700 dark:text-orange-300">
+              {checkedIds.size} dossier{checkedIds.size > 1 ? "s" : ""} sélectionné{checkedIds.size > 1 ? "s" : ""}
+            </span>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="ml-auto flex items-center gap-1.5"
+              onClick={() => setShowDeleteImagesConfirm(true)}
+              disabled={deleteImagesMutation.isPending}
+              data-testid="button-bulk-delete-kyc-images"
+            >
+              <ImageOff className="h-3.5 w-3.5" />
+              Supprimer les images ({checkedIds.size})
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setCheckedIds(new Set())} className="text-muted-foreground">
+              Annuler
+            </Button>
+          </div>
+        )}
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="border-b bg-muted/50">
                 <tr>
+                  <th className="p-4 w-10">
+                    <input
+                      type="checkbox"
+                      className="rounded border-border cursor-pointer w-4 h-4"
+                      checked={filteredRequests.length > 0 && checkedIds.size === filteredRequests.length}
+                      onChange={toggleAll}
+                      data-testid="checkbox-select-all-kyc"
+                    />
+                  </th>
                   <th className="text-left p-4 font-medium">ID</th>
                   <th className="text-left p-4 font-medium">Utilisateur</th>
                   <th className="text-left p-4 font-medium">Document</th>
@@ -3003,11 +3076,20 @@ function KycContent() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan={6} className="p-8 text-center"><Skeleton className="h-8 w-full" /></td></tr>
+                  <tr><td colSpan={7} className="p-8 text-center"><Skeleton className="h-8 w-full" /></td></tr>
                 ) : !filteredRequests?.length ? (
-                  <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">Aucune demande KYC trouvée</td></tr>
+                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">Aucune demande KYC trouvée</td></tr>
                 ) : filteredRequests.map((req) => (
-                  <tr key={req.id} className="border-b hover:bg-muted/30">
+                  <tr key={req.id} className={`border-b hover:bg-muted/30 ${checkedIds.has(req.id) ? "bg-orange-50/60 dark:bg-orange-950/20" : ""}`}>
+                    <td className="p-4">
+                      <input
+                        type="checkbox"
+                        className="rounded border-border cursor-pointer w-4 h-4"
+                        checked={checkedIds.has(req.id)}
+                        onChange={() => toggleCheck(req.id)}
+                        data-testid={`checkbox-kyc-${req.id}`}
+                      />
+                    </td>
                     <td className="p-4 font-mono text-sm">{req.id}</td>
                     <td className="p-4">
                       <p className="font-medium">{req.user?.fullName || `User #${req.userId}`}</p>
@@ -3025,9 +3107,21 @@ function KycContent() {
                     </td>
                     <td className="p-4 text-sm text-muted-foreground">{formatDate(req.createdAt)}</td>
                     <td className="p-4">
-                      <Button size="sm" variant="outline" onClick={() => setSelectedKyc(req)}>
-                        <Eye className="h-4 w-4 mr-1" /> Voir
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button size="sm" variant="outline" onClick={() => setSelectedKyc(req)} data-testid={`button-view-kyc-${req.id}`}>
+                          <Eye className="h-4 w-4 mr-1" /> Voir
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-950"
+                          title="Supprimer les images de Supabase"
+                          onClick={() => { setCheckedIds(new Set([req.id])); setShowDeleteImagesConfirm(true); }}
+                          data-testid={`button-delete-images-kyc-${req.id}`}
+                        >
+                          <ImageOff className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -3036,6 +3130,61 @@ function KycContent() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Dialog confirmation suppression images */}
+      <Dialog open={showDeleteImagesConfirm} onOpenChange={open => { if (!open && !deleteImagesMutation.isPending) { setShowDeleteImagesConfirm(false); setCheckedIds(new Set()); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ImageOff className="h-5 w-5 text-destructive" />
+              Supprimer les images de Supabase
+            </DialogTitle>
+            <DialogDescription>
+              Vous allez supprimer les photos de {checkedIds.size} dossier{checkedIds.size > 1 ? "s" : ""} KYC de Supabase Storage.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-4 flex gap-3">
+              <AlertTriangle className="h-5 w-5 text-destructive flex-shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium text-destructive">Ce qui sera supprimé</p>
+                <ul className="mt-2 space-y-1 text-muted-foreground list-disc list-inside">
+                  <li>Recto de la pièce d'identité</li>
+                  <li>Verso de la pièce d'identité</li>
+                  <li>Photo selfie de vérification</li>
+                </ul>
+              </div>
+            </div>
+            <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-4 flex gap-3">
+              <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium text-green-700 dark:text-green-400">Ce qui est conservé</p>
+                <ul className="mt-2 space-y-1 text-muted-foreground list-disc list-inside">
+                  <li>Le dossier KYC et son statut</li>
+                  <li>Les informations de l'utilisateur</li>
+                  <li>Toutes les données en base</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowDeleteImagesConfirm(false); setCheckedIds(new Set()); }} disabled={deleteImagesMutation.isPending}>
+              Annuler
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteImagesMutation.isPending}
+              onClick={() => deleteImagesMutation.mutate(Array.from(checkedIds))}
+              data-testid="button-confirm-delete-kyc-images"
+            >
+              {deleteImagesMutation.isPending
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Suppression...</>
+                : <><ImageOff className="h-4 w-4 mr-2" />Confirmer la suppression</>
+              }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!selectedKyc} onOpenChange={() => { setSelectedKyc(null); setRejectionReason(""); }}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
