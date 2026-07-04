@@ -21,7 +21,20 @@ type RegisterData = {
   confirmPassword: string;
 };
 
-export type LoginResponse = User & { requireOtp?: boolean; tempToken?: string; message?: string };
+export type LoginResponse = User & {
+  requireOtp?: boolean;
+  requireEmailVerification?: boolean;
+  requireDeviceVerification?: boolean;
+  tempToken?: string;
+  email?: string;
+  message?: string;
+};
+
+export type RegisterResponse = User & {
+  requireEmailVerification?: boolean;
+  tempToken?: string;
+  email?: string;
+};
 
 type AuthContextType = {
   user: User | null;
@@ -29,7 +42,7 @@ type AuthContextType = {
   error: Error | null;
   loginMutation: UseMutationResult<LoginResponse, Error, LoginData>;
   logoutMutation: UseMutationResult<void, Error, void>;
-  registerMutation: UseMutationResult<User, Error, RegisterData>;
+  registerMutation: UseMutationResult<RegisterResponse, Error, RegisterData>;
 };
 
 export const AuthContext = createContext<AuthContextType | null>(null);
@@ -52,7 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return await res.json();
     },
     onSuccess: (data: LoginResponse) => {
-      if (data.requireOtp) return;
+      if (data.requireOtp || data.requireEmailVerification || data.requireDeviceVerification) return;
       queryClient.setQueryData(["/api/user"], data);
       toast({
         title: "Connexion réussie",
@@ -69,15 +82,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const registerMutation = useMutation({
-    mutationFn: async (credentials: RegisterData) => {
+    mutationFn: async (credentials: RegisterData): Promise<RegisterResponse> => {
       const res = await apiRequest("POST", "/api/auth/register", credentials);
       return await res.json();
     },
-    onSuccess: (user: User) => {
-      queryClient.setQueryData(["/api/user"], user);
+    onSuccess: (data: RegisterResponse) => {
+      if (data.requireEmailVerification) return;
+      queryClient.setQueryData(["/api/user"], data);
       toast({
         title: "Inscription réussie",
-        description: `Bienvenue sur SendavaPay, ${user.fullName}!`,
+        description: `Bienvenue sur SendavaPay, ${data.fullName}!`,
       });
     },
     onError: (error: Error) => {

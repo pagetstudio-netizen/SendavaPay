@@ -518,6 +518,93 @@ export async function sendBroadcastEmail(
   });
 }
 
+export async function sendEmailVerificationEmail(
+  to: string,
+  data: { fullName: string; code: string; activateUrl: string }
+): Promise<{ success: boolean; error?: string }> {
+  const content = `
+    <h2>Activez votre compte SendavaPay</h2>
+    <p>Bonjour ${data.fullName},</p>
+    <p>Bienvenue ! Votre compte a été créé avec succès. Pour l'activer, entrez ce code ou cliquez sur le bouton ci-dessous :</p>
+
+    <div style="text-align: center; margin: 30px 0;">
+      <p style="color: #6b7280; margin-bottom: 10px; font-size: 14px;">Votre code d'activation :</p>
+      <div style="display: inline-block; background: #f0fdf4; border: 2px dashed #059669; border-radius: 12px; padding: 20px 40px;">
+        <span style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #059669; font-family: monospace;">${data.code}</span>
+      </div>
+      <p style="color: #6b7280; margin-top: 10px; font-size: 13px;">Ce code expire dans <strong>24 heures</strong></p>
+    </div>
+
+    <p style="text-align: center; color: #6b7280; margin: 20px 0;">— ou —</p>
+
+    <p style="text-align: center;">
+      <a href="${data.activateUrl}" class="button">Activer mon compte</a>
+    </p>
+
+    <div class="info-box" style="background-color: #fef9f0; border-left-color: #f59e0b; margin-top: 25px;">
+      <p style="margin: 0; font-size: 13px; color: #92400e;">
+        <strong>Vous n'avez pas créé de compte ?</strong><br>
+        Ignorez cet email. Aucune action n'est requise.
+      </p>
+    </div>
+    <p>À bientôt,<br>L'équipe SendavaPay</p>
+  `;
+  return sendEmail({
+    to,
+    subject: '✅ Activez votre compte SendavaPay',
+    html: getBaseTemplate(content, 'Activation de compte'),
+    text: `Votre code d'activation SendavaPay : ${data.code}\n\nOu cliquez sur ce lien : ${data.activateUrl}\n\nCe code expire dans 24 heures.`
+  });
+}
+
+export async function sendNewDeviceEmail(
+  to: string,
+  data: { fullName: string; code: string; verifyUrl: string; ip: string; userAgent: string }
+): Promise<{ success: boolean; error?: string }> {
+  const browser = data.userAgent.length > 80 ? data.userAgent.substring(0, 80) + '…' : data.userAgent;
+  const content = `
+    <h2 style="color: #1e40af;">🔐 Nouvelle connexion détectée</h2>
+    <p>Bonjour ${data.fullName},</p>
+    <p>Une tentative de connexion a été détectée depuis un nouvel appareil ou navigateur :</p>
+
+    <div class="info-box" style="background: #eff6ff; border-left-color: #3b82f6; margin: 20px 0;">
+      <div style="font-size: 13px; color: #374151;">
+        <div style="margin-bottom: 8px;"><strong>🌐 Adresse IP :</strong> <code>${data.ip}</code></div>
+        <div><strong>💻 Appareil :</strong> ${browser}</div>
+      </div>
+    </div>
+
+    <p><strong>Si c'est bien vous</strong>, entrez ce code de confirmation ou cliquez sur le lien ci-dessous :</p>
+
+    <div style="text-align: center; margin: 30px 0;">
+      <p style="color: #6b7280; margin-bottom: 10px; font-size: 14px;">Code de vérification :</p>
+      <div style="display: inline-block; background: #eff6ff; border: 2px dashed #3b82f6; border-radius: 12px; padding: 20px 40px;">
+        <span style="font-size: 42px; font-weight: 900; letter-spacing: 10px; color: #1e40af; font-family: monospace;">${data.code}</span>
+      </div>
+      <p style="color: #6b7280; margin-top: 10px; font-size: 13px;">Ce code expire dans <strong>15 minutes</strong></p>
+    </div>
+
+    <p style="text-align: center; color: #6b7280; margin: 20px 0;">— ou —</p>
+    <p style="text-align: center;">
+      <a href="${data.verifyUrl}" style="display: inline-block; background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; margin: 20px 0;">Confirmer la connexion</a>
+    </p>
+
+    <div class="info-box" style="background-color: #fef2f2; border-left-color: #dc2626; margin-top: 20px;">
+      <p style="margin: 0; font-size: 13px; color: #991b1b;">
+        <strong>⚠️ Ce n'est pas vous ?</strong><br>
+        Changez immédiatement votre mot de passe et contactez notre support.
+      </p>
+    </div>
+    <p>L'équipe SendavaPay</p>
+  `;
+  return sendEmail({
+    to,
+    subject: '🔐 Nouvelle connexion — vérification requise — SendavaPay',
+    html: getBaseTemplate(content, 'Vérification nouvel appareil'),
+    text: `Code de vérification nouvel appareil SendavaPay : ${data.code}\nIP : ${data.ip}\n\nOu cliquez : ${data.verifyUrl}\n\nCe code expire dans 15 minutes.`
+  });
+}
+
 export async function sendPasswordResetEmail(to: string, data: { fullName: string; code: string; resetUrl: string }): Promise<{ success: boolean; error?: string }> {
   const content = `
     <h2>Réinitialisation de mot de passe</h2>
