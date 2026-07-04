@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { Loader2, Eye, EyeOff, ShieldCheck, Mail, Smartphone, RefreshCw, CheckCircle2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import heroImage from "@assets/IMG-20251205-WA0058(1)_1765450585004.jpg";
@@ -41,9 +41,22 @@ export default function AuthPage() {
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // ── Admin 2FA ───────────────────────────────────────────────────────────
   const [adminOtpStep, setAdminOtpStep] = useState(false);
   const [adminTempToken, setAdminTempToken] = useState("");
   const [adminOtpCode, setAdminOtpCode] = useState("");
+
+  // ── Email verification ──────────────────────────────────────────────────
+  const [emailVerifStep, setEmailVerifStep] = useState(false);
+  const [emailVerifToken, setEmailVerifToken] = useState("");
+  const [emailVerifAddress, setEmailVerifAddress] = useState("");
+  const [emailVerifCode, setEmailVerifCode] = useState("");
+
+  // ── Nouvel appareil ─────────────────────────────────────────────────────
+  const [deviceVerifStep, setDeviceVerifStep] = useState(false);
+  const [deviceTempToken, setDeviceTempToken] = useState("");
+  const [deviceVerifCode, setDeviceVerifCode] = useState("");
   
   const { user, loginMutation, registerMutation } = useAuth();
   const { toast } = useToast();
@@ -58,6 +71,7 @@ export default function AuthPage() {
     defaultValues: { fullName: "", email: "", phone: "", password: "", confirmPassword: "" },
   });
 
+  // ── Admin OTP mutation ─────────────────────────────────────────────────
   const adminOtpMutation = useMutation({
     mutationFn: async ({ tempToken, code }: { tempToken: string; code: string }) => {
       const res = await apiRequest("POST", "/api/auth/admin-verify-otp", { tempToken, code });
@@ -72,12 +86,81 @@ export default function AuthPage() {
     },
   });
 
+  // ── Email verification mutation ────────────────────────────────────────
+  const emailVerifMutation = useMutation({
+    mutationFn: async ({ tempToken, code }: { tempToken: string; code: string }) => {
+      const res = await apiRequest("POST", "/api/auth/verify-email", { tempToken, code });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["/api/user"], data);
+      toast({ title: "Email vérifié ✅", description: `Bienvenue sur SendavaPay, ${data.fullName}!` });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Code invalide", description: e.message, variant: "destructive" });
+    },
+  });
+
+  // ── Resend verification mutation ───────────────────────────────────────
+  const resendVerifMutation = useMutation({
+    mutationFn: async (email: string) => {
+      const res = await apiRequest("POST", "/api/auth/resend-verification", { email });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data.tempToken) setEmailVerifToken(data.tempToken);
+      toast({ title: "Email renvoyé", description: "Vérifiez votre boîte mail (et vos spams)." });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Erreur", description: e.message, variant: "destructive" });
+    },
+  });
+
+  // ── Device verification mutation ───────────────────────────────────────
+  const deviceVerifMutation = useMutation({
+    mutationFn: async ({ tempToken, code }: { tempToken: string; code: string }) => {
+      const res = await apiRequest("POST", "/api/auth/verify-device", { tempToken, code });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["/api/user"], data);
+      toast({ title: "Appareil confirmé ✅", description: `Bienvenue, ${data.fullName}! Cet appareil est maintenant de confiance.` });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Code invalide", description: e.message, variant: "destructive" });
+    },
+  });
+
   const onLogin = (data: LoginFormData) => {
     loginMutation.mutate({ emailOrPhone: data.email, password: data.password }, {
       onSuccess: (res: any) => {
         if (res?.requireOtp && res?.tempToken) {
           setAdminTempToken(res.tempToken);
           setAdminOtpStep(true);
+        } else if (res?.requireEmailVerification && res?.tempToken) {
+          setEmailVerifToken(res.tempToken);
+          setEmailVerifAddress(res.email || data.email);
+          setEmailVerifStep(true);
+        } else if (res?.requireDeviceVerification && res?.tempToken) {
+          setDeviceTempToken(res.tempToken);
+          setDeviceVerifStep(true);
+        }
+      }
+    });
+  };
+
+  const onRegister = (data: RegisterFormData) => {
+    registerMutation.mutate(data, {
+      onSuccess: (res: any) => {
+        if (res?.requireEmailVerification && res?.tempToken) {
+          setEmailVerifToken(res.tempToken);
+          setEmailVerifAddress(res.email || data.email);
+          setEmailVerifStep(true);
+          setActiveTab("login");
+          toast({
+            title: "Compte créé !",
+            description: "Un code d'activation a été envoyé à votre adresse email.",
+          });
         }
       }
     });
@@ -89,13 +172,40 @@ export default function AuthPage() {
     adminOtpMutation.mutate({ tempToken: adminTempToken, code: adminOtpCode.trim() });
   };
 
-  const onRegister = (data: RegisterFormData) => {
-    registerMutation.mutate(data);
+  const onEmailVerifSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (emailVerifCode.length !== 6) return;
+    emailVerifMutation.mutate({ tempToken: emailVerifToken, code: emailVerifCode.trim() });
+  };
+
+  const onDeviceVerifSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (deviceVerifCode.length !== 6) return;
+    deviceVerifMutation.mutate({ tempToken: deviceTempToken, code: deviceVerifCode.trim() });
   };
 
   if (user) {
     return <Redirect to={user.role === "admin" ? "/admin" : "/dashboard"} />;
   }
+
+  const renderCodeInput = (
+    value: string,
+    onChange: (v: string) => void,
+    testId: string
+  ) => (
+    <Input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      maxLength={6}
+      placeholder="123456"
+      className="text-center text-3xl h-16 font-mono tracking-widest rounded-xl"
+      value={value}
+      onChange={e => onChange(e.target.value.replace(/\D/g, "").slice(0, 6))}
+      autoFocus
+      data-testid={testId}
+    />
+  );
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
@@ -112,7 +222,7 @@ export default function AuthPage() {
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsContent value="login" className="mt-6">
 
-              {/* ── Admin 2FA OTP Step ────────────────────────────── */}
+              {/* ── Admin 2FA OTP ──────────────────────────────────────── */}
               {adminOtpStep ? (
                 <div className="space-y-6">
                   <div className="text-center">
@@ -127,19 +237,7 @@ export default function AuthPage() {
                   <form onSubmit={onAdminOtpSubmit} className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="adminOtpCode">Code de vérification</Label>
-                      <Input
-                        id="adminOtpCode"
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        maxLength={6}
-                        placeholder="123456"
-                        className="text-center text-3xl h-16 font-mono tracking-widest rounded-xl"
-                        value={adminOtpCode}
-                        onChange={e => setAdminOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                        autoFocus
-                        data-testid="input-admin-otp"
-                      />
+                      {renderCodeInput(adminOtpCode, setAdminOtpCode, "input-admin-otp")}
                     </div>
                     <Button
                       type="submit"
@@ -160,6 +258,111 @@ export default function AuthPage() {
                     </button>
                   </form>
                 </div>
+
+              /* ── Email verification step ─────────────────────────────── */
+              ) : emailVerifStep ? (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-950/50 mb-4">
+                      <Mail className="h-8 w-8 text-green-600" />
+                    </div>
+                    <h2 className="text-xl font-bold">Vérifiez votre email</h2>
+                    <p className="text-muted-foreground mt-2 text-sm">
+                      Un code d'activation a été envoyé à<br />
+                      <strong className="text-foreground">{emailVerifAddress}</strong>
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 p-4 text-sm text-green-800 dark:text-green-300">
+                    <CheckCircle2 className="h-4 w-4 inline mr-2" />
+                    Vous pouvez aussi cliquer sur le lien dans l'email pour activer directement votre compte.
+                  </div>
+
+                  <form onSubmit={onEmailVerifSubmit} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Code d'activation (6 chiffres)</Label>
+                      {renderCodeInput(emailVerifCode, setEmailVerifCode, "input-email-verif-code")}
+                    </div>
+                    <Button
+                      type="submit"
+                      className="w-full h-14 rounded-xl text-lg font-bold"
+                      disabled={emailVerifMutation.isPending || emailVerifCode.length !== 6}
+                      data-testid="button-email-verif-submit"
+                    >
+                      {emailVerifMutation.isPending ? (
+                        <><Loader2 className="h-5 w-5 mr-2 animate-spin" />Activation...</>
+                      ) : "Activer mon compte"}
+                    </Button>
+                    <div className="flex items-center justify-between text-sm">
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => { setEmailVerifStep(false); setEmailVerifCode(""); }}
+                      >
+                        ← Retour
+                      </button>
+                      <button
+                        type="button"
+                        className="text-primary hover:underline flex items-center gap-1"
+                        disabled={resendVerifMutation.isPending}
+                        onClick={() => resendVerifMutation.mutate(emailVerifAddress)}
+                        data-testid="button-resend-verif"
+                      >
+                        {resendVerifMutation.isPending
+                          ? <><Loader2 className="h-3 w-3 animate-spin" />Envoi...</>
+                          : <><RefreshCw className="h-3 w-3" />Renvoyer le code</>
+                        }
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+              /* ── Device verification step ────────────────────────────── */
+              ) : deviceVerifStep ? (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-orange-100 dark:bg-orange-950/50 mb-4">
+                      <Smartphone className="h-8 w-8 text-orange-600" />
+                    </div>
+                    <h2 className="text-xl font-bold">Nouvel appareil détecté</h2>
+                    <p className="text-muted-foreground mt-2 text-sm">
+                      Pour protéger votre compte, un code de confirmation a été envoyé à votre adresse email.
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800 p-4 text-sm text-orange-800 dark:text-orange-300">
+                    <ShieldCheck className="h-4 w-4 inline mr-2" />
+                    Cet appareil sera mémorisé pendant 90 jours après vérification.
+                  </div>
+
+                  <form onSubmit={onDeviceVerifSubmit} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Code de confirmation (6 chiffres)</Label>
+                      {renderCodeInput(deviceVerifCode, setDeviceVerifCode, "input-device-verif-code")}
+                      <p className="text-xs text-muted-foreground text-center">
+                        Vous pouvez aussi cliquer sur le lien dans l'email.
+                      </p>
+                    </div>
+                    <Button
+                      type="submit"
+                      className="w-full h-14 rounded-xl text-lg font-bold"
+                      disabled={deviceVerifMutation.isPending || deviceVerifCode.length !== 6}
+                      data-testid="button-device-verif-submit"
+                    >
+                      {deviceVerifMutation.isPending ? (
+                        <><Loader2 className="h-5 w-5 mr-2 animate-spin" />Vérification...</>
+                      ) : "Confirmer la connexion"}
+                    </Button>
+                    <button
+                      type="button"
+                      className="w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => { setDeviceVerifStep(false); setDeviceVerifCode(""); setDeviceTempToken(""); }}
+                    >
+                      ← Retour à la connexion
+                    </button>
+                  </form>
+                </div>
+
               ) : (
               <>
               <div className="text-center mb-8">

@@ -223,6 +223,42 @@ async function initializeSecurityTables() {
   }
 }
 
+async function initializeAuthTables() {
+  if (!pool) return;
+  const client = await pool.connect();
+  try {
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false;`);
+    // Backfill : marquer les utilisateurs existants (sans OTP en attente) comme vérifiés
+    // Idempotent : seuls les utilisateurs sans OTP email_verification sont marqués.
+    await client.query(`
+      UPDATE users u SET email_verified = true
+      WHERE u.email_verified = false
+        AND NOT EXISTS (
+          SELECT 1 FROM otp_codes_v2 o
+          WHERE o.user_id = u.id AND o.type = 'email_verification'
+        );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS trusted_devices (
+        id           INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        user_id      INTEGER NOT NULL,
+        device_token TEXT NOT NULL UNIQUE,
+        user_agent   TEXT,
+        ip_address   TEXT,
+        created_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+        last_seen_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_trusted_devices_user  ON trusted_devices(user_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_trusted_devices_token ON trusted_devices(device_token);`);
+    log("Auth tables initialized (email_verified, trusted_devices)", "init");
+  } catch (error) {
+    log(`Auth tables initialization error: ${(error as Error).message}`, "init");
+  } finally {
+    client.release();
+  }
+}
+
 async function initializeBlacklistTables() {
   if (!pool) return;
   const client = await pool.connect();
@@ -378,6 +414,12 @@ async function initializeWithTimeout<T>(
         initializeSecurityTables(),
         20000,
         "Security tables"
+      );
+
+      await initializeWithTimeout(
+        initializeAuthTables(),
+        20000,
+        "Auth tables"
       );
 
       await initializeWithTimeout(

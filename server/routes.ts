@@ -11,7 +11,7 @@ import {
   registerRateLimit, otpRateLimit, apiRateLimit,
   geoAndVpnBlockMiddleware, globalApiRateLimit, adminActionLogger,
 } from "./security";
-import { createOtp, verifyOtp } from "./otp";
+import { createOtp, verifyOtp, verifyOtpByToken } from "./otp";
 import { isAdminWhitelisted } from "./init-admin";
 import {
   createPayDunyaCheckout, payDunyaDisburse, verifyPayDunyaWebhook,
@@ -45,6 +45,8 @@ import {
   sendDepositEmail,
   sendPasswordResetEmail,
   sendBroadcastEmail,
+  sendEmailVerificationEmail,
+  sendNewDeviceEmail,
 } from "./email";
 import {
   notifyDeposit,
@@ -573,6 +575,45 @@ export async function registerRoutes(
   const sdkApi = (await import("./sdk-api")).default;
   app.use("/api/sdk", sdkApi);
 
+  // ── Helpers appareil de confiance ──────────────────────────────────────────
+  const TRUSTED_DEVICE_COOKIE = "sdv_td";
+  const TRUSTED_DEVICE_MAX_AGE = 90 * 24 * 60 * 60 * 1000; // 90 jours
+
+  async function getTrustedDeviceToken(req: Request): Promise<string | undefined> {
+    const raw = req.headers.cookie || "";
+    const match = raw.split(";").find(c => c.trim().startsWith(TRUSTED_DEVICE_COOKIE + "="));
+    return match ? decodeURIComponent(match.split("=")[1].trim()) : undefined;
+  }
+
+  async function isTrustedDevice(userId: number, deviceToken: string | undefined): Promise<boolean> {
+    if (!deviceToken || !pool) return false;
+    try {
+      const r = await pool.query(
+        `SELECT id FROM trusted_devices WHERE user_id=$1 AND device_token=$2 LIMIT 1`,
+        [userId, deviceToken]
+      );
+      if (r.rows[0]) {
+        pool.query(`UPDATE trusted_devices SET last_seen_at=NOW() WHERE device_token=$1`, [deviceToken]).catch(() => {});
+        return true;
+      }
+      return false;
+    } catch { return false; }
+  }
+
+  async function trustDevice(userId: number, deviceToken: string, ip: string, userAgent: string): Promise<void> {
+    if (!pool) return;
+    try {
+      await pool.query(
+        `INSERT INTO trusted_devices (user_id, device_token, ip_address, user_agent) VALUES ($1,$2,$3,$4) ON CONFLICT (device_token) DO UPDATE SET last_seen_at=NOW()`,
+        [userId, deviceToken, ip, userAgent]
+      );
+    } catch { /* ignore */ }
+  }
+
+  function getSiteUrl(): string {
+    return (process.env.SITE_URL || process.env.APP_URL || "https://sendavapay.com").replace(/\/$/, "");
+  }
+
   app.post("/api/auth/register", registerRateLimit, suspiciousUaMiddleware, async (req, res) => {
     try {
       const result = registerSchema.safeParse(req.body);
@@ -600,30 +641,103 @@ export async function registerRoutes(
         password: hashedPassword,
       });
 
-      req.session.userId = user.id;
-      const { password: _, ...userWithoutPassword } = user;
-
-      // Create default wallets for all supported countries (non-blocking)
+      // Create default wallets (non-blocking)
       storage.createDefaultWallets(user.id).catch(err =>
         console.error("Failed to create default wallets:", err)
       );
 
-      // Send welcome email (non-blocking)
-      sendWelcomeEmail(email, fullName).catch(err => 
-        console.error("Failed to send welcome email:", err)
-      );
+      notifyNewUser({ userName: fullName, userId: user.id, email, phone });
 
-      notifyNewUser({
-        userName: fullName,
-        userId: user.id,
-        email,
-        phone,
-      });
-      
-      res.json(userWithoutPassword);
+      // ── Envoi de l'email de vérification ────────────────────────────────────
+      const ip = getClientIp(req);
+      let tempToken = "";
+      try {
+        const { token, code } = await createOtp(user.id, "email_verification", ip);
+        tempToken = token;
+        const activateUrl = `${getSiteUrl()}/api/auth/activate?token=${token}&code=${code}`;
+        sendEmailVerificationEmail(email, { fullName, code, activateUrl }).catch(err =>
+          console.error("Failed to send verification email:", err)
+        );
+      } catch (otpErr) {
+        console.error("OTP creation failed:", otpErr);
+        // Si OTP échoue, on crée quand même la session en mode dégradé
+        req.session.userId = user.id;
+        const { password: _, ...userWithoutPassword } = user;
+        return res.json(userWithoutPassword);
+      }
+
+      res.json({ requireEmailVerification: true, tempToken, email });
     } catch (error) {
       console.error("Register error:", error);
       res.status(500).json({ message: "Erreur lors de l'inscription" });
+    }
+  });
+
+  // ── Vérification email : via code ────────────────────────────────────────
+  app.post("/api/auth/verify-email", otpRateLimit, async (req, res) => {
+    const { tempToken, code } = req.body;
+    if (!tempToken || !code) return res.status(400).json({ message: "Token et code requis" });
+
+    const result = await verifyOtpByToken(tempToken, String(code).trim(), "email_verification");
+    if (!result.valid || !result.userId) {
+      return res.status(401).json({ message: result.errorMsg || "Code invalide ou expiré" });
+    }
+
+    await storage.updateUser(result.userId, { emailVerified: true });
+
+    // Envoyer l'email de bienvenue maintenant que l'email est confirmé
+    const user = await storage.getUser(result.userId);
+    if (user) {
+      sendWelcomeEmail(user.email, user.fullName).catch(() => {});
+    }
+
+    req.session.userId = result.userId;
+    if (!user) return res.status(404).json({ message: "Utilisateur introuvable" });
+    const { password: _, ...userWithoutPassword } = user;
+    res.json(userWithoutPassword);
+  });
+
+  // ── Vérification email : via lien (GET) ─────────────────────────────────
+  app.get("/api/auth/activate", async (req, res) => {
+    const { token, code } = req.query as { token?: string; code?: string };
+    if (!token || !code) {
+      return res.redirect(`/auth?error=lien_invalide&tab=login`);
+    }
+
+    const result = await verifyOtpByToken(token, code.trim(), "email_verification");
+    if (!result.valid || !result.userId) {
+      return res.redirect(`/auth?error=lien_expire&tab=login`);
+    }
+
+    await storage.updateUser(result.userId, { emailVerified: true });
+
+    const user = await storage.getUser(result.userId);
+    if (user) {
+      sendWelcomeEmail(user.email, user.fullName).catch(() => {});
+    }
+
+    req.session.userId = result.userId;
+    await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+    res.redirect("/dashboard?activated=1");
+  });
+
+  // ── Renvoi email de vérification ────────────────────────────────────────
+  app.post("/api/auth/resend-verification", otpRateLimit, async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email requis" });
+
+    const user = await storage.getUserByEmail(email);
+    if (!user) return res.json({ message: "Si cet email existe, un code a été renvoyé." });
+    if (user.emailVerified) return res.json({ message: "Email déjà vérifié." });
+
+    try {
+      const ip = getClientIp(req);
+      const { token, code } = await createOtp(user.id, "email_verification", ip);
+      const activateUrl = `${getSiteUrl()}/api/auth/activate?token=${token}&code=${code}`;
+      sendEmailVerificationEmail(email, { fullName: user.fullName, code, activateUrl }).catch(() => {});
+      res.json({ message: "Code renvoyé.", tempToken: token });
+    } catch {
+      res.status(500).json({ message: "Impossible d'envoyer l'email. Réessayez." });
     }
   });
 
@@ -739,9 +853,37 @@ export async function registerRoutes(
       }
 
       // ── USER normal ──────────────────────────────────────────────────────────
-      req.session.userId = user.id;
       storage.createDefaultWallets(user.id).catch(err => console.error("Failed to ensure default wallets on login:", err));
 
+      // ── Vérification email obligatoire ──────────────────────────────────────
+      if (!user.emailVerified) {
+        try {
+          const { token, code } = await createOtp(user.id, "email_verification", ip);
+          const activateUrl = `${getSiteUrl()}/api/auth/activate?token=${token}&code=${code}`;
+          sendEmailVerificationEmail(user.email, { fullName: user.fullName, code, activateUrl }).catch(() => {});
+          return res.json({ requireEmailVerification: true, tempToken: token, email: user.email });
+        } catch {
+          // En mode dégradé (pas de DB), laisser passer
+        }
+      }
+
+      // ── Vérification appareil de confiance ──────────────────────────────────
+      const deviceToken = await getTrustedDeviceToken(req);
+      const trusted = await isTrustedDevice(user.id, deviceToken);
+
+      if (!trusted) {
+        try {
+          const { token, code } = await createOtp(user.id, "new_device", ip);
+          const userAgent = req.headers["user-agent"] || "Appareil inconnu";
+          const verifyUrl = `${getSiteUrl()}/api/auth/verify-device-link?token=${token}&code=${code}`;
+          sendNewDeviceEmail(user.email, { fullName: user.fullName, code, verifyUrl, ip, userAgent }).catch(() => {});
+          return res.json({ requireDeviceVerification: true, tempToken: token });
+        } catch {
+          // En mode dégradé, laisser passer sans vérification d'appareil
+        }
+      }
+
+      req.session.userId = user.id;
       isNewIpForIdentifier(emailOrPhone, ip).then(isNewIp => {
         notifyUserLogin({ accountType: "user", email: user.email || emailOrPhone, ip, userAgent: req.headers["user-agent"], success: true, isNewIp }).catch(() => {});
       }).catch(() => {});
@@ -806,6 +948,61 @@ export async function registerRoutes(
       console.error("Admin OTP verify error:", error);
       res.status(500).json({ message: "Erreur de vérification" });
     }
+  });
+
+  // ── Vérification appareil : via code ────────────────────────────────────
+  app.post("/api/auth/verify-device", otpRateLimit, async (req, res) => {
+    const ip = getClientIp(req);
+    const { tempToken, code } = req.body;
+    if (!tempToken || !code) return res.status(400).json({ message: "Token et code requis" });
+
+    const result = await verifyOtpByToken(tempToken, String(code).trim(), "new_device");
+    if (!result.valid || !result.userId) {
+      return res.status(401).json({ message: result.errorMsg || "Code invalide ou expiré" });
+    }
+
+    const user = await storage.getUser(result.userId);
+    if (!user) return res.status(404).json({ message: "Utilisateur introuvable" });
+
+    const newToken = uuidv4();
+    await trustDevice(result.userId, newToken, ip, req.headers["user-agent"] || "");
+    res.cookie(TRUSTED_DEVICE_COOKIE, newToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: TRUSTED_DEVICE_MAX_AGE,
+    });
+
+    req.session.userId = result.userId;
+    notifyUserLogin({ accountType: "user", email: user.email || "", ip, userAgent: req.headers["user-agent"], success: true, isNewIp: true }).catch(() => {});
+    const { password: _, ...userWithoutPassword } = user;
+    res.json(userWithoutPassword);
+  });
+
+  // ── Vérification appareil : via lien (GET) ──────────────────────────────
+  app.get("/api/auth/verify-device-link", async (req, res) => {
+    const ip = getClientIp(req);
+    const { token, code } = req.query as { token?: string; code?: string };
+    if (!token || !code) return res.redirect(`/auth?error=lien_invalide`);
+
+    const result = await verifyOtpByToken(token, code.trim(), "new_device");
+    if (!result.valid || !result.userId) return res.redirect(`/auth?error=lien_expire`);
+
+    const user = await storage.getUser(result.userId);
+    if (!user) return res.redirect(`/auth?error=utilisateur_introuvable`);
+
+    const newToken = uuidv4();
+    await trustDevice(result.userId, newToken, ip, req.headers["user-agent"] || "");
+    res.cookie(TRUSTED_DEVICE_COOKIE, newToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: TRUSTED_DEVICE_MAX_AGE,
+    });
+
+    req.session.userId = result.userId;
+    await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+    res.redirect("/dashboard?device_verified=1");
   });
 
   app.post("/api/auth/logout", (req, res) => {

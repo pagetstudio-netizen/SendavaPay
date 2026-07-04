@@ -19,6 +19,7 @@ export const users = pgTable("users", {
   role: userRoleEnum("role").default("user").notNull(),
   balance: decimal("balance", { precision: 15, scale: 2 }).default("0").notNull(),
   isVerified: boolean("is_verified").default(false).notNull(),
+  emailVerified: boolean("email_verified").default(false).notNull(),
   isBlocked: boolean("is_blocked").default(false).notNull(),
   country: text("country"),
   merchantName: text("merchant_name"),

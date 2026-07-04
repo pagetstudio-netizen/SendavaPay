@@ -41,15 +41,17 @@ export async function ensureOtpTable(): Promise<void> {
 
 // Durée de validité selon le type d'OTP
 const OTP_EXPIRY: Record<string, string> = {
-  admin_login:       "10 minutes",  // Login admin : 10 min (sécurité maximale)
-  credential_update: "15 minutes",  // Modification de clé : 15 min
-  withdrawal:        "30 minutes",  // Retrait : 30 min
-  storage_cleanup:   "10 minutes",  // Nettoyage stockage : 10 min
+  admin_login:        "10 minutes",  // Login admin : 10 min (sécurité maximale)
+  credential_update:  "15 minutes",  // Modification de clé : 15 min
+  withdrawal:         "30 minutes",  // Retrait : 30 min
+  storage_cleanup:    "10 minutes",  // Nettoyage stockage : 10 min
+  email_verification: "24 hours",   // Activation de compte : 24h
+  new_device:         "15 minutes", // Nouvel appareil : 15 min
 };
 
 export async function createOtp(
   userId: number,
-  type: "admin_login" | "withdrawal" | "credential_update" | "storage_cleanup",
+  type: "admin_login" | "withdrawal" | "credential_update" | "storage_cleanup" | "email_verification" | "new_device",
   ipAddress: string,
   metadata?: Record<string, unknown>
 ): Promise<{ token: string; code: string }> {
@@ -86,6 +88,35 @@ export async function createOtp(
     try { client.release(); } catch { /* already released */ }
   }
   return { token, code };
+}
+
+export async function verifyOtpByToken(
+  token: string,
+  code: string,
+  type: "email_verification" | "new_device"
+): Promise<{ valid: boolean; userId?: number; errorMsg?: string }> {
+  if (!pool) return { valid: false, errorMsg: "Base de données non disponible" };
+  const client = await pool.connect();
+  try {
+    let result;
+    try {
+      result = await client.query(
+        `SELECT * FROM ${OTP_TABLE} WHERE token=$1 AND type=$2 AND expires_at > (NOW() AT TIME ZONE 'UTC') LIMIT 1`,
+        [token, type]
+      );
+    } catch (err: any) {
+      if (err.code === "42P01") return { valid: false, errorMsg: "Code invalide ou expiré" };
+      throw err;
+    }
+    const otp = result.rows[0];
+    if (!otp) return { valid: false, errorMsg: "Code invalide ou expiré" };
+    if (otp.used_at) return { valid: false, errorMsg: "Ce code a déjà été utilisé" };
+    if (otp.code !== code) return { valid: false, errorMsg: "Code incorrect" };
+    await client.query(`UPDATE ${OTP_TABLE} SET used_at=NOW() WHERE id=$1`, [otp.id]);
+    return { valid: true, userId: otp.user_id };
+  } finally {
+    client.release();
+  }
 }
 
 export async function verifyOtp(
