@@ -164,8 +164,9 @@ export function SdkDocumentation({ apiKeys }: { apiKeys: ApiKey[] }) {
       { id: "s-token",     label: "Détails par token" },
       { id: "s-countries", label: "Pays disponibles" },
       { id: "s-operators", label: "Opérateurs par pays" },
-      { id: "s-initiate",  label: "Initier le paiement" },
-      { id: "s-otp",       label: "Soumettre OTP" },
+      { id: "s-initiate",       label: "Initier le paiement" },
+      { id: "s-otp",            label: "Soumettre OTP" },
+      { id: "s-retry-payment",  label: "Réessayer un paiement" },
     ]},
     { label: "Webhooks", children: [
       { id: "s-wh-config",    label: "Configuration" },
@@ -1095,6 +1096,38 @@ const result = await res.json();`} />
   "success":   true,
   "reference": "sdk_lcy0u4wx_a1b2c3d4e5f6g7h8",
   "message":   "OTP accepté. Le paiement est en cours."
+}`} />
+          </div>
+
+          {/* retry-payment */}
+          <div id="s-retry-payment" className="scroll-mt-4 mb-14">
+            <h3 className="text-lg font-semibold mb-1">Réessayer un paiement échoué</h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              Réinitialise le statut d'une transaction <code className="bg-muted px-1 rounded text-xs">failed</code> en <code className="bg-muted px-1 rounded text-xs">pending</code>
+              pour permettre une nouvelle tentative. Appelez ensuite <code className="bg-muted px-1 rounded text-xs">POST /initiate-payment</code> avec le même <code className="bg-muted px-1 rounded text-xs">paymentToken</code>.
+              Pas de clé SDK requise — endpoint CORS public.
+            </p>
+            <Endpoint method="POST" path="/api/sdk/v1/retry-payment" />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Corps de la requête</h4>
+            <ParamTable params={[
+              { name: "paymentToken", type: "string", required: true, description: "paymentToken de la transaction échouée" },
+            ]} />
+            <CodeBlock language="javascript" code={`const res = await fetch(
+  'https://sendavapay.com/api/sdk/v1/retry-payment',
+  {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paymentToken: 'pay_xxxxxxxxxxxxxxxxxxxx' }),
+  }
+);
+const result = await res.json();`} />
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-5 mb-2">Réponse <span className="text-green-600 dark:text-green-400">200 OK</span></h4>
+            <CodeBlock language="json" code={`{
+  "success":   true,
+  "reference": "sdk_lcy0u4wx_a1b2c3d4e5f6g7h8",
+  "status":    "pending",
+  "message":   "Transaction réinitialisée. Relancez le paiement via /initiate-payment.",
+  "nextStep":  "POST /api/sdk/v1/initiate-payment"
 }`} />
           </div>
         </section>
