@@ -7606,10 +7606,15 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   // ─── Email Broadcast : envoi à tous les utilisateurs ─────────────────────────
   app.post("/api/admin/broadcast-email", requireAdmin, async (req, res) => {
     try {
-      const { subject, bodyHtml, buttonText, buttonUrl } = req.body;
+      const { subject, bodyHtml, buttons, buttonText, buttonUrl } = req.body;
       if (!subject?.trim() || !bodyHtml?.trim()) {
         return res.status(400).json({ message: "Sujet et corps requis" });
       }
+
+      // Support nouveau format (buttons[]) et ancien format (buttonText/buttonUrl)
+      const ctaButtons: Array<{ text: string; url: string; color?: string }> = Array.isArray(buttons) && buttons.length > 0
+        ? buttons
+        : (buttonText && buttonUrl ? [{ text: buttonText, url: buttonUrl }] : []);
 
       const allUsers = await storage.getAllUsers();
       const targets = allUsers.filter((u: any) => u.email && u.email.includes("@"));
@@ -7623,8 +7628,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
           const result = await sendBroadcastEmail(user.email, {
             subject,
             bodyHtml,
-            buttonText: buttonText || undefined,
-            buttonUrl: buttonUrl || undefined,
+            buttons: ctaButtons,
             userName: user.fullName?.split(" ")?.[0] || undefined,
           });
           if (result.success) sent++; else failed++;

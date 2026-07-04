@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { AdminLayout } from "@/components/admin-layout";
@@ -6329,18 +6329,35 @@ function WalletExchangesContent() {
   );
 }
 
+type EmailButton = { text: string; url: string; color: string };
+
 function EmailBroadcastContent() {
   const { toast } = useToast();
+  const editorRef = useRef<HTMLDivElement>(null);
   const [subject, setSubject] = useState("");
   const [bodyHtml, setBodyHtml] = useState("");
-  const [buttonText, setButtonText] = useState("");
-  const [buttonUrl, setButtonUrl] = useState("");
+  const [buttons, setButtons] = useState<EmailButton[]>([]);
+  const [newBtn, setNewBtn] = useState<EmailButton>({ text: "", url: "", color: "#059669" });
   const [aiPrompt, setAiPrompt] = useState("");
   const [preview, setPreview] = useState(false);
   const [sent, setSent] = useState<number | null>(null);
+  const [textColor, setTextColor] = useState("#000000");
+  const [highlightColor, setHighlightColor] = useState("#ffff00");
 
   const { data: users } = useQuery<UserType[]>({ queryKey: ["/api/admin/users"] });
   const userCount = (users || []).filter((u: any) => u.email?.includes("@")).length;
+
+  /* ── Sync editor → state ── */
+  const syncContent = useCallback(() => {
+    if (editorRef.current) setBodyHtml(editorRef.current.innerHTML);
+  }, []);
+
+  /* ── execCommand helper (uses onMouseDown to keep selection) ── */
+  const execCmd = useCallback((cmd: string, value?: string) => {
+    editorRef.current?.focus();
+    document.execCommand(cmd, false, value ?? undefined);
+    syncContent();
+  }, [syncContent]);
 
   const generateMutation = useMutation({
     mutationFn: async (prompt: string) => {
@@ -6349,9 +6366,13 @@ function EmailBroadcastContent() {
     },
     onSuccess: (data: any) => {
       if (data.subject) setSubject(data.subject);
-      if (data.bodyHtml) setBodyHtml(data.bodyHtml);
-      if (data.buttonText && data.buttonText !== "null") setButtonText(data.buttonText);
-      if (data.buttonUrl && data.buttonUrl !== "null") setButtonUrl(data.buttonUrl);
+      if (data.bodyHtml && editorRef.current) {
+        editorRef.current.innerHTML = data.bodyHtml;
+        setBodyHtml(data.bodyHtml);
+      }
+      if (data.buttonText && data.buttonText !== "null" && data.buttonUrl && data.buttonUrl !== "null") {
+        setButtons(prev => [...prev, { text: data.buttonText, url: data.buttonUrl, color: "#059669" }]);
+      }
       toast({ title: "✅ Contenu généré", description: "Vérifiez et modifiez si nécessaire." });
     },
     onError: (err: any) => {
@@ -6361,12 +6382,7 @@ function EmailBroadcastContent() {
 
   const broadcastMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/admin/broadcast-email", {
-        subject,
-        bodyHtml,
-        buttonText: buttonText.trim() || undefined,
-        buttonUrl: buttonUrl.trim() || undefined,
-      });
+      const res = await apiRequest("POST", "/api/admin/broadcast-email", { subject, bodyHtml, buttons });
       return res.json();
     },
     onSuccess: (data: any) => {
@@ -6385,8 +6401,8 @@ function EmailBroadcastContent() {
       </div>
       <div style="padding:32px 28px;">
         <p style="margin-top:0;">Bonjour [Prénom],</p>
-        ${bodyHtml.split('\n').filter(Boolean).map(l => l.trim().startsWith('<') ? l : `<p>${l}</p>`).join('')}
-        ${buttonText && buttonUrl ? `<p style="text-align:center;"><a href="${buttonUrl}" style="display:inline-block;background:#059669;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">${buttonText}</a></p>` : ''}
+        ${bodyHtml}
+        ${buttons.map(b => `<p style="text-align:center;margin:8px 0;"><a href="${b.url}" style="display:inline-block;background:${b.color};color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;">${b.text}</a></p>`).join('')}
         <p style="margin-bottom:0;">À bientôt,<br/>L'équipe SendavaPay</p>
       </div>
       <div style="background:#f9fafb;padding:16px;text-align:center;color:#6b7280;font-size:12px;">
@@ -6395,6 +6411,8 @@ function EmailBroadcastContent() {
     </div>
   `;
 
+  const tb = "px-2 py-1 text-sm border rounded hover:bg-gray-100 active:bg-gray-200 transition-colors select-none";
+
   return (
     <div className="space-y-6">
       <div>
@@ -6402,104 +6420,183 @@ function EmailBroadcastContent() {
         <p className="text-muted-foreground">Envoyez un email à tous les utilisateurs inscrits</p>
       </div>
 
-      {/* Génération IA */}
+      {/* ── IA ── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-violet-500" />
-            Générer avec l'IA
+            <Sparkles className="h-5 w-5 text-violet-500" /> Générer avec l'IA
           </CardTitle>
           <CardDescription>Décrivez le contenu voulu, l'IA rédige l'email complet</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Textarea
-            placeholder="Ex : Annonce de nouvelles fonctionnalités de retrait instantané, encourager les utilisateurs à faire un retrait cette semaine avec un lien vers le dashboard..."
+            placeholder="Ex : Annonce de nouvelles fonctionnalités de retrait instantané..."
             value={aiPrompt}
             onChange={(e) => setAiPrompt(e.target.value)}
             rows={3}
             data-testid="textarea-ai-prompt"
           />
-          <Button
-            onClick={() => generateMutation.mutate(aiPrompt)}
-            disabled={!aiPrompt.trim() || generateMutation.isPending}
-            data-testid="button-generate-ai"
-            className="bg-violet-600 hover:bg-violet-700"
-          >
-            {generateMutation.isPending ? (
-              <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Génération...</>
-            ) : (
-              <><Sparkles className="h-4 w-4 mr-2" /> Générer l'email</>
-            )}
+          <Button onClick={() => generateMutation.mutate(aiPrompt)} disabled={!aiPrompt.trim() || generateMutation.isPending} data-testid="button-generate-ai" className="bg-violet-600 hover:bg-violet-700">
+            {generateMutation.isPending ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Génération...</> : <><Sparkles className="h-4 w-4 mr-2" /> Générer l'email</>}
           </Button>
         </CardContent>
       </Card>
 
-      {/* Composition */}
+      {/* ── Composition ── */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Mail className="h-5 w-5" />
-            Composer l'email
-          </CardTitle>
-          <CardDescription>Remplissez manuellement ou modifiez le contenu généré par l'IA</CardDescription>
+          <CardTitle className="flex items-center gap-2"><Mail className="h-5 w-5" /> Composer l'email</CardTitle>
+          <CardDescription>Éditeur riche — sélectionnez du texte puis appliquez le formatage</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Sujet */}
           <div className="space-y-2">
             <Label htmlFor="email-subject">Sujet</Label>
-            <Input
-              id="email-subject"
-              placeholder="Objet de l'email..."
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              data-testid="input-email-subject"
-            />
+            <Input id="email-subject" placeholder="Objet de l'email..." value={subject} onChange={(e) => setSubject(e.target.value)} data-testid="input-email-subject" />
           </div>
+
+          {/* ── Éditeur riche ── */}
           <div className="space-y-2">
-            <Label htmlFor="email-body">Corps du message</Label>
-            <p className="text-xs text-muted-foreground">Texte simple ou HTML (balises &lt;p&gt;, &lt;strong&gt;, &lt;ul&gt;, &lt;li&gt;). Le bonjour et la signature sont ajoutés automatiquement.</p>
-            <Textarea
-              id="email-body"
-              placeholder="Contenu de l'email..."
-              value={bodyHtml}
-              onChange={(e) => setBodyHtml(e.target.value)}
-              rows={8}
-              className="font-mono text-sm"
-              data-testid="textarea-email-body"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="cta-text">Texte du bouton (optionnel)</Label>
-              <Input
-                id="cta-text"
-                placeholder="Ex : Accéder à mon compte"
-                value={buttonText}
-                onChange={(e) => setButtonText(e.target.value)}
-                data-testid="input-button-text"
+            <Label>Corps du message</Label>
+            <div className="border rounded-lg overflow-hidden shadow-sm">
+
+              {/* Barre d'outils */}
+              <div className="flex flex-wrap items-center gap-1 p-2 bg-gray-50 border-b">
+
+                {/* Gras / Italique / Souligné / Barré */}
+                <button type="button" onMouseDown={e => { e.preventDefault(); execCmd("bold"); }} className={tb + " font-bold"} title="Gras (Ctrl+B)">B</button>
+                <button type="button" onMouseDown={e => { e.preventDefault(); execCmd("italic"); }} className={tb + " italic"} title="Italique (Ctrl+I)">I</button>
+                <button type="button" onMouseDown={e => { e.preventDefault(); execCmd("underline"); }} className={tb + " underline"} title="Souligner (Ctrl+U)">U</button>
+                <button type="button" onMouseDown={e => { e.preventDefault(); execCmd("strikeThrough"); }} className={tb + " line-through"} title="Barré">S</button>
+
+                <span className="w-px h-5 bg-gray-300 mx-0.5" />
+
+                {/* Couleur texte */}
+                <label className={tb + " cursor-pointer relative flex items-center gap-0.5"} title="Couleur du texte">
+                  <span className="font-bold" style={{ color: textColor }}>A</span>
+                  <span className="text-xs">▾</span>
+                  <input type="color" value={textColor} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    onChange={e => setTextColor(e.target.value)}
+                    onInput={e => execCmd("foreColor", (e.target as HTMLInputElement).value)} />
+                </label>
+
+                {/* Surbrillance */}
+                <label className={tb + " cursor-pointer relative flex items-center gap-0.5"} title="Couleur de fond / surbrillance">
+                  <span className="px-0.5 font-bold" style={{ background: highlightColor }}>H</span>
+                  <span className="text-xs">▾</span>
+                  <input type="color" value={highlightColor} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    onChange={e => setHighlightColor(e.target.value)}
+                    onInput={e => execCmd("hiliteColor", (e.target as HTMLInputElement).value)} />
+                </label>
+
+                <span className="w-px h-5 bg-gray-300 mx-0.5" />
+
+                {/* Taille de police */}
+                <select
+                  defaultValue="3"
+                  onMouseDown={e => e.stopPropagation()}
+                  onChange={e => execCmd("fontSize", e.target.value)}
+                  className="text-sm border rounded px-1 py-0.5 bg-white h-7"
+                  title="Taille du texte"
+                >
+                  <option value="1">Très petit</option>
+                  <option value="2">Petit</option>
+                  <option value="3">Normal</option>
+                  <option value="4">Grand</option>
+                  <option value="5">Très grand</option>
+                  <option value="6">Titre</option>
+                </select>
+
+                <span className="w-px h-5 bg-gray-300 mx-0.5" />
+
+                {/* Alignement */}
+                <button type="button" onMouseDown={e => { e.preventDefault(); execCmd("justifyLeft"); }} className={tb} title="Aligner à gauche">≡L</button>
+                <button type="button" onMouseDown={e => { e.preventDefault(); execCmd("justifyCenter"); }} className={tb} title="Centrer">≡C</button>
+                <button type="button" onMouseDown={e => { e.preventDefault(); execCmd("justifyRight"); }} className={tb} title="Aligner à droite">≡R</button>
+
+                <span className="w-px h-5 bg-gray-300 mx-0.5" />
+
+                {/* Listes */}
+                <button type="button" onMouseDown={e => { e.preventDefault(); execCmd("insertUnorderedList"); }} className={tb} title="Liste à puces">• —</button>
+                <button type="button" onMouseDown={e => { e.preventDefault(); execCmd("insertOrderedList"); }} className={tb} title="Liste numérotée">1. —</button>
+
+                <span className="w-px h-5 bg-gray-300 mx-0.5" />
+
+                {/* Effacer le formatage */}
+                <button type="button" onMouseDown={e => { e.preventDefault(); execCmd("removeFormat"); }} className={tb + " text-red-500"} title="Effacer le formatage">✕ fmt</button>
+              </div>
+
+              {/* Zone de saisie */}
+              <div
+                ref={editorRef}
+                contentEditable
+                onInput={syncContent}
+                onBlur={syncContent}
+                suppressContentEditableWarning
+                data-testid="div-email-body"
+                className="min-h-[220px] p-4 outline-none text-sm leading-relaxed"
+                style={{ wordBreak: "break-word" }}
+                data-placeholder="Commencez à écrire votre message ici..."
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="cta-url">URL du bouton</Label>
-              <Input
-                id="cta-url"
-                placeholder="https://sendavapay.com/..."
-                value={buttonUrl}
-                onChange={(e) => setButtonUrl(e.target.value)}
-                data-testid="input-button-url"
-              />
+            <p className="text-xs text-muted-foreground">Le bonjour et la signature sont ajoutés automatiquement à l'envoi.</p>
+          </div>
+
+          {/* ── Boutons CTA multiples ── */}
+          <div className="space-y-3">
+            <Label>Boutons d'action (optionnel — plusieurs autorisés)</Label>
+
+            {/* Liste des boutons ajoutés */}
+            {buttons.length > 0 && (
+              <div className="space-y-2">
+                {buttons.map((btn, i) => (
+                  <div key={i} className="flex items-center gap-3 p-2 border rounded-lg bg-gray-50">
+                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: btn.color }} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{btn.text}</p>
+                      <p className="text-xs text-muted-foreground truncate">{btn.url}</p>
+                    </div>
+                    <button type="button" onClick={() => setButtons(prev => prev.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600 text-sm font-medium flex-shrink-0">Supprimer</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Formulaire d'ajout */}
+            <div className="border rounded-lg p-3 bg-gray-50 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">Ajouter un bouton</p>
+              <div className="grid grid-cols-2 gap-2">
+                <Input placeholder="Texte du bouton" value={newBtn.text} onChange={e => setNewBtn(p => ({ ...p, text: e.target.value }))} />
+                <Input placeholder="https://sendavapay.com/..." value={newBtn.url} onChange={e => setNewBtn(p => ({ ...p, url: e.target.value }))} />
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  Couleur :
+                  <input type="color" value={newBtn.color} onChange={e => setNewBtn(p => ({ ...p, color: e.target.value }))} className="w-7 h-7 border rounded cursor-pointer p-0" />
+                </label>
+                <div className="h-7 px-4 rounded text-white text-xs flex items-center font-semibold" style={{ background: newBtn.color }}>
+                  {newBtn.text || "Aperçu"}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!newBtn.text.trim() || !newBtn.url.trim()}
+                  onClick={() => { setButtons(prev => [...prev, { ...newBtn }]); setNewBtn({ text: "", url: "", color: "#059669" }); }}
+                >
+                  + Ajouter
+                </Button>
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Prévisualisation */}
+      {/* ── Prévisualisation ── */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Eye className="h-5 w-5" />
-              Prévisualisation
-            </CardTitle>
+            <CardTitle className="flex items-center gap-2"><Eye className="h-5 w-5" /> Prévisualisation email</CardTitle>
             <Button variant="outline" size="sm" onClick={() => setPreview(!preview)} data-testid="button-toggle-preview">
               {preview ? <><EyeOff className="h-4 w-4 mr-1" /> Masquer</> : <><Eye className="h-4 w-4 mr-1" /> Afficher</>}
             </Button>
@@ -6507,25 +6604,17 @@ function EmailBroadcastContent() {
         </CardHeader>
         {preview && (
           <CardContent>
-            <div
-              className="border rounded-lg p-4 bg-gray-50"
-              dangerouslySetInnerHTML={{ __html: previewHtml }}
-            />
+            <div className="border rounded-lg p-4 bg-gray-50 overflow-auto" dangerouslySetInnerHTML={{ __html: previewHtml }} />
           </CardContent>
         )}
       </Card>
 
-      {/* Envoi */}
+      {/* ── Envoi ── */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Send className="h-5 w-5" />
-            Envoyer
-          </CardTitle>
+          <CardTitle className="flex items-center gap-2"><Send className="h-5 w-5" /> Envoyer</CardTitle>
           <CardDescription>
-            {userCount > 0
-              ? `${userCount} utilisateur${userCount > 1 ? 's' : ''} avec une adresse email valide`
-              : "Chargement des utilisateurs..."}
+            {userCount > 0 ? `${userCount} utilisateur${userCount > 1 ? 's' : ''} avec une adresse email valide` : "Chargement des utilisateurs..."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -6541,17 +6630,18 @@ function EmailBroadcastContent() {
               data-testid="button-send-broadcast"
               className="bg-emerald-600 hover:bg-emerald-700"
             >
-              {broadcastMutation.isPending ? (
-                <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Envoi en cours...</>
-              ) : (
-                <><Send className="h-4 w-4 mr-2" /> Envoyer à {userCount} utilisateur{userCount > 1 ? 's' : ''}</>
-              )}
+              {broadcastMutation.isPending
+                ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Envoi en cours...</>
+                : <><Send className="h-4 w-4 mr-2" /> Envoyer à {userCount} utilisateur{userCount > 1 ? 's' : ''}</>}
             </Button>
           )}
         </CardContent>
         {sent !== null && (
           <CardFooter>
-            <Button variant="outline" size="sm" onClick={() => { setSent(null); setSubject(""); setBodyHtml(""); setButtonText(""); setButtonUrl(""); setAiPrompt(""); }}>
+            <Button variant="outline" size="sm" onClick={() => {
+              setSent(null); setSubject(""); setBodyHtml(""); setButtons([]); setAiPrompt("");
+              if (editorRef.current) editorRef.current.innerHTML = "";
+            }}>
               Nouveau broadcast
             </Button>
           </CardFooter>

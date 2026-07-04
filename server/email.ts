@@ -487,27 +487,35 @@ export async function sendBroadcastEmail(
   data: {
     subject: string;
     bodyHtml: string;
+    /** Nouveau format : tableau de boutons avec couleur personnalisée */
+    buttons?: Array<{ text: string; url: string; color?: string }>;
+    /** Ancien format (compat.) */
     buttonText?: string;
     buttonUrl?: string;
     userName?: string;
   }
 ): Promise<{ success: boolean; error?: string }> {
   const greeting = data.userName ? `<p>Bonjour ${data.userName},</p>` : `<p>Bonjour,</p>`;
-  const button = data.buttonText && data.buttonUrl
-    ? `<p style="text-align:center;margin-top:24px;"><a href="${data.buttonUrl}" class="button">${data.buttonText}</a></p>`
-    : '';
 
-  const bodyHtml = data.bodyHtml
-    .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean)
-    .map(line => (line.startsWith('<') ? line : `<p>${line}</p>`))
-    .join('\n');
+  // Réconciliation nouveau / ancien format
+  const ctaButtons: Array<{ text: string; url: string; color: string }> =
+    Array.isArray(data.buttons) && data.buttons.length > 0
+      ? data.buttons.map(b => ({ text: b.text, url: b.url, color: b.color || '#059669' }))
+      : data.buttonText && data.buttonUrl
+        ? [{ text: data.buttonText, url: data.buttonUrl, color: '#059669' }]
+        : [];
 
+  const buttonsHtml = ctaButtons.map(b =>
+    `<p style="text-align:center;margin:8px 0;">
+      <a href="${b.url}" style="display:inline-block;background:${b.color};color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600;">${b.text}</a>
+    </p>`
+  ).join('\n');
+
+  // Le corps provient de l'éditeur riche (HTML) — on l'utilise tel quel
   const content = `
     ${greeting}
-    ${bodyHtml}
-    ${button}
+    ${data.bodyHtml}
+    ${buttonsHtml}
     <p style="margin-top:32px;">À bientôt,<br>L'équipe SendavaPay</p>
   `;
   return sendEmail({
