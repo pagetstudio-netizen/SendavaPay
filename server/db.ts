@@ -4,7 +4,7 @@ import * as schema from "@shared/schema";
 
 const { Pool } = pg;
 
-const databaseUrl = process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL;
+const databaseUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
 
 let dbConnected = false;
 let pool: pg.Pool | null = null;
@@ -37,6 +37,7 @@ if (!databaseUrl) {
     statement_timeout: 30000,
     query_timeout: 30000,
     ssl: useSSL ? { rejectUnauthorized: false } : false,
+    options: '-c search_path=public',
   });
 
   pool.on('error', (err) => {
