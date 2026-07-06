@@ -15,6 +15,13 @@
       "when": 1780012760410,
       "tag": "0001_init_sendavapay",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783325048397,
+      "tag": "0002_wakeful_zeigeist",
+      "breakpoints": true
     }
   ]
 }
