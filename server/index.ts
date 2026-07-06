@@ -6,6 +6,7 @@ import { initializeAdminAccount } from "./init-admin";
 import { initializeOmnipayServices } from "./init-omnipay";
 import { testDatabaseConnection, isDatabaseConnected, startBackgroundReconnection, pool } from "./db";
 import { notifySystemError, notifyDailyReport } from "./telegram";
+import { sendDailyBackupReport } from "./backup-report";
 import { refreshBlacklistCache } from "./blacklist-check";
 import { storage } from "./storage";
 import { loadCredentialsFromDb, getCredential } from "./credentials";
@@ -590,6 +591,12 @@ async function initializeWithTimeout<T>(
         log("Daily report sent to Telegram", "telegram");
       } catch (err) {
         log(`Daily report error: ${err}`, "telegram");
+      }
+      // Envoi du rapport PDF de sauvegarde à minuit
+      try {
+        await sendDailyBackupReport();
+      } catch (err) {
+        log(`Backup PDF error: ${err}`, "backup");
       }
       scheduleDailyReport();
     }, delayMs);
