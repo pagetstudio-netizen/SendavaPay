@@ -501,39 +501,48 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
-  app.set("trust proxy", 1);
+  // Plesk + Nginx reverse proxy : on fait confiance à tous les proxies
+  app.set("trust proxy", true);
 
   const PgSession = connectPgSimple(session);
-  const sessionStore = pool
-    ? new PgSession({
+  let sessionStore: any = undefined;
+  if (pool) {
+    try {
+      sessionStore = new PgSession({
         pool: pool as any,
         tableName: "session",
         createTableIfMissing: true,
-      })
-    : undefined;
+        schemaName: "public",
+      });
+      console.log("[session] Store PostgreSQL initialisé (table: public.session)");
+    } catch (e) {
+      console.error("[session] Échec initialisation store PostgreSQL — sessions en mémoire:", e);
+    }
+  } else {
+    console.warn("[session] Pool DB indisponible — sessions en mémoire (non persistantes)");
+  }
+
+  const sessionSecret = (() => {
+    const s = process.env.SESSION_SECRET;
+    if (!s) {
+      console.warn("[session] ⚠️  SESSION_SECRET non défini — sessions non persistantes entre redémarrages.");
+      return require("crypto").randomBytes(48).toString("hex");
+    }
+    return s;
+  })();
 
   app.use(
     session({
       store: sessionStore,
-      secret: (() => {
-        const s = process.env.SESSION_SECRET;
-        if (!s) {
-          if (process.env.NODE_ENV === "production") {
-            console.error("[session] 🚨 SESSION_SECRET non défini en production ! Déployez avec cette variable obligatoire.");
-            process.exit(1);
-          }
-          console.warn("[session] ⚠️  SESSION_SECRET non défini — utilisation d'une valeur aléatoire temporaire (dev uniquement).");
-          return require("crypto").randomBytes(48).toString("hex");
-        }
-        return s;
-      })(),
+      secret: sessionSecret,
       resave: false,
       saveUninitialized: false,
       cookie: {
-        secure: process.env.NODE_ENV === "production",
+        // secure:true uniquement si le client est réellement en HTTPS
+        secure: process.env.NODE_ENV === "production" && process.env.FORCE_HTTP_COOKIES !== "true",
         httpOnly: true,
-        maxAge: 24 * 60 * 60 * 1000,
-        sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 jours
+        sameSite: "lax", // "lax" au lieu de "strict" pour compatibilité reverse-proxy
       },
     })
   );
