@@ -10620,8 +10620,21 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   // ========== COUNTRIES ==========
   app.get("/api/admin/countries", requireAdmin, async (req, res) => {
     try {
-      const countries = await storage.getCountries();
-      res.json(countries);
+      // Récupère les pays existants en base
+      const existing = await storage.getCountries();
+      const existingCodes = new Set(existing.map((c: any) => c.code.toUpperCase()));
+
+      // Insère automatiquement les pays de la liste statique qui manquent en base
+      const toSeed = SOLEASPAY_COUNTRIES.filter(c => !existingCodes.has(c.code.toUpperCase()));
+      for (const c of toSeed) {
+        try {
+          await storage.createCountry({ code: c.code, name: c.name, currency: c.currency, isActive: true });
+        } catch { /* doublon ignoré */ }
+      }
+
+      // Retourne la liste complète à jour
+      const all = await storage.getCountries();
+      res.json(all);
     } catch (error) {
       console.error("Get countries error:", error);
       res.status(500).json({ message: "Erreur serveur" });
