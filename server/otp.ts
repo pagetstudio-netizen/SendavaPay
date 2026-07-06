@@ -146,10 +146,15 @@ export async function verifyOtp(
     if (!otp) return { valid: false, errorMsg: "Code invalide ou expiré" };
     if (otp.used_at) return { valid: false, errorMsg: "Ce code a déjà été utilisé" };
 
-    // ── Vérification IP pour les actions sensibles (admin_login, credential_update) ──
-    if (callerIp && type !== "withdrawal" && otp.ip_address && otp.ip_address !== callerIp) {
+    // ── Vérification IP pour les actions sensibles (credential_update uniquement) ──
+    // Pour admin_login : on ne bloque plus sur l'IP car le reverse-proxy (Plesk/Nginx)
+    // peut présenter des IPs différentes entre la demande de code et la vérification.
+    if (callerIp && type === "credential_update" && otp.ip_address && otp.ip_address !== callerIp) {
       console.warn(`[OTP] Tentative depuis IP différente : attendu=${otp.ip_address} reçu=${callerIp}`);
       return { valid: false, errorMsg: "Accès refusé : adresse IP différente de la demande initiale" };
+    }
+    if (callerIp && type === "admin_login" && otp.ip_address && otp.ip_address !== callerIp) {
+      console.warn(`[OTP] admin_login depuis IP différente (proxy ?) : attendu=${otp.ip_address} reçu=${callerIp} — autorisé`);
     }
 
     if (otp.code !== code) return { valid: false, errorMsg: "Code incorrect" };
