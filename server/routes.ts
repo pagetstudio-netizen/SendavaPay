@@ -7300,8 +7300,9 @@ export async function registerRoutes(
     try {
       const user = await storage.getUser(req.session.userId!);
       if (!user) return res.status(404).json({ message: "Utilisateur introuvable" });
+      // L'API SDK est publique pour tous les comptes vérifiés
       res.json({
-        apiSdkEnabled: (user as any).apiSdkEnabled ?? false,
+        apiSdkEnabled: true,
         apiRedirectEnabled: true,
       });
     } catch (error) {
@@ -7336,12 +7337,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Nom requis" });
       }
 
-      // Validate apiType against user permissions
+      // L'API SDK est publique pour tous les comptes vérifiés — aucune activation admin requise
       const resolvedType = apiType === "sdk" ? "sdk" : "redirect";
-      if (resolvedType === "sdk" && !(user as any).apiSdkEnabled) {
-        return res.status(403).json({ message: "L'API SDK n'est pas activée sur votre compte" });
-      }
-      // L'API Redirection (lien de paiement) est accessible à tous les comptes vérifiés
 
       const crypto = await import("crypto");
       const webhookSecret = webhookUrl ? `whsec_${crypto.randomBytes(24).toString("hex")}` : undefined;
