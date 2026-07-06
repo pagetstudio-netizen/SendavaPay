@@ -58,16 +58,9 @@ export default function KycPage() {
     queryKey: ["/api/kyc"],
   });
 
-  const { data: platformCountries = [] } = useQuery<{ id: number; code: string; name: string; currency: string }[]>({
-    queryKey: ["/api/public/countries"],
+  const { data: platformCountries = [] } = useQuery<{ code: string; name: string; flag: string; currency: string }[]>({
+    queryKey: ["/api/soleaspay/countries"],
   });
-  const FLAG_MAP: Record<string, string> = {
-    CI: "🇨🇮", BJ: "🇧🇯", TG: "🇹🇬", BF: "🇧🇫", SN: "🇸🇳",
-    CM: "🇨🇲", ML: "🇲🇱", GN: "🇬🇳", COG: "🇨🇬", COD: "🇨🇩",
-    NE: "🇳🇪", TD: "🇹🇩", CF: "🇨🇫", GA: "🇬🇦", GQ: "🇬🇶",
-    GW: "🇬🇼", MR: "🇲🇷", BI: "🇧🇮", RW: "🇷🇼", KM: "🇰🇲",
-    ST: "🇸🇹", CV: "🇨🇻", LR: "🇱🇷", SL: "🇸🇱", GM: "🇬🇲",
-  };
 
   const submitKycMutation = useMutation({
     mutationFn: async (data: FormData) => {
@@ -289,7 +282,7 @@ export default function KycPage() {
                 <div className="space-y-2">
                   <Label htmlFor="country">Pays de résidence</Label>
                   <CountrySelect
-                    options={platformCountries.map(c => ({ value: c.name, label: c.name, flag: FLAG_MAP[c.code] }))}
+                    options={platformCountries.map(c => ({ value: c.name, label: c.name, flag: c.flag }))}
                     value={formData.country}
                     onChange={(value) => setFormData({ ...formData, country: value })}
                     placeholder="Sélectionnez un pays"
