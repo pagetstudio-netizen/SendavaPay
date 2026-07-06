@@ -4774,11 +4774,9 @@ const CREDENTIAL_GROUPS = [
     ],
   },
   {
-    label: "Supabase Storage",
-    keys: [
-      { key: "SUPABASE_URL", label: "URL" },
-      { key: "SUPABASE_SERVICE_ROLE_KEY", label: "Service Role Key" },
-    ],
+    label: "Supabase (lecture seule)",
+    keys: [],
+    envOnlyNote: "🔒 SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DATABASE_URL et SESSION_SECRET doivent être définis UNIQUEMENT dans les variables d'environnement Plesk — jamais ici. Les stocker en base permettrait à un attaquant de tout détruire.",
   },
   {
     label: "Email (Resend)",
@@ -4916,6 +4914,11 @@ function CredentialsCard() {
               <div key={group.label}>
                 <p className="text-sm font-semibold text-muted-foreground mb-2 uppercase tracking-wide">{group.label}</p>
                 <div className="space-y-3">
+                  {(group as any).envOnlyNote && (
+                    <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg">
+                      <p className="text-sm text-red-700 dark:text-red-300">{(group as any).envOnlyNote}</p>
+                    </div>
+                  )}
                   {group.keys.map(({ key, label }) => {
                     const info = creds?.[key];
                     const isEdit = !!editing[key];

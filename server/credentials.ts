@@ -1,3 +1,8 @@
+// ⚠️ RÈGLE DE SÉCURITÉ CRITIQUE :
+// Ne jamais ajouter ici des clés qui donnent un accès destructif à la base de données
+// (SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, DATABASE_URL, SESSION_SECRET).
+// Ces clés DOIVENT être uniquement dans les variables d'environnement Plesk/système —
+// jamais en base, car un attaquant ayant accès à la DB pourrait les lire et tout détruire.
 export const CREDENTIAL_KEYS = [
   "OMNIPAY_API_KEY",
   "OMNIPAY_CALLBACK_KEY",
@@ -16,12 +21,19 @@ export const CREDENTIAL_KEYS = [
   "PAYDUNYA_BASE_URL",
   "TELEGRAM_BOT_TOKEN",
   "TELEGRAM_CHAT_ID",
-  "SUPABASE_URL",
-  "SUPABASE_SERVICE_ROLE_KEY",
   "RESEND_API_KEY",
   "RESEND_FROM_EMAIL",
   "LEEKPAY_SECRET_KEY",
   "LEEKPAY_PUBLIC_KEY",
+] as const;
+
+// Clés réservées aux variables d'environnement UNIQUEMENT — jamais en base
+export const ENV_ONLY_KEYS = [
+  "SUPABASE_URL",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "SUPABASE_DATABASE_URL",
+  "DATABASE_URL",
+  "SESSION_SECRET",
 ] as const;
 
 export type CredentialKey = (typeof CREDENTIAL_KEYS)[number];
