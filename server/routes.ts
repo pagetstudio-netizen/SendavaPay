@@ -504,6 +504,30 @@ export async function registerRoutes(
   // Plesk + Nginx reverse proxy : on fait confiance à tous les proxies
   app.set("trust proxy", true);
 
+  // Créer la table session manuellement (évite le bug connect-pg-simple + esbuild
+  // qui cherche table.sql dans dist/ au lieu de node_modules/)
+  if (pool) {
+    const _sc = await pool.connect().catch(() => null);
+    if (_sc) {
+      try {
+        await _sc.query(`
+          CREATE TABLE IF NOT EXISTS "session" (
+            "sid"    varchar       NOT NULL COLLATE "default",
+            "sess"   json          NOT NULL,
+            "expire" timestamp(6)  NOT NULL,
+            CONSTRAINT "session_pkey" PRIMARY KEY ("sid") NOT DEFERRABLE INITIALLY IMMEDIATE
+          )
+        `);
+        await _sc.query(`CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire")`);
+        console.log("[session] Table 'session' prête dans Supabase");
+      } catch (e: any) {
+        console.warn("[session] Création table session:", e?.message || e);
+      } finally {
+        _sc.release();
+      }
+    }
+  }
+
   const PgSession = connectPgSimple(session);
   let sessionStore: any = undefined;
   if (pool) {
@@ -511,10 +535,10 @@ export async function registerRoutes(
       sessionStore = new PgSession({
         pool: pool as any,
         tableName: "session",
-        createTableIfMissing: true,
+        createTableIfMissing: false, // On gère la création nous-mêmes (voir ci-dessus)
         schemaName: "public",
       });
-      console.log("[session] Store PostgreSQL initialisé (table: public.session)");
+      console.log("[session] Store PostgreSQL initialisé");
     } catch (e) {
       console.error("[session] Échec initialisation store PostgreSQL — sessions en mémoire:", e);
     }
