@@ -1719,7 +1719,8 @@ export default function ApiKeysPage() {
     );
   }
 
-  const sdkEnabled = permissions?.apiSdkEnabled ?? false;
+  // L'API SDK est publique pour tous les comptes vérifiés
+  const sdkEnabled = true;
   const sdkKeys = apiKeys.filter((k) => k.apiType === "sdk");
   const redirectKeys = apiKeys.filter((k) => k.apiType === "redirect");
 
