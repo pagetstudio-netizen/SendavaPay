@@ -10,8 +10,8 @@ A fintech payment platform for West and Central African markets enabling Mobile 
 - **DB push**: `npm run db:push`
 - **Typecheck**: `npm run check`
 
-Required env vars: `SUPABASE_DATABASE_URL` (set), `SUPABASE_URL` (set)
-Optional secrets (stored in DB via admin panel): `SOLEASPAY_API_KEY`, `SOLEASPAY_SECRET_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `SUPABASE_SERVICE_ROLE_KEY`, `OMNIPAY_API_KEY`, `OMNIPAY_CALLBACK_KEY`, `MAISHAPAY_PUBLIC_KEY`, `MAISHAPAY_SECRET_KEY`, `PAXITY_API_KEY`, `MBIYOPAY_API_KEY`
+Required env vars (Plesk uniquement — jamais en base): `SUPABASE_DATABASE_URL`, `SUPABASE_URL`, `SESSION_SECRET`, `SOLEASPAY_API_KEY`, `SOLEASPAY_SECRET_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `SUPABASE_SERVICE_ROLE_KEY`, `OMNIPAY_API_KEY`, `OMNIPAY_CALLBACK_KEY`, `MAISHAPAY_PUBLIC_KEY`, `MAISHAPAY_SECRET_KEY`, `PAXITY_API_KEY`, `MBIYOPAY_API_KEY`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`
+Optional KYC storage: `SUPABASE_KYC_URL`, `SUPABASE_KYC_SERVICE_ROLE_KEY` (compte Supabase dédié aux documents KYC)
 
 ## Stack
 

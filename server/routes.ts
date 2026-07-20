@@ -20,7 +20,7 @@ import {
   initiatePayDunySoftPay,
 } from "./paydunya";
 import { getSoftPayOperator } from "./paydunya-softpay-map";
-import { getCredential, setCachedCredential, loadCredentialsFromDb, CREDENTIAL_KEYS } from "./credentials";
+import { getCredential } from "./credentials";
 import bcrypt from "bcryptjs";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -8627,143 +8627,10 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     }
   });
 
-  app.get("/api/admin/credentials", requireAdmin, async (req, res) => {
-    try {
-      const result: Record<string, { hasValue: boolean; source: "db" | "env" | "none"; masked: string }> = {};
-      for (const key of CREDENTIAL_KEYS) {
-        const dbVal = await storage.getSetting(`cred_${key}`);
-        const envVal = process.env[key];
-        const effectiveVal = dbVal || envVal || "";
-        let source: "db" | "env" | "none" = "none";
-        if (dbVal) source = "db";
-        else if (envVal) source = "env";
-        result[key] = {
-          hasValue: !!effectiveVal,
-          source,
-          masked: effectiveVal
-            ? effectiveVal.length > 8
-              ? "••••••••" + effectiveVal.slice(-4)
-              : "••••" + effectiveVal.slice(-2)
-            : "",
-        };
-      }
-      res.json(result);
-    } catch (error) {
-      console.error("Get credentials error:", error);
-      res.status(500).json({ message: "Erreur serveur" });
-    }
-  });
-
-  // In-memory store for pending credential updates awaiting OTP confirmation
-  // key = OTP token, value = { updates, expiresAt }
-  const pendingCredentialUpdates = new Map<string, { updates: Record<string, string>; expiresAt: Date }>();
-
-  // Step 1 — request OTP before saving credentials
-  app.post("/api/admin/credentials/request", requireAdmin, async (req, res) => {
-    try {
-      const userId = req.session.userId!;
-      const user = await storage.getUser(userId);
-      if (!user) return res.status(404).json({ message: "Utilisateur introuvable" });
-
-      const updates = req.body.updates as Record<string, string>;
-      const keyName = req.body.keyName as string || Object.keys(updates)[0] || "clé";
-
-      const allowed = new Set<string>(CREDENTIAL_KEYS);
-      const filtered: Record<string, string> = {};
-      for (const [k, v] of Object.entries(updates)) {
-        if (allowed.has(k)) filtered[k] = String(v ?? "");
-      }
-      if (Object.keys(filtered).length === 0) {
-        return res.status(400).json({ message: "Aucune clé valide à modifier" });
-      }
-
-      const ip = req.headers["x-forwarded-for"]?.toString().split(",")[0].trim() || req.ip || "0.0.0.0";
-      const { token, code } = await createOtp(userId, "credential_update", ip);
-
-      // Store pending updates with expiry matching the OTP (10 min)
-      pendingCredentialUpdates.set(token, {
-        updates: filtered,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-      });
-
-      // OTP uniquement via Telegram (pas d'email)
-      notifyCredentialOtp({ userName: user.fullName, userId, code, keyName, ip });
-
-      res.json({ token, message: "Veuillez saisir le code de 6 chiffres que vous avez reçu." });
-    } catch (error: any) {
-      console.error("Credential update request error:", error);
-      const errMsg = error?.message || String(error);
-      res.status(500).json({ message: `Erreur lors de l'envoi du code de vérification : ${errMsg}` });
-    }
-  });
-
-  // Step 2 — confirm with OTP and apply credential changes
-  app.post("/api/admin/credentials/confirm", requireAdmin, async (req, res) => {
-    try {
-      const { token, code } = req.body as { token: string; code: string };
-      if (!token || !code) return res.status(400).json({ message: "Token et code requis" });
-
-      const result = await verifyOtp(token, code.trim(), "credential_update", getClientIp(req));
-      if (!result.valid) {
-        return res.status(400).json({ message: result.errorMsg || "Code invalide ou expiré" });
-      }
-
-      const pending = pendingCredentialUpdates.get(token);
-      if (!pending) return res.status(400).json({ message: "Session de modification expirée. Recommencez." });
-      if (pending.expiresAt < new Date()) {
-        pendingCredentialUpdates.delete(token);
-        return res.status(400).json({ message: "Session expirée. Recommencez." });
-      }
-
-      // Apply updates
-      const allowed = new Set<string>(CREDENTIAL_KEYS);
-      for (const [key, value] of Object.entries(pending.updates)) {
-        if (!allowed.has(key)) continue;
-        if (value === null || value === undefined || value === "") {
-          await storage.setSetting(`cred_${key}`, "");
-          setCachedCredential(key, "");
-        } else {
-          await storage.setSetting(`cred_${key}`, String(value));
-          setCachedCredential(key, String(value));
-        }
-      }
-      pendingCredentialUpdates.delete(token);
-
-      await loadCredentialsFromDb((k) => storage.getSetting(k));
-      const { soleaspay } = await import("./soleaspay");
-      soleaspay.clearToken();
-
-      res.json({ message: "Clé API modifiée avec succès" });
-    } catch (error) {
-      console.error("Credential update confirm error:", error);
-      res.status(500).json({ message: "Erreur serveur" });
-    }
-  });
-
-  app.post("/api/admin/credentials", requireAdmin, async (req, res) => {
-    try {
-      const updates = req.body as Record<string, string>;
-      const allowed = new Set<string>(CREDENTIAL_KEYS);
-      for (const [key, value] of Object.entries(updates)) {
-        if (!allowed.has(key)) continue;
-        if (value === null || value === undefined || value === "") {
-          await storage.setSetting(`cred_${key}`, "");
-          setCachedCredential(key, "");
-        } else {
-          await storage.setSetting(`cred_${key}`, String(value));
-          setCachedCredential(key, String(value));
-        }
-      }
-      // Reload all credentials from DB to ensure cache is coherent
-      await loadCredentialsFromDb((k) => storage.getSetting(k));
-      // Reset SoleasPay bearer token since API key may have changed
-      const { soleaspay } = await import("./soleaspay");
-      soleaspay.clearToken();
-      res.json({ message: "Clés API enregistrées avec succès" });
-    } catch (error) {
-      console.error("Update credentials error:", error);
-      res.status(500).json({ message: "Erreur serveur" });
-    }
+  // Les clés API sont gérées uniquement via les variables d'environnement Plesk.
+  // Les routes /api/admin/credentials ont été supprimées.
+  app.get("/api/admin/credentials", requireAdmin, (_req, res) => {
+    res.status(410).json({ message: "Les clés API sont désormais gérées uniquement via les variables d'environnement Plesk." });
   });
 
   app.post("/api/admin/fees/update", requireAdmin, async (req, res) => {

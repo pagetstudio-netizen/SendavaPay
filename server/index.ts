@@ -9,7 +9,7 @@ import { notifySystemError, notifyDailyReport } from "./telegram";
 import { sendDailyBackupReport } from "./backup-report";
 import { refreshBlacklistCache } from "./blacklist-check";
 import { storage } from "./storage";
-import { loadCredentialsFromDb, getCredential } from "./credentials";
+import { getCredential } from "./credentials";
 import { blockSensitivePaths } from "./security";
 
 const app = express();
@@ -404,12 +404,6 @@ async function initializeWithTimeout<T>(
     
     if (dbConnected) {
       log("Database connection successful", "init");
-
-      await initializeWithTimeout(
-        loadCredentialsFromDb((key) => storage.getSetting(key)),
-        10000,
-        "Credentials"
-      );
 
       await initializeWithTimeout(
         initializeSecurityTables(),
