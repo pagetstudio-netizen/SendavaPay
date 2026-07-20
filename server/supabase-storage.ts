@@ -44,6 +44,30 @@ function getSupabaseAdmin() {
   });
 }
 
+/**
+ * Client Supabase dédié au stockage KYC.
+ * Utilise SUPABASE_KYC_URL + SUPABASE_KYC_SERVICE_ROLE_KEY si configurés,
+ * sinon retombe sur les identifiants Supabase principaux (rétrocompatibilité).
+ */
+function getKycSupabaseAdmin() {
+  const kycUrl = getCredential("SUPABASE_KYC_URL");
+  const kycKey = getCredential("SUPABASE_KYC_SERVICE_ROLE_KEY");
+
+  if (kycUrl && kycKey) {
+    return createClient(kycUrl, kycKey, { auth: { persistSession: false } });
+  }
+
+  // Fallback : compte Supabase principal
+  const url = getCredential("SUPABASE_URL");
+  const key = getCredential("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key) {
+    throw new Error(
+      "Aucun compte Supabase KYC configuré. Ajoutez SUPABASE_KYC_URL et SUPABASE_KYC_SERVICE_ROLE_KEY dans la section Clés API, ou configurez SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY."
+    );
+  }
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
 async function compressKycImage(buffer: Buffer, mimetype: string): Promise<{ buffer: Buffer; mimetype: string }> {
   if (!sharp) {
     // sharp non disponible — on retourne le fichier original sans compression
@@ -86,10 +110,10 @@ export async function uploadKycFile(
 
   let supabase: ReturnType<typeof createClient>;
   try {
-    supabase = getSupabaseAdmin();
+    supabase = getKycSupabaseAdmin();
   } catch (configErr: any) {
-    console.error(`[kyc-upload] Configuration Supabase manquante: ${configErr.message}`);
-    throw new Error(`Stockage non configuré. Contactez l'administrateur. (${configErr.message})`);
+    console.error(`[kyc-upload] Configuration Supabase KYC manquante: ${configErr.message}`);
+    throw new Error(`Stockage KYC non configuré. Contactez l'administrateur. (${configErr.message})`);
   }
 
   const { error } = await supabase.storage
@@ -141,7 +165,7 @@ export async function getKycSignedUrl(objectPath: string, expiresInSeconds = 360
   if (objectPath.startsWith("http") || objectPath.startsWith("/uploads")) {
     return objectPath;
   }
-  const supabase = getSupabaseAdmin();
+  const supabase = getKycSupabaseAdmin();
   const { data, error } = await supabase.storage
     .from(KYC_BUCKET)
     .createSignedUrl(objectPath, expiresInSeconds);
@@ -154,11 +178,19 @@ export async function getKycSignedUrl(objectPath: string, expiresInSeconds = 360
 }
 
 export function isSupabaseStorageConfigured(): boolean {
+  // Compte KYC dédié configuré ?
+  if (getCredential("SUPABASE_KYC_URL") && getCredential("SUPABASE_KYC_SERVICE_ROLE_KEY")) return true;
+  // Fallback : compte principal
   return !!(getCredential("SUPABASE_URL") && getCredential("SUPABASE_SERVICE_ROLE_KEY"));
 }
 
+/** Indique si le stockage KYC utilise un compte Supabase séparé du principal. */
+export function isKycStorageSeparate(): boolean {
+  return !!(getCredential("SUPABASE_KYC_URL") && getCredential("SUPABASE_KYC_SERVICE_ROLE_KEY"));
+}
+
 export async function countKycStorageFiles(): Promise<{ count: number; sizeKb: number }> {
-  const supabase = getSupabaseAdmin();
+  const supabase = getKycSupabaseAdmin();
   let count = 0;
   let sizeKb = 0;
   let offset = 0;
@@ -194,7 +226,7 @@ export async function countKycStorageFiles(): Promise<{ count: number; sizeKb: n
 }
 
 export async function listAllKycStorageFiles(): Promise<string[]> {
-  const supabase = getSupabaseAdmin();
+  const supabase = getKycSupabaseAdmin();
   const paths: string[] = [];
   let offset = 0;
   const pageSize = 1000;
@@ -254,7 +286,7 @@ export async function countOrphanedKycFiles(): Promise<{ count: number; sizeKb: 
 
   if (orphanedPaths.length === 0) return { count: 0, sizeKb: 0 };
 
-  const supabase = getSupabaseAdmin();
+  const supabase = getKycSupabaseAdmin();
   let sizeKb = 0;
   const byFolder = new Map<string, string[]>();
   for (const p of orphanedPaths) {
@@ -297,7 +329,7 @@ export async function cleanupOrphanedKycStorage(): Promise<{ deleted: number; er
 
   if (orphanedPaths.length === 0) return { deleted: 0, errors: [] };
 
-  const supabase = getSupabaseAdmin();
+  const supabase = getKycSupabaseAdmin();
   const errors: string[] = [];
   let deleted = 0;
   const CHUNK = 500;
@@ -355,7 +387,7 @@ export async function cleanupSupersededKycStorage(): Promise<{ deleted: number; 
     return { deleted: 0, usersAffected: 0, errors: [] };
   }
 
-  const supabase = getSupabaseAdmin();
+  const supabase = getKycSupabaseAdmin();
   const errors: string[] = [];
   let deleted = 0;
   const CHUNK = 500;
@@ -430,7 +462,7 @@ export async function deleteKycImagesById(kycIds: number[]): Promise<{ deleted: 
   if (pathsToDelete.length > 0) {
     let supabase: ReturnType<typeof createClient>;
     try {
-      supabase = getSupabaseAdmin();
+      supabase = getKycSupabaseAdmin();
     } catch (err) {
       return { deleted: 0, freed: 0, errors: [(err as Error).message] };
     }
@@ -461,7 +493,7 @@ export async function deleteKycImagesById(kycIds: number[]): Promise<{ deleted: 
 }
 
 export async function cleanupKycStorage(): Promise<{ deleted: number; errors: string[] }> {
-  const supabase = getSupabaseAdmin();
+  const supabase = getKycSupabaseAdmin();
   let deleted = 0;
   const errors: string[] = [];
 

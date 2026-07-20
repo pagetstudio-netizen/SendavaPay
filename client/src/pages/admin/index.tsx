@@ -4774,7 +4774,15 @@ const CREDENTIAL_GROUPS = [
     ],
   },
   {
-    label: "Supabase (lecture seule)",
+    label: "Supabase KYC (stockage dédié)",
+    keys: [
+      { key: "SUPABASE_KYC_URL", label: "URL du projet Supabase KYC (ex: https://XXXX.supabase.co)" },
+      { key: "SUPABASE_KYC_SERVICE_ROLE_KEY", label: "Service Role Key du projet Supabase KYC" },
+    ],
+    note: "💡 Compte Supabase séparé utilisé uniquement pour stocker les documents KYC (CNI, passeport, selfie). Si non renseigné, le compte Supabase principal est utilisé en fallback.",
+  },
+  {
+    label: "Supabase principal (lecture seule)",
     keys: [],
     envOnlyNote: "🔒 SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DATABASE_URL et SESSION_SECRET doivent être définis UNIQUEMENT dans les variables d'environnement Plesk — jamais ici. Les stocker en base permettrait à un attaquant de tout détruire.",
   },
@@ -4914,6 +4922,11 @@ function CredentialsCard() {
               <div key={group.label}>
                 <p className="text-sm font-semibold text-muted-foreground mb-2 uppercase tracking-wide">{group.label}</p>
                 <div className="space-y-3">
+                  {(group as any).note && (
+                    <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+                      <p className="text-sm text-blue-700 dark:text-blue-300">{(group as any).note}</p>
+                    </div>
+                  )}
                   {(group as any).envOnlyNote && (
                     <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg">
                       <p className="text-sm text-red-700 dark:text-red-300">{(group as any).envOnlyNote}</p>

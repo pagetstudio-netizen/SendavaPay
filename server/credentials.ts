@@ -25,6 +25,8 @@ export const CREDENTIAL_KEYS = [
   "RESEND_FROM_EMAIL",
   "LEEKPAY_SECRET_KEY",
   "LEEKPAY_PUBLIC_KEY",
+  "SUPABASE_KYC_URL",
+  "SUPABASE_KYC_SERVICE_ROLE_KEY",
 ] as const;
 
 // Clés réservées aux variables d'environnement UNIQUEMENT — jamais en base
