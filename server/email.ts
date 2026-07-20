@@ -609,7 +609,8 @@ export async function sendEmailVerificationEmail(
     </div>
     <p>À bientôt,<br>L'équipe SendavaPay</p>
   `;
-  return sendEmailViaBrevo({
+  // Brevo désactivé temporairement — routage via Resend
+  return sendEmail({
     to,
     subject: '✅ Activez votre compte SendavaPay',
     html: getBaseTemplate(content, 'Activation de compte'),
@@ -657,7 +658,8 @@ export async function sendNewDeviceEmail(
     </div>
     <p>L'équipe SendavaPay</p>
   `;
-  return sendEmailViaBrevo({
+  // Brevo désactivé temporairement — routage via Resend
+  return sendEmail({
     to,
     subject: '🔐 Nouvelle connexion — vérification requise — SendavaPay',
     html: getBaseTemplate(content, 'Vérification nouvel appareil'),
@@ -696,7 +698,8 @@ export async function sendPasswordResetEmail(
     </div>
     <p>À bientôt,<br>L'équipe SendavaPay</p>
   `;
-  return sendEmailViaBrevo({
+  // Brevo désactivé temporairement — routage via Resend
+  return sendEmail({
     to,
     subject: 'Réinitialisation de votre mot de passe SendavaPay',
     html: getBaseTemplate(content, 'Réinitialisation de mot de passe'),
