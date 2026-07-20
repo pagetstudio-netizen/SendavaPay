@@ -29,6 +29,7 @@ const allowlist = [
   "passport-local",
   "pdfkit",
   "pg",
+  "@getbrevo/brevo",
   "resend",
   "stripe",
   "uuid",

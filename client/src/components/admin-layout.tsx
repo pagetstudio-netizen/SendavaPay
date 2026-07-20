@@ -47,6 +47,7 @@ import {
   UserX,
 } from "lucide-react";
 import type { AdminNotification as AdminNotificationType, User as UserType } from "@shared/schema";
+import { ADMIN_PATH } from "@/lib/admin-path";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -59,26 +60,26 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { title: "Tableau de bord", href: "/admin", icon: LayoutDashboard },
-  { title: "Utilisateurs", href: "/admin/users", icon: Users },
-  { title: "KYC", href: "/admin/kyc", icon: FileCheck },
-  { title: "Transactions", href: "/admin/transactions", icon: ArrowRightLeft },
-  { title: "Retraits", href: "/admin/withdrawals", icon: Wallet },
-  { title: "Échanges Wallets", href: "/admin/wallet-exchanges", icon: RefreshCw },
-  { title: "Frais", href: "/admin/commissions", icon: Percent },
-  { title: "Numéros de retrait", href: "/admin/withdrawal-numbers", icon: Phone },
-  { title: "Pays & Opérateurs", href: "/admin/countries", icon: Globe },
-  { title: "Liens de paiement", href: "/admin/payment-links", icon: LinkIcon },
-  { title: "Clés API", href: "/admin/api-keys", icon: Key },
-  { title: "Message global", href: "/admin/messaging", icon: MessageSquare },
-  { title: "Email Broadcast", href: "/admin/email-broadcast", icon: Mail },
-  { title: "Partenaires", href: "/admin/partners", icon: Handshake },
-  { title: "Journal retraits SDK", href: "/admin/sdk-withdrawal-logs", icon: FileSearch },
-  { title: "Blacklist", href: "/admin/blacklist", icon: Ban },
-  { title: "Gestion KYC", href: "/admin/kyc-management", icon: UserX },
-  { title: "Logs & Sécurité", href: "/admin/logs", icon: Shield },
-  { title: "Sécurité avancée", href: "/admin/security", icon: Shield },
-  { title: "Paramètres", href: "/admin/settings", icon: Settings },
+  { title: "Tableau de bord",      href: ADMIN_PATH,                              icon: LayoutDashboard },
+  { title: "Utilisateurs",         href: `${ADMIN_PATH}/users`,                   icon: Users },
+  { title: "KYC",                  href: `${ADMIN_PATH}/kyc`,                     icon: FileCheck },
+  { title: "Transactions",         href: `${ADMIN_PATH}/transactions`,             icon: ArrowRightLeft },
+  { title: "Retraits",             href: `${ADMIN_PATH}/withdrawals`,              icon: Wallet },
+  { title: "Échanges Wallets",     href: `${ADMIN_PATH}/wallet-exchanges`,         icon: RefreshCw },
+  { title: "Frais",                href: `${ADMIN_PATH}/commissions`,              icon: Percent },
+  { title: "Numéros de retrait",   href: `${ADMIN_PATH}/withdrawal-numbers`,       icon: Phone },
+  { title: "Pays & Opérateurs",    href: `${ADMIN_PATH}/countries`,               icon: Globe },
+  { title: "Liens de paiement",    href: `${ADMIN_PATH}/payment-links`,            icon: LinkIcon },
+  { title: "Clés API",             href: `${ADMIN_PATH}/api-keys`,                icon: Key },
+  { title: "Message global",       href: `${ADMIN_PATH}/messaging`,               icon: MessageSquare },
+  { title: "Email Broadcast",      href: `${ADMIN_PATH}/email-broadcast`,          icon: Mail },
+  { title: "Partenaires",          href: `${ADMIN_PATH}/partners`,                icon: Handshake },
+  { title: "Journal retraits SDK", href: `${ADMIN_PATH}/sdk-withdrawal-logs`,      icon: FileSearch },
+  { title: "Blacklist",            href: `${ADMIN_PATH}/blacklist`,               icon: Ban },
+  { title: "Gestion KYC",         href: `${ADMIN_PATH}/kyc-management`,           icon: UserX },
+  { title: "Logs & Sécurité",      href: `${ADMIN_PATH}/logs`,                    icon: Shield },
+  { title: "Sécurité avancée",     href: `${ADMIN_PATH}/security`,               icon: Shield },
+  { title: "Paramètres",           href: `${ADMIN_PATH}/settings`,               icon: Settings },
 ];
 
 function formatTimeAgo(date: Date | string) {
@@ -117,8 +118,8 @@ function Sidebar({ onLinkClick }: { onLinkClick?: () => void }) {
   const [location] = useLocation();
   
   const isActive = (href: string) => {
-    if (href === "/admin") {
-      return location === "/admin" || location === "/admin/";
+    if (href === ADMIN_PATH) {
+      return location === ADMIN_PATH || location === `${ADMIN_PATH}/`;
     }
     return location.startsWith(href);
   };
@@ -289,8 +290,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   });
 
   const currentPage = navItems.find((item) => {
-    if (item.href === "/admin") {
-      return location === "/admin" || location === "/admin/";
+    if (item.href === ADMIN_PATH) {
+      return location === ADMIN_PATH || location === `${ADMIN_PATH}/`;
     }
     return location.startsWith(item.href);
   });

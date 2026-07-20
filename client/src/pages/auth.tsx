@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useLocation, Redirect, Link } from "wouter";
+import { ADMIN_PATH } from "@/lib/admin-path";
 import { useAuth } from "@/lib/auth-context";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -185,7 +186,7 @@ export default function AuthPage() {
   };
 
   if (user) {
-    return <Redirect to={user.role === "admin" ? "/admin" : "/dashboard"} />;
+    return <Redirect to={user.role === "admin" ? ADMIN_PATH : "/dashboard"} />;
   }
 
   const renderCodeInput = (

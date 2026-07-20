@@ -10,10 +10,34 @@ export function serveStatic(app: Express) {
     );
   }
 
+  // ── Fichiers statiques (JS, CSS, assets) ──────────────────────────────────
   app.use(express.static(distPath));
 
-  // fall through to index.html if the file doesn't exist
+  const rawAdminSecret = process.env.ADMIN_SECRET_PATH?.trim();
+  const adminPath = rawAdminSecret ? `/${rawAdminSecret}` : "/admin";
+  const isProtected = !!rawAdminSecret && rawAdminSecret !== "admin";
+
+  // ── Bloquer l'ancienne route /admin si un chemin secret est configuré ──────
+  // Retourne une réponse 404 générique sans aucune information sur l'app.
+  if (isProtected) {
+    app.use(/^\/(admin)(\/.*)?$/, (_req, res) => {
+      res.status(404).send("Not Found");
+    });
+  }
+
+  // ── Lire index.html une seule fois, injecter le chemin admin secret ────────
+  // Le secret est injecté côté serveur au moment de la requête.
+  // Il n'est JAMAIS inclus dans le bundle JS compilé.
+  const indexHtmlPath = path.resolve(distPath, "index.html");
+  const rawIndexHtml = fs.readFileSync(indexHtmlPath, "utf-8");
+  const injectedHtml = rawIndexHtml.replace(
+    "</head>",
+    `<script>window.__ADMIN_PATH__="${adminPath}";</script></head>`,
+  );
+
+  // ── SPA fallback — toutes les autres routes ───────────────────────────────
   app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(injectedHtml);
   });
 }

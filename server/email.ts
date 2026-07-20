@@ -1,5 +1,5 @@
 import { Resend } from 'resend';
-import * as Brevo from '@getbrevo/brevo';
+import { BrevoClient } from '@getbrevo/brevo';
 
 // ---------------------------------------------------------------------------
 // Resend — notifications admin/utilisateur (dépôt, retrait, KYC, broadcast…)
@@ -87,18 +87,17 @@ async function sendEmailViaBrevo(data: EmailData): Promise<{ success: boolean; e
   try {
     const { apiKey, fromEmail, fromName } = await getBrevoCredentials();
 
-    const apiInstance = new Brevo.TransactionalEmailsApi();
-    apiInstance.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, apiKey);
+    const brevo = new BrevoClient({ apiKey });
 
-    const sendSmtpEmail = new Brevo.SendSmtpEmail();
-    sendSmtpEmail.subject = data.subject;
-    sendSmtpEmail.htmlContent = data.html;
-    sendSmtpEmail.textContent = data.text;
-    sendSmtpEmail.sender = { name: fromName, email: fromEmail };
-    sendSmtpEmail.to = [{ email: data.to }];
+    const result = await brevo.transactionalEmails.sendTransacEmail({
+      subject: data.subject,
+      htmlContent: data.html,
+      textContent: data.text,
+      sender: { name: fromName, email: fromEmail },
+      to: [{ email: data.to }],
+    });
 
-    const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
-    console.log('[Brevo] Email OTP envoyé:', (result as any)?.body?.messageId || 'ok');
+    console.log('[Brevo] Email OTP envoyé:', (result as any)?.messageId || 'ok');
     return { success: true };
   } catch (error: any) {
     console.error('[Brevo] Email OTP échoué:', error?.message || error);

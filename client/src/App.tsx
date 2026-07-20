@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/lib/auth-context";
 import { ProtectedRoute, AdminRoute } from "@/lib/protected-route";
+import { ADMIN_PATH } from "@/lib/admin-path";
 import { lazy, Suspense } from "react";
 
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -95,28 +96,28 @@ function Router() {
         <ProtectedRoute path="/dashboard/settings" component={SettingsPage} />
         <ProtectedRoute path="/dashboard/wallets" component={WalletsPage} />
 
-        <AdminRoute path="/admin" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/users" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/transactions" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/withdrawals" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/kyc" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/api-keys" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/commissions" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/withdrawal-numbers" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/countries" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/operators" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/payment-links" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/messaging" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/email-broadcast" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/logs" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/reports" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/partners" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/wallet-exchanges" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/settings" component={AdminDashboardPage} />
-        <AdminRoute path="/admin/security" component={AdminSecurityPage} />
-        <AdminRoute path="/admin/sdk-withdrawal-logs" component={AdminSdkWithdrawalLogsPage} />
-        <AdminRoute path="/admin/blacklist" component={AdminBlacklistPage} />
-        <AdminRoute path="/admin/kyc-management" component={AdminKycManagementPage} />
+        <AdminRoute path={ADMIN_PATH} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/users`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/transactions`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/withdrawals`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/kyc`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/api-keys`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/commissions`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/withdrawal-numbers`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/countries`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/operators`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/payment-links`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/messaging`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/email-broadcast`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/logs`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/reports`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/partners`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/wallet-exchanges`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/settings`} component={AdminDashboardPage} />
+        <AdminRoute path={`${ADMIN_PATH}/security`} component={AdminSecurityPage} />
+        <AdminRoute path={`${ADMIN_PATH}/sdk-withdrawal-logs`} component={AdminSdkWithdrawalLogsPage} />
+        <AdminRoute path={`${ADMIN_PATH}/blacklist`} component={AdminBlacklistPage} />
+        <AdminRoute path={`${ADMIN_PATH}/kyc-management`} component={AdminKycManagementPage} />
 
         <Route component={NotFound} />
       </Switch>
