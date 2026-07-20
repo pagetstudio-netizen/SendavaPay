@@ -1,9 +1,13 @@
 import { Resend } from 'resend';
+import * as Brevo from '@getbrevo/brevo';
+
+// ---------------------------------------------------------------------------
+// Resend — notifications admin/utilisateur (dépôt, retrait, KYC, broadcast…)
+// ---------------------------------------------------------------------------
 
 let connectionSettings: any;
 
-async function getCredentials() {
-  // Priorité 1 : clé API directe dans les variables d'environnement (Plesk / prod externe)
+async function getResendCredentials() {
   if (process.env.RESEND_API_KEY) {
     return {
       apiKey: process.env.RESEND_API_KEY,
@@ -11,7 +15,6 @@ async function getCredentials() {
     };
   }
 
-  // Priorité 2 : clé stockée en base de données via le panneau admin
   const { getCredential } = await import('./credentials');
   const dbApiKey = getCredential('RESEND_API_KEY');
   if (dbApiKey) {
@@ -21,7 +24,7 @@ async function getCredentials() {
     };
   }
 
-  // Priorité 3 : connecteur Replit (environnement Replit uniquement)
+  // Fallback connecteur Replit
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const xReplitToken = process.env.REPL_IDENTITY
     ? 'repl ' + process.env.REPL_IDENTITY
@@ -31,8 +34,7 @@ async function getCredentials() {
 
   if (!xReplitToken || !hostname) {
     throw new Error(
-      'Email non configuré : définissez la variable d\'environnement RESEND_API_KEY (clé Resend) ' +
-      'et RESEND_FROM_EMAIL (ex: noreply@sendavapay.com) sur votre serveur Plesk.'
+      'Email (Resend) non configuré : définissez RESEND_API_KEY et RESEND_FROM_EMAIL sur votre serveur Plesk.'
     );
   }
 
@@ -50,10 +52,8 @@ async function getCredentials() {
     throw new Error('Impossible de joindre le service email Replit : ' + fetchErr.message);
   }
 
-  if (!connectionSettings || !connectionSettings.settings?.api_key) {
-    throw new Error(
-      'Resend non configuré. Définissez RESEND_API_KEY dans les variables d\'environnement de votre serveur.'
-    );
+  if (!connectionSettings?.settings?.api_key) {
+    throw new Error('Resend non configuré. Définissez RESEND_API_KEY dans les variables d\'environnement.');
   }
   return {
     apiKey: connectionSettings.settings.api_key,
@@ -62,12 +62,53 @@ async function getCredentials() {
 }
 
 export async function getResendClient() {
-  const { apiKey, fromEmail } = await getCredentials();
-  return {
-    client: new Resend(apiKey),
-    fromEmail
-  };
+  const { apiKey, fromEmail } = await getResendCredentials();
+  return { client: new Resend(apiKey), fromEmail };
 }
+
+// ---------------------------------------------------------------------------
+// Brevo — emails OTP / transactionnels (inscription, nouvel appareil, reset MDP)
+// ---------------------------------------------------------------------------
+
+async function getBrevoCredentials() {
+  const apiKey = process.env.BREVO_API_KEY;
+  const fromEmail = process.env.BREVO_FROM_EMAIL || process.env.RESEND_FROM_EMAIL || 'noreply@sendavapay.com';
+  const fromName = process.env.BREVO_FROM_NAME || 'SendavaPay';
+
+  if (!apiKey) {
+    throw new Error(
+      'Email OTP (Brevo) non configuré : définissez BREVO_API_KEY sur votre serveur Plesk.'
+    );
+  }
+  return { apiKey, fromEmail, fromName };
+}
+
+async function sendEmailViaBrevo(data: EmailData): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { apiKey, fromEmail, fromName } = await getBrevoCredentials();
+
+    const apiInstance = new Brevo.TransactionalEmailsApi();
+    apiInstance.setApiKey(Brevo.TransactionalEmailsApiApiKeys.apiKey, apiKey);
+
+    const sendSmtpEmail = new Brevo.SendSmtpEmail();
+    sendSmtpEmail.subject = data.subject;
+    sendSmtpEmail.htmlContent = data.html;
+    sendSmtpEmail.textContent = data.text;
+    sendSmtpEmail.sender = { name: fromName, email: fromEmail };
+    sendSmtpEmail.to = [{ email: data.to }];
+
+    const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
+    console.log('[Brevo] Email OTP envoyé:', (result as any)?.body?.messageId || 'ok');
+    return { success: true };
+  } catch (error: any) {
+    console.error('[Brevo] Email OTP échoué:', error?.message || error);
+    return { success: false, error: error?.message || String(error) };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// sendEmail — Resend (notifications générales)
+// ---------------------------------------------------------------------------
 
 export interface EmailData {
   to: string;
@@ -79,7 +120,7 @@ export interface EmailData {
 export async function sendEmail(data: EmailData): Promise<{ success: boolean; error?: string }> {
   try {
     const { client, fromEmail } = await getResendClient();
-    
+
     const result = await client.emails.send({
       from: `SendavaPay <${fromEmail}>`,
       to: data.to,
@@ -89,17 +130,21 @@ export async function sendEmail(data: EmailData): Promise<{ success: boolean; er
     });
 
     if (result.error) {
-      console.error('Email send error:', result.error);
+      console.error('[Resend] Email error:', result.error);
       return { success: false, error: result.error.message };
     }
 
-    console.log('Email sent successfully:', result.data?.id);
+    console.log('[Resend] Email envoyé:', result.data?.id);
     return { success: true };
   } catch (error: any) {
-    console.error('Email send failed:', error);
+    console.error('[Resend] Email échoué:', error);
     return { success: false, error: error.message };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Utilitaires
+// ---------------------------------------------------------------------------
 
 function formatCurrency(amount: number, currency: string = 'XOF'): string {
   return new Intl.NumberFormat('fr-FR', {
@@ -152,6 +197,10 @@ function getBaseTemplate(content: string, title: string): string {
 </html>`;
 }
 
+// ---------------------------------------------------------------------------
+// Templates
+// ---------------------------------------------------------------------------
+
 export const emailTemplates = {
   welcome: (data: { fullName: string; email: string }) => {
     const content = `
@@ -179,9 +228,9 @@ export const emailTemplates = {
     };
   },
 
-  paymentReceived: (data: { 
-    merchantName: string; 
-    amount: number; 
+  paymentReceived: (data: {
+    merchantName: string;
+    amount: number;
     currency: string;
     transactionId: string;
     payerPhone: string;
@@ -442,6 +491,10 @@ export const emailTemplates = {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Fonctions d'envoi — Notifications via Resend
+// ---------------------------------------------------------------------------
+
 export async function sendWelcomeEmail(to: string, fullName: string): Promise<{ success: boolean; error?: string }> {
   const template = emailTemplates.welcome({ fullName, email: to });
   return sendEmail({ to, ...template });
@@ -487,9 +540,7 @@ export async function sendBroadcastEmail(
   data: {
     subject: string;
     bodyHtml: string;
-    /** Nouveau format : tableau de boutons avec couleur personnalisée */
     buttons?: Array<{ text: string; url: string; color?: string }>;
-    /** Ancien format (compat.) */
     buttonText?: string;
     buttonUrl?: string;
     userName?: string;
@@ -497,7 +548,6 @@ export async function sendBroadcastEmail(
 ): Promise<{ success: boolean; error?: string }> {
   const greeting = data.userName ? `<p>Bonjour ${data.userName},</p>` : `<p>Bonjour,</p>`;
 
-  // Réconciliation nouveau / ancien format
   const ctaButtons: Array<{ text: string; url: string; color: string }> =
     Array.isArray(data.buttons) && data.buttons.length > 0
       ? data.buttons.map(b => ({ text: b.text, url: b.url, color: b.color || '#059669' }))
@@ -511,7 +561,6 @@ export async function sendBroadcastEmail(
     </p>`
   ).join('\n');
 
-  // Le corps provient de l'éditeur riche (HTML) — on l'utilise tel quel
   const content = `
     ${greeting}
     ${data.bodyHtml}
@@ -525,6 +574,10 @@ export async function sendBroadcastEmail(
     text: data.bodyHtml.replace(/<[^>]*>/g, ''),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Fonctions d'envoi — OTP transactionnels via Brevo
+// ---------------------------------------------------------------------------
 
 export async function sendEmailVerificationEmail(
   to: string,
@@ -557,7 +610,7 @@ export async function sendEmailVerificationEmail(
     </div>
     <p>À bientôt,<br>L'équipe SendavaPay</p>
   `;
-  return sendEmail({
+  return sendEmailViaBrevo({
     to,
     subject: '✅ Activez votre compte SendavaPay',
     html: getBaseTemplate(content, 'Activation de compte'),
@@ -605,7 +658,7 @@ export async function sendNewDeviceEmail(
     </div>
     <p>L'équipe SendavaPay</p>
   `;
-  return sendEmail({
+  return sendEmailViaBrevo({
     to,
     subject: '🔐 Nouvelle connexion — vérification requise — SendavaPay',
     html: getBaseTemplate(content, 'Vérification nouvel appareil'),
@@ -613,7 +666,10 @@ export async function sendNewDeviceEmail(
   });
 }
 
-export async function sendPasswordResetEmail(to: string, data: { fullName: string; code: string; resetUrl: string }): Promise<{ success: boolean; error?: string }> {
+export async function sendPasswordResetEmail(
+  to: string,
+  data: { fullName: string; code: string; resetUrl: string }
+): Promise<{ success: boolean; error?: string }> {
   const content = `
     <h2>Réinitialisation de mot de passe</h2>
     <p>Bonjour ${data.fullName},</p>
@@ -641,8 +697,7 @@ export async function sendPasswordResetEmail(to: string, data: { fullName: strin
     </div>
     <p>À bientôt,<br>L'équipe SendavaPay</p>
   `;
-
-  return sendEmail({
+  return sendEmailViaBrevo({
     to,
     subject: 'Réinitialisation de votre mot de passe SendavaPay',
     html: getBaseTemplate(content, 'Réinitialisation de mot de passe'),
