@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { ADMIN_PATH } from "@/lib/admin-path";
 import { AdminLayout } from "@/components/admin-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6295,23 +6296,23 @@ export default function AdminDashboardPage() {
   const [location] = useLocation();
 
   const renderContent = () => {
-    if (location === "/admin" || location === "/admin/") return <DashboardContent />;
-    if (location === "/admin/users") return <UsersContent />;
-    if (location === "/admin/transactions") return <TransactionsContent />;
-    if (location === "/admin/withdrawals") return <WithdrawalsContent />;
-    if (location === "/admin/kyc") return <KycContent />;
-    if (location === "/admin/api-keys") return <ApiKeysContent />;
-    if (location === "/admin/commissions") return <CommissionsContent />;
-    if (location === "/admin/messaging") return <MessagingContent />;
-    if (location === "/admin/email-broadcast") return <EmailBroadcastContent />;
-    if (location === "/admin/reports") return <ReportsContent />;
-    if (location === "/admin/settings") return <SettingsContent />;
-    if (location === "/admin/withdrawal-numbers") return <WithdrawalNumbersContent />;
-    if (location === "/admin/countries") return <CountriesContent />;
-    if (location === "/admin/payment-links") return <AdminPaymentLinksContent />;
-    if (location === "/admin/partners") return <PartnersContent />;
-    if (location === "/admin/wallet-exchanges") return <WalletExchangesContent />;
-    if (location === "/admin/logs") return <LogsContent />;
+    if (location === ADMIN_PATH || location === ADMIN_PATH + "/") return <DashboardContent />;
+    if (location === ADMIN_PATH + "/users") return <UsersContent />;
+    if (location === ADMIN_PATH + "/transactions") return <TransactionsContent />;
+    if (location === ADMIN_PATH + "/withdrawals") return <WithdrawalsContent />;
+    if (location === ADMIN_PATH + "/kyc") return <KycContent />;
+    if (location === ADMIN_PATH + "/api-keys") return <ApiKeysContent />;
+    if (location === ADMIN_PATH + "/commissions") return <CommissionsContent />;
+    if (location === ADMIN_PATH + "/messaging") return <MessagingContent />;
+    if (location === ADMIN_PATH + "/email-broadcast") return <EmailBroadcastContent />;
+    if (location === ADMIN_PATH + "/reports") return <ReportsContent />;
+    if (location === ADMIN_PATH + "/settings") return <SettingsContent />;
+    if (location === ADMIN_PATH + "/withdrawal-numbers") return <WithdrawalNumbersContent />;
+    if (location === ADMIN_PATH + "/countries") return <CountriesContent />;
+    if (location === ADMIN_PATH + "/payment-links") return <AdminPaymentLinksContent />;
+    if (location === ADMIN_PATH + "/partners") return <PartnersContent />;
+    if (location === ADMIN_PATH + "/wallet-exchanges") return <WalletExchangesContent />;
+    if (location === ADMIN_PATH + "/logs") return <LogsContent />;
     return <DashboardContent />;
   };
 
