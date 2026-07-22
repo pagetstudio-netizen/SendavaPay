@@ -1055,6 +1055,7 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
       operatorId:   z.union([z.number(), z.string()]).transform(v => parseInt(String(v), 10)),
       otp:          z.string().optional(),
       address:      z.string().optional(),
+      successUrl:   z.string().url().optional(), // URL de redirection marchant après paiement Wave
     });
 
     const data = schema.parse(req.body);
@@ -1173,6 +1174,9 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
         });
       }
 
+      // URL de retour après paiement PayDunya : URL marchant si fournie, sinon page résultat SDK
+      const pdReturnUrl = data.successUrl || `${baseUrl}/sdk-payment-result?reference=${transaction.reference}`;
+
       const phone    = formatPhoneForPayDunya(data.payerPhone, payerCountry);
       const pdResult = await initiatePayDunySoftPay({
         operatorName: service.operator,
@@ -1186,7 +1190,7 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
           description,
           storeName:    "SendavaPay",
           callbackUrl:  `${baseUrl}/api/webhook/paydunya`,
-          returnUrl:    `${baseUrl}/success?reference=${transaction.reference}`,
+          returnUrl:    pdReturnUrl,
           cancelUrl:    `${baseUrl}/pay/api/${transaction.reference}`,
           customData:   { reference: transaction.reference, sdk: "1" },
         },
@@ -1197,7 +1201,7 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
           const checkout = await createPayDunyaCheckout({
             totalAmount: amount, description, storeName: "SendavaPay",
             callbackUrl: `${baseUrl}/api/webhook/paydunya`,
-            returnUrl:   `${baseUrl}/success?reference=${transaction.reference}`,
+            returnUrl:   pdReturnUrl,
             cancelUrl:   `${baseUrl}/pay/api/${transaction.reference}`,
           });
           if (checkout.success && checkout.checkoutUrl) {
@@ -1248,11 +1252,17 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
       const nameParts  = data.payerName.split(" ");
       const autoOtp    = service.operator === "Orange" ? String(Math.floor(100000 + Math.random() * 900000)) : undefined;
 
+      // Pour Wave : utiliser l'URL marchant si fournie, sinon page résultat SDK dédiée
+      // On passe transaction.reference (pas orderId) pour que la page de résultat puisse vérifier
+      const waveReturnUrl = isWave
+        ? (data.successUrl || `${baseUrl}/sdk-payment-result?reference=${transaction.reference}`)
+        : undefined;
+
       const opResult = await opClient.requestPayment({
         msisdn: cleanPhone, amount, reference: orderId,
         firstName: nameParts[0], lastName: nameParts.slice(1).join(" ") || nameParts[0],
         operator: opOperator ?? undefined, otp: autoOtp,
-        returnUrl:   isWave ? `${baseUrl}/success?reference=${orderId}` : undefined,
+        returnUrl:   waveReturnUrl,
         callbackUrl: `${baseUrl}/api/webhook/omnipay`,
       });
 

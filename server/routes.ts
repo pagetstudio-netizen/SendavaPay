@@ -5368,6 +5368,24 @@ export async function registerRoutes(
         return res.status(400).json({ status: "error", message: "Référence requise" });
       }
 
+      // 0. Vérifier d'abord si c'est une transaction SDK (apiTransactions)
+      const sdkTxn = await storage.getApiTransactionByReference(reference).catch(() => null);
+      if (sdkTxn) {
+        console.log("🔍 Transaction SDK trouvée pour référence:", reference, "— statut:", sdkTxn.status);
+        if (sdkTxn.status === "completed") {
+          return res.json({
+            status: "completed",
+            message: "Paiement confirmé !",
+            amount: parseFloat(sdkTxn.amount),
+          });
+        }
+        if (sdkTxn.status === "failed" || sdkTxn.status === "cancelled") {
+          return res.json({ status: "failed", message: "Le paiement a échoué ou a été annulé." });
+        }
+        // pending / processing → en attente
+        return res.json({ status: "pending", message: "Paiement en cours de traitement…" });
+      }
+
       // 1. Chercher dans notre base de données (par leekpayPaymentId ou par orderId dans returnUrl)
       let leekpayPayment = await storage.getLeekpayPaymentById(reference);
       
