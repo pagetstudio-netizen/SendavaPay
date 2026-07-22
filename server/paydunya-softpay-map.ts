@@ -388,8 +388,25 @@ export function getSoftPaySlug(operatorName: string, countryCode: string): strin
 
 export function getSoftPayOperator(operatorName: string, countryCode: string): SoftPayOperatorDef | null {
   const slug = getSoftPaySlug(operatorName, countryCode);
-  if (!slug) return null;
-  return getSoftPayOperatorBySlug(slug);
+  if (slug) return getSoftPayOperatorBySlug(slug);
+
+  // Fallback robuste : scan direct du tableau OPERATORS par countryCode + mot-clé du nom
+  const cc   = countryCode.trim().toUpperCase();
+  const name = operatorName.trim().toLowerCase();
+
+  const found = OPERATORS.find(op => {
+    if (op.countryCode.toUpperCase() !== cc) return false;
+    const s = op.slug.toLowerCase();
+    // Correspondance si le slug contient le nom de l'opérateur, ou vice-versa
+    return s.includes(name) || name.includes(s.split("-")[0]);
+  });
+
+  if (found) {
+    console.warn(`[SoftPay] ⚠️ Slug introuvable par SLUG_MAP pour operator="${operatorName}" country="${countryCode}" — match direct: ${found.slug}`);
+  } else {
+    console.error(`[SoftPay] ✗ Aucun opérateur SoftPay trouvé pour operator="${operatorName}" country="${countryCode}"`);
+  }
+  return found ?? null;
 }
 
 export { OPERATORS as SOFTPAY_OPERATORS };
