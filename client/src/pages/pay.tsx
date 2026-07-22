@@ -118,6 +118,7 @@ export default function PaymentPage() {
   const [selectedServiceId, setSelectedServiceId] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [otp, setOtp] = useState("");
+  const [requiresPaydunyaOtp, setRequiresPaydunyaOtp] = useState(false);
   const [customAmount, setCustomAmount] = useState("");
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
@@ -166,6 +167,7 @@ export default function PaymentPage() {
     }
     setPhoneNumber("");
     setOtp("");
+    setRequiresPaydunyaOtp(false);
   }, [services, selectedServiceId]);
 
   const selectedService = services.find(s => s.id.toString() === selectedServiceId);
@@ -324,6 +326,12 @@ export default function PaymentPage() {
             description: "Veuillez confirmer le paiement sur votre téléphone.",
           });
         }
+      } else if (data.requiresOtp && data.provider === "paydunya") {
+        setRequiresPaydunyaOtp(true);
+        toast({
+          title: "Code OTP requis",
+          description: data.message || "Veuillez générer votre code OTP et le saisir ci-dessous pour continuer.",
+        });
       } else {
         toast({
           title: "Erreur",
@@ -859,6 +867,37 @@ export default function PaymentPage() {
                         />
                       </div>
                     </div>
+
+                  {requiresPaydunyaOtp && (
+                    <div className="rounded-xl border border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950/30 p-4 space-y-3">
+                      <div className="flex items-start gap-2">
+                        <Info className="h-4 w-4 text-orange-600 mt-0.5 shrink-0" />
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-orange-800 dark:text-orange-300">
+                            Code OTP requis
+                          </p>
+                          <p className="text-xs text-orange-700 dark:text-orange-400">
+                            Composez le code USSD sur votre téléphone {selectedService?.operator} pour générer votre code d'autorisation, puis saisissez-le ci-dessous.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="paydunya-otp" className="text-sm text-orange-800 dark:text-orange-300">
+                          Code OTP {selectedService?.operator}
+                        </Label>
+                        <Input
+                          id="paydunya-otp"
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="Ex. 123456"
+                          value={otp}
+                          onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                          maxLength={8}
+                          className="font-mono tracking-widest"
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   {showMbiyoOtp && (
                     <div className="rounded-xl border border-orange-200 bg-orange-50 dark:border-orange-900 dark:bg-orange-950/30 p-4 space-y-3">
