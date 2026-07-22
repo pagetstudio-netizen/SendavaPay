@@ -31,6 +31,7 @@ const PayApiPage = lazy(() => import("@/pages/pay-api"));
 
 const SuccessPage = lazy(() => import("@/pages/success"));
 const PaymentSuccessPage = lazy(() => import("@/pages/payment-success"));
+const SdkPaymentResultPage = lazy(() => import("@/pages/sdk-payment-result"));
 const AdminDashboardPage = lazy(() => import("@/pages/admin/index"));
 const AdminSecurityPage = lazy(() => import("@/pages/admin/security"));
 const AdminSdkWithdrawalLogsPage = lazy(() => import("@/pages/admin/sdk-withdrawal-logs"));
@@ -70,6 +71,7 @@ function Router() {
         <Route path="/pay/api/:reference" component={PayApiPage} />
         <Route path="/pay/:code" component={PaymentPage} />
         <Route path="/success" component={SuccessPage} />
+        <Route path="/sdk-payment-result" component={SdkPaymentResultPage} />
         <Route path="/payment-success" component={PaymentSuccessPage} />
         <Route path="/terms" component={TermsPage} />
         <Route path="/about" component={AboutPage} />
