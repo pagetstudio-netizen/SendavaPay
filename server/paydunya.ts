@@ -465,12 +465,19 @@ export async function callPayDunySoftPayEndpoint(
   }
   if (data?.url || data?.other_url?.om_url) {
     const op = getSoftPayOperatorBySlug(slug);
+    // Respecter le responseType défini dans la map.
+    // Si l'op est introuvable (ne devrait pas arriver), logger l'anomalie.
+    if (!op) {
+      console.warn(`[PayDunya] ⚠️ getSoftPayOperatorBySlug("${slug}") → null dans callPayDunySoftPayEndpoint`);
+    }
+    // N'utiliser "redirect" comme fallback que si l'opérateur n'est vraiment pas mappé
+    const respType: "direct" | "redirect" | "qr" = op ? op.responseType : "redirect";
     return {
       success:      true,
-      message:      data?.message || "Redirection en cours…",
+      message:      data?.message || (respType === "direct" ? "Paiement initié avec succès." : "Redirection en cours…"),
       redirectUrl:  data?.url || data?.other_url?.om_url,
       omUrl:        data?.other_url?.om_url,
-      responseType: op?.responseType || "redirect",
+      responseType: respType,
       rawResponse:  data,
     };
   }

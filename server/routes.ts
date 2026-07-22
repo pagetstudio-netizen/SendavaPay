@@ -1972,10 +1972,16 @@ export async function registerRoutes(
           customData: { reference: orderId, userId: String(req.session.userId!) },
         };
 
-        // Si un numéro de téléphone est fourni ET l'opérateur a un mapping SoftPay → paiement direct
+        // Résolution de l'opérateur SoftPay
+        const pdOpName    = service.operator    || "";
+        const pdOpCountry = service.countryCode || service.country || "";
+        console.log(`[PayDunya] getSoftPayOperator lookup: operator="${pdOpName}" country="${pdOpCountry}" phone=${!!phoneNumber}`);
+
         const pdSoftPayOp = phoneNumber
-          ? getSoftPayOperator(service.operator || "", service.countryCode || service.country || "")
+          ? getSoftPayOperator(pdOpName, pdOpCountry)
           : null;
+
+        console.log(`[PayDunya] getSoftPayOperator result: ${pdSoftPayOp ? pdSoftPayOp.slug + " (responseType=" + pdSoftPayOp.responseType + ")" : "null"}`);
 
         if (pdSoftPayOp) {
           // SoftPay requis OTP mais pas fourni → demander le code
@@ -1988,16 +1994,16 @@ export async function registerRoutes(
             });
           }
 
-          const cleanPhone = formatPhoneForPayDunya(phoneNumber!, service.countryCode || "");
+          const cleanPhone = formatPhoneForPayDunya(phoneNumber!, pdOpCountry);
           console.log(`📤 PayDunya SoftPay: opérateur=${pdSoftPayOp.slug} téléphone=${cleanPhone}`);
 
           const spResult = await initiatePayDunySoftPay({
-            operatorName: service.operator || "",
-            countryCode: service.countryCode || service.country || "",
-            phone: cleanPhone,
-            name: user.fullName || "Client",
-            email: user.email || "noreply@sendavapay.com",
-            otp: otp || undefined,
+            operatorName: pdOpName,
+            countryCode:  pdOpCountry,
+            phone:        cleanPhone,
+            name:         user.fullName || "Client",
+            email:        user.email    || "noreply@sendavapay.com",
+            otp:          otp           || undefined,
             invoiceParams: pdInvoiceParams,
           });
 
@@ -2034,7 +2040,7 @@ export async function registerRoutes(
 
           console.log(`✅ PayDunya SoftPay: initié token=${invoiceToken} type=${spResult.responseType}`);
 
-          // Wave et Orange SN → retourner l'URL de redirection
+          // Wave et Orange SN (redirect / qr) → retourner l'URL de redirection
           if (spResult.responseType === "redirect" || spResult.responseType === "qr") {
             return res.json({
               success: true,
@@ -2048,7 +2054,7 @@ export async function registerRoutes(
             });
           }
 
-          // Opérateurs USSD direct (T-Money, MTN, Moov…)
+          // Tous les autres opérateurs USSD push (T-Money, MTN, Moov, Orange…)
           return res.json({
             success: true,
             payId: invoiceToken,
@@ -2059,7 +2065,8 @@ export async function registerRoutes(
           });
         }
 
-        // Pas de numéro ou opérateur sans SoftPay → fallback checkout (redirection page PayDunya)
+        // Aucun mapping SoftPay trouvé → fallback checkout PayDunya standard
+        console.warn(`[PayDunya] ⚠️ Aucun opérateur SoftPay pour "${pdOpName}"/"${pdOpCountry}" — fallback checkout`);
         const pdResult = await createPayDunyaCheckout(pdInvoiceParams);
 
         if (!pdResult.success || !pdResult.checkoutUrl || !pdResult.token) {
