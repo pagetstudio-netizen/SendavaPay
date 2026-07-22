@@ -463,6 +463,13 @@ export async function callPayDunySoftPayEndpoint(
   if (data?.success === false) {
     return { success: false, error: data?.message || "Échec PayDunya SoftPay", rawResponse: data };
   }
+  // PayDunya uses response_code "00" for success; any other code is an API-level error.
+  // Without this check, errors like "Not Registered." (code "09") are silently treated as success.
+  if (data?.response_code && data.response_code !== "00") {
+    const errMsg = data?.response_text || data?.message || data?.description || `Erreur PayDunya (code ${data.response_code})`;
+    console.error(`[PayDunya] SoftPay erreur response_code=${data.response_code}: ${errMsg}`);
+    return { success: false, error: errMsg, rawResponse: data };
+  }
   if (data?.url || data?.other_url?.om_url) {
     const op = getSoftPayOperatorBySlug(slug);
     // Respecter le responseType défini dans la map.
