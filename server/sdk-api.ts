@@ -1216,7 +1216,8 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
         return res.status(500).json({ success: false, error: pdResult.error || "Échec de l'initiation du paiement", code: "PAYMENT_INITIATION_FAILED" });
       }
 
-      if (pdResult.redirectUrl) {
+      // Rediriger uniquement pour Wave (redirect) et Orange SN (qr) — PAS pour les opérateurs USSD push
+      if (pdResult.redirectUrl && (pdResult.responseType === "redirect" || pdResult.responseType === "qr")) {
         await storage.updateApiTransaction(transaction.id, { externalReference: `${orderId}|${pdResult.redirectUrl}` });
         sendTransactionWebhook(transaction, "payment.processing", { fee: payinFee, requiresRedirect: true, redirectUrl: pdResult.redirectUrl, status: "processing" }).catch(() => {});
         sdkLog({ req, endpoint: "initiate-payment", statusCode: 200, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry });

@@ -479,10 +479,18 @@ export async function callPayDunySoftPayEndpoint(
     }
     // N'utiliser "redirect" comme fallback que si l'opérateur n'est vraiment pas mappé
     const respType: "direct" | "redirect" | "qr" = op ? op.responseType : "redirect";
+
+    // IMPORTANT: Pour les opérateurs "direct" (USSD push : Moov BF, MTN CI, MTN BJ…),
+    // PayDunya inclut quand même un champ "url" dans sa réponse (c'est l'URL de la facture).
+    // Cette URL NE doit PAS être utilisée comme redirectUrl car le paiement est déjà
+    // initié en push USSD sur le téléphone du client.
+    // On n'expose redirectUrl que pour les opérateurs "redirect" (Wave) ou "qr" (Orange SN).
+    const isActualRedirect = respType === "redirect" || respType === "qr";
+
     return {
       success:      true,
-      message:      data?.message || (respType === "direct" ? "Paiement initié avec succès." : "Redirection en cours…"),
-      redirectUrl:  data?.url || data?.other_url?.om_url,
+      message:      data?.message || (isActualRedirect ? "Redirection en cours…" : "Paiement initié avec succès."),
+      redirectUrl:  isActualRedirect ? (data?.url || data?.other_url?.om_url) : undefined,
       omUrl:        data?.other_url?.om_url,
       responseType: respType,
       rawResponse:  data,

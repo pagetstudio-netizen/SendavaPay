@@ -11802,12 +11802,14 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
           }
 
           // Wave / Orange SN → redirect vers l'opérateur (pas PayDunya checkout)
-          if ((pdResult as any).redirectUrl) {
+          // Uniquement pour responseType "redirect" ou "qr" — PAS pour les opérateurs USSD direct
+          const pdRespType = (pdResult as any).responseType;
+          if ((pdResult as any).redirectUrl && (pdRespType === "redirect" || pdRespType === "qr")) {
             await storage.updateApiTransaction((transaction as any).id, { externalReference: `${orderId}|${(pdResult as any).redirectUrl}` } as any);
             return res.json({ success: true, payId: orderId, orderId, isRedirect: true, redirectUrl: (pdResult as any).redirectUrl });
           }
 
-          // USSD direct (MTN, Moov, T-Money…)
+          // USSD direct (MTN, Moov, T-Money, Orange CI avec OTP…) → push sur le téléphone
           const invoiceToken = (pdResult as any).invoiceToken || orderId;
           await storage.updateApiTransaction((transaction as any).id, { externalReference: `${orderId}|${invoiceToken}` } as any);
           return res.json({ success: true, payId: invoiceToken, orderId });

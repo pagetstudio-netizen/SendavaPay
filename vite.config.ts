@@ -1,15 +1,20 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
-import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+
+// Les plugins Replit ne sont chargés que sur l'environnement Replit
+// (REPL_ID présent) et uniquement en mode dev.
+// Sur Plesk / CI / production, aucun import Replit n'est effectué.
+const isReplitDev =
+  typeof process.env.REPL_ID === "string" &&
+  process.env.NODE_ENV !== "production";
 
 export default defineConfig({
   plugins: [
     react(),
-    runtimeErrorOverlay(),
-    ...(process.env.NODE_ENV !== "production" &&
-    process.env.REPL_ID !== undefined
+    ...(isReplitDev
       ? [
+          (await import("@replit/vite-plugin-runtime-error-modal")).default(),
           await import("@replit/vite-plugin-cartographer").then((m) =>
             m.cartographer(),
           ),
