@@ -320,6 +320,46 @@ app.use((_req, res, next) => {
   next();
 });
 
+// ── CORS — Bloquer les requêtes cross-origin non autorisées ──────────────────
+// Les webhooks passerelles (PayDunya, SoleasPay, etc.) sont des appels
+// serveur-à-serveur : ils n'envoient pas d'en-tête Origin → non concernés.
+const CORS_ALLOWED_ORIGINS = new Set([
+  "https://sendavapay.com",
+  "https://www.sendavapay.com",
+]);
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin as string | undefined;
+  if (!origin) return next(); // appel serveur-à-serveur (webhook, curl) — aucun Origin
+
+  const isDev = process.env.NODE_ENV !== "production";
+  const isAllowed =
+    CORS_ALLOWED_ORIGINS.has(origin) ||
+    (isDev && (
+      origin.startsWith("http://localhost:") ||
+      origin.startsWith("http://127.0.0.1:") ||
+      origin.endsWith(".replit.dev") ||
+      origin.endsWith(".repl.co")
+    ));
+
+  if (isAllowed) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+    res.setHeader("Vary", "Origin");
+  } else {
+    console.warn(`[CORS] ⛔ Origine bloquée: ${origin} → ${req.method} ${req.path}`);
+    // On ne positionne pas Access-Control-Allow-Origin → le navigateur bloque la réponse
+  }
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(isAllowed ? 204 : 403);
+  }
+
+  next();
+});
+
 app.use(
   express.json({
     verify: (req, _res, buf) => {

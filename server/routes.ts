@@ -9334,7 +9334,11 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
             notifyWebhookRejected({ gateway: "PayDunya Disburse", ip: webhookIp || "?", reason: "Hash absent (clé configurée) — Cas1", path: "/api/webhook/paydunya" });
             return;
           } else {
-            console.warn(`⚠️ [PayDunya webhook Cas1] Hash absent et PAYDUNYA_MASTER_KEY non configurée — callback retrait accepté sans vérification (ip=${webhookIp})`);
+            // Hash absent ET clé non configurée → rejet strict pour tout callback retrait.
+            // Sans clé master on ne peut pas authentifier l'appelant : trop risqué pour un disbursement.
+            console.error(`❌ [PayDunya webhook Cas1] Hash absent et PAYDUNYA_MASTER_KEY non configurée — rejet strict retrait (ip=${webhookIp})`);
+            notifyWebhookRejected({ gateway: "PayDunya Disburse", ip: webhookIp || "?", reason: "Hash absent + MASTER_KEY absente — rejet strict", path: "/api/webhook/paydunya" });
+            return;
           }
         }
         // ──────────────────────────────────────────────────────────────────────
@@ -9990,7 +9994,10 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
           notifyWebhookRejected({ gateway: "PayDunya Disburse", ip: req.ip || "?", reason: "Hash absent (clé configurée)", path: "/api/webhook/paydunya-disburse" });
           return res.status(401).json({ message: "Unauthorized" });
         }
-        console.warn("⚠️ PayDunya disburse webhook: Hash absent et PAYDUNYA_MASTER_KEY non configurée — webhook accepté");
+        // Hash absent ET clé non configurée → rejet strict pour tout callback retrait.
+        console.error(`❌ PayDunya disburse webhook: Hash absent et PAYDUNYA_MASTER_KEY non configurée — rejet strict (ip=${req.ip})`);
+        notifyWebhookRejected({ gateway: "PayDunya Disburse", ip: req.ip || "?", reason: "Hash absent + MASTER_KEY absente — rejet strict", path: "/api/webhook/paydunya-disburse" });
+        return res.status(401).json({ message: "Unauthorized" });
       }
       // ────────────────────────────────────────────────────────────────────────
 
