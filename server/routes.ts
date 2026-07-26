@@ -9301,7 +9301,9 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   app.post("/api/webhook/paydunya", async (req, res) => {
     try {
       const data = req.body;
+      const webhookIp = getClientIp(req);
       console.log("📥 === PayDunya Webhook reçu ===");
+      console.log(`📥 IP source: ${webhookIp}`);
       console.log("📥 Data:", JSON.stringify(data));
 
       res.status(200).json({ received: true });
@@ -9310,6 +9312,32 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
       const disburseId = data?.disburse_id;
       if (disburseId) {
         console.log(`📥 PayDunya webhook: type=RETRAIT disburse_id=${disburseId}`);
+
+        // ── Vérification du hash pour tout callback de retrait ─────────────────
+        // CRITIQUE : sans cette vérification, n'importe qui peut forger un callback
+        // de retrait et manipuler le statut (vol de solde via status="failed").
+        {
+          const { getCredential: _wgc } = await import("./credentials");
+          const _wMk = _wgc("PAYDUNYA_MASTER_KEY");
+          const _wHash = data?.hash;
+          if (_wHash) {
+            if (_wMk && !verifyPayDunyaWebhook(_wHash)) {
+              console.error(`❌ [PayDunya webhook Cas1] Hash retrait invalide — rejet (ip=${webhookIp})`);
+              notifyWebhookRejected({ gateway: "PayDunya Disburse", ip: webhookIp || "?", reason: "Hash invalide (Cas1)", path: "/api/webhook/paydunya" });
+              return;
+            } else if (!_wMk) {
+              console.warn(`⚠️ [PayDunya webhook Cas1] PAYDUNYA_MASTER_KEY non configurée — hash non vérifié (ip=${webhookIp})`);
+            }
+          } else if (_wMk) {
+            // Hash absent mais clé configurée → rejet strict pour les retraits
+            console.error(`❌ [PayDunya webhook Cas1] Hash absent pour un callback retrait alors que PAYDUNYA_MASTER_KEY est configurée — rejet (ip=${webhookIp})`);
+            notifyWebhookRejected({ gateway: "PayDunya Disburse", ip: webhookIp || "?", reason: "Hash absent (clé configurée) — Cas1", path: "/api/webhook/paydunya" });
+            return;
+          } else {
+            console.warn(`⚠️ [PayDunya webhook Cas1] Hash absent et PAYDUNYA_MASTER_KEY non configurée — callback retrait accepté sans vérification (ip=${webhookIp})`);
+          }
+        }
+        // ──────────────────────────────────────────────────────────────────────
         const disburseStatus = (data?.status || "").toLowerCase();
         const transactionId = data?.transaction_id;
 
