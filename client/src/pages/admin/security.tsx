@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Shield, Ban, Check, RefreshCw, AlertTriangle, Lock, Activity, Loader2, ShieldCheck, Trash2 } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Shield, Ban, Check, RefreshCw, AlertTriangle, Lock, Activity, Loader2, ShieldCheck, Trash2, FileDown, Users, Mail } from "lucide-react";
 
 interface BlockedIp {
   id: number;
@@ -66,6 +68,12 @@ export default function SecurityDashboard() {
   const [newBlockReason, setNewBlockReason] = useState("");
   const [newAllowIp, setNewAllowIp] = useState("");
   const [newAllowLabel, setNewAllowLabel] = useState("");
+
+  // ── Export PDF state ────────────────────────────────────────────────────────
+  const [exportStep, setExportStep]   = useState<"idle" | "otp">("idle");
+  const [exportToken, setExportToken] = useState("");
+  const [exportCode, setExportCode]   = useState("");
+  const [exportLoading, setExportLoading] = useState(false);
 
   const { data: blockedIps = [], isLoading: ipsLoading } = useQuery<BlockedIp[]>({
     queryKey: ["/api/admin/security/blocked-ips"],
@@ -147,6 +155,63 @@ export default function SecurityDashboard() {
     day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
   }).format(new Date(d));
 
+  // ── Export PDF handlers ──────────────────────────────────────────────────────
+  async function handleRequestExportOtp() {
+    setExportLoading(true);
+    try {
+      const res = await apiRequest("POST", "/api/admin/export-report/request-otp");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Erreur");
+      setExportToken(data.token);
+      setExportCode("");
+      setExportStep("otp");
+      toast({ title: "Code envoyé", description: "Vérifiez votre email administrateur." });
+    } catch (e: any) {
+      toast({ title: "Erreur", description: e.message, variant: "destructive" });
+    } finally {
+      setExportLoading(false);
+    }
+  }
+
+  async function handleDownloadPdf() {
+    if (!exportCode.trim()) {
+      toast({ title: "Code requis", description: "Entrez le code reçu par email.", variant: "destructive" });
+      return;
+    }
+    setExportLoading(true);
+    try {
+      const res = await fetch("/api/admin/export-report/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ token: exportToken, code: exportCode.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Erreur inconnue" }));
+        throw new Error(err.message);
+      }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      const now  = new Date();
+      const date = `${now.getDate().toString().padStart(2,"0")}-${(now.getMonth()+1).toString().padStart(2,"0")}-${now.getFullYear()}`;
+      a.href     = url;
+      a.download = `sendavapay-users-${date}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setExportStep("idle");
+      setExportToken("");
+      setExportCode("");
+      toast({ title: "Téléchargement démarré", description: "Le rapport PDF est en cours de téléchargement." });
+    } catch (e: any) {
+      toast({ title: "Erreur", description: e.message, variant: "destructive" });
+    } finally {
+      setExportLoading(false);
+    }
+  }
+
   return (
     <AdminLayout>
       <div className="space-y-6">
@@ -180,103 +245,56 @@ export default function SecurityDashboard() {
           </Card>
           <Card>
             <CardContent className="p-4">
-              <div className="flex items-center gap-2 text-blue-600 mb-1"><Activity className="h-4 w-4" /><span className="text-xs font-medium">Tentatives (1h)</span></div>
-              <div className="text-2xl font-bold">{recentAttempts.length}</div>
+              <div className="flex items-center gap-2 text-blue-600 mb-1"><Activity className="h-4 w-4" /><span className="text-xs font-medium">Événements (24h)</span></div>
+              <div className="text-2xl font-bold">{securityEvents.filter(e => new Date(e.created_at) >= new Date(Date.now() - 86400000)).length}</div>
             </CardContent>
           </Card>
         </div>
 
         <Tabs defaultValue="whitelist">
-          <TabsList>
-            <TabsTrigger value="whitelist">
-              <ShieldCheck className="h-4 w-4 mr-1.5" />
-              Liste blanche
-              {allowedIps.length > 0 && (
-                <span className="ml-1.5 bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 text-xs rounded-full px-1.5 py-0.5 font-semibold">{allowedIps.length}</span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="ips">IPs bloquées</TabsTrigger>
-            <TabsTrigger value="events">Événements</TabsTrigger>
-            <TabsTrigger value="attempts">Connexions</TabsTrigger>
+          <TabsList className="flex flex-wrap gap-1 h-auto">
+            <TabsTrigger value="whitelist"><Lock className="h-3.5 w-3.5 mr-1.5" />Whitelist</TabsTrigger>
+            <TabsTrigger value="blocked"><Ban className="h-3.5 w-3.5 mr-1.5" />IPs bloquées</TabsTrigger>
+            <TabsTrigger value="events"><Activity className="h-3.5 w-3.5 mr-1.5" />Événements</TabsTrigger>
+            <TabsTrigger value="attempts"><AlertTriangle className="h-3.5 w-3.5 mr-1.5" />Tentatives</TabsTrigger>
+            <TabsTrigger value="export"><FileDown className="h-3.5 w-3.5 mr-1.5" />Export PDF</TabsTrigger>
           </TabsList>
 
-          {/* ── WHITELIST ── */}
-          <TabsContent value="whitelist" className="mt-4 space-y-4">
-            <Card className="border-green-200 dark:border-green-900/50">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-green-600" />
-                  Ajouter une IP à la liste blanche
-                </CardTitle>
-                <CardDescription>
-                  Les IPs dans cette liste ne seront <strong>jamais</strong> bloquées, même si elles sont détectées comme VPN, hébergeur ou hors-Afrique. Utile pour les serveurs des marchands et bots d'intégration.
-                </CardDescription>
+          {/* ── Whitelist ── */}
+          <TabsContent value="whitelist" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Ajouter une IP à la liste blanche</CardTitle>
+                <CardDescription>Ces IPs ne seront jamais bloquées automatiquement.</CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="flex gap-2 flex-wrap">
-                  <Input
-                    value={newAllowIp}
-                    onChange={e => setNewAllowIp(e.target.value)}
-                    placeholder="Ex : 2600:1900:0:2107::1"
-                    className="flex-1 min-w-[180px]"
-                    data-testid="input-allow-ip"
-                    onKeyDown={e => e.key === "Enter" && newAllowIp.trim() && allowMutation.mutate({ ip: newAllowIp.trim(), label: newAllowLabel.trim() })}
-                  />
-                  <Input
-                    value={newAllowLabel}
-                    onChange={e => setNewAllowLabel(e.target.value)}
-                    placeholder="Nom / description (ex: Bot marchand X)"
-                    className="flex-1 min-w-[200px]"
-                    data-testid="input-allow-label"
-                  />
-                  <Button
-                    onClick={() => allowMutation.mutate({ ip: newAllowIp.trim(), label: newAllowLabel.trim() })}
-                    disabled={!newAllowIp.trim() || allowMutation.isPending}
-                    className="bg-green-600 hover:bg-green-700 text-white"
-                    data-testid="button-allow-ip"
-                  >
-                    {allowMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4 mr-1" />}
-                    Autoriser
+              <CardContent className="space-y-3">
+                <div className="flex gap-2">
+                  <Input placeholder="Adresse IP (ex: 41.202.x.x)" value={newAllowIp} onChange={e => setNewAllowIp(e.target.value)} className="flex-1" />
+                  <Input placeholder="Label (facultatif)" value={newAllowLabel} onChange={e => setNewAllowLabel(e.target.value)} className="flex-1" />
+                  <Button onClick={() => allowMutation.mutate({ ip: newAllowIp.trim(), label: newAllowLabel.trim() })} disabled={!newAllowIp.trim() || allowMutation.isPending}>
+                    {allowMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                   </Button>
                 </div>
               </CardContent>
             </Card>
-
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">IPs toujours autorisées ({allowedIps.length})</CardTitle>
-                <CardDescription>Ces IPs passent sans restriction de géolocalisation ni de détection VPN.</CardDescription>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">IPs autorisées ({allowedIps.length})</CardTitle>
               </CardHeader>
               <CardContent>
-                {allowedLoading ? (
-                  <div className="text-center py-8 text-muted-foreground">Chargement...</div>
-                ) : allowedIps.length === 0 ? (
-                  <div className="text-center py-10 text-muted-foreground">
-                    <ShieldCheck className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                    <p className="text-sm">Aucune IP dans la liste blanche</p>
-                    <p className="text-xs mt-1">Ajoutez les IPs des serveurs marchands pour éviter tout blocage automatique.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {allowedIps.map(ip => (
-                      <div key={ip.id} className="flex items-center justify-between p-3 rounded-lg border border-green-100 dark:border-green-900/30 bg-green-50/40 dark:bg-green-950/10">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <code className="font-mono text-sm font-semibold">{ip.ip_address}</code>
-                            <Badge variant="outline" className="text-xs border-green-300 text-green-700 dark:text-green-400">Autorisé</Badge>
-                          </div>
-                          {ip.label && <p className="text-xs text-muted-foreground mt-0.5">{ip.label}</p>}
-                          <p className="text-xs text-muted-foreground/60">Ajouté le {formatDate(ip.created_at)}</p>
+                {allowedLoading ? <div className="text-center py-8 text-muted-foreground">Chargement...</div> : (
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+                    {allowedIps.length === 0 && <div className="text-center py-8 text-muted-foreground">Aucune IP autorisée</div>}
+                    {allowedIps.map(a => (
+                      <div key={a.id} className="flex items-center gap-3 p-3 rounded-lg border text-sm">
+                        <ShieldCheck className="h-4 w-4 text-green-600 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium font-mono">{a.ip_address}</p>
+                          {a.label && <p className="text-xs text-muted-foreground">{a.label}</p>}
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeAllowMutation.mutate(ip.ip_address)}
-                          disabled={removeAllowMutation.isPending}
-                          className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                          data-testid={`button-remove-allow-${ip.id}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
+                        <span className="text-xs text-muted-foreground/60 shrink-0">{formatDate(a.created_at)}</span>
+                        <Button size="sm" variant="ghost" className="text-red-600 h-7 w-7 p-0" onClick={() => removeAllowMutation.mutate(a.ip_address)}>
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     ))}
@@ -286,40 +304,40 @@ export default function SecurityDashboard() {
             </Card>
           </TabsContent>
 
-          {/* ── BLOCKED IPs ── */}
-          <TabsContent value="ips" className="mt-4 space-y-4">
+          {/* ── IPs bloquées ── */}
+          <TabsContent value="blocked" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Bloquer une IP</CardTitle>
+                <CardTitle className="text-base">Bloquer une IP manuellement</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="flex gap-2 flex-wrap">
-                  <Input value={newBlockIp} onChange={e => setNewBlockIp(e.target.value)} placeholder="192.168.1.1" className="flex-1 min-w-[160px]" data-testid="input-block-ip" />
-                  <Input value={newBlockReason} onChange={e => setNewBlockReason(e.target.value)} placeholder="Raison (optionnel)" className="flex-1 min-w-[180px]" />
-                  <Button onClick={() => blockMutation.mutate({ ip: newBlockIp.trim(), reason: newBlockReason.trim() })} disabled={!newBlockIp.trim() || blockMutation.isPending} data-testid="button-block-ip">
-                    {blockMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4 mr-1" />}
-                    Bloquer
+              <CardContent className="space-y-3">
+                <div className="flex gap-2">
+                  <Input placeholder="Adresse IP" value={newBlockIp} onChange={e => setNewBlockIp(e.target.value)} className="flex-1" />
+                  <Input placeholder="Raison" value={newBlockReason} onChange={e => setNewBlockReason(e.target.value)} className="flex-1" />
+                  <Button variant="destructive" onClick={() => blockMutation.mutate({ ip: newBlockIp.trim(), reason: newBlockReason.trim() })} disabled={!newBlockIp.trim() || blockMutation.isPending}>
+                    {blockMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
                   </Button>
                 </div>
               </CardContent>
             </Card>
             <Card>
-              <CardHeader>
+              <CardHeader className="pb-2">
                 <CardTitle className="text-base">IPs bloquées ({blockedIps.length})</CardTitle>
               </CardHeader>
               <CardContent>
                 {ipsLoading ? <div className="text-center py-8 text-muted-foreground">Chargement...</div> : (
                   <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1">
                     {blockedIps.length === 0 && <div className="text-center py-8 text-muted-foreground">Aucune IP bloquée</div>}
-                    {blockedIps.map(ip => (
-                      <div key={ip.id} className="flex items-center justify-between p-3 rounded-lg border">
-                        <div>
-                          <code className="font-mono text-sm font-semibold">{ip.ip_address}</code>
-                          {ip.reason && <p className="text-xs text-muted-foreground mt-0.5">{ip.reason}</p>}
-                          <p className="text-xs text-muted-foreground/60">{formatDate(ip.created_at)}{ip.expires_at ? ` · Expire: ${formatDate(ip.expires_at)}` : " · Permanent"}</p>
+                    {blockedIps.map(b => (
+                      <div key={b.id} className="flex items-center gap-3 p-3 rounded-lg border text-sm">
+                        <Ban className="h-4 w-4 text-red-600 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium font-mono">{b.ip_address}</p>
+                          {b.reason && <p className="text-xs text-muted-foreground">{b.reason}</p>}
                         </div>
-                        <Button variant="outline" size="sm" onClick={() => unblockMutation.mutate(ip.ip_address)} disabled={unblockMutation.isPending} data-testid={`button-unblock-${ip.id}`}>
-                          <Check className="h-4 w-4 mr-1" /> Débloquer
+                        <span className="text-xs text-muted-foreground/60 shrink-0">{formatDate(b.created_at)}</span>
+                        <Button size="sm" variant="ghost" className="text-green-600 h-7 w-7 p-0" onClick={() => unblockMutation.mutate(b.ip_address)}>
+                          <RefreshCw className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     ))}
@@ -329,30 +347,27 @@ export default function SecurityDashboard() {
             </Card>
           </TabsContent>
 
-          {/* ── SECURITY EVENTS ── */}
-          <TabsContent value="events" className="mt-4">
+          {/* ── Événements ── */}
+          <TabsContent value="events">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div>
-                  <CardTitle className="text-base">Événements récents</CardTitle>
-                  <CardDescription>500 derniers événements de sécurité</CardDescription>
+                  <CardTitle className="text-base">Événements de sécurité</CardTitle>
+                  <CardDescription>200 derniers événements</CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/admin/security/events"] })}>
-                  <RefreshCw className="h-4 w-4 mr-1" /> Actualiser
-                </Button>
               </CardHeader>
               <CardContent>
                 {eventsLoading ? <div className="text-center py-8 text-muted-foreground">Chargement...</div> : (
                   <div className="space-y-2 max-h-[600px] overflow-y-auto pr-1">
                     {securityEvents.length === 0 && <div className="text-center py-8 text-muted-foreground">Aucun événement</div>}
                     {securityEvents.map(e => {
-                      const config = EVENT_LABELS[e.type] || { label: e.type, color: "text-gray-600 bg-gray-50" };
+                      const label = EVENT_LABELS[e.type] ?? { label: e.type, color: "text-gray-600 bg-gray-50" };
                       return (
                         <div key={e.id} className="flex items-start gap-3 p-3 rounded-lg border text-sm">
-                          <Badge className={`${config.color} border-0 text-xs shrink-0`}>{config.label}</Badge>
+                          <Badge className={`text-xs shrink-0 mt-0.5 ${label.color}`}>{label.label}</Badge>
                           <div className="flex-1 min-w-0">
-                            {e.details && <p className="text-muted-foreground truncate">{e.details}</p>}
-                            {e.ip_address && <p className="text-xs text-muted-foreground/70">IP: {e.ip_address}{e.userId ? ` · User #${e.userId}` : ""}</p>}
+                            {e.ip_address && <p className="text-xs text-muted-foreground">IP: {e.ip_address}</p>}
+                            {e.details && <p className="text-xs text-muted-foreground truncate">{e.details}</p>}
                           </div>
                           <span className="text-xs text-muted-foreground/60 shrink-0">{formatDate(e.created_at)}</span>
                         </div>
@@ -364,8 +379,8 @@ export default function SecurityDashboard() {
             </Card>
           </TabsContent>
 
-          {/* ── LOGIN ATTEMPTS ── */}
-          <TabsContent value="attempts" className="mt-4">
+          {/* ── Tentatives ── */}
+          <TabsContent value="attempts">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div>
@@ -395,8 +410,127 @@ export default function SecurityDashboard() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* ── Export PDF ── */}
+          <TabsContent value="export">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/30">
+                    <FileDown className="h-6 w-6 text-blue-600" />
+                  </div>
+                  <div>
+                    <CardTitle>Export PDF — Rapport complet utilisateurs</CardTitle>
+                    <CardDescription>Téléchargez un rapport PDF sécurisé contenant toutes les données utilisateurs.</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Contenu du rapport */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="flex items-start gap-3 p-4 rounded-lg border bg-muted/30">
+                    <Users className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold">Données utilisateurs</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Nom complet, email, téléphone, pays, date d'inscription, statut du compte (vérifié, bloqué, KYC).</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 p-4 rounded-lg border bg-muted/30">
+                    <Shield className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold">Soldes & wallets</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Solde par utilisateur, soldes agrégés par pays et devise, total plateforme.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 p-4 rounded-lg border bg-muted/30">
+                    <Activity className="h-5 w-5 text-purple-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold">Statistiques globales</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">KYC approuvés / en attente / rejetés, comptes vérifiés, emails confirmés.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Avertissement sécurité */}
+                <div className="flex items-start gap-3 p-4 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
+                  <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+                  <div className="text-sm">
+                    <p className="font-semibold text-amber-800 dark:text-amber-200">Document confidentiel</p>
+                    <p className="text-amber-700 dark:text-amber-300 text-xs mt-0.5">
+                      Ce PDF contient des données personnelles sensibles (sans mots de passe). Pour télécharger, vous devrez confirmer votre identité via un code à 6 chiffres envoyé sur votre adresse email administrateur.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Bouton principal */}
+                <div className="flex justify-center pt-2">
+                  <Button
+                    size="lg"
+                    onClick={handleRequestExportOtp}
+                    disabled={exportLoading}
+                    className="gap-2 px-8"
+                  >
+                    {exportLoading ? (
+                      <><Loader2 className="h-5 w-5 animate-spin" />Envoi du code...</>
+                    ) : (
+                      <><Mail className="h-5 w-5" />Recevoir le code de confirmation</>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </div>
+
+      {/* ── Dialog OTP export ── */}
+      <Dialog open={exportStep === "otp"} onOpenChange={(open) => { if (!open) { setExportStep("idle"); setExportCode(""); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileDown className="h-5 w-5 text-blue-600" />
+              Confirmer le téléchargement
+            </DialogTitle>
+            <DialogDescription>
+              Un code à 6 chiffres a été envoyé sur votre adresse email administrateur. Il est valable <strong>10 minutes</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="export-otp">Code de confirmation</Label>
+              <Input
+                id="export-otp"
+                placeholder="_ _ _ _ _ _"
+                value={exportCode}
+                onChange={e => setExportCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                className="text-center text-2xl tracking-[0.5em] font-mono h-14"
+                maxLength={6}
+                autoFocus
+                onKeyDown={e => { if (e.key === "Enter" && exportCode.length === 6) handleDownloadPdf(); }}
+              />
+              <p className="text-xs text-muted-foreground text-center">Vérifiez vos spams si vous ne recevez pas l'email.</p>
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => { setExportStep("idle"); setExportCode(""); }}>
+              Annuler
+            </Button>
+            <Button
+              className="w-full sm:w-auto gap-2"
+              onClick={handleDownloadPdf}
+              disabled={exportCode.length !== 6 || exportLoading}
+            >
+              {exportLoading ? (
+                <><Loader2 className="h-4 w-4 animate-spin" />Génération en cours...</>
+              ) : (
+                <><FileDown className="h-4 w-4" />Télécharger le PDF</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AdminLayout>
   );
 }

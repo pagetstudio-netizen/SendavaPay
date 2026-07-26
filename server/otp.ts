@@ -47,11 +47,12 @@ const OTP_EXPIRY: Record<string, string> = {
   storage_cleanup:    "10 minutes",  // Nettoyage stockage : 10 min
   email_verification: "24 hours",   // Activation de compte : 24h
   new_device:         "15 minutes", // Nouvel appareil : 15 min
+  export_report:      "10 minutes", // Export PDF utilisateurs : 10 min
 };
 
 export async function createOtp(
   userId: number,
-  type: "admin_login" | "withdrawal" | "credential_update" | "storage_cleanup" | "email_verification" | "new_device",
+  type: "admin_login" | "withdrawal" | "credential_update" | "storage_cleanup" | "email_verification" | "new_device" | "export_report",
   ipAddress: string,
   metadata?: Record<string, unknown>
 ): Promise<{ token: string; code: string }> {
@@ -122,7 +123,7 @@ export async function verifyOtpByToken(
 export async function verifyOtp(
   token: string,
   code: string,
-  type: "admin_login" | "withdrawal" | "credential_update" | "storage_cleanup",
+  type: "admin_login" | "withdrawal" | "credential_update" | "storage_cleanup" | "export_report",
   callerIp?: string
 ): Promise<{ valid: boolean; userId?: number; metadata?: Record<string, unknown>; errorMsg?: string }> {
   if (!pool) return { valid: false, errorMsg: "Base de données non disponible" };
@@ -329,6 +330,56 @@ export async function sendCredentialUpdateOtp(
   <div class="footer">SendavaPay — Système d'administration sécurisé</div>
 </div></body></html>`,
     text: `Code de vérification pour modification de clé ${keyName} : ${code}\nIP : ${ip}\n\nSi ce n'est pas vous, changez votre mot de passe immédiatement.`,
+  });
+}
+
+export async function sendExportReportOtp(
+  email: string,
+  fullName: string,
+  code: string,
+  ip: string
+): Promise<void> {
+  await sendEmailOrThrow({
+    to: email,
+    subject: "📊 Code de confirmation — Export PDF utilisateurs - SendavaPay",
+    html: `
+<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
+<style>
+  body{font-family:Arial,sans-serif;background:#f5f5f5;margin:0;padding:0}
+  .container{max-width:600px;margin:0 auto;background:#fff}
+  .header{background:linear-gradient(135deg,#0f172a,#1e40af);padding:30px;text-align:center}
+  .header h1{color:#fff;margin:0;font-size:22px}
+  .content{padding:40px 30px}
+  .code-box{background:#eff6ff;border:2px dashed #1e40af;border-radius:12px;padding:25px;text-align:center;margin:25px 0}
+  .code{font-size:44px;font-weight:900;letter-spacing:10px;color:#1e40af;font-family:monospace}
+  .info{background:#f0f9ff;border-left:4px solid #0284c7;padding:15px;border-radius:0 8px 8px 0;margin:20px 0;font-size:13px}
+  .alert{background:#fef2f2;border-left:4px solid #dc2626;padding:15px;border-radius:0 8px 8px 0;margin:20px 0;font-size:13px}
+  .footer{background:#f9fafb;padding:20px 30px;text-align:center;color:#6b7280;font-size:12px}
+</style></head>
+<body><div class="container">
+  <div class="header"><h1>📊 Export PDF — Données utilisateurs</h1></div>
+  <div class="content">
+    <h2>Bonjour ${fullName},</h2>
+    <p>Une demande de téléchargement du rapport PDF complet des utilisateurs a été initiée depuis :</p>
+    <p><strong>Adresse IP :</strong> <code>${ip}</code></p>
+    <div class="info">
+      <strong>ℹ️ Ce rapport contient :</strong><br>
+      Statistiques globales, soldes par pays, détail de tous les comptes utilisateurs (sans mots de passe).
+    </div>
+    <p>Votre code de confirmation (valable <strong>10 minutes</strong>) :</p>
+    <div class="code-box">
+      <div class="code">${code}</div>
+    </div>
+    <div class="alert">
+      <strong>⚠️ Ce n'est pas vous ?</strong><br>
+      Si vous n'avez pas initié cet export, changez immédiatement votre mot de passe et vérifiez vos accès admin.
+    </div>
+    <p>⚠️ <em>Vérifiez vos spams si vous ne voyez pas cet email.</em></p>
+    <p>L'équipe SendavaPay</p>
+  </div>
+  <div class="footer">SendavaPay — Système d'administration sécurisé — Document confidentiel</div>
+</div></body></html>`,
+    text: `Code de confirmation export PDF : ${code}\nIP : ${ip}\nValable 10 minutes.\n\nSi ce n'est pas vous, changez votre mot de passe immédiatement.`,
   });
 }
 

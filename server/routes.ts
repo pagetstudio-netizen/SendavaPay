@@ -11709,6 +11709,57 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     }
   });
 
+  // ─── Export rapport PDF complet des utilisateurs (protégé par OTP email) ─────
+  app.post("/api/admin/export-report/request-otp", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const adminId = req.session.userId!;
+      const admin   = await storage.getUser(adminId);
+      if (!admin) return res.status(404).json({ message: "Administrateur introuvable" });
+
+      const ip = getClientIp(req) || "inconnue";
+      const { token, code } = await createOtp(adminId, "export_report", ip);
+
+      const { sendExportReportOtp } = await import("./otp");
+      await sendExportReportOtp(admin.email, admin.fullName, code, ip);
+
+      console.log(`[export-report] OTP envoyé à ${admin.email} (ip=${ip})`);
+      res.json({ success: true, token, message: "Code envoyé par email" });
+    } catch (err: any) {
+      console.error("[export-report] request-otp error:", err);
+      res.status(500).json({ message: err.message || "Erreur lors de l'envoi du code" });
+    }
+  });
+
+  app.post("/api/admin/export-report/download", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const { token, code } = req.body as { token: string; code: string };
+      if (!token || !code) return res.status(400).json({ message: "Token et code requis" });
+
+      const ip = getClientIp(req) || "inconnue";
+      const result = await verifyOtp(token, String(code).trim(), "export_report", ip);
+      if (!result.valid) {
+        return res.status(401).json({ message: result.errorMsg || "Code invalide ou expiré" });
+      }
+
+      console.log(`[export-report] Génération PDF admin userId=${req.session.userId} ip=${ip}`);
+      const { generateUserReportPDF } = await import("./user-report");
+      const pdfBuffer = await generateUserReportPDF();
+
+      const now = new Date();
+      const dateTag = now.toLocaleDateString("fr-FR", { timeZone: "Africa/Lome" }).replace(/\//g, "-");
+      const filename = `sendavapay-users-${dateTag}.pdf`;
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Length", String(pdfBuffer.length));
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.end(pdfBuffer);
+    } catch (err: any) {
+      console.error("[export-report] download error:", err);
+      res.status(500).json({ message: err.message || "Erreur lors de la génération du PDF" });
+    }
+  });
+
   // ─── SDK Withdrawal Audit Logs ────────────────────────────────────────────────
   app.get("/api/admin/sdk-withdrawal-logs", requireAuth, requireAdmin, async (req, res) => {
     try {
