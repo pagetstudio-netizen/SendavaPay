@@ -1,6 +1,6 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
-import { rm, readFile } from "fs/promises";
+import { rm, readFile, cp } from "fs/promises";
 
 // server deps to bundle — bundle everything that is pure-JS so the
 // resulting dist/index.cjs is fully self-contained and works on any
@@ -67,6 +67,17 @@ async function buildAll() {
     external: externals,
     logLevel: "info",
   });
+
+  // PDFKit charge ses polices (.afm) et son profil ICC depuis le dossier
+  // "data" adjacent à son module. Une fois bundlé dans dist/index.cjs,
+  // il les cherche dans dist/data/ — on copie donc ce dossier.
+  console.log("copying pdfkit data files → dist/data/ ...");
+  await cp(
+    "node_modules/pdfkit/js/data",
+    "dist/data",
+    { recursive: true }
+  );
+  console.log("done.");
 }
 
 buildAll().catch((err) => {
