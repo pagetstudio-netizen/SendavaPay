@@ -1,14 +1,14 @@
 import { defineConfig } from "drizzle-kit";
 
-const databaseUrl = process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL;
+const databaseUrl = process.env.MYSQL_DATABASE_URL || process.env.DATABASE_URL;
 if (!databaseUrl) {
-  throw new Error("SUPABASE_DATABASE_URL or DATABASE_URL must be set");
+  throw new Error("MYSQL_DATABASE_URL or DATABASE_URL must be set");
 }
 
 export default defineConfig({
   out: "./migrations",
   schema: "./shared/schema.ts",
-  dialect: "postgresql",
+  dialect: "mysql",
   dbCredentials: {
     url: databaseUrl,
   },

@@ -80,8 +80,24 @@ import {
   type SdkWithdrawalLog,
   type InsertSdkWithdrawalLog,
 } from "@shared/schema";
-import { db as dbInstance } from "./db";
-import { eq, ne, or, and, desc, sql, inArray } from "drizzle-orm";
+import { db as dbInstance, pool } from "./db";
+import { eq, ne, or, and, desc, sql, inArray, isNull } from "drizzle-orm";
+
+// ─── MySQL helpers: insert-then-fetch / update-then-fetch ─────────────────────
+async function insertAndFetch<T>(table: any, values: any, db: ReturnType<typeof getDb>): Promise<T> {
+  const result = await db.insert(table).values(values).$returningId();
+  const id = (result as any)[0].id;
+  const [row] = await db.select().from(table).where(eq(table.id, id));
+  return row as T;
+}
+
+async function updateByIdAndFetch<T>(
+  table: any, updates: any, id: number, db: ReturnType<typeof getDb>
+): Promise<T | undefined> {
+  await db.update(table).set(updates).where(eq(table.id, id));
+  const [row] = await db.select().from(table).where(eq(table.id, id));
+  return row as T | undefined;
+}
 
 function getDb() {
   if (!dbInstance) {
@@ -329,31 +345,24 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(user: InsertUser): Promise<User> {
-    const [newUser] = await getDb().insert(users).values(user).returning();
-    return newUser;
+    return await insertAndFetch<User>(users, user, getDb());
   }
 
   async updateUser(id: number, updates: Partial<User>): Promise<User | undefined> {
-    const [updated] = await getDb().update(users).set(updates).where(eq(users.id, id)).returning();
-    return updated;
+    return await updateByIdAndFetch<User>(users, updates, id, getDb());
   }
 
   async updateUserBalance(id: number, amount: string): Promise<User | undefined> {
-    const [updated] = await getDb()
+    await getDb()
       .update(users)
       .set({ balance: sql`${users.balance} + ${amount}` })
-      .where(eq(users.id, id))
-      .returning();
-    return updated;
+      .where(eq(users.id, id));
+    const [row] = await getDb().select().from(users).where(eq(users.id, id));
+    return row;
   }
 
   async setUserBalance(id: number, newBalance: string): Promise<User | undefined> {
-    const [updated] = await getDb()
-      .update(users)
-      .set({ balance: newBalance })
-      .where(eq(users.id, id))
-      .returning();
-    return updated;
+    return await updateByIdAndFetch<User>(users, { balance: newBalance }, id, getDb());
   }
 
   async getAllUsers(): Promise<User[]> {
@@ -365,35 +374,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createTransaction(transaction: InsertTransaction): Promise<Transaction> {
-    const [newTransaction] = await getDb().insert(transactions).values(transaction).returning();
-    return newTransaction;
+    return await insertAndFetch<Transaction>(transactions, transaction, getDb());
   }
 
   async updateTransactionStatus(id: number, status: string): Promise<Transaction | undefined> {
-    const [updated] = await getDb()
-      .update(transactions)
-      .set({ status: status as any })
-      .where(eq(transactions.id, id))
-      .returning();
-    return updated;
+    return await updateByIdAndFetch<Transaction>(transactions, { status: status as any }, id, getDb());
   }
 
   async updateTransactionNote(id: number, adminNote: string): Promise<Transaction | undefined> {
-    const [updated] = await getDb()
-      .update(transactions)
-      .set({ adminNote })
-      .where(eq(transactions.id, id))
-      .returning();
-    return updated;
+    return await updateByIdAndFetch<Transaction>(transactions, { adminNote }, id, getDb());
   }
 
   async updateTransaction(id: number, updates: Partial<Transaction>): Promise<Transaction | undefined> {
-    const [updated] = await getDb()
-      .update(transactions)
-      .set(updates as any)
-      .where(eq(transactions.id, id))
-      .returning();
-    return updated;
+    return await updateByIdAndFetch<Transaction>(transactions, updates as any, id, getDb());
   }
 
   async getTransactionByExternalRef(externalRef: string): Promise<Transaction | undefined> {
@@ -409,8 +402,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createTransfer(transfer: InsertTransfer): Promise<Transfer> {
-    const [newTransfer] = await getDb().insert(transfers).values(transfer).returning();
-    return newTransfer;
+    return await insertAndFetch<Transfer>(transfers, transfer, getDb());
   }
 
   async getTransfersByUser(userId: number): Promise<Transfer[]> {
@@ -431,16 +423,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPaymentLink(link: InsertPaymentLink): Promise<PaymentLink> {
-    const [newLink] = await getDb().insert(paymentLinks).values({
-      ...link,
-      linkCode: generateLinkCode(),
-    }).returning();
-    return newLink;
+    return await insertAndFetch<PaymentLink>(paymentLinks, { ...link, linkCode: generateLinkCode() }, getDb());
   }
 
   async updatePaymentLink(id: number, updates: Partial<PaymentLink>): Promise<PaymentLink | undefined> {
-    const [updated] = await getDb().update(paymentLinks).set(updates).where(eq(paymentLinks.id, id)).returning();
-    return updated;
+    return await updateByIdAndFetch<PaymentLink>(paymentLinks, updates, id, getDb());
   }
 
   async getPaymentLink(id: number): Promise<PaymentLink | undefined> {
@@ -470,16 +457,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createApiKey(apiKey: InsertApiKey): Promise<ApiKey> {
-    const [newKey] = await getDb().insert(apiKeys).values({
-      ...apiKey,
-      apiKey: generateApiKey(apiKey.apiType || "redirect"),
-    }).returning();
-    return newKey;
+    return await insertAndFetch<ApiKey>(apiKeys, { ...apiKey, apiKey: generateApiKey(apiKey.apiType || "redirect") }, getDb());
   }
 
   async updateApiKey(id: number, updates: Partial<ApiKey>): Promise<ApiKey | undefined> {
-    const [updated] = await getDb().update(apiKeys).set(updates).where(eq(apiKeys.id, id)).returning();
-    return updated;
+    return await updateByIdAndFetch<ApiKey>(apiKeys, updates, id, getDb());
   }
 
   async deleteApiKey(id: number, userId?: number): Promise<"not_found" | "forbidden" | "ok"> {
@@ -534,13 +516,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createKycRequest(kyc: InsertKycRequest): Promise<KycRequest> {
-    const [newKyc] = await getDb().insert(kycRequests).values(kyc).returning();
-    return newKyc;
+    return await insertAndFetch<KycRequest>(kycRequests, kyc, getDb());
   }
 
   async updateKycRequest(id: number, updates: Partial<KycRequest>): Promise<KycRequest | undefined> {
-    const [updated] = await getDb().update(kycRequests).set(updates).where(eq(kycRequests.id, id)).returning();
-    return updated;
+    return await updateByIdAndFetch<KycRequest>(kycRequests, updates, id, getDb());
   }
 
   async getPendingKycRequests(): Promise<KycRequest[]> {
@@ -574,25 +554,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateCommissionSettings(depositRate: string, encaissementRate: string, withdrawalRate: string, updatedBy: number): Promise<CommissionSettings> {
-    const [updated] = await getDb().insert(commissionSettings).values({
-      depositRate,
-      encaissementRate,
-      withdrawalRate,
-      updatedBy,
-      updatedAt: new Date(),
-    }).returning();
-    return updated;
+    return await insertAndFetch<CommissionSettings>(commissionSettings, { depositRate, encaissementRate, withdrawalRate, updatedBy, updatedAt: new Date() }, getDb());
   }
 
   async createFeeChange(adminId: number, fieldChanged: string, oldValue: string, newValue: string, reason?: string): Promise<FeeChange> {
-    const [change] = await getDb().insert(feeChanges).values({
-      adminId,
-      fieldChanged,
-      oldValue,
-      newValue,
-      reason: reason || null,
-    }).returning();
-    return change;
+    return await insertAndFetch<FeeChange>(feeChanges, { adminId, fieldChanged, oldValue, newValue, reason: reason || null }, getDb());
   }
 
   async getFeeChanges(): Promise<FeeChange[]> {
@@ -824,18 +790,14 @@ export class DatabaseStorage implements IStorage {
 
   async updateSocialLink(platform: string, url: string | null, isActive: boolean): Promise<SocialLink> {
     const existing = await getDb().select().from(socialLinks).where(eq(socialLinks.platform, platform));
-    
     if (existing.length > 0) {
-      const [updated] = await getDb().update(socialLinks)
+      await getDb().update(socialLinks)
         .set({ url, isActive, updatedAt: new Date() })
-        .where(eq(socialLinks.platform, platform))
-        .returning();
-      return updated;
+        .where(eq(socialLinks.platform, platform));
+      const [row] = await getDb().select().from(socialLinks).where(eq(socialLinks.platform, platform));
+      return row;
     } else {
-      const [created] = await getDb().insert(socialLinks)
-        .values({ platform, url, isActive, updatedAt: new Date() })
-        .returning();
-      return created;
+      return await insertAndFetch<SocialLink>(socialLinks, { platform, url, isActive, updatedAt: new Date() }, getDb());
     }
   }
 
@@ -873,8 +835,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createWithdrawalRequest(request: InsertWithdrawalRequest): Promise<WithdrawalRequest> {
-    const [newRequest] = await getDb().insert(withdrawalRequests).values(request).returning();
-    return newRequest;
+    return await insertAndFetch<WithdrawalRequest>(withdrawalRequests, request, getDb());
   }
 
   async getWithdrawalRequests(userId: number): Promise<WithdrawalRequest[]> {
@@ -905,8 +866,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateWithdrawalRequest(id: number, updates: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined> {
-    const [updated] = await getDb().update(withdrawalRequests).set(updates).where(eq(withdrawalRequests.id, id)).returning();
-    return updated;
+    return await updateByIdAndFetch<WithdrawalRequest>(withdrawalRequests, updates, id, getDb());
   }
 
   async getProcessingWithdrawalRequests(): Promise<WithdrawalRequest[]> {
@@ -919,8 +879,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createLeekpayPayment(payment: Partial<LeekpayPayment>): Promise<LeekpayPayment> {
-    const [newPayment] = await getDb().insert(leekpayPayments).values(payment as any).returning();
-    return newPayment;
+    return await insertAndFetch<LeekpayPayment>(leekpayPayments, payment as any, getDb());
   }
 
   async getLeekpayPaymentById(leekpayPaymentId: string): Promise<LeekpayPayment | undefined> {
@@ -929,22 +888,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateLeekpayPayment(leekpayPaymentId: string, updates: Partial<LeekpayPayment>): Promise<LeekpayPayment | undefined> {
-    const [updated] = await getDb().update(leekpayPayments).set(updates as any).where(eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId)).returning();
-    return updated;
+    await getDb().update(leekpayPayments).set(updates as any).where(eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId));
+    const [row] = await getDb().select().from(leekpayPayments).where(eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId));
+    return row;
   }
 
   async claimLeekpayPayment(leekpayPaymentId: string): Promise<LeekpayPayment | null> {
-    const results = await getDb()
-      .update(leekpayPayments)
+    const [before] = await getDb().select().from(leekpayPayments)
+      .where(and(eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId), ne(leekpayPayments.status, "completed")));
+    if (!before) return null;
+    await getDb().update(leekpayPayments)
       .set({ status: "completed" as any, webhookReceived: true, completedAt: new Date() })
-      .where(
-        and(
-          eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId),
-          ne(leekpayPayments.status, "completed")
-        )
-      )
-      .returning();
-    return results.length > 0 ? results[0] : null;
+      .where(and(eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId), ne(leekpayPayments.status, "completed")));
+    const [after] = await getDb().select().from(leekpayPayments).where(eq(leekpayPayments.leekpayPaymentId, leekpayPaymentId));
+    return after || null;
   }
 
   async getLeekpayPaymentsByUser(userId: number): Promise<LeekpayPayment[]> {
@@ -960,13 +917,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createWithdrawalNumber(data: Partial<WithdrawalNumber>): Promise<WithdrawalNumber> {
-    const [newNumber] = await getDb().insert(withdrawalNumbers).values(data as any).returning();
-    return newNumber;
+    return await insertAndFetch<WithdrawalNumber>(withdrawalNumbers, data as any, getDb());
   }
 
   async updateWithdrawalNumber(id: number, updates: Partial<WithdrawalNumber>): Promise<WithdrawalNumber | undefined> {
-    const [updated] = await getDb().update(withdrawalNumbers).set({ ...updates, updatedAt: new Date() }).where(eq(withdrawalNumbers.id, id)).returning();
-    return updated;
+    return await updateByIdAndFetch<WithdrawalNumber>(withdrawalNumbers, { ...updates, updatedAt: new Date() }, id, getDb());
   }
 
   async deleteWithdrawalNumber(id: number): Promise<void> {
@@ -978,13 +933,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createCountry(data: Partial<Country>): Promise<Country> {
-    const [newCountry] = await getDb().insert(countries).values(data as any).returning();
-    return newCountry;
+    return await insertAndFetch<Country>(countries, data as any, getDb());
   }
 
   async updateCountry(id: number, updates: Partial<Country>): Promise<Country | undefined> {
-    const [updated] = await getDb().update(countries).set(updates).where(eq(countries.id, id)).returning();
-    return updated;
+    return await updateByIdAndFetch<Country>(countries, updates, id, getDb());
   }
 
   async deleteCountry(id: number): Promise<void> {
@@ -1000,13 +953,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createOperator(data: Partial<Operator>): Promise<Operator> {
-    const [newOperator] = await getDb().insert(operators).values(data as any).returning();
-    return newOperator;
+    return await insertAndFetch<Operator>(operators, data as any, getDb());
   }
 
   async updateOperator(id: number, updates: Partial<Operator>): Promise<Operator | undefined> {
-    const [updated] = await getDb().update(operators).set(updates).where(eq(operators.id, id)).returning();
-    return updated;
+    return await updateByIdAndFetch<Operator>(operators, updates, id, getDb());
   }
 
   async deleteOperator(id: number): Promise<void> {
@@ -1018,8 +969,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createGlobalMessage(data: Partial<GlobalMessage>): Promise<GlobalMessage> {
-    const [newMessage] = await getDb().insert(globalMessages).values(data as any).returning();
-    return newMessage;
+    return await insertAndFetch<GlobalMessage>(globalMessages, data as any, getDb());
   }
 
   async getAdminNotifications(): Promise<AdminNotification[]> {
@@ -1032,8 +982,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createAdminNotification(data: Partial<AdminNotification>): Promise<AdminNotification> {
-    const [newNotification] = await getDb().insert(adminNotifications).values(data as any).returning();
-    return newNotification;
+    return await insertAndFetch<AdminNotification>(adminNotifications, data as any, getDb());
   }
 
   async markAdminNotificationRead(id: number): Promise<void> {
@@ -1049,8 +998,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUserNotification(data: Partial<UserNotification>): Promise<UserNotification> {
-    const [newNotification] = await getDb().insert(userNotifications).values(data as any).returning();
-    return newNotification;
+    return await insertAndFetch<UserNotification>(userNotifications, data as any, getDb());
   }
 
   async markUserNotificationRead(id: number): Promise<void> {
@@ -1068,8 +1016,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createAuditLog(data: { userId?: number; action: string; details?: string; ipAddress?: string }): Promise<AuditLog> {
-    const [newLog] = await getDb().insert(auditLogs).values(data as any).returning();
-    return newLog;
+    return await insertAndFetch<AuditLog>(auditLogs, data as any, getDb());
   }
 
   async getAllPaymentLinks(): Promise<(PaymentLink & { user?: User })[]> {
@@ -1094,8 +1041,7 @@ export class DatabaseStorage implements IStorage {
 
   // Merchant API methods
   async createMerchant(merchant: Partial<Merchant>): Promise<Merchant> {
-    const [newMerchant] = await getDb().insert(merchants).values(merchant as any).returning();
-    return newMerchant;
+    return await insertAndFetch<Merchant>(merchants, merchant as any, getDb());
   }
 
   async getMerchant(id: number): Promise<Merchant | undefined> {
@@ -1114,17 +1060,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateMerchant(id: number, updates: Partial<Merchant>): Promise<Merchant | undefined> {
-    const [updated] = await getDb().update(merchants).set(updates).where(eq(merchants.id, id)).returning();
-    return updated;
+    return await updateByIdAndFetch<Merchant>(merchants, updates, id, getDb());
   }
 
   async updateMerchantBalance(id: number, amount: string): Promise<Merchant | undefined> {
-    const [updated] = await getDb()
-      .update(merchants)
-      .set({ balance: sql`${merchants.balance} + ${amount}` })
-      .where(eq(merchants.id, id))
-      .returning();
-    return updated;
+    await getDb().update(merchants).set({ balance: sql`${merchants.balance} + ${amount}` }).where(eq(merchants.id, id));
+    const [row] = await getDb().select().from(merchants).where(eq(merchants.id, id));
+    return row;
   }
 
   async getAllMerchants(): Promise<Merchant[]> {
@@ -1132,8 +1074,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createApiTransaction(transaction: Partial<ApiTransaction>): Promise<ApiTransaction> {
-    const [newTransaction] = await getDb().insert(apiTransactions).values(transaction as any).returning();
-    return newTransaction;
+    return await insertAndFetch<ApiTransaction>(apiTransactions, transaction as any, getDb());
   }
 
   async getApiTransaction(id: number): Promise<ApiTransaction | undefined> {
@@ -1160,22 +1101,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateApiTransaction(id: number, updates: Partial<ApiTransaction>): Promise<ApiTransaction | undefined> {
-    const [updated] = await getDb().update(apiTransactions).set(updates).where(eq(apiTransactions.id, id)).returning();
-    return updated;
+    return await updateByIdAndFetch<ApiTransaction>(apiTransactions, updates, id, getDb());
   }
 
   async claimApiTransaction(id: number, extraUpdates?: Partial<ApiTransaction>): Promise<ApiTransaction | null> {
-    const [claimed] = await getDb()
-      .update(apiTransactions)
+    const [before] = await getDb().select().from(apiTransactions)
+      .where(and(eq(apiTransactions.id, id), ne(apiTransactions.status, "completed")));
+    if (!before) return null;
+    await getDb().update(apiTransactions)
       .set({ status: "completed", completedAt: new Date(), updatedAt: new Date(), ...extraUpdates })
-      .where(and(eq(apiTransactions.id, id), ne(apiTransactions.status, "completed")))
-      .returning();
-    return claimed || null;
+      .where(and(eq(apiTransactions.id, id), ne(apiTransactions.status, "completed")));
+    const [after] = await getDb().select().from(apiTransactions).where(eq(apiTransactions.id, id));
+    return after || null;
   }
 
   async createMerchantWebhook(webhook: Partial<MerchantWebhook>): Promise<MerchantWebhook> {
-    const [newWebhook] = await getDb().insert(merchantWebhooks).values(webhook as any).returning();
-    return newWebhook;
+    return await insertAndFetch<MerchantWebhook>(merchantWebhooks, webhook as any, getDb());
   }
 
   async getMerchantWebhooks(merchantId: number): Promise<MerchantWebhook[]> {
@@ -1183,8 +1124,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateMerchantWebhook(id: number, updates: Partial<MerchantWebhook>): Promise<MerchantWebhook | undefined> {
-    const [updated] = await getDb().update(merchantWebhooks).set(updates).where(eq(merchantWebhooks.id, id)).returning();
-    return updated;
+    return await updateByIdAndFetch<MerchantWebhook>(merchantWebhooks, updates, id, getDb());
   }
 
   async deleteMerchantWebhook(id: number): Promise<void> {
@@ -1192,8 +1132,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createApiLog(log: Partial<ApiLog>): Promise<ApiLog> {
-    const [newLog] = await getDb().insert(apiLogs).values(log as any).returning();
-    return newLog;
+    return await insertAndFetch<ApiLog>(apiLogs, log as any, getDb());
   }
 
   async getApiLogsByMerchant(merchantId: number): Promise<ApiLog[]> {
@@ -1205,8 +1144,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createGlobalNotification(notification: InsertGlobalNotification): Promise<GlobalNotification> {
-    const [newNotification] = await getDb().insert(globalNotifications).values(notification).returning();
-    return newNotification;
+    return await insertAndFetch<GlobalNotification>(globalNotifications, notification, getDb());
   }
 
   async getAllGlobalNotifications(): Promise<GlobalNotification[]> {
@@ -1218,8 +1156,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateGlobalNotification(id: number, updates: Partial<GlobalNotification>): Promise<GlobalNotification | undefined> {
-    const [updated] = await getDb().update(globalNotifications).set(updates).where(eq(globalNotifications.id, id)).returning();
-    return updated;
+    return await updateByIdAndFetch<GlobalNotification>(globalNotifications, updates, id, getDb());
   }
 
   async deleteGlobalNotification(id: number): Promise<void> {
@@ -1227,8 +1164,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPartner(partner: Partial<Partner>): Promise<Partner> {
-    const [newPartner] = await getDb().insert(partners).values(partner as any).returning();
-    return newPartner;
+    return await insertAndFetch<Partner>(partners, partner as any, getDb());
   }
 
   async getPartner(id: number): Promise<Partner | undefined> {
@@ -1252,8 +1188,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updatePartner(id: number, updates: Partial<Partner>): Promise<Partner | undefined> {
-    const [updated] = await getDb().update(partners).set(updates).where(eq(partners.id, id)).returning();
-    return updated;
+    return await updateByIdAndFetch<Partner>(partners, updates, id, getDb());
   }
 
   async deletePartner(id: number): Promise<void> {
@@ -1267,17 +1202,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updatePartnerBalance(id: number, amount: string): Promise<Partner | undefined> {
-    const [updated] = await getDb()
-      .update(partners)
-      .set({ balance: sql`${partners.balance} + ${amount}` })
-      .where(eq(partners.id, id))
-      .returning();
-    return updated;
+    await getDb().update(partners).set({ balance: sql`${partners.balance} + ${amount}` }).where(eq(partners.id, id));
+    const [row] = await getDb().select().from(partners).where(eq(partners.id, id));
+    return row;
   }
 
   async createPartnerLog(log: Partial<PartnerLog>): Promise<PartnerLog> {
-    const [newLog] = await getDb().insert(partnerLogs).values(log as any).returning();
-    return newLog;
+    return await insertAndFetch<PartnerLog>(partnerLogs, log as any, getDb());
   }
 
   async getPartnerLogs(partnerId: number): Promise<PartnerLog[]> {
@@ -1289,8 +1220,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPartnerTransaction(transaction: Partial<PartnerTransaction>): Promise<PartnerTransaction> {
-    const [newTransaction] = await getDb().insert(partnerTransactions).values(transaction as any).returning();
-    return newTransaction;
+    return await insertAndFetch<PartnerTransaction>(partnerTransactions, transaction as any, getDb());
   }
 
   async getPartnerTransaction(id: number): Promise<PartnerTransaction | undefined> {
@@ -1308,8 +1238,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updatePartnerTransaction(id: number, updates: Partial<PartnerTransaction>): Promise<PartnerTransaction | undefined> {
-    const [updated] = await getDb().update(partnerTransactions).set(updates).where(eq(partnerTransactions.id, id)).returning();
-    return updated;
+    return await updateByIdAndFetch<PartnerTransaction>(partnerTransactions, updates, id, getDb());
   }
 
   async createDefaultWallets(userId: number): Promise<Wallet[]> {
@@ -1334,11 +1263,9 @@ export class DatabaseStorage implements IStorage {
     const toInsert = DEFAULT_WALLETS.filter(w => !existingCodes.has(w.countryCode));
     if (toInsert.length === 0) return existing;
 
-    const created = await getDb().insert(wallets)
-      .values(toInsert.map(w => ({ userId, ...w })))
-      .returning();
-
-    return [...existing, ...created];
+    await getDb().insert(wallets).values(toInsert.map(w => ({ userId, ...w })));
+    const allWallets = await getDb().select().from(wallets).where(eq(wallets.userId, userId));
+    return allWallets;
   }
 
   async getUserWallets(userId: number): Promise<Wallet[]> {
@@ -1388,16 +1315,13 @@ export class DatabaseStorage implements IStorage {
     const [existing] = await getDb().select().from(wallets)
       .where(and(eq(wallets.userId, userId), eq(wallets.countryCode, code)));
     if (existing) return existing;
-    const [created] = await getDb().insert(wallets)
-      .values({ userId, countryCode: code, countryName, currency })
-      .returning();
-    return created;
+    return await insertAndFetch<Wallet>(wallets, { userId, countryCode: code, countryName, currency }, getDb());
   }
 
   async creditWallet(userId: number, countryCode: string, countryName: string, currency: string, amount: string): Promise<void> {
     const wallet = await this.getOrCreateWallet(userId, countryCode, countryName, currency);
     await getDb().update(wallets)
-      .set({ balance: sql`${wallets.balance} + ${amount}::decimal`, updatedAt: new Date() })
+      .set({ balance: sql`${wallets.balance} + ${amount}`, updatedAt: new Date() })
       .where(eq(wallets.id, wallet.id));
   }
 
@@ -1417,35 +1341,32 @@ export class DatabaseStorage implements IStorage {
       console.warn(`[debitWallet] ⚠️ Lecture pré-débit échouée (non bloquant):`, readErr);
     }
 
-    // Atomique : un seul UPDATE avec WHERE balance >= amount.
-    // Élimine toute race condition (TOCTOU) entre la lecture et l'écriture.
-    let result: any;
+    // Atomique : un seul UPDATE avec WHERE balance >= amount (MySQL compatible).
+    let affectedRows = 0;
     try {
-      result = await getDb().execute(
-        sql`UPDATE wallets
-            SET balance    = balance - ${amount}::decimal,
-                updated_at = NOW()
-            WHERE id = ${walletId}
-              AND balance >= ${amount}::decimal
-            RETURNING
-              (balance + ${amount}::decimal) AS balance_before,
-              balance                         AS balance_after`
-      ) as any;
-      console.log(`[debitWallet] 🗄️ Résultat SQL brut:`, JSON.stringify(result?.rows ?? result ?? "null").slice(0, 300));
+      if (!pool) return false;
+      const conn = await pool.getConnection();
+      const [updateResult] = await conn.query(
+        `UPDATE wallets SET balance = balance - ?, updated_at = NOW() WHERE id = ? AND balance >= ?`,
+        [amount, walletId, amount]
+      );
+      conn.release();
+      affectedRows = (updateResult as any).affectedRows ?? 0;
+      console.log(`[debitWallet] 🗄️ Lignes affectées: ${affectedRows}`);
     } catch (sqlErr) {
       console.error(`[debitWallet] ❌ ERREUR SQL UPDATE — walletId=${walletId} amount=${amount}:`, sqlErr);
       return false;
     }
 
-    const rows = result?.rows ?? result ?? [];
-    if (!rows || rows.length === 0) {
-      console.error(`[debitWallet] ❌ DÉBIT REFUSÉ — 0 lignes retournées. walletId=${walletId} amount=${amount} → solde insuffisant ou wallet inexistant`);
+    if (affectedRows === 0) {
+      console.error(`[debitWallet] ❌ DÉBIT REFUSÉ — 0 lignes affectées. walletId=${walletId} amount=${amount} → solde insuffisant ou wallet inexistant`);
       return false;
     }
 
-    const row = rows[0];
-    const balanceBefore = parseFloat(row.balance_before ?? "0");
-    const balanceAfter  = parseFloat(row.balance_after  ?? "0");
+    // Re-select pour obtenir le solde après débit
+    const [walletAfter] = await getDb().select({ balance: wallets.balance }).from(wallets).where(eq(wallets.id, walletId)).limit(1);
+    const balanceAfter = parseFloat(walletAfter?.balance ?? "0");
+    const balanceBefore = balanceAfter + amountNum;
     console.log(`[debitWallet] ✅ DÉBIT RÉUSSI — walletId=${walletId} | Avant: ${balanceBefore} | Débité: ${amount} | Après: ${balanceAfter}`);
 
     return { success: true, balanceBefore, balanceAfter };
@@ -1453,7 +1374,7 @@ export class DatabaseStorage implements IStorage {
 
   async creditWalletById(walletId: number, amount: string): Promise<void> {
     await getDb().update(wallets)
-      .set({ balance: sql`${wallets.balance} + ${amount}::decimal`, updatedAt: new Date() })
+      .set({ balance: sql`${wallets.balance} + ${amount}`, updatedAt: new Date() })
       .where(eq(wallets.id, walletId));
   }
 
@@ -1463,8 +1384,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createWalletExchange(data: { userId: number; fromWalletId: number; toWalletId: number; fromCountryCode: string; toCountryCode: string; currency: string; amount: string }): Promise<WalletExchange> {
-    const [created] = await getDb().insert(walletExchanges).values({ ...data, status: "pending" }).returning();
-    return created;
+    return await insertAndFetch<WalletExchange>(walletExchanges, { ...data, status: "pending" }, getDb());
   }
 
   async getWalletExchanges(userId: number): Promise<WalletExchange[]> {
@@ -1494,19 +1414,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async approveWalletExchange(id: number, adminId: number, adminNote?: string): Promise<WalletExchange> {
-    const [updated] = await getDb().update(walletExchanges)
+    await getDb().update(walletExchanges)
       .set({ status: "approved", reviewedBy: adminId, reviewedAt: new Date(), adminNote: adminNote || null })
-      .where(eq(walletExchanges.id, id))
-      .returning();
-    return updated;
+      .where(eq(walletExchanges.id, id));
+    const [row] = await getDb().select().from(walletExchanges).where(eq(walletExchanges.id, id));
+    return row;
   }
 
   async rejectWalletExchange(id: number, adminId: number, adminNote?: string): Promise<WalletExchange> {
-    const [updated] = await getDb().update(walletExchanges)
+    await getDb().update(walletExchanges)
       .set({ status: "rejected", reviewedBy: adminId, reviewedAt: new Date(), adminNote: adminNote || null })
-      .where(eq(walletExchanges.id, id))
-      .returning();
-    return updated;
+      .where(eq(walletExchanges.id, id));
+    const [row] = await getDb().select().from(walletExchanges).where(eq(walletExchanges.id, id));
+    return row;
   }
 
   async getPartnerWallets(partnerId: number): Promise<PartnerWallet[]> {
@@ -1532,9 +1452,7 @@ export class DatabaseStorage implements IStorage {
     const created: PartnerWallet[] = [];
     for (const w of toInsert) {
       try {
-        const [wallet] = await getDb().insert(partnerWallets)
-          .values({ partnerId, ...w })
-          .returning();
+        const wallet = await insertAndFetch<PartnerWallet>(partnerWallets, { partnerId, ...w }, getDb());
         if (wallet) created.push(wallet);
       } catch (_) {
         // Race condition — fetch existing
@@ -1551,16 +1469,13 @@ export class DatabaseStorage implements IStorage {
     const [existing] = await getDb().select().from(partnerWallets)
       .where(and(eq(partnerWallets.partnerId, partnerId), eq(partnerWallets.countryCode, code)));
     if (existing) return existing;
-    const [created] = await getDb().insert(partnerWallets)
-      .values({ partnerId, countryCode: code, countryName, currency })
-      .returning();
-    return created;
+    return await insertAndFetch<PartnerWallet>(partnerWallets, { partnerId, countryCode: code, countryName, currency }, getDb());
   }
 
   async creditPartnerWallet(partnerId: number, countryCode: string, countryName: string, currency: string, amount: string): Promise<void> {
     const wallet = await this.getOrCreatePartnerWallet(partnerId, countryCode, countryName, currency);
     await getDb().update(partnerWallets)
-      .set({ balance: sql`${partnerWallets.balance} + ${amount}::decimal`, updatedAt: new Date() })
+      .set({ balance: sql`${partnerWallets.balance} + ${amount}`, updatedAt: new Date() })
       .where(eq(partnerWallets.id, wallet.id));
   }
 
@@ -1568,14 +1483,14 @@ export class DatabaseStorage implements IStorage {
     const [wallet] = await getDb().select().from(partnerWallets).where(eq(partnerWallets.id, walletId));
     if (!wallet || parseFloat(wallet.balance) < parseFloat(amount)) return false;
     await getDb().update(partnerWallets)
-      .set({ balance: sql`${partnerWallets.balance} - ${amount}::decimal`, updatedAt: new Date() })
+      .set({ balance: sql`${partnerWallets.balance} - ${amount}`, updatedAt: new Date() })
       .where(eq(partnerWallets.id, walletId));
     return true;
   }
 
   async creditPartnerWalletById(walletId: number, amount: string): Promise<void> {
     await getDb().update(partnerWallets)
-      .set({ balance: sql`${partnerWallets.balance} + ${amount}::decimal`, updatedAt: new Date() })
+      .set({ balance: sql`${partnerWallets.balance} + ${amount}`, updatedAt: new Date() })
       .where(eq(partnerWallets.id, walletId));
   }
 
@@ -1585,8 +1500,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPartnerWalletExchange(data: { partnerId: number; fromWalletId: number; toWalletId: number; fromCountryCode: string; toCountryCode: string; currency: string; amount: string; feeRate?: string; feeAmount?: string; netAmount?: string }): Promise<PartnerWalletExchange> {
-    const [created] = await getDb().insert(partnerWalletExchanges).values(data).returning();
-    return created;
+    return await insertAndFetch<PartnerWalletExchange>(partnerWalletExchanges, data, getDb());
   }
 
   async getAllPartnerWalletExchanges(): Promise<(PartnerWalletExchange & { partner?: Partner })[]> {
@@ -1604,8 +1518,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPasswordResetToken(userId: number, token: string, code: string, expiresAt: Date): Promise<PasswordResetToken> {
-    const [created] = await getDb().insert(passwordResetTokens).values({ userId, token, code, expiresAt }).returning();
-    return created;
+    return await insertAndFetch<PasswordResetToken>(passwordResetTokens, { userId, token, code, expiresAt }, getDb());
   }
 
   async getPasswordResetTokenByToken(token: string): Promise<PasswordResetToken | undefined> {
@@ -1624,8 +1537,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createSdkWithdrawalLog(data: InsertSdkWithdrawalLog): Promise<SdkWithdrawalLog> {
-    const [row] = await getDb().insert(sdkWithdrawalLogs).values(data).returning();
-    return row;
+    return await insertAndFetch<SdkWithdrawalLog>(sdkWithdrawalLogs, data, getDb());
   }
 
   async updateSdkWithdrawalLog(id: number, updates: Partial<SdkWithdrawalLog>): Promise<void> {
@@ -1642,7 +1554,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async countSdkWithdrawalLogs(): Promise<number> {
-    const [row] = await getDb().select({ count: sql<number>`count(*)::int` }).from(sdkWithdrawalLogs);
+    const [row] = await getDb().select({ count: sql<number>`count(*)` }).from(sdkWithdrawalLogs);
     return row?.count ?? 0;
   }
 
@@ -1651,20 +1563,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async atomicDebitUserBalance(userId: number, amount: string): Promise<boolean> {
-    const result = await getDb().execute(
-      sql`UPDATE users
-          SET balance = balance - ${amount}::decimal
-          WHERE id = ${userId} AND balance >= ${amount}::decimal
-          RETURNING id`
-    ) as any;
-    const rows = result?.rows ?? result ?? [];
-    return rows.length > 0;
+    if (!pool) return false;
+    const conn = await pool.getConnection();
+    const [result] = await conn.query(
+      `UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?`,
+      [amount, userId, amount]
+    );
+    conn.release();
+    return ((result as any).affectedRows ?? 0) > 0;
   }
 
   async atomicCreditUserBalance(userId: number, amount: string): Promise<void> {
-    await getDb().execute(
-      sql`UPDATE users SET balance = balance + ${amount}::decimal WHERE id = ${userId}`
-    );
+    if (!pool) return;
+    const conn = await pool.getConnection();
+    await conn.query(`UPDATE users SET balance = balance + ? WHERE id = ?`, [amount, userId]);
+    conn.release();
   }
 
   async getBlacklistedPhones(): Promise<PhoneBlacklist[]> {
@@ -1672,8 +1585,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addPhoneToBlacklist(phoneNumber: string, reason: string, adminId: number, adminName: string, notes?: string): Promise<PhoneBlacklist> {
-    const [row] = await getDb().insert(phoneBlacklist).values({ phoneNumber, reason, addedBy: adminId, addedByName: adminName, notes }).returning();
-    return row;
+    return await insertAndFetch<PhoneBlacklist>(phoneBlacklist, { phoneNumber, reason, addedBy: adminId, addedByName: adminName, notes }, getDb());
   }
 
   async removePhoneFromBlacklist(id: number): Promise<void> {
@@ -1686,8 +1598,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addBlacklistLog(log: { action: string; phoneNumber: string; adminId?: number; adminName?: string; ipAddress?: string; details?: string }): Promise<BlacklistLog> {
-    const [row] = await getDb().insert(blacklistLogs).values(log).returning();
-    return row;
+    return await insertAndFetch<BlacklistLog>(blacklistLogs, log, getDb());
   }
 
   async getBlacklistLogs(limit = 200): Promise<BlacklistLog[]> {
@@ -1699,7 +1610,7 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(kycRequests)
       .leftJoin(users, eq(kycRequests.userId, users.id))
-      .where(and(eq(kycRequests.status, "approved"), sql`${kycRequests}.archived_at IS NULL`))
+      .where(and(eq(kycRequests.status, "approved"), sql`archived_at IS NULL`))
       .orderBy(desc(kycRequests.reviewedAt));
     return rows.map(r => ({ ...r.kyc_requests, user: r.users ?? undefined }));
   }
@@ -1723,7 +1634,7 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(kycRequests)
       .leftJoin(users, eq(kycRequests.userId, users.id))
-      .where(sql`${kycRequests}.archived_at IS NOT NULL`)
+      .where(sql`archived_at IS NOT NULL`)
       .orderBy(desc(kycRequests.reviewedAt));
     return rows.map(r => ({ ...r.kyc_requests, user: r.users ?? undefined }));
   }

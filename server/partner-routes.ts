@@ -3053,11 +3053,12 @@ export function registerPartnerRoutes(app: Express) {
       const { db } = await import("./db");
       const { sql } = await import("drizzle-orm");
       
-      const result = await db.execute(sql`
+      await db.execute(sql`
         INSERT INTO payment_links (user_id, link_code, title, description, amount, product_image, allow_custom_amount, minimum_amount, redirect_url, partner_id)
         VALUES (NULL, ${linkCode}, ${title}, ${description || null}, ${numericAmount.toString()}, ${null}, ${allowCustomAmount || false}, ${numericMinAmount ? numericMinAmount.toString() : null}, ${redirectUrl || null}, ${req.session.partnerId})
-        RETURNING *
       `);
+      const [_plRows] = await db.execute(sql`SELECT * FROM payment_links WHERE link_code = ${linkCode} LIMIT 1`);
+      const newLink = (_plRows as any[])?.[0];
 
       await storage.createPartnerLog({
         partnerId: req.session.partnerId!,
@@ -3066,7 +3067,7 @@ export function registerPartnerRoutes(app: Express) {
         ipAddress: req.ip || req.socket.remoteAddress,
       });
 
-      res.json(result.rows?.[0] || { linkCode, title, amount: numericAmount });
+      res.json(newLink || { linkCode, title, amount: numericAmount });
     } catch (error) {
       console.error("Partner create payment link error:", error);
       res.status(500).json({ message: "Erreur lors de la création du lien" });

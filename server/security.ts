@@ -11,22 +11,17 @@ const AFRICAN_COUNTRY_CODES = new Set([
 ]);
 
 // Paths that bypass geo/VPN check
-// (Telegram servers, health check, uptime monitors, payment gateway webhooks)
 const GEO_BYPASS_PATHS = new Set([
-  // Health & monitoring
   "/api/health",
   "/api/health/",
-  // Public payment pages (clients externes)
   "/pay",
 ]);
 
-// User-agents used by uptime monitoring services
 const UPTIME_MONITOR_AGENTS = [
   "uptimerobot", "pingdom", "statuscake", "freshping", "hetrixtools",
   "better uptime", "updown.io", "hyperping", "pulsetic", "monitis",
 ];
 
-// Search engine crawlers — must never be blocked (critical for SEO indexing)
 const SEARCH_ENGINE_BOTS = [
   "googlebot", "google-inspectiontool", "google-structured-data-testing-tool",
   "google-safety", "googlelc", "adsbot-google", "mediapartners-google",
@@ -43,6 +38,29 @@ const SEARCH_ENGINE_BOTS = [
   "semrushbot", "ahrefsbot", "mj12bot", "dotbot",
 ];
 
+// ─── MYSQL QUERY HELPERS ──────────────────────────────────────────────────────
+async function dbQuery(sql: string, params: any[] = []): Promise<any[]> {
+  if (!pool) return [];
+  const conn = await pool.getConnection();
+  try {
+    const [rows] = await conn.query(sql, params);
+    return rows as any[];
+  } finally {
+    conn.release();
+  }
+}
+
+async function dbExecute(sql: string, params: any[] = []): Promise<number> {
+  if (!pool) return 0;
+  const conn = await pool.getConnection();
+  try {
+    const [result] = await conn.query(sql, params);
+    return (result as any).affectedRows ?? 0;
+  } finally {
+    conn.release();
+  }
+}
+
 // ─── IP INFO CACHE ────────────────────────────────────────────────────────────
 interface IpInfo {
   countryCode: string | null;
@@ -58,21 +76,17 @@ const IP_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 // Nettoyage périodique des Maps pour éviter les fuites mémoire
 setInterval(() => {
   const now = Date.now();
-  // Supprimer les entrées IP expirées
   for (const [key, val] of ipInfoCache) {
     if (now - val.checkedAt > IP_CACHE_TTL) ipInfoCache.delete(key);
   }
-  // Supprimer les entrées rate-limit expirées (fenêtre fermée ET plus bloquée)
   for (const [key, val] of rateLimitStore) {
     if (now > val.blockedUntil && now - val.windowStart > 24 * 60 * 60 * 1000) {
       rateLimitStore.delete(key);
     }
   }
-}, 15 * 60 * 1000); // toutes les 15 minutes
+}, 15 * 60 * 1000);
 
-// ─── SECONDARY VPN CHECK via proxycheck.io (free tier, no key required) ──────
-// Called only when ip-api.com doesn't flag an IP as proxy/hosting.
-// This catches VPNs with residential/African exit nodes that ip-api.com misses.
+// ─── SECONDARY VPN CHECK via proxycheck.io ────────────────────────────────────
 async function checkProxyCheckIo(ip: string): Promise<boolean> {
   try {
     const ctrl = new AbortController();
@@ -114,8 +128,6 @@ async function getIpInfo(ip: string): Promise<IpInfo | null> {
     const isHosting = !!data.hosting;
     const isAfrica = data.countryCode ? AFRICAN_COUNTRY_CODES.has(data.countryCode) : false;
 
-    // Secondary VPN check: if ip-api.com didn't flag it as proxy/hosting,
-    // run proxycheck.io to catch VPNs with African/residential exit nodes.
     if (!isProxy && !isHosting) {
       isProxy = await checkProxyCheckIo(ip);
     }
@@ -134,9 +146,9 @@ async function getIpInfo(ip: string): Promise<IpInfo | null> {
   }
 }
 
-// ─── COUNTRY CHECK (for admin geo-restriction) ───────────────────────────────
+// ─── COUNTRY CHECK ────────────────────────────────────────────────────────────
 export async function getIpCountry(ip: string): Promise<{ countryCode: string | null; isVpn: boolean } | null> {
-  if (isPrivateIp(ip)) return { countryCode: "TG", isVpn: false }; // local dev → always pass
+  if (isPrivateIp(ip)) return { countryCode: "TG", isVpn: false };
   const info = await getIpInfo(ip);
   if (!info) return null;
   return {
@@ -145,44 +157,23 @@ export async function getIpCountry(ip: string): Promise<{ countryCode: string | 
   };
 }
 
-// ─── BOT USER-AGENT DETECTION ────────────────────────────────────────────────
-// Known bot/script/automation UA patterns — block on sensitive endpoints
+// ─── BOT USER-AGENT DETECTION ─────────────────────────────────────────────────
 const BOT_UA_PATTERNS = [
-  /^curl\//i,
-  /^wget\//i,
-  /^python-requests\//i,
-  /^python\//i,
-  /^axios\//i,
-  /^node-fetch\//i,
-  /^got\//i,
-  /^undici\//i,
-  /^okhttp\//i,
-  /^java\//i,
-  /^go-http-client\//i,
-  /^libwww-perl\//i,
-  /^lwp-trivial\//i,
-  /^scrapy\//i,
-  /^httpie\//i,
-  /masscan/i,
-  /zgrab/i,
-  /nikto/i,
-  /sqlmap/i,
-  /nmap/i,
-  /nuclei/i,
-  /dirbuster/i,
-  /burpsuite/i,
+  /^curl\//i, /^wget\//i, /^python-requests\//i, /^python\//i,
+  /^axios\//i, /^node-fetch\//i, /^got\//i, /^undici\//i,
+  /^okhttp\//i, /^java\//i, /^go-http-client\//i, /^libwww-perl\//i,
+  /^lwp-trivial\//i, /^scrapy\//i, /^httpie\//i,
+  /masscan/i, /zgrab/i, /nikto/i, /sqlmap/i, /nmap/i,
+  /nuclei/i, /dirbuster/i, /burpsuite/i,
 ];
 
-// Middleware: rejects requests with bot/script User-Agents on sensitive endpoints
 export function suspiciousUaMiddleware(req: Request, res: Response, next: NextFunction) {
   if (process.env.NODE_ENV !== "production") return next();
   const ua = req.headers["user-agent"] || "";
-  // Block empty User-Agent
   if (!ua.trim()) {
     console.warn(`[security] Requête sans User-Agent bloquée — IP: ${getClientIp(req)} PATH: ${req.path}`);
     return res.status(403).json({ message: "Accès refusé." });
   }
-  // Block known bot/automation patterns
   if (BOT_UA_PATTERNS.some(p => p.test(ua))) {
     console.warn(`[security] Bot UA bloqué — IP: ${getClientIp(req)} UA: ${ua.slice(0, 80)}`);
     return res.status(403).json({ message: "Accès refusé." });
@@ -190,23 +181,18 @@ export function suspiciousUaMiddleware(req: Request, res: Response, next: NextFu
   next();
 }
 
-// ─── CROSS-ACCOUNT BRUTE FORCE DETECTION PER IP ──────────────────────────────
-// Detects when a single IP fails login on multiple *different* accounts
-// within a short window — typical credential stuffing / bot pattern.
+// ─── CROSS-ACCOUNT BRUTE FORCE DETECTION PER IP ───────────────────────────────
 export async function checkCrossAccountBruteForce(ip: string): Promise<boolean> {
   if (!pool || !ip || ip === "::1" || ip.startsWith("127.")) return false;
   try {
-    const client = await pool.connect();
-    // Count distinct accounts targeted by this IP with failed attempts in last 30 minutes
-    const result = await client.query(
+    const rows = await dbQuery(
       `SELECT COUNT(DISTINCT email_or_phone) AS cnt
        FROM login_attempts
-       WHERE ip_address = $1 AND success = false AND created_at > NOW() - INTERVAL '30 minutes'`,
+       WHERE ip_address = ? AND success = false AND created_at > NOW() - INTERVAL 30 MINUTE`,
       [ip]
     );
-    client.release();
-    const cnt = parseInt(result.rows[0]?.cnt ?? "0");
-    return cnt >= 3; // 3+ different accounts targeted from same IP = brute force
+    const cnt = parseInt(rows[0]?.cnt ?? "0");
+    return cnt >= 3;
   } catch {
     return false;
   }
@@ -266,7 +252,7 @@ export function rateLimit(options: {
   };
 }
 
-// ─── SPECIFIC RATE LIMITERS ──────────────────────────────────────────────────
+// ─── SPECIFIC RATE LIMITERS ───────────────────────────────────────────────────
 export const loginRateLimit = rateLimit({
   windowMs: 60 * 1000,
   max: 5,
@@ -303,24 +289,16 @@ export const apiRateLimit = rateLimit({
 
 // ─── SECURITY HEADERS ─────────────────────────────────────────────────────────
 export function securityHeaders(req: Request, res: Response, next: NextFunction) {
-  // Prevent MIME-type sniffing
   res.setHeader("X-Content-Type-Options", "nosniff");
-  // Forbid framing (clickjacking protection)
   res.setHeader("X-Frame-Options", "DENY");
-  // Legacy XSS filter
   res.setHeader("X-XSS-Protection", "1; mode=block");
-  // No referrer leakage cross-origin
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  // Disable unnecessary browser features
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
-  // Never expose server technology
   res.removeHeader("X-Powered-By");
   res.setHeader("Server", "sendavapay");
-  // Hide internal paths from cross-origin requesters
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   res.setHeader("Cross-Origin-Resource-Policy", "same-site");
   res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
-  // Content Security Policy
   res.setHeader(
     "Content-Security-Policy",
     [
@@ -336,7 +314,6 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
       "object-src 'none'",
     ].join("; ")
   );
-  // HSTS — force HTTPS for 1 year
   if (req.secure || req.headers["x-forwarded-proto"] === "https") {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
   }
@@ -344,7 +321,6 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
 }
 
 // ─── GLOBAL API RATE LIMITER ──────────────────────────────────────────────────
-// Broad DDoS/abuse protection: 200 req/min per IP across all /api/* routes.
 export const globalApiRateLimit = rateLimit({
   windowMs: 60 * 1000,
   max: 200,
@@ -353,32 +329,29 @@ export const globalApiRateLimit = rateLimit({
 });
 
 // ─── ADMIN ACTION LOGGER ──────────────────────────────────────────────────────
-// Logs every mutating request on /api/admin/* to the console and DB.
 export function adminActionLogger(req: Request, _res: Response, next: NextFunction): void {
   if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") {
     const userId = req.session?.userId ?? "anonymous";
     const ip     = getClientIp(req);
     console.log(`[admin-audit] ${req.method} ${req.path} — user=${userId} ip=${ip}`);
-    // Async DB log — never blocks the request
     if (pool) {
-      pool.connect().then(client => {
-        client.query(
-          `INSERT INTO security_events (user_id, type, details, ip_address)
-           VALUES ($1, $2, $3, $4)`,
+      pool.getConnection().then(conn => {
+        conn.query(
+          `INSERT INTO security_events (user_id, type, details, ip_address) VALUES (?, ?, ?, ?)`,
           [
             typeof userId === "number" ? userId : null,
             "admin_action",
             `${req.method} ${req.path}`,
             ip,
           ]
-        ).catch(() => {}).finally(() => client.release());
+        ).catch(() => {}).finally(() => conn.release());
       }).catch(() => {});
     }
   }
   next();
 }
 
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
 export function getClientIp(req: Request): string {
   const forwarded = req.headers["x-forwarded-for"];
   if (forwarded) {
@@ -402,7 +375,7 @@ export function isPrivateIp(ip: string): boolean {
   );
 }
 
-// ─── ALLOWED IPs CACHE (whitelist) ───────────────────────────────────────────
+// ─── ALLOWED IPs CACHE (whitelist) ────────────────────────────────────────────
 let allowedIpCache: Set<string> = new Set();
 let allowedCacheLoadedAt = 0;
 const ALLOWED_CACHE_TTL = 60 * 1000;
@@ -410,19 +383,17 @@ const ALLOWED_CACHE_TTL = 60 * 1000;
 async function loadAllowedIps(): Promise<void> {
   if (!pool) return;
   try {
-    const client = await pool.connect();
-    await client.query(`
+    await dbExecute(`
       CREATE TABLE IF NOT EXISTS allowed_ips (
-        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        ip_address TEXT NOT NULL UNIQUE,
-        label TEXT,
-        added_by INTEGER,
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        ip_address VARCHAR(45) NOT NULL UNIQUE,
+        label VARCHAR(255),
+        added_by INT,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
-    const result = await client.query(`SELECT ip_address FROM allowed_ips`);
-    client.release();
-    allowedIpCache = new Set(result.rows.map((r: any) => r.ip_address));
+    const rows = await dbQuery(`SELECT ip_address FROM allowed_ips`);
+    allowedIpCache = new Set(rows.map((r: any) => r.ip_address));
     allowedCacheLoadedAt = Date.now();
   } catch {
     // DB not ready yet
@@ -443,16 +414,13 @@ export function isIpAllowed(ip: string): boolean {
 export async function allowIp(ip: string, label: string, addedBy?: number): Promise<void> {
   if (!pool) return;
   try {
-    const client = await pool.connect();
-    await client.query(
+    await dbExecute(
       `INSERT INTO allowed_ips (ip_address, label, added_by)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (ip_address) DO UPDATE SET label=$2, added_by=$3`,
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE label=VALUES(label), added_by=VALUES(added_by)`,
       [ip, label || null, addedBy ?? null]
     );
-    client.release();
     allowedIpCache.add(ip);
-    // Si l'IP était bloquée, on la débloque automatiquement
     await unblockIp(ip);
   } catch (err) {
     console.error("[security] allowIp error:", err);
@@ -462,25 +430,21 @@ export async function allowIp(ip: string, label: string, addedBy?: number): Prom
 export async function removeAllowedIp(ip: string): Promise<void> {
   if (!pool) return;
   try {
-    const client = await pool.connect();
-    await client.query(`DELETE FROM allowed_ips WHERE ip_address = $1`, [ip]);
-    client.release();
+    await dbExecute(`DELETE FROM allowed_ips WHERE ip_address = ?`, [ip]);
     allowedIpCache.delete(ip);
   } catch (err) {
     console.error("[security] removeAllowedIp error:", err);
   }
 }
 
-// ─── BLOCK DURATION CONSTANTS ────────────────────────────────────────────────
-// Tous les blocages sont temporaires — jamais permanents.
-// En cas de récidive pendant le blocage, la durée est étendue.
+// ─── BLOCK DURATION CONSTANTS ─────────────────────────────────────────────────
 export const BLOCK_DURATION = {
-  DEFAULT_MS:    2  * 60 * 60 * 1000,  // 2h  — blocage géo/VPN auto
-  BRUTE_FORCE_MS: 1  * 60 * 60 * 1000, // 1h  — brute force
-  ADMIN_GEO_MS:   6  * 60 * 60 * 1000, // 6h  — connexion admin hors Togo
-  MANUAL_MS:     24  * 60 * 60 * 1000, // 24h — blocage manuel admin/Telegram
-  EXTENSION_MS:   6  * 60 * 60 * 1000, // +6h — extension à chaque récidive
-  MAX_MS:   7 * 24  * 60 * 60 * 1000,  // 7j  — durée maximale absolue
+  DEFAULT_MS:    2  * 60 * 60 * 1000,
+  BRUTE_FORCE_MS: 1  * 60 * 60 * 1000,
+  ADMIN_GEO_MS:   6  * 60 * 60 * 1000,
+  MANUAL_MS:     24  * 60 * 60 * 1000,
+  EXTENSION_MS:   6  * 60 * 60 * 1000,
+  MAX_MS:   7 * 24  * 60 * 60 * 1000,
 };
 
 // ─── BLOCKED IPs CACHE ────────────────────────────────────────────────────────
@@ -491,26 +455,20 @@ const CACHE_TTL = 60 * 1000;
 async function loadBlockedIps(): Promise<void> {
   if (!pool) return;
   try {
-    const client = await pool.connect();
-    const result = await client.query(
+    const rows = await dbQuery(
       `SELECT ip_address FROM blocked_ips WHERE expires_at > NOW()`
     );
-    client.release();
-    blockedIpCache = new Set(result.rows.map((r: any) => r.ip_address));
+    blockedIpCache = new Set(rows.map((r: any) => r.ip_address));
     cacheLoadedAt = Date.now();
   } catch {
     // DB not ready yet
   }
 }
 
-// Purge des entrées expirées — appelée toutes les heures
 async function purgeExpiredBlocks(): Promise<void> {
   if (!pool) return;
   try {
-    const client = await pool.connect();
-    const r = await client.query(`DELETE FROM blocked_ips WHERE expires_at <= NOW()`);
-    client.release();
-    const count = (r as any).rowCount ?? 0;
+    const count = await dbExecute(`DELETE FROM blocked_ips WHERE expires_at <= NOW()`);
     if (count > 0) console.log(`[security] ${count} IP(s) expirée(s) supprimée(s) automatiquement.`);
   } catch { /* silent */ }
 }
@@ -526,11 +484,6 @@ export function isIpBlocked(ip: string): boolean {
   return blockedIpCache.has(ip);
 }
 
-/**
- * Bloque une IP pour une durée limitée (jamais permanente).
- * Si l'IP est déjà bloquée, on ne raccourcit pas la durée existante.
- * @param durationMs Durée en ms. Défaut: 2h.
- */
 export async function blockIp(
   ip: string,
   reason: string,
@@ -550,21 +503,18 @@ export async function blockIp(
       expiresAt = new Date(Date.now() + durationMs);
     }
 
-    // Ne jamais dépasser le maximum absolu
     const maxExpiry = new Date(Date.now() + BLOCK_DURATION.MAX_MS);
     if (expiresAt > maxExpiry) expiresAt = maxExpiry;
 
-    const client = await pool.connect();
     // Si déjà bloqué, on garde la durée la plus longue (pas de raccourcissement)
-    await client.query(
+    await dbExecute(
       `INSERT INTO blocked_ips (ip_address, reason, blocked_by, expires_at)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (ip_address) DO UPDATE
-         SET reason=$2, blocked_by=$3,
-             expires_at=GREATEST(blocked_ips.expires_at, EXCLUDED.expires_at)`,
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         reason=VALUES(reason), blocked_by=VALUES(blocked_by),
+         expires_at=GREATEST(expires_at, VALUES(expires_at))`,
       [ip, reason, blockedBy ?? null, expiresAt]
     );
-    client.release();
     blockedIpCache.add(ip);
     ipInfoCache.delete(ip);
   } catch (err) {
@@ -572,34 +522,26 @@ export async function blockIp(
   }
 }
 
-/**
- * Étend le blocage d'une IP déjà bloquée de +6h (max 7 jours).
- * Appelé automatiquement quand une IP bloquée tente d'accéder à nouveau.
- */
 async function extendIpBlock(ip: string): Promise<void> {
   if (!pool) return;
   try {
     const maxExpiry = new Date(Date.now() + BLOCK_DURATION.MAX_MS);
-    const client = await pool.connect();
-    await client.query(
+    await dbExecute(
       `UPDATE blocked_ips
        SET expires_at = LEAST(
-         GREATEST(expires_at, NOW()) + INTERVAL '6 hours',
-         $1
+         GREATEST(expires_at, NOW()) + INTERVAL 6 HOUR,
+         ?
        )
-       WHERE ip_address = $2`,
+       WHERE ip_address = ?`,
       [maxExpiry, ip]
     );
-    client.release();
   } catch { /* silent */ }
 }
 
 export async function unblockIp(ip: string): Promise<void> {
   if (!pool) return;
   try {
-    const client = await pool.connect();
-    await client.query(`DELETE FROM blocked_ips WHERE ip_address = $1`, [ip]);
-    client.release();
+    await dbExecute(`DELETE FROM blocked_ips WHERE ip_address = ?`, [ip]);
     blockedIpCache.delete(ip);
     ipInfoCache.delete(ip);
   } catch (err) {
@@ -607,26 +549,20 @@ export async function unblockIp(ip: string): Promise<void> {
   }
 }
 
-// Paths/prefixes that must bypass the IP block check (API routes authenticated by key)
 const IP_BLOCK_BYPASS_PREFIXES = ["/api/sdk", "/api/v1", "/api/webhook", "/pay", "/api/partner-page"];
 
 // ─── IP BLOCK MIDDLEWARE ──────────────────────────────────────────────────────
 export function ipBlockMiddleware(req: Request, res: Response, next: NextFunction) {
-  // In development mode, skip IP blocking entirely
   if (process.env.NODE_ENV !== "production") return next();
 
-  // API routes authenticated by key — never block by IP (datacenter/VPS IPs are legitimate)
   if (IP_BLOCK_BYPASS_PREFIXES.some(p => req.path === p || req.path.startsWith(p + "/"))) return next();
 
-  // Search engine crawlers — never block even if their IP was previously auto-blocked
   const ua = (req.headers["user-agent"] || "").toLowerCase();
   if (SEARCH_ENGINE_BOTS.some(bot => ua.includes(bot))) return next();
 
   const ip = getClientIp(req);
-  // Liste blanche : jamais bloquée
   if (isIpAllowed(ip)) return next();
   if (isIpBlocked(ip)) {
-    // Récidive : étendre le blocage de +6h pour décourager les tentatives répétées
     extendIpBlock(ip).catch(() => {});
     return res.status(403).json({ message: "Accès refusé." });
   }
@@ -634,18 +570,6 @@ export function ipBlockMiddleware(req: Request, res: Response, next: NextFunctio
 }
 
 // ─── GLOBAL GEO + VPN BLOCK MIDDLEWARE ───────────────────────────────────────
-// Blocks all IPs from outside Africa AND all VPN/proxy/hosting IPs.
-// Auto-blocks them permanently in the DB and sends a Telegram alert.
-// Prefixes that bypass geo/VPN check (e.g. /pay matches /pay/abc123)
-// /api/sdk  — routes marchands SDK (auth par clé API, IP datacenter légitimes)
-// /api/v1   — API marchands via merchant-api.ts (auth par clé API)
-// /api/partner-page — pages publiques partenaires (accès monde entier)
-// Préfixes bypass — TOUS les sous-chemins de ces préfixes ignorent le filtre géo/VPN
-// /api/webhook  → webhooks des passerelles (serveurs hors-Afrique : SoleasPay, MaishaPay, OmniPay, Paxity, MbiyoPay, PayDunya, Telegram, LeekPay…)
-// /api/verify-  → vérifications manuelles initiées depuis la page de succès (appel navigateur)
-// /api/sdk      → SDK marchand public (accès mondial autorisé)
-// /api/v1       → API partenaires (accès mondial autorisé)
-// /api/partner-page → page publique partenaire
 const GEO_BYPASS_PREFIXES = [
   "/pay",
   "/api/webhook",
@@ -656,39 +580,24 @@ const GEO_BYPASS_PREFIXES = [
 ];
 
 export function geoAndVpnBlockMiddleware(req: Request, res: Response, next: NextFunction) {
-  // In development mode, skip geo/VPN blocking entirely (Replit proxy IPs are US datacenters)
   if (process.env.NODE_ENV !== "production") return next();
 
-  // Skip exact bypass paths
   if (GEO_BYPASS_PATHS.has(req.path)) return next();
-
-  // Skip prefix-matched paths (e.g. /pay/code123)
   if (GEO_BYPASS_PREFIXES.some(prefix => req.path.startsWith(prefix + "/") || req.path === prefix)) return next();
 
-  // Skip known uptime monitoring services
   const ua = (req.headers["user-agent"] || "").toLowerCase();
   if (UPTIME_MONITOR_AGENTS.some(agent => ua.includes(agent))) return next();
-
-  // Skip search engine crawlers — never block (critical for SEO indexing)
   if (SEARCH_ENGINE_BOTS.some(bot => ua.includes(bot))) return next();
 
   const ip = getClientIp(req);
 
-  // Always allow private/local IPs
   if (isPrivateIp(ip)) return next();
-
-  // Liste blanche — jamais bloquée, même si hors-Afrique ou hébergeur
   if (isIpAllowed(ip)) return next();
-
-  // Already blocked — let the ipBlockMiddleware handle it
   if (isIpBlocked(ip)) return next();
 
   getIpInfo(ip)
     .then(async (info) => {
-      if (!info) {
-        // Cannot determine — allow to avoid false positives
-        return next();
-      }
+      if (!info) return next();
 
       const isVpn = info.isProxy || info.isHosting;
 
@@ -697,11 +606,9 @@ export function geoAndVpnBlockMiddleware(req: Request, res: Response, next: Next
           ? `VPN/Proxy détecté automatiquement (${info.countryCode || "inconnu"})`
           : `Pays non-africain: ${info.countryCode || "inconnu"}`;
 
-        // Auto-block temporairement (2h pour géo, 4h pour VPN)
         const blockDur = isVpn ? BLOCK_DURATION.DEFAULT_MS * 2 : BLOCK_DURATION.DEFAULT_MS;
         await blockIp(ip, reason, undefined, blockDur);
 
-        // Log security event
         await logSecurityEvent({
           type: isVpn ? "vpn_blocked" : "geo_blocked",
           details: reason,
@@ -709,7 +616,6 @@ export function geoAndVpnBlockMiddleware(req: Request, res: Response, next: Next
           userAgent: req.headers["user-agent"],
         }).catch(() => {});
 
-        // Real-time Telegram alert with block button (fire-and-forget)
         try {
           const { notifyGeoBlocked } = await import("./telegram");
           notifyGeoBlocked({
@@ -728,7 +634,7 @@ export function geoAndVpnBlockMiddleware(req: Request, res: Response, next: Next
     .catch(() => next());
 }
 
-// ─── AFRICA-ONLY MIDDLEWARE (pour routes admin — legacy, remplacé par geoAndVpnBlockMiddleware) ─
+// ─── AFRICA-ONLY MIDDLEWARE (legacy) ─────────────────────────────────────────
 export function africaOnlyAdmin(req: Request, res: Response, next: NextFunction) {
   next(); // handled globally now
 }
@@ -743,10 +649,9 @@ export async function logSecurityEvent(data: {
 }): Promise<void> {
   if (!pool) return;
   try {
-    const client = await pool.connect();
-    await client.query(
+    await dbExecute(
       `INSERT INTO security_events (user_id, type, details, ip_address, user_agent)
-       VALUES ($1, $2, $3, $4, $5)`,
+       VALUES (?, ?, ?, ?, ?)`,
       [
         data.userId ?? null,
         data.type,
@@ -755,7 +660,6 @@ export async function logSecurityEvent(data: {
         Array.isArray(data.userAgent) ? data.userAgent[0] : (data.userAgent ?? null),
       ]
     );
-    client.release();
   } catch {
     // silent
   }
@@ -765,12 +669,10 @@ export async function logSecurityEvent(data: {
 export async function recordLoginAttempt(emailOrPhone: string, ip: string, success: boolean): Promise<void> {
   if (!pool) return;
   try {
-    const client = await pool.connect();
-    await client.query(
-      `INSERT INTO login_attempts (email_or_phone, ip_address, success) VALUES ($1, $2, $3)`,
-      [emailOrPhone, ip, success]
+    await dbExecute(
+      `INSERT INTO login_attempts (email_or_phone, ip_address, success) VALUES (?, ?, ?)`,
+      [emailOrPhone, ip, success ? 1 : 0]
     );
-    client.release();
   } catch {
     // silent
   }
@@ -779,15 +681,13 @@ export async function recordLoginAttempt(emailOrPhone: string, ip: string, succe
 export async function countRecentFailedAttempts(emailOrPhone: string, windowMs = 15 * 60 * 1000): Promise<number> {
   if (!pool) return 0;
   try {
-    const client = await pool.connect();
-    const cutoff = new Date(Date.now() - windowMs).toISOString();
-    const result = await client.query(
+    const cutoff = new Date(Date.now() - windowMs).toISOString().slice(0, 19).replace("T", " ");
+    const rows = await dbQuery(
       `SELECT COUNT(*) as cnt FROM login_attempts
-       WHERE email_or_phone = $1 AND success = false AND created_at > $2`,
+       WHERE email_or_phone = ? AND success = false AND created_at > ?`,
       [emailOrPhone, cutoff]
     );
-    client.release();
-    return parseInt(result.rows[0]?.cnt ?? "0");
+    return parseInt(rows[0]?.cnt ?? "0");
   } catch {
     return 0;
   }
@@ -796,13 +696,11 @@ export async function countRecentFailedAttempts(emailOrPhone: string, windowMs =
 export async function isNewIpForIdentifier(identifier: string, ip: string): Promise<boolean> {
   if (!pool || !ip || ip === "::1" || ip.startsWith("127.")) return false;
   try {
-    const client = await pool.connect();
-    const result = await client.query(
-      `SELECT 1 FROM login_attempts WHERE email_or_phone = $1 AND ip_address = $2 AND success = true LIMIT 1`,
+    const rows = await dbQuery(
+      `SELECT 1 FROM login_attempts WHERE email_or_phone = ? AND ip_address = ? AND success = true LIMIT 1`,
       [identifier, ip]
     );
-    client.release();
-    return result.rows.length === 0;
+    return rows.length === 0;
   } catch {
     return false;
   }
@@ -812,12 +710,10 @@ export async function isNewIpForIdentifier(identifier: string, ip: string): Prom
 export async function invalidateAllOtherAdminSessions(userId: number, currentSid: string): Promise<void> {
   if (!pool) return;
   try {
-    const client = await pool.connect();
-    await client.query(
-      `DELETE FROM session WHERE (sess::jsonb->>'userId')::integer = $1 AND sid != $2`,
+    await dbExecute(
+      `DELETE FROM session WHERE CAST(JSON_UNQUOTE(JSON_EXTRACT(sess, '$.userId')) AS UNSIGNED) = ? AND sid != ?`,
       [userId, currentSid]
     );
-    client.release();
   } catch (err) {
     console.error("[security] invalidateAllOtherAdminSessions error:", err);
   }
@@ -829,18 +725,14 @@ export async function invalidateAllSessionsOnStartup(): Promise<void> {
 
   const attemptDelete = async (): Promise<boolean> => {
     try {
-      const client = await pool!.connect();
-      const check = await client.query(
-        `SELECT to_regclass('public.session') AS tbl`
+      // Check if session table exists (MySQL/MariaDB way)
+      const rows = await dbQuery(
+        `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'session'`
       );
-      const exists = check.rows[0]?.tbl !== null;
-      if (!exists) {
-        client.release();
-        return false;
-      }
-      const result = await client.query(`DELETE FROM session`);
-      client.release();
-      const count = result.rowCount ?? 0;
+      if (rows.length === 0) return false;
+
+      const count = await dbExecute(`DELETE FROM session`);
       console.log(
         `[security] ${count} session(s) invalidée(s) au démarrage — tous les utilisateurs doivent se reconnecter.`
       );
@@ -867,32 +759,22 @@ loadBlockedIps().catch(() => {});
 setInterval(() => loadBlockedIps().catch(() => {}), CACHE_TTL);
 loadAllowedIps().catch(() => {});
 setInterval(() => loadAllowedIps().catch(() => {}), ALLOWED_CACHE_TTL);
-// Purge des IPs expirées toutes les heures pour ne pas surcharger la DB
 setInterval(() => purgeExpiredBlocks().catch(() => {}), 60 * 60 * 1000);
 
 // ─── SOURCE FILE SHIELD ───────────────────────────────────────────────────────
-// Blocks any HTTP request that targets source code, config files, or dotfiles.
-// This is a defense-in-depth measure: even if the web server (Nginx/Plesk) is
-// misconfigured and routes these paths to Node, Express will return 403.
 const SENSITIVE_PATH_PATTERNS: RegExp[] = [
-  // Source directories
   /^\/server\//i,
   /^\/shared\//i,
   /^\/client\//i,
   /^\/script\//i,
   /^\/node_modules\//i,
-  // Dotfiles (.replit, .env, .git, etc.)
   /^\/\./i,
-  // Root-level config / build / lock files (any extension)
   /^\/(package(-lock)?\.json|drizzle\.config\.[^/]+|tsconfig[^/]*\.json|vite\.config\.[^/]+|tailwind\.config\.[^/]+|postcss\.config\.[^/]+|ecosystem\.config\.[^/]+|build\.[^/]+)$/i,
-  // Any TypeScript source file served directly
   /\.ts$/i,
-  // PHP / Python SDK sources
   /\.(php|py)$/i,
 ];
 
 export function blockSensitivePaths(req: Request, res: Response, next: NextFunction): void {
-  // In development, Vite serves .ts/.tsx source files directly — don't block them
   if (process.env.NODE_ENV !== "production") return next();
 
   const url = req.path || req.url;
