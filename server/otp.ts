@@ -8,26 +8,26 @@ export function generateOtpCode(): string {
 
 const OTP_TABLE = "otp_codes_v2";
 
-// MySQL INTERVAL format (e.g. "10 MINUTE", "1 HOUR")
+// PostgreSQL INTERVAL values
 const OTP_EXPIRY: Record<string, string> = {
-  admin_login:        "10 MINUTE",
-  credential_update:  "15 MINUTE",
-  withdrawal:         "30 MINUTE",
-  storage_cleanup:    "10 MINUTE",
-  email_verification: "24 HOUR",
-  new_device:         "15 MINUTE",
-  export_report:      "10 MINUTE",
+  admin_login:        "10 minutes",
+  credential_update:  "15 minutes",
+  withdrawal:         "30 minutes",
+  storage_cleanup:    "10 minutes",
+  email_verification: "24 hours",
+  new_device:         "15 minutes",
+  export_report:      "10 minutes",
 };
 
 const CREATE_OTP_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS ${OTP_TABLE} (
-    id         INT AUTO_INCREMENT PRIMARY KEY,
-    user_id    INT NOT NULL,
+    id         SERIAL PRIMARY KEY,
+    user_id    INTEGER NOT NULL,
     code       TEXT NOT NULL,
     type       TEXT NOT NULL,
     token      VARCHAR(255) NOT NULL UNIQUE,
     expires_at TIMESTAMP NOT NULL,
-    used_at    TIMESTAMP NULL,
+    used_at    TIMESTAMP,
     ip_address TEXT,
     metadata   TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -36,14 +36,11 @@ const CREATE_OTP_TABLE_SQL = `
 
 export async function ensureOtpTable(): Promise<void> {
   if (!pool) return;
-  const client = await pool.getConnection();
+  const client = await pool.connect();
   try {
     await client.query(CREATE_OTP_TABLE_SQL);
-    try { await client.query(`CREATE INDEX idx_otpv2_token   ON ${OTP_TABLE}(token)`); } catch (_) {}
-    try { await client.query(`CREATE INDEX idx_otpv2_expires ON ${OTP_TABLE}(expires_at)`); } catch (_) {}
-    try { await client.query(`ALTER TABLE ${OTP_TABLE} ADD COLUMN IF NOT EXISTS used_at    TIMESTAMP NULL`); } catch (_) {}
-    try { await client.query(`ALTER TABLE ${OTP_TABLE} ADD COLUMN IF NOT EXISTS ip_address TEXT`); } catch (_) {}
-    try { await client.query(`ALTER TABLE ${OTP_TABLE} ADD COLUMN IF NOT EXISTS metadata   TEXT`); } catch (_) {}
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_otpv2_token   ON ${OTP_TABLE}(token)`); } catch (_) {}
+    try { await client.query(`CREATE INDEX IF NOT EXISTS idx_otpv2_expires ON ${OTP_TABLE}(expires_at)`); } catch (_) {}
   } finally {
     client.release();
   }
@@ -59,23 +56,23 @@ export async function createOtp(
 
   const code = generateOtpCode();
   const token = uuidv4();
-  const expiry = OTP_EXPIRY[type] || "10 MINUTE";
+  const expiry = OTP_EXPIRY[type] || "10 minutes";
 
-  // MySQL INTERVAL must be embedded in SQL (cannot be a bind parameter)
+  // PostgreSQL INTERVAL syntax (value embedded in SQL string, not a bind parameter)
   const INSERT_SQL = `INSERT INTO ${OTP_TABLE} (user_id, code, type, token, expires_at, ip_address, metadata)
-     VALUES (?, ?, ?, ?, NOW() + INTERVAL ${expiry}, ?, ?)`;
+     VALUES ($1, $2, $3, $4, NOW() + INTERVAL '${expiry}', $5, $6)`;
   const params = [userId, code, type, token, ipAddress, metadata ? JSON.stringify(metadata) : null];
 
-  const client = await pool.getConnection();
+  const client = await pool.connect();
   try {
     try {
       await client.query(INSERT_SQL, params);
     } catch (err: any) {
-      // Table doesn't exist yet (MySQL ER_NO_SUCH_TABLE = 1146)
-      if (err.errno === 1146 || err.code === "ER_NO_SUCH_TABLE") {
+      // Table doesn't exist yet (PostgreSQL undefined_table = 42P01)
+      if (err.code === "42P01") {
         client.release();
         await ensureOtpTable();
-        const client2 = await pool.getConnection();
+        const client2 = await pool.connect();
         try {
           await client2.query(INSERT_SQL, params);
         } finally {
@@ -97,23 +94,24 @@ export async function verifyOtpByToken(
   type: "email_verification" | "new_device"
 ): Promise<{ valid: boolean; userId?: number; errorMsg?: string }> {
   if (!pool) return { valid: false, errorMsg: "Base de données non disponible" };
-  const client = await pool.getConnection();
+  const client = await pool.connect();
   try {
     let rows: any[];
     try {
-      [rows] = await client.query(
-        `SELECT * FROM ${OTP_TABLE} WHERE token=? AND type=? AND expires_at > NOW() LIMIT 1`,
+      const result = await client.query(
+        `SELECT * FROM ${OTP_TABLE} WHERE token=$1 AND type=$2 AND expires_at > NOW() LIMIT 1`,
         [token, type]
-      ) as any;
+      );
+      rows = result.rows;
     } catch (err: any) {
-      if (err.errno === 1146 || err.code === "ER_NO_SUCH_TABLE") return { valid: false, errorMsg: "Code invalide ou expiré" };
+      if (err.code === "42P01") return { valid: false, errorMsg: "Code invalide ou expiré" };
       throw err;
     }
     const otp = rows[0];
     if (!otp) return { valid: false, errorMsg: "Code invalide ou expiré" };
     if (otp.used_at) return { valid: false, errorMsg: "Ce code a déjà été utilisé" };
     if (otp.code !== code) return { valid: false, errorMsg: "Code incorrect" };
-    await client.query(`UPDATE ${OTP_TABLE} SET used_at=NOW() WHERE id=?`, [otp.id]);
+    await client.query(`UPDATE ${OTP_TABLE} SET used_at=NOW() WHERE id=$1`, [otp.id]);
     return { valid: true, userId: otp.user_id };
   } finally {
     client.release();
@@ -128,16 +126,17 @@ export async function verifyOtp(
 ): Promise<{ valid: boolean; userId?: number; metadata?: Record<string, unknown>; errorMsg?: string }> {
   if (!pool) return { valid: false, errorMsg: "Base de données non disponible" };
 
-  const client = await pool.getConnection();
+  const client = await pool.connect();
   try {
     let rows: any[];
     try {
-      [rows] = await client.query(
-        `SELECT * FROM ${OTP_TABLE} WHERE token=? AND type=? AND expires_at > NOW() LIMIT 1`,
+      const result = await client.query(
+        `SELECT * FROM ${OTP_TABLE} WHERE token=$1 AND type=$2 AND expires_at > NOW() LIMIT 1`,
         [token, type]
-      ) as any;
+      );
+      rows = result.rows;
     } catch (err: any) {
-      if (err.errno === 1146 || err.code === "ER_NO_SUCH_TABLE") {
+      if (err.code === "42P01") {
         return { valid: false, errorMsg: "Code invalide ou expiré" };
       }
       throw err;
@@ -156,7 +155,7 @@ export async function verifyOtp(
 
     if (otp.code !== code) return { valid: false, errorMsg: "Code incorrect" };
 
-    await client.query(`UPDATE ${OTP_TABLE} SET used_at=NOW() WHERE id=?`, [otp.id]);
+    await client.query(`UPDATE ${OTP_TABLE} SET used_at=NOW() WHERE id=$1`, [otp.id]);
 
     let metadata: Record<string, unknown> | undefined;
     if (otp.metadata) {
@@ -170,9 +169,9 @@ export async function verifyOtp(
 
 export async function cleanExpiredOtps(): Promise<void> {
   if (!pool) return;
-  const client = await pool.getConnection();
+  const client = await pool.connect();
   try {
-    await client.query(`DELETE FROM ${OTP_TABLE} WHERE expires_at < NOW() - INTERVAL 1 HOUR`);
+    await client.query(`DELETE FROM ${OTP_TABLE} WHERE expires_at < NOW() - INTERVAL '1 hour'`);
   } catch { /* ignore if table doesn't exist yet */ }
   finally {
     client.release();
