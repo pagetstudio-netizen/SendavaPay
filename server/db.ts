@@ -1,37 +1,32 @@
-import { drizzle } from "drizzle-orm/mysql2";
-import mysql from "mysql2/promise";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import * as schema from "@shared/schema";
 
-const databaseUrl = process.env.MYSQL_DATABASE_URL || process.env.DATABASE_URL;
+const databaseUrl = process.env.SUPABASE_DATABASE_URL || process.env.DATABASE_URL;
 
 let dbConnected = false;
-export let pool: mysql.Pool | null = null;
+export let pool: Pool | null = null;
 let db: ReturnType<typeof drizzle> | null = null;
 
 if (!databaseUrl) {
-  console.error("MYSQL_DATABASE_URL is not configured. Database features will be unavailable.");
+  console.error("SUPABASE_DATABASE_URL is not configured. Database features will be unavailable.");
 } else {
-  pool = mysql.createPool({
-    uri: databaseUrl,
-    waitForConnections: true,
-    connectionLimit: 8,
-    queueLimit: 0,
-    enableKeepAlive: true,
-    keepAliveInitialDelay: 5000,
-    connectTimeout: 15000,
-    multipleStatements: false,
+  pool = new Pool({
+    connectionString: databaseUrl,
+    max: 8,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 15000,
+    ssl: { rejectUnauthorized: false },
   });
 
-  db = drizzle(pool, { schema, mode: "default" });
+  db = drizzle(pool, { schema });
   dbConnected = true;
 
   // Keep connection alive with periodic ping every 30 seconds
   setInterval(async () => {
     if (pool) {
       try {
-        const conn = await pool.getConnection();
-        await conn.query("SELECT 1");
-        conn.release();
+        await pool.query("SELECT 1");
         dbConnected = true;
       } catch (err) {
         console.error("[db] keepalive ping failed:", (err as Error).message);
@@ -50,9 +45,7 @@ export function isDatabaseConnected(): boolean {
 export async function testDatabaseConnection(): Promise<boolean> {
   if (!pool) return false;
   try {
-    const conn = await pool.getConnection();
-    await conn.query("SELECT 1");
-    conn.release();
+    await pool.query("SELECT 1");
     dbConnected = true;
     console.log("[db] Connection test successful");
     return true;

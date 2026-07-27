@@ -83,10 +83,10 @@ import {
 import { db as dbInstance, pool } from "./db";
 import { eq, ne, or, and, desc, sql, inArray, isNull } from "drizzle-orm";
 
-// ─── MySQL helpers: insert-then-fetch / update-then-fetch ─────────────────────
+// ─── PostgreSQL helpers: insert-then-fetch / update-then-fetch ────────────────
 async function insertAndFetch<T>(table: any, values: any, db: ReturnType<typeof getDb>): Promise<T> {
-  const result = await db.insert(table).values(values).$returningId();
-  const id = (result as any)[0].id;
+  const result = await db.insert(table).values(values).returning({ id: (table as any).id });
+  const id = result[0].id;
   const [row] = await db.select().from(table).where(eq(table.id, id));
   return row as T;
 }
@@ -1341,17 +1341,15 @@ export class DatabaseStorage implements IStorage {
       console.warn(`[debitWallet] ⚠️ Lecture pré-débit échouée (non bloquant):`, readErr);
     }
 
-    // Atomique : un seul UPDATE avec WHERE balance >= amount (MySQL compatible).
+    // Atomique : un seul UPDATE avec WHERE balance >= amount (PostgreSQL compatible).
     let affectedRows = 0;
     try {
       if (!pool) return false;
-      const conn = await pool.getConnection();
-      const [updateResult] = await conn.query(
-        `UPDATE wallets SET balance = balance - ?, updated_at = NOW() WHERE id = ? AND balance >= ?`,
-        [amount, walletId, amount]
+      const updateResult = await pool.query(
+        `UPDATE wallets SET balance = balance - $1, updated_at = NOW() WHERE id = $2 AND balance >= $1`,
+        [amount, walletId]
       );
-      conn.release();
-      affectedRows = (updateResult as any).affectedRows ?? 0;
+      affectedRows = updateResult.rowCount ?? 0;
       console.log(`[debitWallet] 🗄️ Lignes affectées: ${affectedRows}`);
     } catch (sqlErr) {
       console.error(`[debitWallet] ❌ ERREUR SQL UPDATE — walletId=${walletId} amount=${amount}:`, sqlErr);
@@ -1564,20 +1562,16 @@ export class DatabaseStorage implements IStorage {
 
   async atomicDebitUserBalance(userId: number, amount: string): Promise<boolean> {
     if (!pool) return false;
-    const conn = await pool.getConnection();
-    const [result] = await conn.query(
-      `UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?`,
-      [amount, userId, amount]
+    const result = await pool.query(
+      `UPDATE users SET balance = balance - $1 WHERE id = $2 AND balance >= $1`,
+      [amount, userId]
     );
-    conn.release();
-    return ((result as any).affectedRows ?? 0) > 0;
+    return (result.rowCount ?? 0) > 0;
   }
 
   async atomicCreditUserBalance(userId: number, amount: string): Promise<void> {
     if (!pool) return;
-    const conn = await pool.getConnection();
-    await conn.query(`UPDATE users SET balance = balance + ? WHERE id = ?`, [amount, userId]);
-    conn.release();
+    await pool.query(`UPDATE users SET balance = balance + $1 WHERE id = $2`, [amount, userId]);
   }
 
   async getBlacklistedPhones(): Promise<PhoneBlacklist[]> {

@@ -38,26 +38,30 @@ const SEARCH_ENGINE_BOTS = [
   "semrushbot", "ahrefsbot", "mj12bot", "dotbot",
 ];
 
-// ─── MYSQL QUERY HELPERS ──────────────────────────────────────────────────────
+// ─── POSTGRESQL QUERY HELPERS ────────────────────────────────────────────────
+// Convert ? placeholders to $1, $2, ... for PostgreSQL
+function toPg(sql: string): string {
+  let i = 0;
+  return sql.replace(/\?/g, () => `$${++i}`);
+}
+
 async function dbQuery(sql: string, params: any[] = []): Promise<any[]> {
   if (!pool) return [];
-  const conn = await pool.getConnection();
   try {
-    const [rows] = await conn.query(sql, params);
-    return rows as any[];
-  } finally {
-    conn.release();
+    const result = await pool.query(toPg(sql), params);
+    return result.rows;
+  } catch {
+    return [];
   }
 }
 
 async function dbExecute(sql: string, params: any[] = []): Promise<number> {
   if (!pool) return 0;
-  const conn = await pool.getConnection();
   try {
-    const [result] = await conn.query(sql, params);
-    return (result as any).affectedRows ?? 0;
-  } finally {
-    conn.release();
+    const result = await pool.query(toPg(sql), params);
+    return result.rowCount ?? 0;
+  } catch {
+    return 0;
   }
 }
 
@@ -188,7 +192,7 @@ export async function checkCrossAccountBruteForce(ip: string): Promise<boolean> 
     const rows = await dbQuery(
       `SELECT COUNT(DISTINCT email_or_phone) AS cnt
        FROM login_attempts
-       WHERE ip_address = ? AND success = false AND created_at > NOW() - INTERVAL 30 MINUTE`,
+       WHERE ip_address = ? AND success = false AND created_at > NOW() - INTERVAL '30 minutes'`,
       [ip]
     );
     const cnt = parseInt(rows[0]?.cnt ?? "0");
@@ -335,17 +339,15 @@ export function adminActionLogger(req: Request, _res: Response, next: NextFuncti
     const ip     = getClientIp(req);
     console.log(`[admin-audit] ${req.method} ${req.path} — user=${userId} ip=${ip}`);
     if (pool) {
-      pool.getConnection().then(conn => {
-        conn.query(
-          `INSERT INTO security_events (user_id, type, details, ip_address) VALUES (?, ?, ?, ?)`,
-          [
-            typeof userId === "number" ? userId : null,
-            "admin_action",
-            `${req.method} ${req.path}`,
-            ip,
-          ]
-        ).catch(() => {}).finally(() => conn.release());
-      }).catch(() => {});
+      dbExecute(
+        `INSERT INTO security_events (user_id, type, details, ip_address) VALUES (?, ?, ?, ?)`,
+        [
+          typeof userId === "number" ? userId : null,
+          "admin_action",
+          `${req.method} ${req.path}`,
+          ip,
+        ]
+      ).catch(() => {});
     }
   }
   next();
@@ -385,10 +387,10 @@ async function loadAllowedIps(): Promise<void> {
   try {
     await dbExecute(`
       CREATE TABLE IF NOT EXISTS allowed_ips (
-        id INT AUTO_INCREMENT PRIMARY KEY,
+        id SERIAL PRIMARY KEY,
         ip_address VARCHAR(45) NOT NULL UNIQUE,
         label VARCHAR(255),
-        added_by INT,
+        added_by INTEGER,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
@@ -417,7 +419,7 @@ export async function allowIp(ip: string, label: string, addedBy?: number): Prom
     await dbExecute(
       `INSERT INTO allowed_ips (ip_address, label, added_by)
        VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE label=VALUES(label), added_by=VALUES(added_by)`,
+       ON CONFLICT (ip_address) DO UPDATE SET label=EXCLUDED.label, added_by=EXCLUDED.added_by`,
       [ip, label || null, addedBy ?? null]
     );
     allowedIpCache.add(ip);
@@ -510,9 +512,9 @@ export async function blockIp(
     await dbExecute(
       `INSERT INTO blocked_ips (ip_address, reason, blocked_by, expires_at)
        VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         reason=VALUES(reason), blocked_by=VALUES(blocked_by),
-         expires_at=GREATEST(expires_at, VALUES(expires_at))`,
+       ON CONFLICT (ip_address) DO UPDATE SET
+         reason=EXCLUDED.reason, blocked_by=EXCLUDED.blocked_by,
+         expires_at=GREATEST(blocked_ips.expires_at, EXCLUDED.expires_at)`,
       [ip, reason, blockedBy ?? null, expiresAt]
     );
     blockedIpCache.add(ip);
@@ -529,7 +531,7 @@ async function extendIpBlock(ip: string): Promise<void> {
     await dbExecute(
       `UPDATE blocked_ips
        SET expires_at = LEAST(
-         GREATEST(expires_at, NOW()) + INTERVAL 6 HOUR,
+         GREATEST(expires_at, NOW()) + INTERVAL '6 hours',
          ?
        )
        WHERE ip_address = ?`,
@@ -711,7 +713,7 @@ export async function invalidateAllOtherAdminSessions(userId: number, currentSid
   if (!pool) return;
   try {
     await dbExecute(
-      `DELETE FROM session WHERE CAST(JSON_UNQUOTE(JSON_EXTRACT(sess, '$.userId')) AS UNSIGNED) = ? AND sid != ?`,
+      `DELETE FROM sessions WHERE (sess->>'userId')::integer = ? AND sid != ?`,
       [userId, currentSid]
     );
   } catch (err) {
@@ -725,14 +727,14 @@ export async function invalidateAllSessionsOnStartup(): Promise<void> {
 
   const attemptDelete = async (): Promise<boolean> => {
     try {
-      // Check if session table exists (MySQL/MariaDB way)
+      // Check if session table exists (PostgreSQL way)
       const rows = await dbQuery(
-        `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'session'`
+        `SELECT table_name FROM information_schema.tables
+         WHERE table_schema = current_schema() AND table_name = 'sessions'`
       );
       if (rows.length === 0) return false;
 
-      const count = await dbExecute(`DELETE FROM session`);
+      const count = await dbExecute(`DELETE FROM sessions`);
       console.log(
         `[security] ${count} session(s) invalidée(s) au démarrage — tous les utilisateurs doivent se reconnecter.`
       );

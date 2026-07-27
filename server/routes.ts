@@ -25,8 +25,8 @@ import bcrypt from "bcryptjs";
 import session from "express-session";
 import { createRequire } from "module";
 const _require = createRequire(import.meta.url);
-const MySQLStoreFactory = _require('express-mysql-session');
-const MySQLStore = MySQLStoreFactory(session);
+const connectPg = _require('connect-pg-simple');
+const PgSession = connectPg(session);
 import { v4 as uuidv4 } from "uuid";
 import { registerSchema, loginSchema } from "@shared/schema";
 import multer from "multer";
@@ -108,7 +108,7 @@ export async function loadBlockedUsersCache(): Promise<void> {
 async function killUserSessions(userId: number): Promise<void> {
   if (!pool) return;
   try {
-    await (pool as any).query(`DELETE FROM sessions WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.userId')) = ?`, [String(userId)]);
+    await (pool as any).query(`DELETE FROM sessions WHERE sess->>'userId' = $1`, [String(userId)]);
   } catch (e) {
     console.error(`[security] Échec destruction sessions user #${userId}:`, e);
   }
@@ -507,19 +507,20 @@ export async function registerRoutes(
   // Plesk + Nginx reverse proxy : on fait confiance à tous les proxies
   app.set("trust proxy", true);
 
-  // Initialiser le store de session MySQL (crée la table automatiquement)
+  // Initialiser le store de session PostgreSQL (crée la table automatiquement)
   let sessionStore: any = undefined;
   if (pool) {
     try {
-      sessionStore = new MySQLStore({
-        createDatabaseTable: true,
-        clearExpired: true,
-        checkExpirationInterval: 900000, // 15 min
-        expiration: 86400000,            // 24h
-      }, pool as any);
-      console.log("[session] Store MySQL initialisé");
+      sessionStore = new PgSession({
+        pool: pool as any,
+        tableName: 'sessions',
+        createTableIfMissing: true,
+        ttl: 86400, // 24h en secondes
+        pruneSessionInterval: 900, // 15 min
+      });
+      console.log("[session] Store PostgreSQL initialisé");
     } catch (e) {
-      console.error("[session] Échec initialisation store MySQL — sessions en mémoire:", e);
+      console.error("[session] Échec initialisation store PG — sessions en mémoire:", e);
     }
   } else {
     console.warn("[session] Pool DB indisponible — sessions en mémoire (non persistantes)");
