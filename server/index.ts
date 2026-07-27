@@ -17,83 +17,50 @@ const httpServer = createServer(app);
 
 async function initializePartnerTables() {
   if (!pool) return;
-  const client = await pool.connect();
+  const client = await pool.getConnection();
   try {
-    try {
-      await client.query(`ALTER TYPE withdrawal_request_status ADD VALUE IF NOT EXISTS 'processing';`);
-    } catch (e) { /* already exists */ }
-    try {
-      await client.query(`ALTER TYPE withdrawal_request_status ADD VALUE IF NOT EXISTS 'failed';`);
-    } catch (e) { /* already exists */ }
-    try {
-      await client.query(`ALTER TYPE api_transaction_status ADD VALUE IF NOT EXISTS 'queued';`);
-    } catch (e) { /* already exists */ }
-    try {
-      await client.query(`ALTER TYPE api_transaction_status ADD VALUE IF NOT EXISTS 'provider_pending';`);
-    } catch (e) { /* already exists */ }
-    try {
-      await client.query(`ALTER TYPE api_transaction_status ADD VALUE IF NOT EXISTS 'reversed';`);
-    } catch (e) { /* already exists */ }
-    await client.query(`
-      DO $$ BEGIN
-        CREATE TYPE partner_status AS ENUM ('active', 'inactive', 'suspended');
-      EXCEPTION WHEN duplicate_object THEN null;
-      END $$;
-    `);
-    await client.query(`
-      DO $$ BEGIN
-        CREATE TYPE partner_log_action AS ENUM ('login', 'logout', 'profile_update', 'api_call', 'payment_received', 'error', 'system');
-      EXCEPTION WHEN duplicate_object THEN null;
-      END $$;
-    `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS partners (
-        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        id INT AUTO_INCREMENT PRIMARY KEY,
         name TEXT NOT NULL,
-        email TEXT NOT NULL UNIQUE,
+        email VARCHAR(255) NOT NULL UNIQUE,
         password TEXT NOT NULL,
         phone TEXT,
-        slug TEXT NOT NULL UNIQUE,
+        slug VARCHAR(255) NOT NULL UNIQUE,
         logo TEXT,
         description TEXT,
         website TEXT,
-        api_key TEXT NOT NULL UNIQUE,
+        api_key VARCHAR(255) NOT NULL UNIQUE,
         api_secret TEXT NOT NULL,
         commission_rate DECIMAL(5, 2) NOT NULL DEFAULT 5,
         balance DECIMAL(15, 2) NOT NULL DEFAULT 0,
-        status partner_status NOT NULL DEFAULT 'active',
+        status ENUM('active','inactive','suspended') NOT NULL DEFAULT 'active',
         webhook_url TEXT,
         callback_url TEXT,
-        primary_color TEXT DEFAULT '#0070F3',
+        primary_color VARCHAR(50) DEFAULT '#0070F3',
         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-        last_login_at TIMESTAMP
-      );
+        last_login_at TIMESTAMP NULL
+      )
     `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS partner_logs (
-        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        partner_id INTEGER NOT NULL REFERENCES partners(id),
-        action partner_log_action NOT NULL,
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        partner_id INT NOT NULL REFERENCES partners(id),
+        action ENUM('login','logout','profile_update','api_call','payment_received','error','system') NOT NULL,
         details TEXT,
         ip_address TEXT,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
-      );
-    `);
-    await client.query(`
-      DO $$ BEGIN
-        CREATE TYPE api_transaction_status AS ENUM ('pending', 'processing', 'completed', 'failed', 'cancelled');
-      EXCEPTION WHEN duplicate_object THEN null;
-      END $$;
+      )
     `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS partner_transactions (
-        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        partner_id INTEGER NOT NULL REFERENCES partners(id),
-        reference TEXT NOT NULL UNIQUE,
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        partner_id INT NOT NULL REFERENCES partners(id),
+        reference VARCHAR(255) NOT NULL UNIQUE,
         amount DECIMAL(15, 2) NOT NULL,
         fee DECIMAL(15, 2) NOT NULL DEFAULT 0,
-        currency TEXT NOT NULL DEFAULT 'XOF',
-        status api_transaction_status NOT NULL DEFAULT 'pending',
+        currency VARCHAR(10) NOT NULL DEFAULT 'XOF',
+        status ENUM('pending','queued','processing','provider_pending','completed','failed','reversed','cancelled') NOT NULL DEFAULT 'pending',
         customer_name TEXT,
         customer_email TEXT,
         customer_phone TEXT,
@@ -104,55 +71,55 @@ async function initializePartnerTables() {
         metadata TEXT,
         webhook_sent BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-        completed_at TIMESTAMP
-      );
+        completed_at TIMESTAMP NULL
+      )
     `);
-    await client.query(`ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS partner_id INTEGER;`);
-    await client.query(`ALTER TABLE payment_links ALTER COLUMN user_id DROP NOT NULL;`);
-    await client.query(`ALTER TABLE partners ADD COLUMN IF NOT EXISTS allowed_countries TEXT;`);
-    await client.query(`ALTER TABLE partners ADD COLUMN IF NOT EXISTS allowed_operators TEXT;`);
-    await client.query(`ALTER TABLE partners ADD COLUMN IF NOT EXISTS enable_deposit BOOLEAN NOT NULL DEFAULT TRUE;`);
-    await client.query(`ALTER TABLE partners ADD COLUMN IF NOT EXISTS enable_withdrawal BOOLEAN NOT NULL DEFAULT TRUE;`);
-    await client.query(`ALTER TABLE partners ADD COLUMN IF NOT EXISTS enable_payment_links BOOLEAN NOT NULL DEFAULT TRUE;`);
-    await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS admin_note TEXT;`);
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS api_sdk_enabled BOOLEAN NOT NULL DEFAULT FALSE;`);
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS api_redirect_enabled BOOLEAN NOT NULL DEFAULT FALSE;`);
-    await client.query(`ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS api_type TEXT NOT NULL DEFAULT 'redirect';`);
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_deposit_fee_rate DECIMAL(5,2);`);
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_withdrawal_fee_rate DECIMAL(5,2);`);
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_api_payment_fee_rate DECIMAL(5,2);`);
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_api_sdk_fee_rate DECIMAL(5,2);`);
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_personal_fee_rate DECIMAL(5,2);`);
-    await client.query(`ALTER TABLE leekpay_payments ADD COLUMN IF NOT EXISTS payer_country TEXT;`);
-    await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payer_country TEXT;`);
-    await client.query(`ALTER TABLE api_transactions ADD COLUMN IF NOT EXISTS payer_country TEXT;`);
+    try { await client.query(`ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS partner_id INT;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE payment_links MODIFY COLUMN user_id INT NULL;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE partners ADD COLUMN IF NOT EXISTS allowed_countries TEXT;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE partners ADD COLUMN IF NOT EXISTS allowed_operators TEXT;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE partners ADD COLUMN IF NOT EXISTS enable_deposit BOOLEAN NOT NULL DEFAULT TRUE;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE partners ADD COLUMN IF NOT EXISTS enable_withdrawal BOOLEAN NOT NULL DEFAULT TRUE;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE partners ADD COLUMN IF NOT EXISTS enable_payment_links BOOLEAN NOT NULL DEFAULT TRUE;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS admin_note TEXT;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS api_sdk_enabled BOOLEAN NOT NULL DEFAULT FALSE;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS api_redirect_enabled BOOLEAN NOT NULL DEFAULT FALSE;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS api_type VARCHAR(50) NOT NULL DEFAULT 'redirect';`); } catch (_) {}
+    try { await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_deposit_fee_rate DECIMAL(5,2);`); } catch (_) {}
+    try { await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_withdrawal_fee_rate DECIMAL(5,2);`); } catch (_) {}
+    try { await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_api_payment_fee_rate DECIMAL(5,2);`); } catch (_) {}
+    try { await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_api_sdk_fee_rate DECIMAL(5,2);`); } catch (_) {}
+    try { await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_personal_fee_rate DECIMAL(5,2);`); } catch (_) {}
+    try { await client.query(`ALTER TABLE leekpay_payments ADD COLUMN IF NOT EXISTS payer_country TEXT;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payer_country TEXT;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE api_transactions ADD COLUMN IF NOT EXISTS payer_country TEXT;`); } catch (_) {}
     await client.query(`
       CREATE TABLE IF NOT EXISTS partner_wallets (
-        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        partner_id INTEGER NOT NULL REFERENCES partners(id),
-        country_code TEXT NOT NULL,
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        partner_id INT NOT NULL REFERENCES partners(id),
+        country_code VARCHAR(10) NOT NULL,
         country_name TEXT NOT NULL,
-        currency TEXT NOT NULL,
+        currency VARCHAR(10) NOT NULL,
         balance DECIMAL(15, 2) NOT NULL DEFAULT 0,
         created_at TIMESTAMP NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-      );
+      )
     `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS partner_wallet_exchanges (
-        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        partner_id INTEGER NOT NULL REFERENCES partners(id),
-        from_wallet_id INTEGER NOT NULL REFERENCES partner_wallets(id),
-        to_wallet_id INTEGER NOT NULL REFERENCES partner_wallets(id),
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        partner_id INT NOT NULL REFERENCES partners(id),
+        from_wallet_id INT NOT NULL REFERENCES partner_wallets(id),
+        to_wallet_id INT NOT NULL REFERENCES partner_wallets(id),
         from_country_code TEXT NOT NULL,
         to_country_code TEXT NOT NULL,
-        currency TEXT NOT NULL,
+        currency VARCHAR(10) NOT NULL,
         amount DECIMAL(15, 2) NOT NULL,
         fee_rate DECIMAL(5, 2),
         fee_amount DECIMAL(15, 2),
         net_amount DECIMAL(15, 2),
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
-      );
+      )
     `);
     log("Partner tables initialized successfully", "init");
   } catch (error) {
@@ -164,58 +131,57 @@ async function initializePartnerTables() {
 
 async function initializeSecurityTables() {
   if (!pool) return;
-  const client = await pool.connect();
+  const client = await pool.getConnection();
   try {
     await client.query(`
       CREATE TABLE IF NOT EXISTS blocked_ips (
-        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        ip_address TEXT NOT NULL UNIQUE,
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        ip_address VARCHAR(45) NOT NULL UNIQUE,
         reason TEXT,
-        blocked_by INTEGER,
-        expires_at TIMESTAMP,
+        blocked_by INT,
+        expires_at TIMESTAMP NULL,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
-      );
+      )
     `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS login_attempts (
-        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        id INT AUTO_INCREMENT PRIMARY KEY,
         email_or_phone TEXT NOT NULL,
         ip_address TEXT,
         success BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
-      );
+      )
     `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS security_events (
-        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        user_id INTEGER,
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT,
         type TEXT NOT NULL,
         details TEXT,
         ip_address TEXT,
         user_agent TEXT,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
-      );
+      )
     `);
-    // ── otp_codes_v2 : table OTP avec schéma correct, créée proprement ──
     await client.query(`
       CREATE TABLE IF NOT EXISTS otp_codes_v2 (
-        id         INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        user_id    INTEGER NOT NULL,
-        code       TEXT    NOT NULL,
-        type       TEXT    NOT NULL,
-        token      TEXT    NOT NULL UNIQUE,
+        id         INT AUTO_INCREMENT PRIMARY KEY,
+        user_id    INT NOT NULL,
+        code       TEXT NOT NULL,
+        type       TEXT NOT NULL,
+        token      VARCHAR(255) NOT NULL UNIQUE,
         expires_at TIMESTAMP NOT NULL,
-        used_at    TIMESTAMP,
+        used_at    TIMESTAMP NULL,
         ip_address TEXT,
         metadata   TEXT,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
-      );
+      )
     `);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_otpv2_token   ON otp_codes_v2(token);`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_otpv2_expires ON otp_codes_v2(expires_at);`);
-    await client.query(`ALTER TABLE otp_codes_v2 ADD COLUMN IF NOT EXISTS used_at    TIMESTAMP;`);
-    await client.query(`ALTER TABLE otp_codes_v2 ADD COLUMN IF NOT EXISTS ip_address TEXT;`);
-    await client.query(`ALTER TABLE otp_codes_v2 ADD COLUMN IF NOT EXISTS metadata   TEXT;`);
+    try { await client.query(`CREATE INDEX idx_otpv2_token   ON otp_codes_v2(token)`); } catch (_) {}
+    try { await client.query(`CREATE INDEX idx_otpv2_expires ON otp_codes_v2(expires_at)`); } catch (_) {}
+    try { await client.query(`ALTER TABLE otp_codes_v2 ADD COLUMN IF NOT EXISTS used_at    TIMESTAMP NULL;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE otp_codes_v2 ADD COLUMN IF NOT EXISTS ip_address TEXT;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE otp_codes_v2 ADD COLUMN IF NOT EXISTS metadata   TEXT;`); } catch (_) {}
     log("Security tables initialized successfully (otp_codes_v2)", "init");
   } catch (error) {
     log(`Security tables initialization error: ${(error as Error).message}`, "init");
@@ -226,32 +192,31 @@ async function initializeSecurityTables() {
 
 async function initializeAuthTables() {
   if (!pool) return;
-  const client = await pool.connect();
+  const client = await pool.getConnection();
   try {
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false;`);
+    try { await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT false;`); } catch (_) {}
     // Backfill : marquer les utilisateurs existants (sans OTP en attente) comme vérifiés
-    // Idempotent : seuls les utilisateurs sans OTP email_verification sont marqués.
     await client.query(`
       UPDATE users u SET email_verified = true
       WHERE u.email_verified = false
         AND NOT EXISTS (
           SELECT 1 FROM otp_codes_v2 o
           WHERE o.user_id = u.id AND o.type = 'email_verification'
-        );
+        )
     `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS trusted_devices (
-        id           INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        user_id      INTEGER NOT NULL,
-        device_token TEXT NOT NULL UNIQUE,
+        id           INT AUTO_INCREMENT PRIMARY KEY,
+        user_id      INT NOT NULL,
+        device_token VARCHAR(255) NOT NULL UNIQUE,
         user_agent   TEXT,
         ip_address   TEXT,
         created_at   TIMESTAMP NOT NULL DEFAULT NOW(),
         last_seen_at TIMESTAMP NOT NULL DEFAULT NOW()
-      );
+      )
     `);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_trusted_devices_user  ON trusted_devices(user_id);`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_trusted_devices_token ON trusted_devices(device_token);`);
+    try { await client.query(`CREATE INDEX idx_trusted_devices_user  ON trusted_devices(user_id)`); } catch (_) {}
+    try { await client.query(`CREATE INDEX idx_trusted_devices_token ON trusted_devices(device_token)`); } catch (_) {}
     log("Auth tables initialized (email_verified, trusted_devices)", "init");
   } catch (error) {
     log(`Auth tables initialization error: ${(error as Error).message}`, "init");
@@ -262,34 +227,34 @@ async function initializeAuthTables() {
 
 async function initializeBlacklistTables() {
   if (!pool) return;
-  const client = await pool.connect();
+  const client = await pool.getConnection();
   try {
     await client.query(`
       CREATE TABLE IF NOT EXISTS phone_blacklist (
-        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-        phone_number TEXT NOT NULL UNIQUE,
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        phone_number VARCHAR(50) NOT NULL UNIQUE,
         reason TEXT,
-        added_by INTEGER REFERENCES users(id),
+        added_by INT REFERENCES users(id),
         added_by_name TEXT,
         notes TEXT,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
-      );
+      )
     `);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_blacklist_phone ON phone_blacklist(phone_number);`);
+    try { await client.query(`CREATE INDEX idx_blacklist_phone ON phone_blacklist(phone_number)`); } catch (_) {}
     await client.query(`
       CREATE TABLE IF NOT EXISTS blacklist_logs (
-        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        id INT AUTO_INCREMENT PRIMARY KEY,
         action TEXT NOT NULL,
         phone_number TEXT NOT NULL,
-        admin_id INTEGER,
+        admin_id INT,
         admin_name TEXT,
         ip_address TEXT,
         details TEXT,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
-      );
+      )
     `);
-    await client.query(`ALTER TABLE kyc_requests ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;`);
-    await client.query(`ALTER TABLE kyc_requests ADD COLUMN IF NOT EXISTS archived_by INTEGER;`);
+    try { await client.query(`ALTER TABLE kyc_requests ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP NULL;`); } catch (_) {}
+    try { await client.query(`ALTER TABLE kyc_requests ADD COLUMN IF NOT EXISTS archived_by INT;`); } catch (_) {}
     await refreshBlacklistCache();
     log("Blacklist tables initialized successfully", "init");
   } catch (error) {

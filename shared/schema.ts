@@ -1,22 +1,16 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, boolean, decimal, pgEnum } from "drizzle-orm/pg-core";
+import { mysqlTable, varchar, text, int, boolean, decimal, timestamp, mysqlEnum } from "drizzle-orm/mysql-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
 
-export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
-export const kycStatusEnum = pgEnum("kyc_status", ["pending", "approved", "rejected"]);
-export const transactionTypeEnum = pgEnum("transaction_type", ["deposit", "withdrawal", "transfer_in", "transfer_out", "payment_received"]);
-export const transactionStatusEnum = pgEnum("transaction_status", ["pending", "completed", "failed", "cancelled"]);
-export const paymentLinkStatusEnum = pgEnum("payment_link_status", ["active", "completed", "expired", "cancelled"]);
-
-export const users = pgTable("users", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+export const users = mysqlTable("users", {
+  id: int("id").primaryKey().autoincrement(),
   fullName: text("full_name").notNull(),
-  email: text("email").notNull().unique(),
-  phone: text("phone").notNull().unique(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
+  phone: varchar("phone", { length: 50 }).notNull().unique(),
   password: text("password").notNull(),
-  role: userRoleEnum("role").default("user").notNull(),
+  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   balance: decimal("balance", { precision: 15, scale: 2 }).default("0").notNull(),
   isVerified: boolean("is_verified").default(false).notNull(),
   emailVerified: boolean("email_verified").default(false).notNull(),
@@ -34,9 +28,9 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const kycRequests = pgTable("kyc_requests", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id").notNull().references(() => users.id),
+export const kycRequests = mysqlTable("kyc_requests", {
+  id: int("id").primaryKey().autoincrement(),
+  userId: int("user_id").notNull().references(() => users.id),
   fullName: text("full_name").notNull(),
   email: text("email").notNull(),
   phone: text("phone").notNull(),
@@ -46,21 +40,21 @@ export const kycRequests = pgTable("kyc_requests", {
   documentFrontPath: text("document_front_path").notNull(),
   documentBackPath: text("document_back_path").notNull(),
   selfiePath: text("selfie_path").notNull(),
-  status: kycStatusEnum("status").default("pending").notNull(),
+  status: mysqlEnum("status", ["pending", "approved", "rejected"]).default("pending").notNull(),
   rejectionReason: text("rejection_reason"),
-  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedBy: int("reviewed_by").references(() => users.id),
   reviewedAt: timestamp("reviewed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const transactions = pgTable("transactions", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id").notNull().references(() => users.id),
-  type: transactionTypeEnum("type").notNull(),
+export const transactions = mysqlTable("transactions", {
+  id: int("id").primaryKey().autoincrement(),
+  userId: int("user_id").notNull().references(() => users.id),
+  type: mysqlEnum("type", ["deposit", "withdrawal", "transfer_in", "transfer_out", "payment_received"]).notNull(),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
   fee: decimal("fee", { precision: 15, scale: 2 }).default("0").notNull(),
   netAmount: decimal("net_amount", { precision: 15, scale: 2 }).notNull(),
-  status: transactionStatusEnum("status").default("pending").notNull(),
+  status: mysqlEnum("status", ["pending", "completed", "failed", "cancelled"]).default("pending").notNull(),
   description: text("description"),
   externalRef: text("external_ref"),
   mobileNumber: text("mobile_number"),
@@ -68,26 +62,26 @@ export const transactions = pgTable("transactions", {
   payerEmail: text("payer_email"),
   payerCountry: text("payer_country"),
   paymentMethod: text("payment_method"),
-  paymentLinkId: integer("payment_link_id"),
+  paymentLinkId: int("payment_link_id"),
   adminNote: text("admin_note"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const transfers = pgTable("transfers", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  senderId: integer("sender_id").notNull().references(() => users.id),
-  receiverId: integer("receiver_id").notNull().references(() => users.id),
+export const transfers = mysqlTable("transfers", {
+  id: int("id").primaryKey().autoincrement(),
+  senderId: int("sender_id").notNull().references(() => users.id),
+  receiverId: int("receiver_id").notNull().references(() => users.id),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
   description: text("description"),
-  status: transactionStatusEnum("status").default("completed").notNull(),
+  status: mysqlEnum("status", ["pending", "completed", "failed", "cancelled"]).default("completed").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const paymentLinks = pgTable("payment_links", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id").references(() => users.id),
-  partnerId: integer("partner_id"),
-  linkCode: text("link_code").notNull().unique(),
+export const paymentLinks = mysqlTable("payment_links", {
+  id: int("id").primaryKey().autoincrement(),
+  userId: int("user_id").references(() => users.id),
+  partnerId: int("partner_id"),
+  linkCode: varchar("link_code", { length: 255 }).notNull().unique(),
   title: text("title").notNull(),
   description: text("description"),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
@@ -95,7 +89,7 @@ export const paymentLinks = pgTable("payment_links", {
   allowCustomAmount: boolean("allow_custom_amount").default(false).notNull(),
   minimumAmount: decimal("minimum_amount", { precision: 15, scale: 2 }),
   redirectUrl: text("redirect_url"),
-  status: paymentLinkStatusEnum("status").default("active").notNull(),
+  status: mysqlEnum("status", ["active", "completed", "expired", "cancelled"]).default("active").notNull(),
   paidAt: timestamp("paid_at"),
   payerName: text("payer_name"),
   payerEmail: text("payer_email"),
@@ -106,44 +100,44 @@ export const paymentLinks = pgTable("payment_links", {
   expiresAt: timestamp("expires_at"),
 });
 
-export const apiKeys = pgTable("api_keys", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id").notNull().references(() => users.id),
-  apiKey: text("api_key").notNull().unique(),
+export const apiKeys = mysqlTable("api_keys", {
+  id: int("id").primaryKey().autoincrement(),
+  userId: int("user_id").notNull().references(() => users.id),
+  apiKey: varchar("api_key", { length: 255 }).notNull().unique(),
   name: text("name").notNull(),
   appName: text("app_name"),
   redirectUrl: text("redirect_url"),
   webhookUrl: text("webhook_url"),
   webhookSecret: text("webhook_secret"),
-  apiType: text("api_type").default("redirect").notNull(),
+  apiType: varchar("api_type", { length: 50 }).default("redirect").notNull(),
   logoUrl: text("logo_url"),
   isActive: boolean("is_active").default(true).notNull(),
   lastUsedAt: timestamp("last_used_at"),
-  requestCount: integer("request_count").default(0).notNull(),
+  requestCount: int("request_count").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const auditLogs = pgTable("audit_logs", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id").references(() => users.id),
+export const auditLogs = mysqlTable("audit_logs", {
+  id: int("id").primaryKey().autoincrement(),
+  userId: int("user_id").references(() => users.id),
   action: text("action").notNull(),
   details: text("details"),
   ipAddress: text("ip_address"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const commissionSettings = pgTable("commission_settings", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+export const commissionSettings = mysqlTable("commission_settings", {
+  id: int("id").primaryKey().autoincrement(),
   depositRate: decimal("deposit_rate", { precision: 5, scale: 2 }).default("7").notNull(),
   encaissementRate: decimal("encaissement_rate", { precision: 5, scale: 2 }).default("7").notNull(),
   withdrawalRate: decimal("withdrawal_rate", { precision: 5, scale: 2 }).default("7").notNull(),
-  updatedBy: integer("updated_by").references(() => users.id),
+  updatedBy: int("updated_by").references(() => users.id),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const feeChanges = pgTable("fee_changes", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  adminId: integer("admin_id").references(() => users.id),
+export const feeChanges = mysqlTable("fee_changes", {
+  id: int("id").primaryKey().autoincrement(),
+  adminId: int("admin_id").references(() => users.id),
   fieldChanged: text("field_changed").notNull(),
   oldValue: decimal("old_value", { precision: 5, scale: 2 }).notNull(),
   newValue: decimal("new_value", { precision: 5, scale: 2 }).notNull(),
@@ -151,32 +145,30 @@ export const feeChanges = pgTable("fee_changes", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const wallets = pgTable("wallets", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id").notNull().references(() => users.id),
-  countryCode: text("country_code").notNull(),
+export const wallets = mysqlTable("wallets", {
+  id: int("id").primaryKey().autoincrement(),
+  userId: int("user_id").notNull().references(() => users.id),
+  countryCode: varchar("country_code", { length: 10 }).notNull(),
   countryName: text("country_name").notNull(),
-  currency: text("currency").notNull(),
+  currency: varchar("currency", { length: 10 }).notNull(),
   balance: decimal("balance", { precision: 15, scale: 2 }).default("0").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const walletExchangeStatusEnum = pgEnum("wallet_exchange_status", ["pending", "approved", "rejected"]);
-
-export const walletExchanges = pgTable("wallet_exchanges", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id").notNull().references(() => users.id),
-  fromWalletId: integer("from_wallet_id").notNull().references(() => wallets.id),
-  toWalletId: integer("to_wallet_id").notNull().references(() => wallets.id),
+export const walletExchanges = mysqlTable("wallet_exchanges", {
+  id: int("id").primaryKey().autoincrement(),
+  userId: int("user_id").notNull().references(() => users.id),
+  fromWalletId: int("from_wallet_id").notNull().references(() => wallets.id),
+  toWalletId: int("to_wallet_id").notNull().references(() => wallets.id),
   fromCountryCode: text("from_country_code").notNull(),
   toCountryCode: text("to_country_code").notNull(),
-  currency: text("currency").notNull(),
+  currency: varchar("currency", { length: 10 }).notNull(),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
   fee: decimal("fee", { precision: 15, scale: 2 }).default("0").notNull(),
-  status: walletExchangeStatusEnum("status").default("pending").notNull(),
+  status: mysqlEnum("status", ["pending", "approved", "rejected"]).default("pending").notNull(),
   adminNote: text("admin_note"),
-  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedBy: int("reviewed_by").references(() => users.id),
   reviewedAt: timestamp("reviewed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -184,29 +176,27 @@ export const walletExchanges = pgTable("wallet_exchanges", {
 export type Wallet = typeof wallets.$inferSelect;
 export type WalletExchange = typeof walletExchanges.$inferSelect;
 
-export const passwordResetTokens = pgTable("password_reset_tokens", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id").notNull().references(() => users.id),
-  token: text("token").notNull().unique(),
+export const passwordResetTokens = mysqlTable("password_reset_tokens", {
+  id: int("id").primaryKey().autoincrement(),
+  userId: int("user_id").notNull().references(() => users.id),
+  token: varchar("token", { length: 255 }).notNull().unique(),
   code: text("code").notNull(),
   expiresAt: timestamp("expires_at").notNull(),
   usedAt: timestamp("used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const socialLinks = pgTable("social_links", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  platform: text("platform").notNull().unique(),
+export const socialLinks = mysqlTable("social_links", {
+  id: int("id").primaryKey().autoincrement(),
+  platform: varchar("platform", { length: 100 }).notNull().unique(),
   url: text("url"),
   isActive: boolean("is_active").default(false).notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const withdrawalRequestStatusEnum = pgEnum("withdrawal_request_status", ["pending", "processing", "approved", "rejected", "failed"]);
-
-export const withdrawalRequests = pgTable("withdrawal_requests", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id").notNull().references(() => users.id),
+export const withdrawalRequests = mysqlTable("withdrawal_requests", {
+  id: int("id").primaryKey().autoincrement(),
+  userId: int("user_id").notNull().references(() => users.id),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
   fee: decimal("fee", { precision: 15, scale: 2 }).notNull(),
   netAmount: decimal("net_amount", { precision: 15, scale: 2 }).notNull(),
@@ -214,28 +204,26 @@ export const withdrawalRequests = pgTable("withdrawal_requests", {
   mobileNumber: text("mobile_number").notNull(),
   country: text("country").notNull(),
   walletName: text("wallet_name"),
-  walletId: integer("wallet_id").references(() => wallets.id),
-  status: withdrawalRequestStatusEnum("status").default("pending").notNull(),
+  walletId: int("wallet_id").references(() => wallets.id),
+  status: mysqlEnum("status", ["pending", "processing", "approved", "rejected", "failed"]).default("pending").notNull(),
   externalReference: text("external_reference"),
   transactionReference: text("transaction_reference"),
   rejectionReason: text("rejection_reason"),
-  reviewedBy: integer("reviewed_by").references(() => users.id),
+  reviewedBy: int("reviewed_by").references(() => users.id),
   reviewedAt: timestamp("reviewed_at"),
   processedAt: timestamp("processed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const leekpayPaymentStatusEnum = pgEnum("leekpay_payment_status", ["pending", "processing", "completed", "failed", "cancelled", "expired"]);
-
-export const leekpayPayments = pgTable("leekpay_payments", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  leekpayPaymentId: text("leekpay_payment_id").notNull().unique(),
-  userId: integer("user_id").references(() => users.id),
-  paymentLinkId: integer("payment_link_id").references(() => paymentLinks.id),
+export const leekpayPayments = mysqlTable("leekpay_payments", {
+  id: int("id").primaryKey().autoincrement(),
+  leekpayPaymentId: varchar("leekpay_payment_id", { length: 255 }).notNull().unique(),
+  userId: int("user_id").references(() => users.id),
+  paymentLinkId: int("payment_link_id").references(() => paymentLinks.id),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
-  currency: text("currency").default("XOF").notNull(),
+  currency: varchar("currency", { length: 10 }).default("XOF").notNull(),
   type: text("type").notNull(),
-  status: leekpayPaymentStatusEnum("status").default("pending").notNull(),
+  status: mysqlEnum("status", ["pending", "processing", "completed", "failed", "cancelled", "expired"]).default("pending").notNull(),
   description: text("description"),
   customerEmail: text("customer_email"),
   payerName: text("payer_name"),
@@ -250,8 +238,8 @@ export const leekpayPayments = pgTable("leekpay_payments", {
   completedAt: timestamp("completed_at"),
 });
 
-export const withdrawalNumbers = pgTable("withdrawal_numbers", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+export const withdrawalNumbers = mysqlTable("withdrawal_numbers", {
+  id: int("id").primaryKey().autoincrement(),
   phoneNumber: text("phone_number").notNull(),
   operator: text("operator").notNull(),
   country: text("country").notNull(),
@@ -261,11 +249,11 @@ export const withdrawalNumbers = pgTable("withdrawal_numbers", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const countries = pgTable("countries", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  code: text("code").notNull().unique(),
+export const countries = mysqlTable("countries", {
+  id: int("id").primaryKey().autoincrement(),
+  code: varchar("code", { length: 10 }).notNull().unique(),
   name: text("name").notNull(),
-  currency: text("currency").notNull(),
+  currency: varchar("currency", { length: 10 }).notNull(),
   depositFeeRate: decimal("deposit_fee_rate", { precision: 5, scale: 2 }),
   withdrawFeeRate: decimal("withdraw_fee_rate", { precision: 5, scale: 2 }),
   encaissementFeeRate: decimal("encaissement_fee_rate", { precision: 5, scale: 2 }),
@@ -274,15 +262,15 @@ export const countries = pgTable("countries", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const operators = pgTable("operators", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+export const operators = mysqlTable("operators", {
+  id: int("id").primaryKey().autoincrement(),
   name: text("name").notNull(),
   code: text("code").notNull(),
-  countryId: integer("country_id").notNull().references(() => countries.id),
+  countryId: int("country_id").notNull().references(() => countries.id),
   logo: text("logo"),
-  type: text("type").default("mobile_money").notNull(),
-  dailyLimit: text("daily_limit").default("1000000"),
-  paymentGateway: text("payment_gateway").default("soleaspay"),
+  type: varchar("type", { length: 100 }).default("mobile_money").notNull(),
+  dailyLimit: varchar("daily_limit", { length: 50 }).default("1000000"),
+  paymentGateway: varchar("payment_gateway", { length: 50 }).default("soleaspay"),
   inMaintenance: boolean("in_maintenance").default(false).notNull(),
   maintenanceDeposit: boolean("maintenance_deposit").default(false).notNull(),
   maintenanceWithdraw: boolean("maintenance_withdraw").default(false).notNull(),
@@ -292,57 +280,53 @@ export const operators = pgTable("operators", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const globalMessages = pgTable("global_messages", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+export const globalMessages = mysqlTable("global_messages", {
+  id: int("id").primaryKey().autoincrement(),
   title: text("title").notNull(),
   content: text("content").notNull(),
-  sentBy: integer("sent_by").notNull().references(() => users.id),
-  targetAudience: text("target_audience").default("all").notNull(),
+  sentBy: int("sent_by").notNull().references(() => users.id),
+  targetAudience: varchar("target_audience", { length: 50 }).default("all").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const adminNotificationTypeEnum = pgEnum("admin_notification_type", ["transaction", "kyc", "withdrawal", "user", "system"]);
-
-export const adminNotifications = pgTable("admin_notifications", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  type: adminNotificationTypeEnum("type").notNull(),
+export const adminNotifications = mysqlTable("admin_notifications", {
+  id: int("id").primaryKey().autoincrement(),
+  type: mysqlEnum("type", ["transaction", "kyc", "withdrawal", "user", "system"]).notNull(),
   title: text("title").notNull(),
   message: text("message").notNull(),
   isRead: boolean("is_read").default(false).notNull(),
-  relatedId: integer("related_id"),
+  relatedId: int("related_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const userNotifications = pgTable("user_notifications", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id").notNull().references(() => users.id),
+export const userNotifications = mysqlTable("user_notifications", {
+  id: int("id").primaryKey().autoincrement(),
+  userId: int("user_id").notNull().references(() => users.id),
   title: text("title").notNull(),
   message: text("message").notNull(),
   isRead: boolean("is_read").default(false).notNull(),
-  globalMessageId: integer("global_message_id").references(() => globalMessages.id),
+  globalMessageId: int("global_message_id").references(() => globalMessages.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const siteSettings = pgTable("site_settings", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  key: text("key").notNull().unique(),
+export const siteSettings = mysqlTable("site_settings", {
+  id: int("id").primaryKey().autoincrement(),
+  key: varchar("key", { length: 255 }).notNull().unique(),
   value: text("value"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const merchantStatusEnum = pgEnum("merchant_status", ["active", "suspended", "pending"]);
-
-export const merchants = pgTable("merchants", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+export const merchants = mysqlTable("merchants", {
+  id: int("id").primaryKey().autoincrement(),
   name: text("name").notNull(),
-  email: text("email").notNull().unique(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
   password: text("password").notNull(),
-  apiKey: text("api_key").notNull().unique(),
+  apiKey: varchar("api_key", { length: 255 }).notNull().unique(),
   apiSecret: text("api_secret").notNull(),
   balance: decimal("balance", { precision: 15, scale: 2 }).default("0").notNull(),
   webhookUrl: text("webhook_url"),
   webhookSecret: text("webhook_secret"),
-  status: merchantStatusEnum("status").default("active").notNull(),
+  status: mysqlEnum("status", ["active", "suspended", "pending"]).default("active").notNull(),
   companyName: text("company_name"),
   website: text("website"),
   description: text("description"),
@@ -352,20 +336,17 @@ export const merchants = pgTable("merchants", {
   lastLoginAt: timestamp("last_login_at"),
 });
 
-export const apiTransactionStatusEnum = pgEnum("api_transaction_status", ["pending", "queued", "processing", "provider_pending", "completed", "failed", "reversed", "cancelled"]);
-export const apiTransactionTypeEnum = pgEnum("api_transaction_type", ["payment", "credit", "refund", "payout"]);
-
-export const apiTransactions = pgTable("api_transactions", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id").notNull().references(() => users.id),
-  apiKeyId: integer("api_key_id").references(() => apiKeys.id),
-  reference: text("reference").notNull().unique(),
+export const apiTransactions = mysqlTable("api_transactions", {
+  id: int("id").primaryKey().autoincrement(),
+  userId: int("user_id").notNull().references(() => users.id),
+  apiKeyId: int("api_key_id").references(() => apiKeys.id),
+  reference: varchar("reference", { length: 255 }).notNull().unique(),
   externalReference: text("external_reference"),
-  type: apiTransactionTypeEnum("type").notNull(),
+  type: mysqlEnum("type", ["payment", "credit", "refund", "payout"]).notNull(),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
   fee: decimal("fee", { precision: 15, scale: 2 }).default("0").notNull(),
-  currency: text("currency").default("XOF").notNull(),
-  status: apiTransactionStatusEnum("status").default("pending").notNull(),
+  currency: varchar("currency", { length: 10 }).default("XOF").notNull(),
+  status: mysqlEnum("status", ["pending", "queued", "processing", "provider_pending", "completed", "failed", "reversed", "cancelled"]).default("pending").notNull(),
   description: text("description"),
   customerEmail: text("customer_email"),
   customerPhone: text("customer_phone"),
@@ -376,9 +357,9 @@ export const apiTransactions = pgTable("api_transactions", {
   redirectUrl: text("redirect_url"),
   metadata: text("metadata"),
   webhookSent: boolean("webhook_sent").default(false).notNull(),
-  webhookAttempts: integer("webhook_attempts").default(0).notNull(),
+  webhookAttempts: int("webhook_attempts").default(0).notNull(),
   webhookLastAttempt: timestamp("webhook_last_attempt"),
-  paymentToken: text("payment_token").unique(),
+  paymentToken: varchar("payment_token", { length: 255 }).unique(),
   tokenExpiresAt: timestamp("token_expires_at"),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
@@ -387,32 +368,32 @@ export const apiTransactions = pgTable("api_transactions", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const merchantWebhooks = pgTable("merchant_webhooks", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  merchantId: integer("merchant_id").notNull().references(() => merchants.id),
+export const merchantWebhooks = mysqlTable("merchant_webhooks", {
+  id: int("id").primaryKey().autoincrement(),
+  merchantId: int("merchant_id").notNull().references(() => merchants.id),
   url: text("url").notNull(),
   events: text("events").notNull(),
   secret: text("secret").notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   lastTriggered: timestamp("last_triggered"),
-  failureCount: integer("failure_count").default(0).notNull(),
+  failureCount: int("failure_count").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const apiLogs = pgTable("api_logs", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  merchantId: integer("merchant_id").references(() => merchants.id),
-  apiKeyId: integer("api_key_id").references(() => apiKeys.id),
+export const apiLogs = mysqlTable("api_logs", {
+  id: int("id").primaryKey().autoincrement(),
+  merchantId: int("merchant_id").references(() => merchants.id),
+  apiKeyId: int("api_key_id").references(() => apiKeys.id),
   endpoint: text("endpoint").notNull(),
   method: text("method").notNull(),
   requestBody: text("request_body"),
   responseBody: text("response_body"),
-  statusCode: integer("status_code"),
+  statusCode: int("status_code"),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
   originDomain: text("origin_domain"),
   refererUrl: text("referer_url"),
-  duration: integer("duration"),
+  duration: int("duration"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -637,8 +618,8 @@ export const insertApiLogSchema = createInsertSchema(apiLogs).omit({
 });
 
 // Stats offsets table for reset functionality
-export const statsOffsets = pgTable("stats_offsets", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+export const statsOffsets = mysqlTable("stats_offsets", {
+  id: int("id").primaryKey().autoincrement(),
   totalDepositsOffset: decimal("total_deposits_offset", { precision: 15, scale: 2 }).default("0").notNull(),
   totalWithdrawalsOffset: decimal("total_withdrawals_offset", { precision: 15, scale: 2 }).default("0").notNull(),
   totalCommissionsOffset: decimal("total_commissions_offset", { precision: 15, scale: 2 }).default("0").notNull(),
@@ -648,7 +629,7 @@ export const statsOffsets = pgTable("stats_offsets", {
   paymentLinkTransactionsAmountOffset: decimal("payment_link_transactions_amount_offset", { precision: 15, scale: 2 }).default("0").notNull(),
   todayCommissionsOffset: decimal("today_commissions_offset", { precision: 15, scale: 2 }).default("0").notNull(),
   lastResetAt: timestamp("last_reset_at").defaultNow().notNull(),
-  resetBy: integer("reset_by").references(() => users.id),
+  resetBy: int("reset_by").references(() => users.id),
 });
 
 export type StatsOffset = typeof statsOffsets.$inferSelect;
@@ -662,14 +643,14 @@ export type InsertMerchantWebhook = z.infer<typeof insertMerchantWebhookSchema>;
 export type ApiLog = typeof apiLogs.$inferSelect;
 export type InsertApiLog = z.infer<typeof insertApiLogSchema>;
 
-export const globalNotifications = pgTable("global_notifications", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+export const globalNotifications = mysqlTable("global_notifications", {
+  id: int("id").primaryKey().autoincrement(),
   message: text("message").notNull(),
-  color: text("color").notNull().default("blue"),
+  color: varchar("color", { length: 50 }).notNull().default("blue"),
   buttonText: text("button_text"),
   buttonUrl: text("button_url"),
   isActive: boolean("is_active").default(true).notNull(),
-  createdBy: integer("created_by").references(() => users.id),
+  createdBy: int("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -681,26 +662,24 @@ export const insertGlobalNotificationSchema = createInsertSchema(globalNotificat
 export type GlobalNotification = typeof globalNotifications.$inferSelect;
 export type InsertGlobalNotification = z.infer<typeof insertGlobalNotificationSchema>;
 
-export const partnerStatusEnum = pgEnum("partner_status", ["active", "inactive", "suspended"]);
-
-export const partners = pgTable("partners", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+export const partners = mysqlTable("partners", {
+  id: int("id").primaryKey().autoincrement(),
   name: text("name").notNull(),
-  email: text("email").notNull().unique(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
   password: text("password").notNull(),
   phone: text("phone"),
-  slug: text("slug").notNull().unique(),
+  slug: varchar("slug", { length: 255 }).notNull().unique(),
   logo: text("logo"),
   description: text("description"),
   website: text("website"),
-  apiKey: text("api_key").notNull().unique(),
+  apiKey: varchar("api_key", { length: 255 }).notNull().unique(),
   apiSecret: text("api_secret").notNull(),
   commissionRate: decimal("commission_rate", { precision: 5, scale: 2 }).default("5").notNull(),
   balance: decimal("balance", { precision: 15, scale: 2 }).default("0").notNull(),
-  status: partnerStatusEnum("status").default("active").notNull(),
+  status: mysqlEnum("status", ["active", "inactive", "suspended"]).default("active").notNull(),
   webhookUrl: text("webhook_url"),
   callbackUrl: text("callback_url"),
-  primaryColor: text("primary_color").default("#0070F3"),
+  primaryColor: varchar("primary_color", { length: 50 }).default("#0070F3"),
   allowedCountries: text("allowed_countries"),
   allowedOperators: text("allowed_operators"),
   enableDeposit: boolean("enable_deposit").default(true).notNull(),
@@ -710,25 +689,23 @@ export const partners = pgTable("partners", {
   lastLoginAt: timestamp("last_login_at"),
 });
 
-export const partnerLogActionEnum = pgEnum("partner_log_action", ["login", "logout", "profile_update", "api_call", "payment_received", "error", "system"]);
-
-export const partnerLogs = pgTable("partner_logs", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  partnerId: integer("partner_id").notNull().references(() => partners.id),
-  action: partnerLogActionEnum("action").notNull(),
+export const partnerLogs = mysqlTable("partner_logs", {
+  id: int("id").primaryKey().autoincrement(),
+  partnerId: int("partner_id").notNull().references(() => partners.id),
+  action: mysqlEnum("action", ["login", "logout", "profile_update", "api_call", "payment_received", "error", "system"]).notNull(),
   details: text("details"),
   ipAddress: text("ip_address"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const partnerTransactions = pgTable("partner_transactions", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  partnerId: integer("partner_id").notNull().references(() => partners.id),
-  reference: text("reference").notNull().unique(),
+export const partnerTransactions = mysqlTable("partner_transactions", {
+  id: int("id").primaryKey().autoincrement(),
+  partnerId: int("partner_id").notNull().references(() => partners.id),
+  reference: varchar("reference", { length: 255 }).notNull().unique(),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
   fee: decimal("fee", { precision: 15, scale: 2 }).default("0").notNull(),
-  currency: text("currency").default("XOF").notNull(),
-  status: apiTransactionStatusEnum("status").default("pending").notNull(),
+  currency: varchar("currency", { length: 10 }).default("XOF").notNull(),
+  status: mysqlEnum("status", ["pending", "queued", "processing", "provider_pending", "completed", "failed", "reversed", "cancelled"]).default("pending").notNull(),
   customerName: text("customer_name"),
   customerEmail: text("customer_email"),
   customerPhone: text("customer_phone"),
@@ -742,25 +719,25 @@ export const partnerTransactions = pgTable("partner_transactions", {
   completedAt: timestamp("completed_at"),
 });
 
-export const partnerWallets = pgTable("partner_wallets", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  partnerId: integer("partner_id").notNull().references(() => partners.id),
-  countryCode: text("country_code").notNull(),
+export const partnerWallets = mysqlTable("partner_wallets", {
+  id: int("id").primaryKey().autoincrement(),
+  partnerId: int("partner_id").notNull().references(() => partners.id),
+  countryCode: varchar("country_code", { length: 10 }).notNull(),
   countryName: text("country_name").notNull(),
-  currency: text("currency").notNull(),
+  currency: varchar("currency", { length: 10 }).notNull(),
   balance: decimal("balance", { precision: 15, scale: 2 }).default("0").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const partnerWalletExchanges = pgTable("partner_wallet_exchanges", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  partnerId: integer("partner_id").notNull().references(() => partners.id),
-  fromWalletId: integer("from_wallet_id").notNull().references(() => partnerWallets.id),
-  toWalletId: integer("to_wallet_id").notNull().references(() => partnerWallets.id),
+export const partnerWalletExchanges = mysqlTable("partner_wallet_exchanges", {
+  id: int("id").primaryKey().autoincrement(),
+  partnerId: int("partner_id").notNull().references(() => partners.id),
+  fromWalletId: int("from_wallet_id").notNull().references(() => partnerWallets.id),
+  toWalletId: int("to_wallet_id").notNull().references(() => partnerWallets.id),
   fromCountryCode: text("from_country_code").notNull(),
   toCountryCode: text("to_country_code").notNull(),
-  currency: text("currency").notNull(),
+  currency: varchar("currency", { length: 10 }).notNull(),
   amount: decimal("amount", { precision: 15, scale: 2 }).notNull(),
   feeRate: decimal("fee_rate", { precision: 5, scale: 2 }),
   feeAmount: decimal("fee_amount", { precision: 15, scale: 2 }),
@@ -826,12 +803,12 @@ export type InsertPartnerTransaction = z.infer<typeof insertPartnerTransactionSc
 
 // ─── SÉCURITÉ ────────────────────────────────────────────────────────────────
 
-export const otpCodes = pgTable("otp_codes", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id").notNull().references(() => users.id),
+export const otpCodes = mysqlTable("otp_codes", {
+  id: int("id").primaryKey().autoincrement(),
+  userId: int("user_id").notNull().references(() => users.id),
   code: text("code").notNull(),
   type: text("type").notNull(), // "admin_login" | "withdrawal"
-  token: text("token").notNull().unique(),
+  token: varchar("token", { length: 255 }).notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
   usedAt: timestamp("used_at"),
   ipAddress: text("ip_address"),
@@ -839,26 +816,26 @@ export const otpCodes = pgTable("otp_codes", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const blockedIps = pgTable("blocked_ips", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  ipAddress: text("ip_address").notNull().unique(),
+export const blockedIps = mysqlTable("blocked_ips", {
+  id: int("id").primaryKey().autoincrement(),
+  ipAddress: varchar("ip_address", { length: 45 }).notNull().unique(),
   reason: text("reason"),
-  blockedBy: integer("blocked_by").references(() => users.id),
+  blockedBy: int("blocked_by").references(() => users.id),
   expiresAt: timestamp("expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const loginAttempts = pgTable("login_attempts", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+export const loginAttempts = mysqlTable("login_attempts", {
+  id: int("id").primaryKey().autoincrement(),
   emailOrPhone: text("email_or_phone").notNull(),
   ipAddress: text("ip_address"),
   success: boolean("success").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const securityEvents = pgTable("security_events", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: integer("user_id").references(() => users.id),
+export const securityEvents = mysqlTable("security_events", {
+  id: int("id").primaryKey().autoincrement(),
+  userId: int("user_id").references(() => users.id),
   type: text("type").notNull(),
   details: text("details"),
   ipAddress: text("ip_address"),
@@ -872,12 +849,12 @@ export type LoginAttempt = typeof loginAttempts.$inferSelect;
 export type SecurityEvent = typeof securityEvents.$inferSelect;
 
 // ─── SDK Withdrawal Audit Log ──────────────────────────────────────────────────
-export const sdkWithdrawalLogs = pgTable("sdk_withdrawal_logs", {
-  id:               integer("id").primaryKey().generatedAlwaysAsIdentity(),
+export const sdkWithdrawalLogs = mysqlTable("sdk_withdrawal_logs", {
+  id:               int("id").primaryKey().autoincrement(),
   reference:        text("reference").notNull(),
-  merchantId:       integer("merchant_id").references(() => users.id),
+  merchantId:       int("merchant_id").references(() => users.id),
   merchantEmail:    text("merchant_email").notNull(),
-  walletId:         integer("wallet_id"),
+  walletId:         int("wallet_id"),
   walletCountry:    text("wallet_country"),
   balanceBefore:    decimal("balance_before", { precision: 15, scale: 2 }),
   amountRequested:  decimal("amount_requested", { precision: 15, scale: 2 }).notNull(),
@@ -892,7 +869,7 @@ export const sdkWithdrawalLogs = pgTable("sdk_withdrawal_logs", {
   gateway:          text("gateway"),
   gatewayReference: text("gateway_reference"),
   gatewayRawResponse: text("gateway_raw_response"),
-  status:           text("status").default("pending").notNull(),
+  status:           varchar("status", { length: 50 }).default("pending").notNull(),
   errorMessage:     text("error_message"),
   createdAt:        timestamp("created_at").defaultNow().notNull(),
   updatedAt:        timestamp("updated_at").defaultNow().notNull(),
@@ -903,21 +880,21 @@ export type InsertSdkWithdrawalLog = typeof sdkWithdrawalLogs.$inferInsert;
 
 // ─── Phone Blacklist ──────────────────────────────────────────────────────────
 
-export const phoneBlacklist = pgTable("phone_blacklist", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  phoneNumber: text("phone_number").notNull().unique(),
+export const phoneBlacklist = mysqlTable("phone_blacklist", {
+  id: int("id").primaryKey().autoincrement(),
+  phoneNumber: varchar("phone_number", { length: 50 }).notNull().unique(),
   reason: text("reason"),
-  addedBy: integer("added_by").references(() => users.id),
+  addedBy: int("added_by").references(() => users.id),
   addedByName: text("added_by_name"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const blacklistLogs = pgTable("blacklist_logs", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+export const blacklistLogs = mysqlTable("blacklist_logs", {
+  id: int("id").primaryKey().autoincrement(),
   action: text("action").notNull(),
   phoneNumber: text("phone_number").notNull(),
-  adminId: integer("admin_id"),
+  adminId: int("admin_id"),
   adminName: text("admin_name"),
   ipAddress: text("ip_address"),
   details: text("details"),

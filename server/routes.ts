@@ -23,7 +23,10 @@ import { getSoftPayOperator } from "./paydunya-softpay-map";
 import { getCredential } from "./credentials";
 import bcrypt from "bcryptjs";
 import session from "express-session";
-import connectPgSimple from "connect-pg-simple";
+import { createRequire } from "module";
+const _require = createRequire(import.meta.url);
+const MySQLStoreFactory = _require('express-mysql-session');
+const MySQLStore = MySQLStoreFactory(session);
 import { v4 as uuidv4 } from "uuid";
 import { registerSchema, loginSchema } from "@shared/schema";
 import multer from "multer";
@@ -93,9 +96,9 @@ const blockedUserIds = new Set<number>();
 export async function loadBlockedUsersCache(): Promise<void> {
   if (!pool) return;
   try {
-    const res = await pool.query(`SELECT id FROM users WHERE is_blocked = true`);
+    const [rows] = await (pool as any).query(`SELECT id FROM users WHERE is_blocked = true`);
     blockedUserIds.clear();
-    for (const row of res.rows) blockedUserIds.add(Number(row.id));
+    for (const row of (rows as any[])) blockedUserIds.add(Number(row.id));
     console.log(`[security] ${blockedUserIds.size} utilisateur(s) bloqué(s) chargé(s) en mémoire`);
   } catch (e) {
     console.error("[security] Échec chargement cache utilisateurs bloqués:", e);
@@ -105,7 +108,7 @@ export async function loadBlockedUsersCache(): Promise<void> {
 async function killUserSessions(userId: number): Promise<void> {
   if (!pool) return;
   try {
-    await pool.query(`DELETE FROM session WHERE sess->>'userId' = $1::text`, [String(userId)]);
+    await (pool as any).query(`DELETE FROM sessions WHERE JSON_UNQUOTE(JSON_EXTRACT(data, '$.userId')) = ?`, [String(userId)]);
   } catch (e) {
     console.error(`[security] Échec destruction sessions user #${userId}:`, e);
   }
@@ -504,43 +507,19 @@ export async function registerRoutes(
   // Plesk + Nginx reverse proxy : on fait confiance à tous les proxies
   app.set("trust proxy", true);
 
-  // Créer la table session manuellement (évite le bug connect-pg-simple + esbuild
-  // qui cherche table.sql dans dist/ au lieu de node_modules/)
-  if (pool) {
-    const _sc = await pool.connect().catch(() => null);
-    if (_sc) {
-      try {
-        await _sc.query(`
-          CREATE TABLE IF NOT EXISTS "session" (
-            "sid"    varchar       NOT NULL COLLATE "default",
-            "sess"   json          NOT NULL,
-            "expire" timestamp(6)  NOT NULL,
-            CONSTRAINT "session_pkey" PRIMARY KEY ("sid") NOT DEFERRABLE INITIALLY IMMEDIATE
-          )
-        `);
-        await _sc.query(`CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire")`);
-        console.log("[session] Table 'session' prête dans Supabase");
-      } catch (e: any) {
-        console.warn("[session] Création table session:", e?.message || e);
-      } finally {
-        _sc.release();
-      }
-    }
-  }
-
-  const PgSession = connectPgSimple(session);
+  // Initialiser le store de session MySQL (crée la table automatiquement)
   let sessionStore: any = undefined;
   if (pool) {
     try {
-      sessionStore = new PgSession({
-        pool: pool as any,
-        tableName: "session",
-        createTableIfMissing: false, // On gère la création nous-mêmes (voir ci-dessus)
-        schemaName: "public",
-      });
-      console.log("[session] Store PostgreSQL initialisé");
+      sessionStore = new MySQLStore({
+        createDatabaseTable: true,
+        clearExpired: true,
+        checkExpirationInterval: 900000, // 15 min
+        expiration: 86400000,            // 24h
+      }, pool as any);
+      console.log("[session] Store MySQL initialisé");
     } catch (e) {
-      console.error("[session] Échec initialisation store PostgreSQL — sessions en mémoire:", e);
+      console.error("[session] Échec initialisation store MySQL — sessions en mémoire:", e);
     }
   } else {
     console.warn("[session] Pool DB indisponible — sessions en mémoire (non persistantes)");
@@ -622,12 +601,12 @@ export async function registerRoutes(
   async function isTrustedDevice(userId: number, deviceToken: string | undefined): Promise<boolean> {
     if (!deviceToken || !pool) return false;
     try {
-      const r = await pool.query(
-        `SELECT id FROM trusted_devices WHERE user_id=$1 AND device_token=$2 LIMIT 1`,
+      const [_rows] = await pool.query(
+        `SELECT id FROM trusted_devices WHERE user_id=? AND device_token=? LIMIT 1`,
         [userId, deviceToken]
       );
-      if (r.rows[0]) {
-        pool.query(`UPDATE trusted_devices SET last_seen_at=NOW() WHERE device_token=$1`, [deviceToken]).catch(() => {});
+      if ((_rows as any[])[0]) {
+        pool.query(`UPDATE trusted_devices SET last_seen_at=NOW() WHERE device_token=?`, [deviceToken]).catch(() => {});
         return true;
       }
       return false;
@@ -638,7 +617,7 @@ export async function registerRoutes(
     if (!pool) return;
     try {
       await pool.query(
-        `INSERT INTO trusted_devices (user_id, device_token, ip_address, user_agent) VALUES ($1,$2,$3,$4) ON CONFLICT (device_token) DO UPDATE SET last_seen_at=NOW()`,
+        `INSERT INTO trusted_devices (user_id, device_token, ip_address, user_agent) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE last_seen_at=NOW()`,
         [userId, deviceToken, ip, userAgent]
       );
     } catch { /* ignore */ }
@@ -11383,18 +11362,18 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         try {
           const { pool: dbPool } = await import("./db");
           if (!dbPool) throw new Error("DB not ready");
-          const client = await dbPool.connect();
-          const eventsRes = await client.query(`SELECT COUNT(*) cnt FROM security_events WHERE type='failed_login' AND created_at > NOW() - INTERVAL '24 hours'`);
-          const bruteRes = await client.query(`SELECT COUNT(*) cnt FROM security_events WHERE type='brute_force' AND created_at > NOW() - INTERVAL '24 hours'`);
-          const blockedRes = await client.query(`SELECT COUNT(*) cnt FROM blocked_ips WHERE expires_at > NOW()`);
-          const attemptsRes = await client.query(`SELECT COUNT(*) cnt FROM login_attempts WHERE created_at > NOW() - INTERVAL '1 hour'`);
-          client.release();
+          const conn = await dbPool.getConnection();
+          const [eventsRows] = await conn.query(`SELECT COUNT(*) cnt FROM security_events WHERE type='failed_login' AND created_at > NOW() - INTERVAL 24 HOUR`);
+          const [bruteRows] = await conn.query(`SELECT COUNT(*) cnt FROM security_events WHERE type='brute_force' AND created_at > NOW() - INTERVAL 24 HOUR`);
+          const [blockedRows] = await conn.query(`SELECT COUNT(*) cnt FROM blocked_ips WHERE expires_at > NOW()`);
+          const [attemptsRows] = await conn.query(`SELECT COUNT(*) cnt FROM login_attempts WHERE created_at > NOW() - INTERVAL 1 HOUR`);
+          conn.release();
           const reply =
             `<b>🔐 SÉCURITÉ SENDAVAPAY</b>\n\n` +
-            `<b>❌ Connexions échouées (24h):</b> ${eventsRes.rows[0].cnt}\n` +
-            `<b>🔨 Force brute (24h):</b> ${bruteRes.rows[0].cnt}\n` +
-            `<b>🚫 IPs bloquées:</b> ${blockedRes.rows[0].cnt}\n` +
-            `<b>🔑 Tentatives login (1h):</b> ${attemptsRes.rows[0].cnt}\n\n` +
+            `<b>❌ Connexions échouées (24h):</b> ${(eventsRows as any[])[0].cnt}\n` +
+            `<b>🔨 Force brute (24h):</b> ${(bruteRows as any[])[0].cnt}\n` +
+            `<b>🚫 IPs bloquées:</b> ${(blockedRows as any[])[0].cnt}\n` +
+            `<b>🔑 Tentatives login (1h):</b> ${(attemptsRows as any[])[0].cnt}\n\n` +
             `Commandes:\n/bloquer_ip &lt;ip&gt;\n/debloquer_ip &lt;ip&gt;`;
           await sendBotReply(chatId, reply);
         } catch {
@@ -11466,10 +11445,10 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   app.get("/api/admin/security/blocked-ips", requireAdmin, async (req, res) => {
     const { pool: dbPool } = await import("./db");
     if (!dbPool) return res.json([]);
-    const client = await dbPool.connect();
-    const result = await client.query(`SELECT * FROM blocked_ips WHERE expires_at > NOW() ORDER BY created_at DESC`);
-    client.release();
-    res.json(result.rows);
+    const conn = await dbPool.getConnection();
+    const [rows] = await conn.query(`SELECT * FROM blocked_ips WHERE expires_at > NOW() ORDER BY created_at DESC`);
+    conn.release();
+    res.json(rows);
   });
 
   app.post("/api/admin/security/block-ip", requireAdmin, async (req, res) => {
@@ -11491,19 +11470,19 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   app.get("/api/admin/security/events", requireAdmin, async (req, res) => {
     const { pool: dbPool } = await import("./db");
     if (!dbPool) return res.json([]);
-    const client = await dbPool.connect();
-    const result = await client.query(`SELECT * FROM security_events ORDER BY created_at DESC LIMIT 500`);
-    client.release();
-    res.json(result.rows);
+    const conn = await dbPool.getConnection();
+    const [rows] = await conn.query(`SELECT * FROM security_events ORDER BY created_at DESC LIMIT 500`);
+    conn.release();
+    res.json(rows);
   });
 
   app.get("/api/admin/security/login-attempts", requireAdmin, async (req, res) => {
     const { pool: dbPool } = await import("./db");
     if (!dbPool) return res.json([]);
-    const client = await dbPool.connect();
-    const result = await client.query(`SELECT * FROM login_attempts ORDER BY created_at DESC LIMIT 500`);
-    client.release();
-    res.json(result.rows);
+    const conn = await dbPool.getConnection();
+    const [rows] = await conn.query(`SELECT * FROM login_attempts ORDER BY created_at DESC LIMIT 500`);
+    conn.release();
+    res.json(rows);
   });
 
   // ── Whitelist (IPs toujours autorisées) ──────────────────────────────────────
@@ -11511,10 +11490,10 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     const { pool: dbPool } = await import("./db");
     if (!dbPool) return res.json([]);
     try {
-      const client = await dbPool.connect();
-      const result = await client.query(`SELECT * FROM allowed_ips ORDER BY created_at DESC`);
-      client.release();
-      res.json(result.rows);
+      const conn = await dbPool.getConnection();
+      const [rows] = await conn.query(`SELECT * FROM allowed_ips ORDER BY created_at DESC`);
+      conn.release();
+      res.json(rows);
     } catch {
       res.json([]);
     }
