@@ -236,12 +236,9 @@ export class MaishaPayClient {
   async collectPayment(params: MaishaPayCollectParams): Promise<MaishaPayCollectResponse> {
     try {
       console.log("📡 MaishaPay: Initialisation collecte Mobile Money...");
-      console.log("📡 MaishaPay: Ref:", params.transactionReference, "Montant:", params.amount, params.currency);
-      console.log("📡 MaishaPay: Provider:", params.provider, "WalletID:", params.walletID);
+      console.log("📡 MaishaPay: collect request initiated");
 
       const pubKey = getCredential("MAISHAPAY_PUBLIC_KEY");
-      const pubKeyPreview = pubKey ? pubKey.substring(0, 15) + "..." : "NON CONFIGURÉE";
-      console.log("📡 MaishaPay: PublicKey:", pubKeyPreview);
 
       const body = {
         transactionReference: params.transactionReference,
@@ -262,12 +259,6 @@ export class MaishaPayClient {
         },
       };
 
-      console.log("📡 MaishaPay REQUÊTE:", JSON.stringify({
-        ...body,
-        publicApiKey: publicKeyPreview,
-        secretApiKey: "***",
-      }, null, 2));
-
       const response = await fetch(`${MAISHAPAY_API_URL}/collect/v2/store/mobileMoney`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -276,7 +267,6 @@ export class MaishaPayClient {
 
       const responseText = await response.text();
       console.log("📡 MaishaPay collect HTTP status:", response.status);
-      console.log("📡 MaishaPay collect response body:", responseText);
 
       try {
         return JSON.parse(responseText);
@@ -293,8 +283,7 @@ export class MaishaPayClient {
   async b2cTransfer(params: MaishaPayB2CParams): Promise<MaishaPayB2CResponse> {
     try {
       console.log("💸 MaishaPay B2C: Initialisation transfert...");
-      console.log("💸 MaishaPay B2C: Ref:", params.transactionReference, "Montant:", params.amount, params.currency);
-      console.log("💸 MaishaPay B2C: Provider:", params.provider, "WalletID:", params.walletID);
+      console.log("💸 MaishaPay: B2C request initiated");
 
       const body = {
         transactionReference: params.transactionReference,
@@ -323,7 +312,6 @@ export class MaishaPayClient {
 
       const responseText = await response.text();
       console.log("💸 MaishaPay B2C response status:", response.status);
-      console.log("💸 MaishaPay B2C response body:", responseText);
 
       try {
         return JSON.parse(responseText);
@@ -339,7 +327,7 @@ export class MaishaPayClient {
 
   async checkTransaction(transactionId: string): Promise<MaishaPayCheckResponse> {
     try {
-      console.log("🔍 MaishaPay: Vérification transaction:", transactionId);
+      console.log("🔍 MaishaPay: transaction verification initiated");
 
       const body = {
         gatewayMode: 1,
@@ -356,7 +344,6 @@ export class MaishaPayClient {
 
       const responseText = await response.text();
       console.log("🔍 MaishaPay check response status:", response.status);
-      console.log("🔍 MaishaPay check response body:", responseText);
 
       try {
         return JSON.parse(responseText);

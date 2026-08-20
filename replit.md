@@ -11,7 +11,7 @@ A fintech payment platform for West and Central African markets enabling Mobile 
 - **DB push**: `npm run db:push`
 - **Typecheck**: `npm run check`
 
-Required env vars (Plesk uniquement — jamais en base): `SUPABASE_DATABASE_URL`, `SUPABASE_URL`, `SESSION_SECRET`, `SOLEASPAY_API_KEY`, `SOLEASPAY_SECRET_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `SUPABASE_SERVICE_ROLE_KEY`, `OMNIPAY_API_KEY`, `OMNIPAY_CALLBACK_KEY`, `MAISHAPAY_PUBLIC_KEY`, `MAISHAPAY_SECRET_KEY`, `PAXITY_API_KEY`, `MBIYOPAY_API_KEY`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`
+Required env vars (Plesk uniquement — jamais en base): `SUPABASE_DATABASE_URL`, `SUPABASE_URL`, `SESSION_SECRET`, `SOLEASPAY_API_KEY`, `SOLEASPAY_SECRET_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_ADMIN_CHAT_IDS`, `SUPABASE_SERVICE_ROLE_KEY`, `OMNIPAY_API_KEY`, `OMNIPAY_CALLBACK_KEY`, `MAISHAPAY_PUBLIC_KEY`, `MAISHAPAY_SECRET_KEY`, `MAISHAPAY_WEBHOOK_SECRET`, `PAXITY_API_KEY`, `PAXITY_WEBHOOK_SECRET`, `MBIYOPAY_API_KEY`, `MBIYOPAY_WEBHOOK_SECRET`, `PAYDUNYA_MASTER_KEY`, `LEEKPAY_SECRET_KEY`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`
 Optional KYC storage: `SUPABASE_KYC_URL`, `SUPABASE_KYC_SERVICE_ROLE_KEY` (compte Supabase dédié aux documents KYC)
 
 ## Stack
@@ -36,7 +36,7 @@ Optional KYC storage: `SUPABASE_KYC_URL`, `SUPABASE_KYC_SERVICE_ROLE_KEY` (compt
 
 ## Architecture decisions
 
-- Credentials (API keys) are stored in the DB `site_settings` table under `cred_*` keys and loaded at startup, allowing admin-managed configuration without redeployment
+- Credentials and webhook secrets are read from Plesk/Replit environment variables and are never written to the database.
 - App starts even when DB is unavailable (degraded mode) with background reconnection every 15s
 - Partner system is a separate auth realm (`req.session.partnerId`) with own tables (`partners`, `partner_logs`, `partner_transactions`)
 - Email uses Resend via Replit's connector API (`REPLIT_CONNECTORS_HOSTNAME`) — not a hardcoded API key
@@ -64,7 +64,7 @@ Optional KYC storage: `SUPABASE_KYC_URL`, `SUPABASE_KYC_SERVICE_ROLE_KEY` (compt
 - `drizzle.config.ts` falls back to `DATABASE_URL` if `SUPABASE_DATABASE_URL` is missing
 - Telegram webhook is hardcoded to `https://sendavapay.com/api/webhook/telegram` — update for Replit deployment domain
 - SoleasPay API endpoint uses lowercase `v3` in path
-- Admin account email: `pagetstudio@gmail.com`, default password: `AAbb11##`
+- Admin bootstrap is disabled unless explicit `ADMIN_EMAIL_*`, `ADMIN_PHONE_*`, and `ADMIN_DEFAULT_PASSWORD` variables are configured.
 
 ## Pointers
 

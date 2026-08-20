@@ -70,9 +70,7 @@ export class LeekPayService {
 
   async createCheckout(params: CheckoutParams): Promise<CheckoutResponse> {
     try {
-      console.log("LeekPay: Creating checkout with params:", JSON.stringify(params));
-      console.log("LeekPay: API URL:", `${LEEKPAY_API_URL}/checkout`);
-      console.log("LeekPay: Secret key configured:", this.secretKey ? "Yes (length: " + this.secretKey.length + ")" : "No");
+      console.log("LeekPay: checkout request initiated");
       
       const response = await fetch(`${LEEKPAY_API_URL}/checkout`, {
         method: "POST",
@@ -85,7 +83,6 @@ export class LeekPayService {
 
       const responseText = await response.text();
       console.log("LeekPay: Response status:", response.status);
-      console.log("LeekPay: Response body:", responseText);
       
       let data;
       try {
@@ -166,8 +163,6 @@ export class LeekPayService {
         .digest("hex");
       
       console.log("LeekPay: Verifying webhook signature");
-      console.log("LeekPay: Received signature:", signature);
-      console.log("LeekPay: Expected signature:", expectedSignature);
       
       // Comparaison sécurisée des signatures
       if (signature.length !== expectedSignature.length) {

@@ -35,7 +35,7 @@ const partnerLogoUpload = multer({
   }),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif|webp|svg/;
+    const allowedTypes = /jpeg|jpg|png|gif|webp/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
     if (extname) {
       return cb(null, true);
@@ -111,7 +111,13 @@ export function registerPartnerRoutes(app: Express) {
         return res.status(401).json({ message: "Email ou mot de passe incorrect" });
       }
 
+      await new Promise<void>((resolve, reject) => {
+        req.session.regenerate((error) => error ? reject(error) : resolve());
+      });
       req.session.partnerId = partner.id;
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((error) => error ? reject(error) : resolve());
+      });
 
       await storage.updatePartner(partner.id, { lastLoginAt: new Date() });
       await storage.createPartnerLog({
@@ -143,7 +149,8 @@ export function registerPartnerRoutes(app: Express) {
       details: "Déconnexion",
       ipAddress: req.ip || req.socket.remoteAddress,
     });
-    req.session.partnerId = undefined;
+    req.session.destroy(() => {});
+    res.clearCookie("connect.sid");
     res.json({ message: "Déconnecté" });
   });
 
@@ -2056,7 +2063,7 @@ export function registerPartnerRoutes(app: Express) {
       const paymentGateway = operator.paymentGateway;
       const baseUrl = "https://sendavapay.com";
 
-      console.log(`📡 Partner Deposit: opérateur=${service.operator} (${service.countryCode}), gateway=${paymentGateway}, partner=${partner.name}`);
+      console.log("[partner-deposit] Payment request initiated");
 
       if (paymentGateway === "omnipay") {
         const orderId = `PDEP-OP-${Date.now()}-P${req.session.partnerId}`;
