@@ -3987,7 +3987,9 @@ export async function registerRoutes(
   });
 
   // Callback webhook MbiyoPay
-  app.post("/api/webhook/mbiyopay", async (req, res) => {
+  // Keep the former callback URL available for existing MbiyoPay dashboard
+  // settings. Both paths use the same merchant-API verification below.
+  app.post(["/api/webhook/mbiyopay", "/api/mbiyo/callback"], async (req, res) => {
     try {
       const data = req.body;
       const transactionId = typeof data?.transaction_id === "string" ? data.transaction_id.trim() : "";
