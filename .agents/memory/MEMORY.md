@@ -1,3 +1,3 @@
 - [Wallet routing fix](wallet-routing.md) — payerCountry must be set at deposit creation (SoleasPay/PayDunya), not inferred later; country code extracted from paymentMethod had a bug with 2-letter segment matching.
 - [Custom fee priority](custom-fees.md) — Fee resolution order: user override > country rate > global rate; user overrides stored as nullable decimals on users table.
-- [Webhook security](webhook-security.md) — Payment and Telegram callbacks fail closed unless their configured signature checks succeed.
+- [Webhook security](webhook-security.md) — Callbacks fail closed unless provider authentication succeeds: signatures where documented, merchant API verification for MbiyoPay.

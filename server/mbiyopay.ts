@@ -193,6 +193,15 @@ export interface MbiyoWebhookPayload {
   };
 }
 
+export interface MbiyoTransactionDetails {
+  id?: string;
+  transaction_id?: string;
+  order_id?: string;
+  amount?: string | number;
+  currency?: string;
+  status?: string;
+}
+
 class MbiyoPayClient {
   async payin(params: MbiyoPayinParams): Promise<MbiyoPayinResponse> {
     const body: Record<string, any> = {
@@ -259,6 +268,37 @@ class MbiyoPayClient {
       throw new Error(`MbiyoPay a retourné une réponse invalide (HTTP ${response.status})`);
     }
     return data as MbiyoPayoutResponse;
+  }
+
+  /**
+   * MbiyoPay's public webhook documentation does not define an HMAC header.
+   * A callback is therefore authenticated by querying its transaction through
+   * the merchant API before it can change any local payment state.
+   */
+  async getTransaction(transactionId: string): Promise<MbiyoTransactionDetails> {
+    const response = await fetch(
+      `${MBIYOPAY_BASE_URL}/transactions/${encodeURIComponent(transactionId)}`,
+      { headers: mbiyoHeaders() },
+    );
+
+    const rawText = await response.text();
+    let payload: any;
+    try {
+      payload = JSON.parse(rawText);
+    } catch {
+      throw new Error(`MbiyoPay transaction lookup returned invalid JSON (HTTP ${response.status})`);
+    }
+
+    if (!response.ok) {
+      throw new Error(`MbiyoPay transaction lookup failed (HTTP ${response.status})`);
+    }
+
+    const transaction = payload?.data ?? payload;
+    if (!transaction || typeof transaction !== "object") {
+      throw new Error("MbiyoPay transaction lookup returned no transaction data");
+    }
+
+    return transaction as MbiyoTransactionDetails;
   }
 }
 

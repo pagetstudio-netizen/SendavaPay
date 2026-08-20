@@ -3,8 +3,8 @@ name: Webhook security
 description: Rules for authenticating payment and Telegram webhook callbacks.
 ---
 
-All payment and Telegram webhook routes must fail closed: no secret or invalid signature means no business processing and no balance change.
+All payment and Telegram webhook routes must fail closed: no provider authentication means no business processing and no balance change.
 
-**Why:** An unverified callback can otherwise forge a successful payment, change a withdrawal status, or execute an administrative Telegram action.
+**Why:** An unverified callback can otherwise forge a successful payment, change a withdrawal status, or execute an administrative Telegram action. MbiyoPay's public merchant callback documentation (checked August 2026) provides no signature header; requiring a generic HMAC rejects legitimate callbacks.
 
-**How to apply:** Keep provider signature verification before any response or storage mutation. New providers need an explicit secret/signature scheme and a production configuration path before their webhook is enabled.
+**How to apply:** Keep provider signature verification before any response or storage mutation when the provider documents a signature scheme. For MbiyoPay, confirm the callback's transaction through the authenticated merchant API and require the returned provider transaction ID to match the locally stored payment, partner transaction, or withdrawal reference before mutation. New providers need an explicit authentication scheme and a production configuration path before their webhook is enabled.
