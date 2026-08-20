@@ -203,13 +203,13 @@ export interface PayDunyaDisburseResponse {
 }
 
 /**
- * Checkout and disbursement use separate public webhook endpoints.
- * A dedicated payout endpoint keeps the payment and withdrawal callbacks
- * unambiguous while still allowing each to apply the same hash verification.
+ * PayDunya accepts one callback URL for this account. Checkout and
+ * disbursement share the same endpoint; the webhook distinguishes payouts
+ * using `disburse_id`.
  * Never send a local, Replit preview, or non-HTTPS URL to the provider.
  */
 export function getPayDunyaDisbursementCallbackUrl(): string {
-  const fallback = "https://sendavapay.com/api/webhook/paydunya-disburse";
+  const fallback = "https://sendavapay.com/api/webhook/paydunya";
   const configured =
     getCredential("PAYDUNYA_CALLBACK_URL") ||
     process.env.SITE_URL ||
@@ -233,7 +233,7 @@ export function getPayDunyaDisbursementCallbackUrl(): string {
       return fallback;
     }
 
-    const callbackUrl = `${url.origin}/api/webhook/paydunya-disburse`;
+    const callbackUrl = `${url.origin}/api/webhook/paydunya`;
     console.log(`[PayDunya] Callback disbursement: ${callbackUrl}`);
     return callbackUrl;
   } catch {

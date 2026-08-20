@@ -9534,9 +9534,16 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   // PAYDUNYA WEBHOOKS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  // Vérification d'accessibilité — PayDunya ping le callback avec GET/HEAD avant d'envoyer
+  // Vérification d'accessibilité — PayDunya peut ping le callback avec
+  // GET, HEAD ou un POST vide avant d'autoriser un dépôt ou un retrait.
   app.all("/api/webhook/paydunya", (req, res, next) => {
     if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+      return res.status(200).json({ status: "ok" });
+    }
+    if (
+      req.method === "POST" &&
+      (!req.body || (typeof req.body === "object" && Object.keys(req.body).length === 0))
+    ) {
       return res.status(200).json({ status: "ok" });
     }
     next();
