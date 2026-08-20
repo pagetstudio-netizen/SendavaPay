@@ -2867,7 +2867,7 @@ export function registerPartnerRoutes(app: Express) {
             accountAlias: cleanPhone,
             amount: netAmount,
             withdrawMode,
-            callbackUrl: `${process.env.BASE_URL || process.env.APP_URL || "https://sendavapay.com"}/api/webhook/paydunya-disburse`,
+            callbackUrl: `${process.env.BASE_URL || process.env.APP_URL || "https://sendavapay.com"}/api/webhook/paydunya`,
             disburseId: pdRef,
           });
 

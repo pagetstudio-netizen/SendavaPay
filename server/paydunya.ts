@@ -203,11 +203,12 @@ export interface PayDunyaDisburseResponse {
 }
 
 /**
- * PayDunya validates the disbursement callback URL before accepting a payout.
+ * The PayDunya account uses one callback URL for checkout and disbursement.
+ * The shared webhook distinguishes withdrawals by `disburse_id`.
  * Never send a local, Replit preview, or non-HTTPS URL to the provider.
  */
 export function getPayDunyaDisbursementCallbackUrl(): string {
-  const fallback = "https://sendavapay.com/api/webhook/paydunya-disburse";
+  const fallback = "https://sendavapay.com/api/webhook/paydunya";
   const configured =
     getCredential("PAYDUNYA_CALLBACK_URL") ||
     process.env.SITE_URL ||
@@ -231,7 +232,7 @@ export function getPayDunyaDisbursementCallbackUrl(): string {
       return fallback;
     }
 
-    const callbackUrl = `${url.origin}/api/webhook/paydunya-disburse`;
+    const callbackUrl = `${url.origin}/api/webhook/paydunya`;
     console.log(`[PayDunya] Callback disbursement: ${callbackUrl}`);
     return callbackUrl;
   } catch {
