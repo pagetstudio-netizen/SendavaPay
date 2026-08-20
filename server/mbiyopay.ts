@@ -277,7 +277,7 @@ class MbiyoPayClient {
    */
   async getTransaction(transactionId: string): Promise<MbiyoTransactionDetails> {
     const response = await fetch(
-      `${MBIYOPAY_BASE_URL}/transactions/${encodeURIComponent(transactionId)}`,
+      `${MBIYOPAY_BASE_URL}/merchant/transactions/${encodeURIComponent(transactionId)}`,
       { headers: mbiyoHeaders() },
     );
 
