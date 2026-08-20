@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import WebSocket from "ws";
 import { randomUUID } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
@@ -41,6 +42,23 @@ function getSupabaseAdmin() {
   }
   return createClient(url, key, {
     auth: { persistSession: false },
+    realtime: { transport: WebSocket },
+  });
+}
+
+function getDedicatedKycSupabaseAdmin() {
+  const kycUrl = getCredential("SUPABASE_KYC_URL");
+  const kycKey = getCredential("SUPABASE_KYC_SERVICE_ROLE_KEY");
+
+  if (!kycUrl || !kycKey) {
+    throw new Error(
+      "Le stockage KYC dédié n'est pas configuré. Ajoutez SUPABASE_KYC_URL et SUPABASE_KYC_SERVICE_ROLE_KEY dans la section Clés API."
+    );
+  }
+
+  return createClient(kycUrl, kycKey, {
+    auth: { persistSession: false },
+    realtime: { transport: WebSocket },
   });
 }
 
@@ -54,7 +72,10 @@ function getKycSupabaseAdmin() {
   const kycKey = getCredential("SUPABASE_KYC_SERVICE_ROLE_KEY");
 
   if (kycUrl && kycKey) {
-    return createClient(kycUrl, kycKey, { auth: { persistSession: false } });
+    return createClient(kycUrl, kycKey, {
+      auth: { persistSession: false },
+      realtime: { transport: WebSocket },
+    });
   }
 
   // Fallback : compte Supabase principal
@@ -65,7 +86,10 @@ function getKycSupabaseAdmin() {
       "Aucun compte Supabase KYC configuré. Ajoutez SUPABASE_KYC_URL et SUPABASE_KYC_SERVICE_ROLE_KEY dans la section Clés API, ou configurez SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY."
     );
   }
-  return createClient(url, key, { auth: { persistSession: false } });
+  return createClient(url, key, {
+    auth: { persistSession: false },
+    realtime: { transport: WebSocket },
+  });
 }
 
 async function compressKycImage(buffer: Buffer, mimetype: string): Promise<{ buffer: Buffer; mimetype: string }> {
@@ -137,10 +161,21 @@ export async function uploadProductImage(
   filePath: string,
   mimetype: string
 ): Promise<string> {
-  const supabase = getSupabaseAdmin();
+  // Les images commerciales suivent le même compte Supabase dédié que les
+  // documents KYC. Elles ne doivent jamais être écrites dans le compte
+  // Supabase principal.
+  const supabase = getDedicatedKycSupabaseAdmin();
   const ext = path.extname(filePath) || ".jpg";
   const objectPath = `products/${randomUUID()}${ext}`;
   const fileBuffer = fs.readFileSync(filePath);
+
+  // Le bucket peut ne pas encore exister dans le projet KYC dédié.
+  // La création est idempotente : une erreur "already exists" est normale.
+  const { error: bucketError } = await supabase.storage.createBucket(PRODUCT_BUCKET, { public: true });
+  if (bucketError && !/already exists|duplicate/i.test(bucketError.message)) {
+    try { fs.unlinkSync(filePath); } catch {}
+    throw new Error(`Échec de préparation du stockage image produit: ${bucketError.message}`);
+  }
 
   const { error } = await supabase.storage
     .from(PRODUCT_BUCKET)
