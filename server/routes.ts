@@ -18,6 +18,7 @@ import { ADMIN_WHITELIST, isAdminWhitelisted } from "./init-admin";
 import {
   createPayDunyaCheckout, payDunyaDisburse, verifyPayDunyaWebhook, normalizePayDunyaWebhookPayload,
   getPayDunyaWithdrawMode, formatPhoneForPayDunya,
+  getPayDunyaDisbursementCallbackUrl,
   initiatePayDunySoftPay,
 } from "./paydunya";
 import { getSoftPayOperator } from "./paydunya-softpay-map";
@@ -6507,7 +6508,7 @@ export async function registerRoutes(
             accountAlias: cleanPhone,
             amount: netAmount,
             withdrawMode,
-            callbackUrl: `${process.env.APP_URL || "https://sendavapay.com"}/api/webhook/paydunya`,
+            callbackUrl: getPayDunyaDisbursementCallbackUrl(),
             disburseId: pdRef,
           });
 
@@ -6982,7 +6983,7 @@ export async function registerRoutes(
           accountAlias: cleanPhone,
           amount:       netAmount,
           withdrawMode,
-          callbackUrl:  `${appUrl}/api/webhook/paydunya`,
+            callbackUrl:  getPayDunyaDisbursementCallbackUrl(),
           disburseId:   pdRef,
         });
 

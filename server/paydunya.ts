@@ -202,6 +202,44 @@ export interface PayDunyaDisburseResponse {
   error?:         string;
 }
 
+/**
+ * PayDunya validates the disbursement callback URL before accepting a payout.
+ * Never send a local, Replit preview, or non-HTTPS URL to the provider.
+ */
+export function getPayDunyaDisbursementCallbackUrl(): string {
+  const fallback = "https://sendavapay.com/api/webhook/paydunya-disburse";
+  const configured =
+    getCredential("PAYDUNYA_CALLBACK_URL") ||
+    process.env.SITE_URL ||
+    process.env.APP_URL ||
+    process.env.BASE_URL ||
+    "https://sendavapay.com";
+
+  try {
+    const raw = configured.trim();
+    const url = new URL(raw.includes("://") ? raw : `https://${raw}`);
+    const host = url.hostname.toLowerCase();
+    const isPrivateOrPreview =
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host.endsWith(".replit.dev") ||
+      host.endsWith(".repl.co");
+
+    if (url.protocol !== "https:" || isPrivateOrPreview) {
+      console.warn(`[PayDunya] Callback non publique ignorée: ${url.origin}; utilisation de ${fallback}`);
+      return fallback;
+    }
+
+    const callbackUrl = `${url.origin}/api/webhook/paydunya-disburse`;
+    console.log(`[PayDunya] Callback disbursement: ${callbackUrl}`);
+    return callbackUrl;
+  } catch {
+    console.warn(`[PayDunya] URL callback invalide: "${configured}"; utilisation de ${fallback}`);
+    return fallback;
+  }
+}
+
 export interface PayDunyaWebhookPayload {
   data: {
     response_code?: string;
