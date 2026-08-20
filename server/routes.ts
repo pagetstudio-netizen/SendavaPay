@@ -9557,6 +9557,21 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         console.error("❌ PayDunya webhook rejeté : clé de vérification non configurée");
         return res.status(503).json({ message: "Webhook signature not configured" });
       }
+      // PayDunya peut envoyer un POST de contrôle avant le vrai callback.
+      // Ce contrôle ne contient aucun identifiant métier et ne doit déclencher
+      // ni paiement ni retrait. Répondre 200 permet au fournisseur de valider
+      // l'accessibilité de l'URL, sans créer d'exception pour un vrai callback.
+      const hasBusinessIdentifier = Boolean(
+        data?.disburse_id ||
+        data?.invoice?.token ||
+        data?.token ||
+        data?.custom_data?.reference ||
+        data?.customData?.reference
+      );
+      if (!webhookHash && !hasBusinessIdentifier) {
+        console.log(`[PayDunya] POST de contrôle d'accessibilité accepté (ip=${webhookIp || "?"})`);
+        return res.status(200).json({ status: "ok" });
+      }
       if (!webhookHash || !verifyPayDunyaWebhook(webhookHash)) {
         console.error("❌ PayDunya webhook rejeté : hash absent ou invalide");
         notifyWebhookRejected({ gateway: "PayDunya", ip: webhookIp || "?", reason: "Hash absent ou invalide", path: "/api/webhook/paydunya" });
