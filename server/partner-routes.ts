@@ -2387,13 +2387,14 @@ export function registerPartnerRoutes(app: Express) {
   app.get("/api/partner/wallets", requirePartnerAuth, async (req: Request, res: Response) => {
     try {
       const partnerId = req.session.partnerId!;
-      const [wallets, exchanges, exchangeFeeRaw] = await Promise.all([
+      const [wallets, exchanges, exchangeFeeRaw, walletExchangeSetting] = await Promise.all([
         storage.getPartnerWallets(partnerId),
         storage.getPartnerWalletExchanges(partnerId),
         storage.getSetting("partner_wallet_exchange_fee"),
+        storage.getSetting("wallet_exchange_enabled"),
       ]);
       const exchangeFeeRate = exchangeFeeRaw || "2";
-      res.json({ wallets, exchanges, exchangeFeeRate });
+      res.json({ wallets, exchanges, exchangeFeeRate, walletExchangeEnabled: walletExchangeSetting !== "false" });
     } catch (error) {
       console.error("Partner wallets error:", error);
       res.status(500).json({ message: "Erreur serveur" });
@@ -2402,6 +2403,14 @@ export function registerPartnerRoutes(app: Express) {
 
   app.post("/api/partner/wallets/exchange", requirePartnerAuth, async (req: Request, res: Response) => {
     try {
+      const walletExchangeSetting = await storage.getSetting("wallet_exchange_enabled");
+      if (walletExchangeSetting === "false") {
+        return res.status(503).json({
+          message: "L'échange entre wallets est indisponible pour le moment. Nous travaillons sur cette fonctionnalité. En attendant, les fonds reçus dans un pays seront retirés dans ce même pays.",
+          code: "WALLET_EXCHANGE_DISABLED",
+        });
+      }
+
       const partnerId = req.session.partnerId!;
       const { fromWalletId, toWalletId, amount } = req.body;
 

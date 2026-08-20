@@ -474,7 +474,7 @@ function PartnerWalletsSection() {
   const [toWalletId, setToWalletId] = useState("");
   const [exchangeAmount, setExchangeAmount] = useState("");
 
-  const { data, isLoading } = useQuery<{ wallets: any[]; exchanges: any[]; exchangeFeeRate: string }>({
+  const { data, isLoading } = useQuery<{ wallets: any[]; exchanges: any[]; exchangeFeeRate: string; walletExchangeEnabled?: boolean }>({
     queryKey: ["/api/partner/wallets"],
   });
 
@@ -482,6 +482,7 @@ function PartnerWalletsSection() {
   const wallets = (data?.wallets ?? []).filter((w: any) => !HIDDEN_WALLETS.includes(w.countryCode));
   const exchanges = data?.exchanges ?? [];
   const exchangeFeeRate = parseFloat(data?.exchangeFeeRate || "2");
+  const walletExchangeEnabled = data?.walletExchangeEnabled !== false;
 
   const exchangeMutation = useMutation({
     mutationFn: async () => {
@@ -545,7 +546,7 @@ function PartnerWalletsSection() {
             Chaque dépôt SDK est crédité dans le portefeuille du pays de l'opérateur utilisé.
           </p>
         </div>
-        {canExchange && (
+        {canExchange && walletExchangeEnabled && (
           <Dialog open={exchangeOpen} onOpenChange={setExchangeOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2" data-testid="button-partner-open-exchange">
@@ -664,6 +665,20 @@ function PartnerWalletsSection() {
         )}
       </div>
 
+      {!walletExchangeEnabled && (
+        <Card className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
+          <CardContent className="p-4 flex items-start gap-3">
+            <ArrowLeftRight className="h-5 w-5 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <div className="text-sm text-amber-800 dark:text-amber-200">
+              <p className="font-semibold">Échange entre wallets indisponible</p>
+              <p className="mt-1">
+                Nous travaillons sur cette fonctionnalité. En attendant, les fonds reçus dans un pays seront retirés dans ce même pays.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
 
       {wallets.length === 0 && (
         <Card>
@@ -686,7 +701,7 @@ function PartnerWalletsSection() {
             <div className="flex items-center gap-2 mb-3">
               <h2 className="font-semibold text-base">{ZONE_LABELS[currency] || currency}</h2>
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${colors.badge}`}>{currency}</span>
-              {zoneWallets.length >= 2 && (
+                          {zoneWallets.length >= 2 && walletExchangeEnabled && (
                 <span className="text-xs text-muted-foreground">• Échanges possibles entre ces pays</span>
               )}
             </div>

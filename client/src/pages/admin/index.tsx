@@ -3732,10 +3732,11 @@ function CommissionsContent() {
   const [withdrawalRate, setWithdrawalRate] = useState("7");
   const [walletExchangeRate, setWalletExchangeRate] = useState("4");
   const [partnerWalletExchangeFee, setPartnerWalletExchangeFee] = useState("2");
+  const [walletExchangeEnabled, setWalletExchangeEnabled] = useState(true);
   const [reason, setReason] = useState("");
   const [editingFees, setEditingFees] = useState<Record<number, { deposit: string; withdraw: string; encaissement: string; api: string }>>({});
 
-  const { data: settings } = useQuery<{ depositRate: string; encaissementRate: string; withdrawalRate: string; walletExchangeRate: string; partnerWalletExchangeFee: string }>({
+  const { data: settings } = useQuery<{ depositRate: string; encaissementRate: string; withdrawalRate: string; walletExchangeRate: string; partnerWalletExchangeFee: string; walletExchangeEnabled: boolean }>({
     queryKey: ["/api/admin/settings"],
   });
 
@@ -3754,18 +3755,19 @@ function CommissionsContent() {
       setWithdrawalRate(settings.withdrawalRate || "7");
       setWalletExchangeRate(settings.walletExchangeRate || "4");
       setPartnerWalletExchangeFee(settings.partnerWalletExchangeFee || "2");
+      setWalletExchangeEnabled(settings.walletExchangeEnabled !== false);
     }
   }, [settings]);
 
   const updateMutation = useMutation({
-    mutationFn: async (data: { depositRate: string; encaissementRate: string; withdrawalRate: string; walletExchangeRate: string; partnerWalletExchangeFee: string; reason?: string }) => {
+    mutationFn: async (data: { depositRate: string; encaissementRate: string; withdrawalRate: string; walletExchangeRate: string; partnerWalletExchangeFee: string; walletExchangeEnabled: boolean; reason?: string }) => {
       await apiRequest("POST", "/api/admin/fees/update", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/settings"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/fee-changes"] });
       setReason("");
-      toast({ title: "Taux mis à jour", description: "Les nouveaux taux sont actifs immédiatement pour les prochaines transactions." });
+      toast({ title: "Paramètres mis à jour", description: "Les nouveaux réglages sont actifs immédiatement pour les prochaines transactions." });
     },
     onError: () => {
       toast({ title: "Erreur", description: "Impossible de mettre à jour les taux", variant: "destructive" });
@@ -3796,7 +3798,7 @@ function CommissionsContent() {
       toast({ title: "Erreur de validation", description: "Les taux doivent être entre 0% et 20%", variant: "destructive" });
       return;
     }
-    updateMutation.mutate({ depositRate, encaissementRate, withdrawalRate, walletExchangeRate, partnerWalletExchangeFee, reason: reason || undefined });
+    updateMutation.mutate({ depositRate, encaissementRate, withdrawalRate, walletExchangeRate, partnerWalletExchangeFee, walletExchangeEnabled, reason: reason || undefined });
   };
 
   const fieldLabel = (field: string) => {
@@ -3904,6 +3906,30 @@ function CommissionsContent() {
               <p className="text-xs text-muted-foreground">Prélevé lors des échanges entre wallets pays dans l'espace partenaire. Actuellement : {settings?.partnerWalletExchangeFee || "2"}%</p>
             </div>
           </div>
+          <div className="rounded-lg border bg-muted/30 p-4 flex items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <ArrowLeftRight className={`h-5 w-5 mt-0.5 ${walletExchangeEnabled ? "text-primary" : "text-muted-foreground"}`} />
+              <div>
+                <p className="font-medium">Échanges entre wallets</p>
+                <p className="text-sm text-muted-foreground">
+                  {walletExchangeEnabled
+                    ? "Les utilisateurs peuvent demander un transfert entre leurs wallets de même devise."
+                    : "Les échanges sont désactivés. Les fonds reçus dans un pays seront retirés dans ce même pays."}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className={`text-sm font-medium ${walletExchangeEnabled ? "text-green-600" : "text-muted-foreground"}`}>
+                {walletExchangeEnabled ? "Activés" : "Désactivés"}
+              </span>
+              <Switch
+                checked={walletExchangeEnabled}
+                onCheckedChange={setWalletExchangeEnabled}
+                aria-label="Activer les échanges entre wallets"
+                data-testid="switch-wallet-exchange-enabled"
+              />
+            </div>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="reason">Raison du changement (optionnel)</Label>
             <Input
@@ -3919,7 +3945,7 @@ function CommissionsContent() {
             disabled={updateMutation.isPending}
             data-testid="button-update-fees"
           >
-            {updateMutation.isPending ? "Mise \u00e0 jour..." : "Mettre \u00e0 jour les taux"}
+            {updateMutation.isPending ? "Mise \u00e0 jour..." : "Enregistrer les paramètres"}
           </Button>
         </CardContent>
       </Card>
