@@ -16,7 +16,7 @@ import {
 import { createOtp, verifyOtp, verifyOtpByToken } from "./otp";
 import { ADMIN_WHITELIST, isAdminWhitelisted } from "./init-admin";
 import {
-  createPayDunyaCheckout, payDunyaDisburse, verifyPayDunyaWebhook,
+  createPayDunyaCheckout, payDunyaDisburse, verifyPayDunyaWebhook, normalizePayDunyaWebhookPayload,
   getPayDunyaWithdrawMode, formatPhoneForPayDunya,
   initiatePayDunySoftPay,
 } from "./paydunya";
@@ -4003,19 +4003,25 @@ export async function registerRoutes(
       // Le statut fournisseur est donc confirmé avec l'API marchande avant tout
       // changement de solde ou de statut local.
       let providerStatus = "";
+      let providerOrderId = "";
       try {
         const { mbiyopay: mbClient } = await import("./mbiyopay");
         const providerTransaction = await mbClient.getTransaction(transactionId);
         const providerTransactionId = String(
           providerTransaction.transaction_id || providerTransaction.id || "",
         ).trim();
-        if (providerTransactionId && providerTransactionId !== transactionId) {
+        if (!providerTransactionId || providerTransactionId !== transactionId) {
           notifyWebhookRejected({ gateway: "MbiyoPay", ip: req.ip || "?", reason: "Référence fournisseur incohérente", path: "/api/webhook/mbiyopay" });
           return res.status(401).json({ message: "Unauthorized" });
         }
         providerStatus = String(providerTransaction.status || "").toLowerCase().trim();
         if (!providerStatus) {
           notifyWebhookRejected({ gateway: "MbiyoPay", ip: req.ip || "?", reason: "Statut absent dans la vérification API", path: "/api/webhook/mbiyopay" });
+          return res.status(401).json({ message: "Unauthorized" });
+        }
+        providerOrderId = String(providerTransaction.order_id || "").trim();
+        if (!orderId || !providerOrderId || providerOrderId !== orderId) {
+          notifyWebhookRejected({ gateway: "MbiyoPay", ip: req.ip || "?", reason: "Référence commande fournisseur incohérente", path: "/api/webhook/mbiyopay" });
           return res.status(401).json({ message: "Unauthorized" });
         }
       } catch (error) {
@@ -4030,11 +4036,95 @@ export async function registerRoutes(
         return res.status(409).json({ message: "Payment status not yet confirmed" });
       }
 
-      res.status(200).json({ received: true });
-
       const txStatus = successfulStatuses.has(providerStatus) ? "successful" : providerStatus;
       const lookupId = transactionId;
 
+      // Un payout doit être résolu avant les paiements entrants/partenaires :
+      // le même callback MbiyoPay porte un transaction_id fournisseur mais
+      // notre order_id local identifie la demande de retrait.
+      const payoutWithdrawal = await storage.getWithdrawalRequestByExternalRef(orderId);
+      if (payoutWithdrawal) {
+        if (payoutWithdrawal.transactionReference && payoutWithdrawal.transactionReference !== transactionId) {
+          console.error("❌ MbiyoPay webhook: transaction_id ne correspond pas au retrait");
+          notifyWebhookRejected({ gateway: "MbiyoPay", ip: req.ip || "?", reason: "Transaction retrait non concordante", path: "/api/webhook/mbiyopay" });
+          return res.status(401).json({ message: "Unauthorized" });
+        }
+        if (!payoutWithdrawal.transactionReference) {
+          await storage.updateWithdrawalRequest(payoutWithdrawal.id, { transactionReference: transactionId });
+        }
+
+        const amount = parseFloat(payoutWithdrawal.amount);
+        const fee = parseFloat(payoutWithdrawal.fee || "0");
+        const netAmount = parseFloat(payoutWithdrawal.netAmount || (amount - fee).toString());
+        const user = await storage.getUser(payoutWithdrawal.userId);
+
+        if (txStatus === "successful") {
+          const completed = await storage.completeWithdrawalRequest(
+            payoutWithdrawal.id,
+            "processing",
+            { status: "approved", processedAt: new Date() },
+            {
+              userId: payoutWithdrawal.userId,
+              type: "withdrawal",
+              amount: amount.toString(),
+              fee: fee.toString(),
+              netAmount: netAmount.toString(),
+              status: "completed",
+              description: `Retrait automatique ${payoutWithdrawal.paymentMethod} - ${payoutWithdrawal.mobileNumber}`,
+              mobileNumber: payoutWithdrawal.mobileNumber,
+              paymentMethod: payoutWithdrawal.paymentMethod,
+            },
+          );
+          if (!completed) {
+            console.log(`ℹ️ MbiyoPay webhook: retrait #${payoutWithdrawal.id} déjà finalisé`);
+            return;
+          }
+          if (user?.email) {
+            sendWithdrawalEmail(user.email, {
+              userName: user.fullName,
+              amount: netAmount,
+              currency: payoutWithdrawal.currency || "XOF",
+              transactionId: payoutWithdrawal.id.toString(),
+              phone: payoutWithdrawal.mobileNumber || "",
+              operator: payoutWithdrawal.paymentMethod || "MbiyoPay",
+            }).catch(() => {});
+          }
+          notifyWithdrawalAutoProcessed({
+            userName: user?.fullName || "Client",
+            userId: payoutWithdrawal.userId,
+            amount: amount.toString(),
+            netAmount: netAmount.toString(),
+            paymentMethod: payoutWithdrawal.paymentMethod || "MbiyoPay",
+            mobileNumber: payoutWithdrawal.mobileNumber || "",
+            payoutUuid: orderId,
+            status: "success",
+            gateway: "MbiyoPay",
+          });
+          console.log(`✅ MbiyoPay webhook: retrait #${payoutWithdrawal.id} confirmé`);
+        } else if (txStatus === "failed" || txStatus === "cancelled") {
+          const restoredToQueue = await storage.transitionWithdrawalRequest(payoutWithdrawal.id, "processing", {
+            status: "pending",
+            rejectionReason: `Échec MbiyoPay (${txStatus}) — en attente validation admin`,
+          });
+          if (!restoredToQueue) return;
+          notifyWithdrawalAutoProcessed({
+            userName: user?.fullName || "Client",
+            userId: payoutWithdrawal.userId,
+            amount: amount.toString(),
+            netAmount: netAmount.toString(),
+            paymentMethod: payoutWithdrawal.paymentMethod || "MbiyoPay",
+            mobileNumber: payoutWithdrawal.mobileNumber || "",
+            payoutUuid: orderId,
+            status: "failed",
+            errorDetail: `Transaction MbiyoPay échouée (${txStatus})`,
+            gateway: "MbiyoPay",
+          });
+          console.log(`❌ MbiyoPay webhook: retrait #${payoutWithdrawal.id} échoué`);
+        }
+        return res.status(200).json({ received: true });
+      }
+
+      res.status(200).json({ received: true });
       let payment = await storage.getLeekpayPaymentById(lookupId);
 
       if (!payment) {
@@ -4287,12 +4377,19 @@ export async function registerRoutes(
       const mbWdRef = data?.order_id || data?.transaction_id || lookupId;
       if (mbWdRef) {
         const withdrawalReq = await storage.getWithdrawalRequestByExternalRef(mbWdRef);
-        if (withdrawalReq && withdrawalReq.transactionReference !== transactionId) {
+        if (withdrawalReq && withdrawalReq.transactionReference && withdrawalReq.transactionReference !== transactionId) {
           console.error("❌ MbiyoPay webhook: référence fournisseur ne correspond pas au retrait");
           notifyWebhookRejected({ gateway: "MbiyoPay", ip: req.ip || "?", reason: "Référence retrait non concordante", path: "/api/webhook/mbiyopay" });
           return;
         }
         if (withdrawalReq && withdrawalReq.status === "processing") {
+          // MbiyoPay peut appeler le callback avant que la réponse au payout ne
+          // revienne. La référence locale (order_id) a déjà été enregistrée ;
+          // l'API marchande a confirmé la transaction ci-dessus, il est donc
+          // sûr d'enregistrer son transaction_id à ce stade.
+          if (!withdrawalReq.transactionReference) {
+            await storage.updateWithdrawalRequest(withdrawalReq.id, { transactionReference: transactionId });
+          }
           const wAmount = parseFloat(withdrawalReq.amount as string);
           const wFee = parseFloat(withdrawalReq.fee as string || "0");
           const wNet = parseFloat(withdrawalReq.netAmount as string || (wAmount - wFee).toString());
@@ -4323,18 +4420,26 @@ export async function registerRoutes(
               } catch (mbSdkErr) { console.error("[MbiyoPay webhook SDK complete]", mbSdkErr); }
             } else {
               // ── Non-SDK : flux admin standard ──
-              await storage.updateWithdrawalRequest(withdrawalReq.id, { status: "approved", processedAt: new Date() });
-              await storage.createTransaction({
-                userId: withdrawalReq.userId,
-                type: "withdrawal",
-                amount: wAmount.toString(),
-                fee: wFee.toString(),
-                netAmount: wNet.toString(),
-                status: "completed",
-                description: `Retrait automatique ${withdrawalReq.paymentMethod} - ${withdrawalReq.mobileNumber}`,
-                mobileNumber: withdrawalReq.mobileNumber,
-                paymentMethod: withdrawalReq.paymentMethod,
-              });
+              const completedWithdrawal = await storage.completeWithdrawalRequest(
+                withdrawalReq.id,
+                "processing",
+                { status: "approved", processedAt: new Date() },
+                {
+                  userId: withdrawalReq.userId,
+                  type: "withdrawal",
+                  amount: wAmount.toString(),
+                  fee: wFee.toString(),
+                  netAmount: wNet.toString(),
+                  status: "completed",
+                  description: `Retrait automatique ${withdrawalReq.paymentMethod} - ${withdrawalReq.mobileNumber}`,
+                  mobileNumber: withdrawalReq.mobileNumber,
+                  paymentMethod: withdrawalReq.paymentMethod,
+                },
+              );
+              if (!completedWithdrawal) {
+                console.log(`ℹ️ MbiyoPay webhook: retrait #${withdrawalReq.id} déjà finalisé`);
+                return;
+              }
               if (wUser?.email) {
                 sendWithdrawalEmail(wUser.email, {
                   userName: wUser.fullName,
@@ -4377,10 +4482,14 @@ export async function registerRoutes(
               } catch (mbSdkErr) { console.error("[MbiyoPay webhook SDK fail]", mbSdkErr); }
             } else {
               // ── Non-SDK : remettre en pending pour validation admin ──
-              await storage.updateWithdrawalRequest(withdrawalReq.id, {
+              const restoredToQueue = await storage.transitionWithdrawalRequest(withdrawalReq.id, "processing", {
                 status: "pending",
                 rejectionReason: `Échec MbiyoPay (${txStatus}) — en attente validation admin`,
               });
+              if (!restoredToQueue) {
+                console.log(`ℹ️ MbiyoPay webhook: retrait #${withdrawalReq.id} déjà finalisé`);
+                return;
+              }
               notifyWithdrawalAutoProcessed({
                 userName: wUser?.fullName || "Client",
                 userId: withdrawalReq.userId,
@@ -4399,6 +4508,9 @@ export async function registerRoutes(
       }
     } catch (error) {
       console.error("❌ MbiyoPay webhook error:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ message: "Webhook processing failed" });
+      }
     }
   });
 
@@ -6274,6 +6386,11 @@ export async function registerRoutes(
         await storage.updateWithdrawalRequest(withdrawalRequest.id, { status: "processing" });
 
         const mbRef = `mbiyopay_payout_${withdrawalRequest.id}_${Date.now()}`;
+        // Enregistrer notre order_id AVANT l'appel fournisseur. MbiyoPay peut
+        // livrer son callback avant que l'appel payout ne retourne.
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+          externalReference: mbRef,
+        });
 
         console.log("[withdrawal] MbiyoPay transfer initiated");
 
@@ -6305,7 +6422,7 @@ export async function registerRoutes(
               paymentMethod: selectedOperator.name,
               mobileNumber,
               payoutUuid: mbRef,
-              status: "success",
+              status: "processing",
               gateway: "MbiyoPay",
             });
 
@@ -6343,13 +6460,16 @@ export async function registerRoutes(
         } catch (mbErr) {
           console.error("❌ MbiyoPay payout exception:", mbErr);
           await storage.updateWithdrawalRequest(withdrawalRequest.id, {
-            status: "pending",
-            rejectionReason: "Erreur technique lors du payout MbiyoPay",
+            // Une erreur réseau peut arriver après acceptation du payout par
+            // MbiyoPay. Ne pas remettre la demande en file évite un second
+            // paiement ; elle sera contrôlée dès que le fournisseur la confirmera.
+            status: "processing",
+            rejectionReason: "Confirmation MbiyoPay en attente après erreur de communication",
           });
 
           return res.json({
-            message: "Erreur technique lors du retrait. La demande est en attente de validation manuelle par l'admin.",
-            request: { ...withdrawalRequest, status: "pending" },
+            message: "Retrait en cours de confirmation. Ne relancez pas la demande : vous serez informé dès la réponse de MbiyoPay.",
+            request: { ...withdrawalRequest, status: "processing" },
           });
         }
       }
@@ -6932,7 +7052,14 @@ export async function registerRoutes(
         const mbRef          = `mbiyopay_retry_${requestId}_${Date.now()}`;
 
         console.log(`🔄 Admin relance MbiyoPay: req#${requestId} network=${network} phone=${formattedPhone} montant=${netAmount}`);
-        await storage.updateWithdrawalRequest(requestId, { status: "processing" });
+        // Persist the local order_id first: a fast callback or a transport
+        // timeout can then be reconciled safely by order_id.
+        await storage.updateWithdrawalRequest(requestId, {
+          status: "processing",
+          externalReference: mbRef,
+          transactionReference: null,
+          reviewedBy: req.session.userId,
+        });
 
         const mbResult = await mbClient.payout({
           amount:       netAmount,
@@ -6955,7 +7082,7 @@ export async function registerRoutes(
             userName, userId: withdrawalRequest.userId,
             amount: withdrawalRequest.amount, netAmount: withdrawalRequest.netAmount,
             paymentMethod: selectedOperator.name, mobileNumber,
-            payoutUuid: mbRef, status: "success", gateway: "MbiyoPay (Relance admin)",
+            payoutUuid: mbRef, status: "processing", gateway: "MbiyoPay (Relance admin)",
           });
           return res.json({
             message: "Retrait soumis à MbiyoPay. En attente de confirmation webhook.",
@@ -9417,10 +9544,14 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   // Webhook PayDunya — Dépôts, Liens de paiement, Partenaires ET Retraits (URL unique)
   app.post("/api/webhook/paydunya", async (req, res) => {
     try {
-      const data = req.body;
+      const data = normalizePayDunyaWebhookPayload(req.body);
       const webhookIp = getClientIp(req);
       const masterKey = getCredential("PAYDUNYA_MASTER_KEY");
       const webhookHash = data?.hash;
+      if (!data) {
+        console.error("❌ PayDunya webhook rejeté : payload form-data invalide");
+        return res.status(400).json({ message: "Invalid webhook payload" });
+      }
       if (!masterKey) {
         console.error("❌ PayDunya webhook rejeté : clé de vérification non configurée");
         return res.status(503).json({ message: "Webhook signature not configured" });

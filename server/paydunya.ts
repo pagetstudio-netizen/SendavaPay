@@ -316,7 +316,34 @@ export function verifyPayDunyaWebhook(hash: string): boolean {
   const masterKey = getCredential("PAYDUNYA_MASTER_KEY");
   if (!masterKey || !hash) return false;
   const expected = crypto.createHash("sha512").update(masterKey).digest("hex");
-  return expected === hash;
+  const received = hash.trim().toLowerCase();
+  if (received.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(received));
+}
+
+/**
+ * PayDunya posts checkout callbacks as application/x-www-form-urlencoded with
+ * the entire payment payload JSON-encoded in the `data` field. JSON callbacks
+ * from compatible integrations may already expose that field as an object.
+ */
+export function normalizePayDunyaWebhookPayload(body: unknown): Record<string, any> | null {
+  if (!body || typeof body !== "object") return null;
+
+  const nestedData = (body as Record<string, unknown>).data;
+  if (typeof nestedData === "string") {
+    try {
+      const parsed = JSON.parse(nestedData);
+      return parsed && typeof parsed === "object" ? parsed as Record<string, any> : null;
+    } catch {
+      return null;
+    }
+  }
+
+  if (nestedData && typeof nestedData === "object") {
+    return nestedData as Record<string, any>;
+  }
+
+  return body as Record<string, any>;
 }
 
 // ─── Connectivity test (for admin diagnostics) ─────────────────────────────────

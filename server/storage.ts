@@ -214,6 +214,8 @@ export interface IStorage {
   updateWithdrawalRequest(id: number, updates: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined>;
   getProcessingWithdrawalRequests(): Promise<WithdrawalRequest[]>;
   getWithdrawalRequestByExternalRef(externalRef: string): Promise<WithdrawalRequest | undefined>;
+  transitionWithdrawalRequest(id: number, currentStatus: string, updates: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined>;
+  completeWithdrawalRequest(id: number, currentStatus: string, updates: Partial<WithdrawalRequest>, transaction: InsertTransaction): Promise<WithdrawalRequest | undefined>;
   
   createLeekpayPayment(payment: Partial<LeekpayPayment>): Promise<LeekpayPayment>;
   getLeekpayPaymentById(leekpayPaymentId: string): Promise<LeekpayPayment | undefined>;
@@ -876,6 +878,33 @@ export class DatabaseStorage implements IStorage {
   async getWithdrawalRequestByExternalRef(externalRef: string): Promise<WithdrawalRequest | undefined> {
     const [request] = await getDb().select().from(withdrawalRequests).where(eq(withdrawalRequests.externalReference, externalRef));
     return request;
+  }
+
+  async transitionWithdrawalRequest(id: number, currentStatus: string, updates: Partial<WithdrawalRequest>): Promise<WithdrawalRequest | undefined> {
+    const [request] = await getDb()
+      .update(withdrawalRequests)
+      .set(updates)
+      .where(and(eq(withdrawalRequests.id, id), eq(withdrawalRequests.status, currentStatus)))
+      .returning();
+    return request;
+  }
+
+  async completeWithdrawalRequest(
+    id: number,
+    currentStatus: string,
+    updates: Partial<WithdrawalRequest>,
+    transaction: InsertTransaction,
+  ): Promise<WithdrawalRequest | undefined> {
+    return getDb().transaction(async (tx) => {
+      const [request] = await tx
+        .update(withdrawalRequests)
+        .set(updates)
+        .where(and(eq(withdrawalRequests.id, id), eq(withdrawalRequests.status, currentStatus)))
+        .returning();
+      if (!request) return undefined;
+      await tx.insert(transactions).values(transaction);
+      return request;
+    });
   }
 
   async createLeekpayPayment(payment: Partial<LeekpayPayment>): Promise<LeekpayPayment> {

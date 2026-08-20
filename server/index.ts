@@ -11,6 +11,7 @@ import { refreshBlacklistCache } from "./blacklist-check";
 import { storage } from "./storage";
 import { getCredential } from "./credentials";
 import { blockSensitivePaths } from "./security";
+import { reconcileMbiyoPayWithdrawals } from "./mbiyopay-reconciliation";
 
 const app = express();
 const httpServer = createServer(app);
@@ -597,14 +598,30 @@ async function initializeWithTimeout<T>(
   // ===== Register Telegram webhook (T006) =====
   async function registerTelegramWebhook() {
     const token = getCredential("TELEGRAM_BOT_TOKEN");
-    if (!token) return;
+    const webhookSecret = getCredential("TELEGRAM_WEBHOOK_SECRET");
+    if (!token) {
+      log("Telegram webhook skipped: TELEGRAM_BOT_TOKEN not configured", "telegram");
+      return;
+    }
+    if (!webhookSecret) {
+      log("Telegram webhook skipped: TELEGRAM_WEBHOOK_SECRET not configured", "telegram");
+      return;
+    }
+    if (!/^[A-Za-z0-9_-]{1,256}$/.test(webhookSecret)) {
+      log("Telegram webhook skipped: TELEGRAM_WEBHOOK_SECRET must use only letters, numbers, _ or -", "telegram");
+      return;
+    }
     try {
       const siteUrl = (process.env.SITE_URL || process.env.APP_URL || "https://sendavapay.com").replace(/\/$/, "");
       const webhookUrl = `${siteUrl}/api/webhook/telegram`;
       const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: webhookUrl, allowed_updates: ["message", "callback_query"] }),
+        body: JSON.stringify({
+          url: webhookUrl,
+          secret_token: webhookSecret,
+          allowed_updates: ["message", "callback_query"],
+        }),
       });
       const data = await res.json() as { ok: boolean; description?: string };
       if (data.ok) {
@@ -614,6 +631,22 @@ async function initializeWithTimeout<T>(
       }
     } catch (err) {
       log(`Telegram webhook registration error: ${err}`, "telegram");
+    }
+  }
+
+  let mbiyoReconciliationRunning = false;
+  async function reconcileStuckMbiyoPayWithdrawals() {
+    if (mbiyoReconciliationRunning) return;
+    mbiyoReconciliationRunning = true;
+    try {
+      const result = await reconcileMbiyoPayWithdrawals();
+      if (result.checked > 0) {
+        log(`MbiyoPay payout reconciliation: ${result.finalized}/${result.checked} finalized`, "mbiyopay");
+      }
+    } catch (error) {
+      log(`MbiyoPay payout reconciliation error: ${error}`, "mbiyopay");
+    } finally {
+      mbiyoReconciliationRunning = false;
     }
   }
 
@@ -627,6 +660,8 @@ async function initializeWithTimeout<T>(
       log(`serving on port ${port}`);
       scheduleDailyReport();
       registerTelegramWebhook().catch(err => log(`Telegram webhook setup error: ${err}`, "telegram"));
+      setTimeout(() => reconcileStuckMbiyoPayWithdrawals(), 30_000);
+      setInterval(reconcileStuckMbiyoPayWithdrawals, 5 * 60_000);
     },
   );
 })();
