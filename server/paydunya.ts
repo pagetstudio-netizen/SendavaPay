@@ -367,21 +367,28 @@ export function verifyPayDunyaWebhook(hash: string): boolean {
 export function normalizePayDunyaWebhookPayload(body: unknown): Record<string, any> | null {
   if (!body || typeof body !== "object") return null;
 
-  const nestedData = (body as Record<string, unknown>).data;
+  const outer = body as Record<string, any>;
+  const nestedData = outer.data;
   if (typeof nestedData === "string") {
     try {
       const parsed = JSON.parse(nestedData);
-      return parsed && typeof parsed === "object" ? parsed as Record<string, any> : null;
+      // PayDunya utilise deux formats selon le produit/version :
+      // - tout le callback JSON dans `data`;
+      // - `data` pour le paiement et `hash` au niveau supérieur.
+      // Fusionner les deux conserve le hash dans les deux cas.
+      return parsed && typeof parsed === "object"
+        ? { ...outer, ...parsed } as Record<string, any>
+        : null;
     } catch {
       return null;
     }
   }
 
   if (nestedData && typeof nestedData === "object") {
-    return nestedData as Record<string, any>;
+    return { ...outer, ...nestedData } as Record<string, any>;
   }
 
-  return body as Record<string, any>;
+  return outer;
 }
 
 // ─── Connectivity test (for admin diagnostics) ─────────────────────────────────

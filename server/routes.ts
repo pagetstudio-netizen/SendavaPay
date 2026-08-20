@@ -10227,7 +10227,13 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   // Webhook PayDunya — Retraits (PUSH disbursement callback)
   app.post("/api/webhook/paydunya-disburse", async (req, res) => {
     try {
-      const data = req.body;
+      // Les callbacks de retrait peuvent également être form-encoded avec
+      // les données encodées dans `data`, comme les callbacks de checkout.
+      const data = normalizePayDunyaWebhookPayload(req.body);
+      if (!data) {
+        console.error("❌ PayDunya disburse webhook rejeté : payload invalide");
+        return res.status(400).json({ message: "Invalid webhook payload" });
+      }
 
       // ── Vérification hash PayDunya ──────────────────────────────────────────
       const pdHash = data?.hash;
