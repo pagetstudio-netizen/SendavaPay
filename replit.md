@@ -4,7 +4,8 @@ A fintech payment platform for West and Central African markets enabling Mobile 
 
 ## Run & Operate
 
-- **Dev**: `npm run dev` (uses `npx tsx server/index.ts`)
+- **Replit preview**: the `Start application` workflow runs `npm run dev` on port 5000.
+- **Dev**: `npm run dev` (uses the local `tsx` executable to serve the app on port 5000)
 - **Build**: `npm run build`
 - **Start (prod)**: `npm start`
 - **DB push**: `npm run db:push`
