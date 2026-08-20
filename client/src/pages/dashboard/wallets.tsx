@@ -90,7 +90,7 @@ export default function WalletsPage() {
   const [toWalletId, setToWalletId] = useState("");
   const [exchangeAmount, setExchangeAmount] = useState("");
 
-  const { data, isLoading } = useQuery<{ wallets: WalletType[]; exchanges: WalletExchange[]; userBalance: string }>({
+  const { data, isLoading } = useQuery<{ wallets: WalletType[]; exchanges: WalletExchange[]; userBalance: string; walletExchangeEnabled?: boolean }>({
     queryKey: ["/api/wallets"],
   });
 
@@ -98,6 +98,7 @@ export default function WalletsPage() {
   const wallets = (data?.wallets ?? []).filter(w => !HIDDEN_COUNTRIES.includes(w.countryCode));
   const exchanges = data?.exchanges ?? [];
   const userBalance = parseFloat(data?.userBalance || "0");
+  const walletExchangeEnabled = data?.walletExchangeEnabled !== false;
 
   const exchangeMutation = useMutation({
     mutationFn: async () => {
@@ -170,7 +171,7 @@ export default function WalletsPage() {
               Chaque dépôt est crédité dans le portefeuille du pays de l'opérateur utilisé.
             </p>
           </div>
-          {canExchange && (
+          {canExchange && walletExchangeEnabled && (
             <Dialog open={exchangeOpen} onOpenChange={setExchangeOpen}>
               <DialogTrigger asChild>
                 <Button className="gap-2" data-testid="button-open-exchange">
@@ -273,6 +274,20 @@ export default function WalletsPage() {
           )}
         </div>
 
+        {!walletExchangeEnabled && (
+          <Card className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
+            <CardContent className="p-4 flex items-start gap-3">
+              <ArrowLeftRight className="h-5 w-5 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div className="text-sm text-amber-800 dark:text-amber-200">
+                <p className="font-semibold">Échange entre wallets indisponible</p>
+                <p className="mt-1">
+                  Nous travaillons sur cette fonctionnalité. En attendant, les fonds reçus dans un pays seront retirés dans ce même pays.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
 
         {/* Solde total */}
         {userBalance > 0 && (
@@ -346,7 +361,7 @@ export default function WalletsPage() {
                         </div>
                         <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/50">
                           <span />
-                          {zoneWallets.length >= 2 && (
+                          {zoneWallets.length >= 2 && walletExchangeEnabled && (
                             <button
                               className={`text-xs flex items-center gap-1 ${colors2.text} hover:underline`}
                               onClick={() => {

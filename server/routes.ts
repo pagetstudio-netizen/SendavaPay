@@ -1033,11 +1033,13 @@ export async function registerRoutes(
   app.get("/api/wallets", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const [userWallets, exchanges, user] = await Promise.all([
+      const [userWallets, exchanges, user, walletExchangeSetting] = await Promise.all([
         storage.getUserWallets(userId),
         storage.getWalletExchanges(userId),
         storage.getUser(userId),
+        storage.getSetting("wallet_exchange_enabled"),
       ]);
+      const walletExchangeEnabled = walletExchangeSetting !== "false";
 
       // Sync wallet balances if there is a discrepancy with users.balance
       const walletTotal = userWallets.reduce((s, w) => s + parseFloat(w.balance), 0);
@@ -1045,10 +1047,10 @@ export async function registerRoutes(
       if (userBalance > walletTotal + 1) {
         await storage.syncWalletsFromTransactions(userId).catch((e: any) => console.error("Wallet sync error:", e));
         const updatedWallets = await storage.getUserWallets(userId);
-        return res.json({ wallets: updatedWallets, exchanges, userBalance: user?.balance || "0" });
+        return res.json({ wallets: updatedWallets, exchanges, userBalance: user?.balance || "0", walletExchangeEnabled });
       }
 
-      res.json({ wallets: userWallets, exchanges, userBalance: user?.balance || "0" });
+      res.json({ wallets: userWallets, exchanges, userBalance: user?.balance || "0", walletExchangeEnabled });
     } catch (error) {
       console.error("Get wallets error:", error);
       res.status(500).json({ message: "Erreur serveur" });
@@ -1057,6 +1059,14 @@ export async function registerRoutes(
 
   app.post("/api/wallets/exchange", requireAuth, async (req, res) => {
     try {
+      const walletExchangeSetting = await storage.getSetting("wallet_exchange_enabled");
+      if (walletExchangeSetting === "false") {
+        return res.status(503).json({
+          message: "L'échange entre wallets est indisponible pour le moment. Nous travaillons sur cette fonctionnalité. En attendant, les fonds reçus dans un pays seront retirés dans ce même pays.",
+          code: "WALLET_EXCHANGE_DISABLED",
+        });
+      }
+
       const { fromWalletId, toWalletId, amount } = req.body;
       const numAmount = parseFloat(amount);
 
@@ -8631,7 +8641,13 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
       const settings = await storage.getCommissionSettings();
       const walletExchangeRate = await storage.getSetting("wallet_exchange_rate");
       const partnerWalletExchangeFee = await storage.getSetting("partner_wallet_exchange_fee");
-      res.json({ ...(settings || { depositRate: "7", encaissementRate: "5", withdrawalRate: "7" }), walletExchangeRate: walletExchangeRate || "4", partnerWalletExchangeFee: partnerWalletExchangeFee || "2" });
+      const walletExchangeEnabled = await storage.getSetting("wallet_exchange_enabled");
+      res.json({
+        ...(settings || { depositRate: "7", encaissementRate: "5", withdrawalRate: "7" }),
+        walletExchangeRate: walletExchangeRate || "4",
+        partnerWalletExchangeFee: partnerWalletExchangeFee || "2",
+        walletExchangeEnabled: walletExchangeEnabled !== "false",
+      });
     } catch (error) {
       console.error("Get admin settings error:", error);
       res.status(500).json({ message: "Erreur serveur" });
@@ -8672,7 +8688,7 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
 
   app.post("/api/admin/fees/update", requireAdmin, async (req, res) => {
     try {
-      const { depositRate, encaissementRate, withdrawalRate, walletExchangeRate, reason } = req.body;
+      const { depositRate, encaissementRate, withdrawalRate, walletExchangeRate, walletExchangeEnabled, reason } = req.body;
       
       const rates = { depositRate, encaissementRate, withdrawalRate };
       for (const [key, value] of Object.entries(rates)) {
@@ -8689,6 +8705,12 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
           return res.status(400).json({ message: "Le taux d'échange wallet doit être entre 0 et 20%" });
         }
         await storage.setSetting("wallet_exchange_rate", parseFloat(walletExchangeRate).toFixed(2));
+      }
+      if (walletExchangeEnabled !== undefined && typeof walletExchangeEnabled !== "boolean") {
+        return res.status(400).json({ message: "Le statut de l'échange wallet est invalide" });
+      }
+      if (walletExchangeEnabled !== undefined) {
+        await storage.setSetting("wallet_exchange_enabled", walletExchangeEnabled ? "true" : "false");
       }
 
       const { partnerWalletExchangeFee } = req.body;
