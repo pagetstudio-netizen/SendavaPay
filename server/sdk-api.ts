@@ -342,14 +342,6 @@ export async function autoDispatchSdkWithdrawal(
   // Guard: only dispatch pending withdrawals
   if (wr.status !== "pending") return;
 
-  // Résolution de l'URL publique — l'ordre de priorité garantit que PayDunya
-  // envoie son callback au bon serveur (production > Replit déployé > dev Replit).
-  const replitDomain = process.env.REPLIT_DOMAINS
-    ? `https://${process.env.REPLIT_DOMAINS.split(",")[0].trim()}`
-    : process.env.REPLIT_DEV_DOMAIN
-      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-      : null;
-  const appUrl = process.env.APP_URL || process.env.SITE_URL || replitDomain || "https://sendavapay.com";
   // Toujours envoyer le montant COMPLET demandé par le marchand au destinataire.
   // Les frais ont déjà été débités du wallet marchand au moment de la création du retrait.
   // Ne jamais utiliser wr.netAmount qui peut contenir amount-fee (ancienne logique).
@@ -408,7 +400,12 @@ export async function autoDispatchSdkWithdrawal(
   // ─── PayDunya ──────────────────────────────────────────────────────────────
   if (gateway === "paydunya") {
     try {
-      const { payDunyaDisburse, formatPhoneForPayDunya, getPayDunyaWithdrawMode } = await import("./paydunya");
+      const {
+        payDunyaDisburse,
+        formatPhoneForPayDunya,
+        getPayDunyaWithdrawMode,
+        getPayDunyaDisbursementCallbackUrl,
+      } = await import("./paydunya");
       const withdrawMode = getPayDunyaWithdrawMode(operatorName, countryCode);
       if (!withdrawMode) {
         await markSdkWithdrawalFailed(entry, wr, txn, `Mode retrait PayDunya introuvable pour ${operatorName}/${countryCode}`);
@@ -421,7 +418,7 @@ export async function autoDispatchSdkWithdrawal(
         accountAlias: cleanPhone,
         amount:       netAmount,
         withdrawMode,
-        callbackUrl:  `${appUrl}/api/webhook/paydunya`,
+        callbackUrl:  getPayDunyaDisbursementCallbackUrl(),
         disburseId:   pdRef,
       });
       const pdRaw = JSON.stringify({ success: pdResult.success, status: pdResult.status, transactionId: pdResult.transactionId, error: pdResult.error });

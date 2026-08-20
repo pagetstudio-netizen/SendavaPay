@@ -10253,6 +10253,18 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
       // ── Vérification hash PayDunya ──────────────────────────────────────────
       const pdHash = data?.hash;
       const masterKey = getCredential("PAYDUNYA_MASTER_KEY");
+      const hasBusinessIdentifier = Boolean(
+        data?.disburse_id ||
+        data?.transaction_id ||
+        data?.token
+      );
+      // PayDunya peut envoyer un POST de contrôle sans données métier avant
+      // d'autoriser le retrait. Répondre 200 ne traite aucune opération et
+      // permet la validation d'accessibilité du callback.
+      if (!pdHash && !hasBusinessIdentifier) {
+        console.log(`[PayDunya] POST de contrôle retrait accepté (ip=${getClientIp(req) || "?"})`);
+        return res.status(200).json({ status: "ok" });
+      }
       if (!masterKey) {
         console.error("❌ PayDunya disburse webhook rejeté : clé de vérification non configurée");
         return res.status(503).json({ message: "Webhook signature not configured" });

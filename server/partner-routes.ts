@@ -2837,7 +2837,12 @@ export function registerPartnerRoutes(app: Express) {
       }
 
       if (selectedOperator.paymentGateway === "paydunya") {
-        const { payDunyaDisburse, getPayDunyaWithdrawMode, formatPhoneForPayDunya } = await import("./paydunya");
+        const {
+          payDunyaDisburse,
+          getPayDunyaWithdrawMode,
+          formatPhoneForPayDunya,
+          getPayDunyaDisbursementCallbackUrl,
+        } = await import("./paydunya");
         const withdrawMode = getPayDunyaWithdrawMode(selectedOperator.name, selectedCountry.code);
         if (!withdrawMode) {
           await restore();
@@ -2867,7 +2872,7 @@ export function registerPartnerRoutes(app: Express) {
             accountAlias: cleanPhone,
             amount: netAmount,
             withdrawMode,
-            callbackUrl: `${process.env.BASE_URL || process.env.APP_URL || "https://sendavapay.com"}/api/webhook/paydunya`,
+            callbackUrl: getPayDunyaDisbursementCallbackUrl(),
             disburseId: pdRef,
           });
 
