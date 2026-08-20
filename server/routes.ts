@@ -3990,28 +3990,50 @@ export async function registerRoutes(
   app.post("/api/webhook/mbiyopay", async (req, res) => {
     try {
       const data = req.body;
-      const verification = verifyHmacWebhook(req, "MBIYOPAY_WEBHOOK_SECRET");
-      if (!verification.valid) {
-        console.error(`❌ MbiyoPay webhook rejeté : ${verification.reason}`);
-        notifyWebhookRejected({ gateway: "MbiyoPay", ip: req.ip || "?", reason: verification.reason, path: "/api/webhook/mbiyopay" });
-        return res.status(verification.reason.includes("non configuré") ? 503 : 401).json({ message: "Unauthorized" });
+      const transactionId = typeof data?.transaction_id === "string" ? data.transaction_id.trim() : "";
+      const orderId = typeof data?.order_id === "string" ? data.order_id.trim() : "";
+      if (!transactionId) {
+        notifyWebhookRejected({ gateway: "MbiyoPay", ip: req.ip || "?", reason: "transaction_id manquant", path: "/api/webhook/mbiyopay" });
+        return res.status(400).json({ message: "Invalid webhook payload" });
       }
+
+      // MbiyoPay ne documente pas d'en-tête de signature pour ses callbacks.
+      // Le statut fournisseur est donc confirmé avec l'API marchande avant tout
+      // changement de solde ou de statut local.
+      let providerStatus = "";
+      try {
+        const { mbiyopay: mbClient } = await import("./mbiyopay");
+        const providerTransaction = await mbClient.getTransaction(transactionId);
+        const providerTransactionId = String(
+          providerTransaction.transaction_id || providerTransaction.id || "",
+        ).trim();
+        if (providerTransactionId && providerTransactionId !== transactionId) {
+          notifyWebhookRejected({ gateway: "MbiyoPay", ip: req.ip || "?", reason: "Référence fournisseur incohérente", path: "/api/webhook/mbiyopay" });
+          return res.status(401).json({ message: "Unauthorized" });
+        }
+        providerStatus = String(providerTransaction.status || "").toLowerCase().trim();
+        if (!providerStatus) {
+          notifyWebhookRejected({ gateway: "MbiyoPay", ip: req.ip || "?", reason: "Statut absent dans la vérification API", path: "/api/webhook/mbiyopay" });
+          return res.status(401).json({ message: "Unauthorized" });
+        }
+      } catch (error) {
+        console.error("❌ MbiyoPay webhook: vérification API impossible", error);
+        return res.status(503).json({ message: "Payment verification temporarily unavailable" });
+      }
+
+      const successfulStatuses = new Set(["success", "successful", "completed"]);
+      const reportedStatus = String(data?.status || "").toLowerCase().trim();
+      if (successfulStatuses.has(reportedStatus) && !successfulStatuses.has(providerStatus)) {
+        console.warn(`⚠️ MbiyoPay webhook: succès non confirmé par l'API (status=${providerStatus || "absent"})`);
+        return res.status(409).json({ message: "Payment status not yet confirmed" });
+      }
+
       res.status(200).json({ received: true });
 
-      const txStatus = (data?.status || "").toLowerCase();
-      const transactionId = data?.transaction_id;
-      const orderId = data?.order_id;
-
-      const lookupId = transactionId || orderId;
-      if (!lookupId) {
-        console.error("❌ MbiyoPay webhook: transaction_id et order_id manquants");
-        return;
-      }
+      const txStatus = successfulStatuses.has(providerStatus) ? "successful" : providerStatus;
+      const lookupId = transactionId;
 
       let payment = await storage.getLeekpayPaymentById(lookupId);
-      if (!payment && orderId && orderId !== lookupId) {
-        payment = await storage.getLeekpayPaymentById(orderId);
-      }
 
       if (!payment) {
         const { db } = await import("./db");
@@ -4041,6 +4063,16 @@ export async function registerRoutes(
           if (mbFbRow) {
             partnerTx = mbFbRow;
             console.log(`[MbiyoPay] TX trouvée par fallback metadata: ref=${partnerTx.reference}`);
+          }
+        }
+
+        if (partnerTx) {
+          let partnerMetadata: any = {};
+          try { partnerMetadata = JSON.parse(partnerTx.metadata as string || "{}"); } catch {}
+          if (partnerMetadata.mbTransactionId !== transactionId) {
+            console.error("❌ MbiyoPay webhook: référence fournisseur ne correspond pas à la transaction partenaire");
+            notifyWebhookRejected({ gateway: "MbiyoPay", ip: req.ip || "?", reason: "Référence partenaire non concordante", path: "/api/webhook/mbiyopay" });
+            return;
           }
         }
 
@@ -4253,6 +4285,11 @@ export async function registerRoutes(
       const mbWdRef = data?.order_id || data?.transaction_id || lookupId;
       if (mbWdRef) {
         const withdrawalReq = await storage.getWithdrawalRequestByExternalRef(mbWdRef);
+        if (withdrawalReq && withdrawalReq.transactionReference !== transactionId) {
+          console.error("❌ MbiyoPay webhook: référence fournisseur ne correspond pas au retrait");
+          notifyWebhookRejected({ gateway: "MbiyoPay", ip: req.ip || "?", reason: "Référence retrait non concordante", path: "/api/webhook/mbiyopay" });
+          return;
+        }
         if (withdrawalReq && withdrawalReq.status === "processing") {
           const wAmount = parseFloat(withdrawalReq.amount as string);
           const wFee = parseFloat(withdrawalReq.fee as string || "0");
