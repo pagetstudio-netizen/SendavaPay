@@ -625,6 +625,7 @@ export async function payDunyaDisburse(params: PayDunyaDisburseParams): Promise<
     withdraw_mode: params.withdrawMode,
     callback_url:  params.callbackUrl,
   };
+  console.log(`[PayDunya] disbursement callback URL: ${params.callbackUrl}`);
 
   const res1 = await safePayDunyaFetch(url1, { method: "POST", body: JSON.stringify(body1) }, 25000);
   if (res1.error) return { success: false, error: res1.error };
