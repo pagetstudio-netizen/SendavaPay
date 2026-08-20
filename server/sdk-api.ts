@@ -3,7 +3,7 @@ import { storage } from "./storage";
 import crypto from "crypto";
 import { z } from "zod";
 import type { User, ApiKey } from "@shared/schema";
-import { getServiceById, getServicesByCountry, SOLEASPAY_SERVICES, formatPhoneForSoleasPay } from "./soleaspay";
+import { getServiceById, getServicesByCountry, SOLEASPAY_SERVICES, formatPhoneForSoleasPay, getServiceByOperator, resolveConfiguredOperator } from "./soleaspay";
 import { getSoftPayOperator, SOFTPAY_OPERATORS } from "./paydunya-softpay-map";
 
 const router = Router();
@@ -358,34 +358,35 @@ export async function autoDispatchSdkWithdrawal(
   const currency    = txn.currency || "XOF";
   const countryCode = (wr.country || "").toUpperCase();
 
-  // Look up operator in DB to detect gateway, fallback to static SOLEASPAY_SERVICES list
-  let gateway = ""; // empty = not yet resolved
+  // The database is the source of truth for the gateway. Static services only
+  // help identify the operator requested by the merchant.
+  let gateway = "";
   let operatorName = wr.paymentMethod || "";
+  let isOperatorActive = false;
   try {
     const countries = await storage.getCountries();
     const operators = await storage.getOperators();
-    const selectedCountry = countries.find((c: any) => c.code.toUpperCase() === countryCode);
-    if (selectedCountry) {
-      const countryOps = operators.filter((op: any) => op.countryId === selectedCountry.id);
-      const selectedOperator = countryOps.find((op: any) =>
-        op.name.toLowerCase() === operatorName.toLowerCase() ||
-        op.code === operatorName
-      );
-      if (selectedOperator?.paymentGateway) gateway = selectedOperator.paymentGateway;
-      if (selectedOperator?.name) operatorName = selectedOperator.name;
-    }
+    const service = getServiceByOperator(countryCode, operatorName);
+    const selectedOperator = service
+      ? resolveConfiguredOperator(service, operators, countries)
+      : undefined;
+    if (selectedOperator?.paymentGateway) gateway = selectedOperator.paymentGateway;
+    if (selectedOperator?.name) operatorName = selectedOperator.name;
+    isOperatorActive = selectedOperator?.isActive !== false;
   } catch (e) {
     console.warn("[sdk-withdrawal] Erreur lookup opérateur DB:", e);
   }
 
-  // Fallback: look up in static SOLEASPAY_SERVICES list
-  if (!gateway) {
-    const staticService = SOLEASPAY_SERVICES.find(s =>
-      s.countryCode.toUpperCase() === countryCode &&
-      s.operator.toLowerCase() === operatorName.toLowerCase()
+  if (!gateway || !isOperatorActive) {
+    await markSdkWithdrawalFailed(
+      entry,
+      wr,
+      txn,
+      !gateway
+        ? `Opérateur ${operatorName}/${countryCode} non configuré dans l’administration`
+        : `Opérateur ${operatorName}/${countryCode} désactivé dans l’administration`,
     );
-    gateway = staticService?.paymentGateway || "soleaspay";
-    console.log(`[sdk-withdrawal] Gateway détecté via liste statique: ${gateway} (opérateur=${operatorName}, pays=${countryCode})`);
+    return;
   }
 
   console.log(`[sdk-withdrawal] Dispatch ref=${txn.reference} opérateur="${operatorName}" pays=${countryCode} gateway="${gateway}" montant=${netAmount} ${currency} → ${mobileNumber}`);
@@ -923,6 +924,7 @@ router.get("/v1/countries", sdkCors, async (_req: Request, res: Response) => {
         currency:  c.currency,
         operators: getServicesByCountry(c.countryCode).length,
       }));
+    res.setHeader("Cache-Control", "no-store, max-age=0");
     res.json({ success: true, data });
   } catch {
     res.status(500).json({ success: false, error: "Erreur serveur", code: "SERVER_ERROR" });
@@ -940,17 +942,21 @@ router.get("/v1/operators/:countryCode", sdkCors, async (req: Request, res: Resp
       return res.json({ success: true, data: [] });
     }
 
-    const dbOperators = await storage.getOperators();
+    const [dbOperators, dbCountries] = await Promise.all([
+      storage.getOperators(),
+      storage.getCountries(),
+    ]);
 
-    const data = services.map(service => {
-      const dbOp          = dbOperators.find(op => op.code === service.id.toString());
-      const gateway       = dbOp?.paymentGateway || service.paymentGateway || "soleaspay";
-      const inMaintenance = (dbOp?.inMaintenance || dbOp?.maintenanceApi) ?? false;
+    const data = services.flatMap(service => {
+      const dbOp = resolveConfiguredOperator(service, dbOperators, dbCountries);
+      if (!dbOp?.paymentGateway) return [];
+      const gateway       = dbOp.paymentGateway;
+      const inMaintenance = dbOp.isActive === false || (dbOp.inMaintenance || dbOp.maintenanceApi) || false;
       const pdOp          = gateway === "paydunya" ? getSoftPayOperator(service.operator, service.countryCode) : null;
       const requiresOtp   = pdOp?.requiresOtp ?? false;
       const slug          = getOperatorSlug({ ...service, paymentGateway: gateway });
 
-      return {
+      return [{
         id:          String(service.id),
         name:        service.description,
         operator:    service.operator,
@@ -961,9 +967,10 @@ router.get("/v1/operators/:countryCode", sdkCors, async (req: Request, res: Resp
         requiresOtp,
         status:      inMaintenance ? "offline" : "online",
         available:   !inMaintenance,
-      };
+      }];
     });
 
+    res.setHeader("Cache-Control", "no-store, max-age=0");
     res.json({ success: true, data });
   } catch {
     res.status(500).json({ success: false, error: "Erreur serveur", code: "SERVER_ERROR" });
@@ -974,15 +981,19 @@ router.get("/v1/operators/:countryCode", sdkCors, async (req: Request, res: Resp
 router.options("/v1/operators-status", sdkCors);
 router.get("/v1/operators-status", sdkCors, async (_req: Request, res: Response) => {
   try {
-    const dbOperators = await storage.getOperators();
+    const [dbOperators, dbCountries] = await Promise.all([
+      storage.getOperators(),
+      storage.getCountries(),
+    ]);
 
-    const data = SOLEASPAY_SERVICES.map(service => {
-      const dbOp          = dbOperators.find(op => op.code === service.id.toString());
-      const inMaintenance = (dbOp?.inMaintenance || dbOp?.maintenanceApi) ?? false;
-      const gateway       = dbOp?.paymentGateway || service.paymentGateway || "soleaspay";
+    const data = SOLEASPAY_SERVICES.flatMap(service => {
+      const dbOp = resolveConfiguredOperator(service, dbOperators, dbCountries);
+      if (!dbOp?.paymentGateway) return [];
+      const inMaintenance = dbOp.isActive === false || (dbOp.inMaintenance || dbOp.maintenanceApi) || false;
+      const gateway       = dbOp.paymentGateway;
       const slug          = getOperatorSlug({ ...service, paymentGateway: gateway });
 
-      return {
+      return [{
         id:            String(service.id),
         slug,
         operator:      service.operator,
@@ -990,10 +1001,11 @@ router.get("/v1/operators-status", sdkCors, async (_req: Request, res: Response)
         currency:      service.currency,
         gateway,
         depositStatus: inMaintenance ? "offline" : "online",
-        payoutStatus:  (dbOp?.inMaintenance || dbOp?.maintenanceWithdraw) ? "offline" : "online",
-      };
+        payoutStatus:  (dbOp.inMaintenance || dbOp.maintenanceWithdraw) ? "offline" : "online",
+      }];
     });
 
+    res.setHeader("Cache-Control", "no-store, max-age=0");
     res.json({ success: true, data });
   } catch {
     res.status(500).json({ success: false, error: "Erreur serveur", code: "SERVER_ERROR" });
@@ -1021,6 +1033,7 @@ router.get("/v1/payment-token/:token", sdkCors, async (req: Request, res: Respon
       if (apiKey?.appName) merchantName = apiKey.appName;
     }
 
+    res.setHeader("Cache-Control", "no-store, max-age=0");
     res.json({
       success: true,
       data: {
@@ -1101,9 +1114,26 @@ router.post("/v1/initiate-payment", sdkCors, async (req: Request, res: Response)
       });
     }
 
-    const dbOperators    = await storage.getOperators();
-    const dbOp           = dbOperators.find(op => op.code === String(data.operatorId));
-    const paymentGateway = dbOp?.paymentGateway || service.paymentGateway || "soleaspay";
+    const [dbOperators, dbCountries] = await Promise.all([
+      storage.getOperators(),
+      storage.getCountries(),
+    ]);
+    const dbOp = resolveConfiguredOperator(service, dbOperators, dbCountries);
+    if (!dbOp?.paymentGateway) {
+      return res.status(400).json({
+        success: false,
+        error: "Cet opérateur doit être configuré dans l’administration avant de recevoir des paiements",
+        code: "OPERATOR_NOT_CONFIGURED",
+      });
+    }
+    if (dbOp.isActive === false) {
+      return res.status(503).json({
+        success: false,
+        error: "Cet opérateur est désactivé dans l’administration",
+        code: "OPERATOR_UNAVAILABLE",
+      });
+    }
+    const paymentGateway = dbOp.paymentGateway;
 
     if (dbOp?.inMaintenance || dbOp?.maintenanceApi) {
       sdkLog({ req, endpoint: "initiate-payment", statusCode: 503, responseTimeMs: Date.now() - t0, operator: service.operator, country: payerCountry });
@@ -1632,10 +1662,19 @@ async function validateWithdrawal(
 
   let operatorStatus = "online";
   try {
-    const dbOperators = await storage.getOperators();
+    const [dbOperators, dbCountries] = await Promise.all([
+      storage.getOperators(),
+      storage.getCountries(),
+    ]);
     if (compatibleOp) {
-      const dbOp = dbOperators.find(op => op.code === String(compatibleOp.id));
-      if (dbOp?.inMaintenance || dbOp?.maintenanceWithdraw) {
+      const dbOp = resolveConfiguredOperator(compatibleOp, dbOperators, dbCountries);
+      if (!dbOp?.paymentGateway) {
+        return { ok: false, code: "OPERATOR_NOT_CONFIGURED", error: "Cet opérateur doit être configuré dans l’administration avant les retraits" };
+      }
+      if (dbOp.isActive === false) {
+        return { ok: false, code: "PAYOUT_OPERATOR_OFFLINE", error: "Cet opérateur est désactivé dans l’administration" };
+      }
+      if (dbOp.inMaintenance || dbOp.maintenanceWithdraw) {
         operatorStatus = "maintenance";
         return { ok: false, code: "PAYOUT_OPERATOR_OFFLINE", error: "Cet opérateur est temporairement indisponible pour les retraits" };
       }
@@ -1767,18 +1806,22 @@ router.get("/v1/withdrawal-status/:reference", checkApiMaintenance, authenticate
 router.get("/v1/payout-status", checkApiMaintenance, authenticateSdkKey, async (req: Request, res: Response) => {
   try {
     const countryFilter = (req.query.country as string | undefined)?.toUpperCase();
-    const dbOperators   = await storage.getOperators();
+    const [dbOperators, dbCountries] = await Promise.all([
+      storage.getOperators(),
+      storage.getCountries(),
+    ]);
 
     let services = SOLEASPAY_SERVICES;
     if (countryFilter) services = services.filter(s => s.countryCode.toUpperCase() === countryFilter);
 
-    const data = services.map(service => {
-      const dbOp         = dbOperators.find(op => op.code === String(service.id));
-      const payoutMaint  = dbOp?.inMaintenance || dbOp?.maintenanceWithdraw || false;
-      const depositMaint = dbOp?.inMaintenance || dbOp?.maintenanceDeposit  || false;
-      const gateway      = dbOp?.paymentGateway || service.paymentGateway || "soleaspay";
+    const data = services.flatMap(service => {
+      const dbOp = resolveConfiguredOperator(service, dbOperators, dbCountries);
+      if (!dbOp?.paymentGateway) return [];
+      const payoutMaint  = dbOp.isActive === false || dbOp.inMaintenance || dbOp.maintenanceWithdraw || false;
+      const depositMaint = dbOp.isActive === false || dbOp.inMaintenance || dbOp.maintenanceDeposit  || false;
+      const gateway      = dbOp.paymentGateway;
 
-      return {
+      return [{
         id:                    String(service.id),
         operator:              service.operator,
         country:               service.countryCode,
@@ -1786,14 +1829,15 @@ router.get("/v1/payout-status", checkApiMaintenance, authenticateSdkKey, async (
         gateway,
         payoutStatus:          payoutMaint  ? "offline" : "online",
         depositStatus:         depositMaint ? "offline" : "online",
-        maintenanceReason:     payoutMaint  ? ((dbOp as any)?.maintenanceReason || "Maintenance temporaire") : null,
+        maintenanceReason:     payoutMaint  ? ((dbOp as any).maintenanceReason || "Maintenance temporaire") : null,
         estimatedRecoveryTime: null,
-      };
+      }];
     });
 
     const online  = data.filter(d => d.payoutStatus === "online").length;
     const offline = data.filter(d => d.payoutStatus === "offline").length;
 
+    res.setHeader("Cache-Control", "no-store, max-age=0");
     res.json({
       success: true,
       data: {

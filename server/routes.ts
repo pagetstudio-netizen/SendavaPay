@@ -33,7 +33,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { leekpay } from "./leekpay";
-import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById } from "./soleaspay";
+import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById, resolveConfiguredOperator } from "./soleaspay";
 import { isDatabaseConnected, pool } from "./db";
 import merchantApi from "./merchant-api";
 import { registerPartnerRoutes } from "./partner-routes";
@@ -1560,6 +1560,7 @@ export async function registerRoutes(
       const data = SOLEASPAY_COUNTRIES
         .filter(c => !inactiveSet.has(c.code.toUpperCase()))
         .filter(c => SOLEASPAY_SERVICES.some(s => s.countryCode.toUpperCase() === c.code.toUpperCase()));
+      res.setHeader("Cache-Control", "no-store, max-age=0");
       res.json(data);
     } catch (error) {
       console.error("Get soleaspay countries error:", error);
@@ -1574,15 +1575,23 @@ export async function registerRoutes(
       const services    = getServicesByCountry(countryCode);
 
       let dbOperators: any[] = [];
+      let dbCountries: any[] = [];
       try {
-        dbOperators = await storage.getOperators();
-      } catch { /* table may not exist yet — use static data only */ }
+        [dbOperators, dbCountries] = await Promise.all([
+          storage.getOperators(),
+          storage.getCountries(),
+        ]);
+      } catch {
+        return res.status(503).json({
+          message: "La configuration des opérateurs est momentanément indisponible",
+        });
+      }
 
-      const data = services.map(service => {
-        const dbOp          = dbOperators.find((op: any) => op.code === service.id.toString());
-        const gateway       = dbOp?.paymentGateway || service.paymentGateway || "soleaspay";
-        const inMaintenance = !!(dbOp?.inMaintenance || dbOp?.maintenanceApi);
-        return {
+      const data = services.flatMap(service => {
+        const dbOp = resolveConfiguredOperator(service, dbOperators, dbCountries);
+        if (!dbOp?.paymentGateway) return [];
+
+        return [{
           id:             service.id,
           name:           service.name,
           description:    service.description,
@@ -1590,11 +1599,12 @@ export async function registerRoutes(
           countryCode:    service.countryCode,
           currency:       service.currency,
           operator:       service.operator,
-          paymentGateway: gateway,
-          inMaintenance,
-        };
+          paymentGateway: dbOp.paymentGateway,
+          inMaintenance: dbOp.isActive === false || !!(dbOp.inMaintenance || dbOp.maintenanceDeposit),
+        }];
       });
 
+      res.setHeader("Cache-Control", "no-store, max-age=0");
       res.json(data);
     } catch (error) {
       console.error("Get soleaspay services error:", error);
@@ -1629,13 +1639,24 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Service non trouvé" });
       }
 
-      const operators = await storage.getOperators();
-      const operator = operators.find(op => op.code === serviceId.toString());
-      if (operator?.inMaintenance || operator?.maintenanceDeposit) {
+      const [operators, countries] = await Promise.all([
+        storage.getOperators(),
+        storage.getCountries(),
+      ]);
+      const operator = resolveConfiguredOperator(service, operators, countries);
+      if (!operator?.paymentGateway) {
+        return res.status(400).json({
+          message: "Cet opérateur doit être configuré dans l’administration avant de recevoir des dépôts",
+        });
+      }
+      if (operator.isActive === false) {
+        return res.status(400).json({ message: "Cet opérateur est désactivé dans l’administration" });
+      }
+      if (operator.inMaintenance || operator.maintenanceDeposit) {
         return res.status(400).json({ message: "Ce moyen de paiement est actuellement en maintenance pour les dépôts" });
       }
 
-      const paymentGateway = operator?.paymentGateway || service.paymentGateway || "soleaspay";
+      const paymentGateway = operator.paymentGateway;
       const orderId = `DEP-${Date.now()}-${req.session.userId}`;
       const baseUrl = "https://sendavapay.com";
 
@@ -2303,12 +2324,23 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Vendeur non trouvé" });
       }
 
-      const operators = await storage.getOperators();
-      const operator = operators.find(op => op.code === serviceId.toString());
-      if (operator?.inMaintenance || operator?.maintenancePaymentLink) {
+      const [operators, countries] = await Promise.all([
+        storage.getOperators(),
+        storage.getCountries(),
+      ]);
+      const operator = resolveConfiguredOperator(service, operators, countries);
+      if (!operator?.paymentGateway) {
+        return res.status(400).json({
+          message: "Cet opérateur doit être configuré dans l’administration avant d’être utilisé pour un lien de paiement",
+        });
+      }
+      if (operator.isActive === false) {
+        return res.status(400).json({ message: "Cet opérateur est désactivé dans l’administration" });
+      }
+      if (operator.inMaintenance || operator.maintenancePaymentLink) {
         return res.status(400).json({ message: "Ce moyen de paiement est actuellement en maintenance pour les liens de paiement" });
       }
-      const paymentGateway = operator?.paymentGateway || service.paymentGateway || "soleaspay";
+      const paymentGateway = operator.paymentGateway;
 
       const orderId = `PAY-${linkCode}-${Date.now()}`;
       const baseUrl = "https://sendavapay.com";
@@ -11800,6 +11832,27 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
       const { getServiceById, formatPhoneForSoleasPay, soleaspay } = await import("./soleaspay");
       const service = getServiceById(parseInt(serviceId));
       if (!service) return res.status(400).json({ success: false, error: "Opérateur invalide" });
+      if (service.countryCode.toUpperCase() !== payerCountry.toUpperCase()) {
+        return res.status(400).json({ success: false, error: "Cet opérateur ne correspond pas au pays du payeur" });
+      }
+
+      const [operators, countries] = await Promise.all([
+        storage.getOperators(),
+        storage.getCountries(),
+      ]);
+      const configuredOperator = resolveConfiguredOperator(service, operators, countries);
+      if (!configuredOperator?.paymentGateway) {
+        return res.status(400).json({
+          success: false,
+          error: "Cet opérateur doit être configuré dans l’administration avant de recevoir des paiements",
+        });
+      }
+      if (configuredOperator.isActive === false) {
+        return res.status(503).json({ success: false, error: "Cet opérateur est désactivé dans l’administration" });
+      }
+      if (configuredOperator.inMaintenance || configuredOperator.maintenanceApi) {
+        return res.status(503).json({ success: false, error: "Cet opérateur est temporairement indisponible" });
+      }
 
       const amount = parseFloat((transaction as any).amount);
       const description = (transaction as any).description || `Paiement ${transaction.reference}`;
@@ -11827,12 +11880,12 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         customerPhone: payerPhone,
         customerEmail: payerEmail || null,
         fee: payinFee.toString(),
-        paymentMethod: service.operator,
+        paymentMethod: `${configuredOperator.paymentGateway}_${service.operator}`,
         payerCountry: payerCountryUpper,
         status: "processing",
       } as any);
 
-      const gateway = service.paymentGateway || "soleaspay";
+      const gateway = configuredOperator.paymentGateway;
 
       // ── PayDunya ──────────────────────────────────────────────────────────
       if (gateway === "paydunya") {
