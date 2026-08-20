@@ -1,5 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
+import crypto from "crypto";
 import express from "express";
 import { storage } from "./storage";
 import {
@@ -13,7 +14,7 @@ import {
   BLOCK_DURATION,
 } from "./security";
 import { createOtp, verifyOtp, verifyOtpByToken } from "./otp";
-import { isAdminWhitelisted } from "./init-admin";
+import { ADMIN_WHITELIST, isAdminWhitelisted } from "./init-admin";
 import {
   createPayDunyaCheckout, payDunyaDisburse, verifyPayDunyaWebhook,
   getPayDunyaWithdrawMode, formatPhoneForPayDunya,
@@ -24,13 +25,13 @@ import { getCredential } from "./credentials";
 import bcrypt from "bcryptjs";
 import session from "express-session";
 import { createRequire } from "module";
-const _require = createRequire(import.meta.url);
+import path from "path";
+const _require = createRequire(path.join(process.cwd(), "package.json"));
 const connectPg = _require('connect-pg-simple');
 const PgSession = connectPg(session);
 import { v4 as uuidv4 } from "uuid";
 import { registerSchema, loginSchema } from "@shared/schema";
 import multer from "multer";
-import path from "path";
 import fs from "fs";
 import { leekpay } from "./leekpay";
 import { soleaspay, SOLEASPAY_SERVICES, SOLEASPAY_COUNTRIES, getServicesByCountry, getCurrencyByCountry, getServiceById, resolveConfiguredOperator } from "./soleaspay";
@@ -96,9 +97,9 @@ const blockedUserIds = new Set<number>();
 export async function loadBlockedUsersCache(): Promise<void> {
   if (!pool) return;
   try {
-    const [rows] = await (pool as any).query(`SELECT id FROM users WHERE is_blocked = true`);
+    const result = await pool.query(`SELECT id FROM users WHERE is_blocked = true`);
     blockedUserIds.clear();
-    for (const row of (rows as any[])) blockedUserIds.add(Number(row.id));
+    for (const row of result.rows) blockedUserIds.add(Number(row.id));
     console.log(`[security] ${blockedUserIds.size} utilisateur(s) bloqué(s) chargé(s) en mémoire`);
   } catch (e) {
     console.error("[security] Échec chargement cache utilisateurs bloqués:", e);
@@ -350,14 +351,12 @@ export async function completeApiTransactionFromWebhook(
         const wAfter = walletsAfterCredit.find((wl: any) => wl.countryCode.toUpperCase() === cr.code.toUpperCase());
         const balanceAfter = wAfter ? parseFloat(wAfter.balance || "0") : 0;
 
-        console.log(
-          `[PAYMENT CREDIT ROUTING] reference=${row.reference} | payerCountry_db=${row.payer_country || "null"} | walletSélectionné=${cr.code} (${cr.name}) | montant=+${amount} fee=-${fee} net=+${amount - fee} ${currency} | soldeAvant=${balanceBefore} → soldeAprès=${balanceAfter} | provider=${provider}`
-        );
+        console.log("[payment] Wallet credit completed");
       } else {
-        console.warn(`[PAYMENT CREDIT ROUTING] reference=${row.reference} | payerCountry=${countryCode} | WALLET NON TROUVÉ pour ce pays — crédit wallet ignoré`);
+        console.warn("[payment] Wallet credit skipped: country wallet not found");
       }
     } else {
-      console.warn(`[PAYMENT CREDIT ROUTING] reference=${row.reference} | payerCountry_db=${row.payer_country || "null"} | payment_method=${row.payment_method || "null"} | PAYS NON DÉTERMINÉ — crédit wallet ignoré`);
+      console.warn("[payment] Wallet credit skipped: country could not be determined");
     }
   } catch (e) {
     console.error("[SDK webhook] Erreur crédit wallet pays:", e);
@@ -404,10 +403,10 @@ export async function completeApiTransactionFromWebhook(
       console.error("[SDK webhook] Erreur envoi webhook marchand:", e);
     }
   } else {
-    console.warn(`[SDK webhook/${provider}] Aucun webhook URL configuré pour api_key #${row.api_key_id} — marchand non notifié`);
+    console.warn("[SDK webhook] Merchant notification skipped: no webhook URL configured");
   }
 
-  console.log(`✅ [SDK webhook/${provider}] Transaction ${row.reference} complétée — net=${net} ${currency} → user #${row.user_id}`);
+  console.log("[SDK webhook] Payment completion processed");
 
   // 7. Notification Telegram pour paiement SDK complété
   try {
@@ -459,7 +458,7 @@ export async function failApiTransactionFromWebhook(
   `).catch(() => ({ rowCount: 0 }));
 
   if (((upd as any)?.rowCount || 0) === 0) {
-    console.log(`[SDK webhook fail/${provider}] Transaction déjà traitée id=${row.id} ref=${row.reference}`);
+    console.log("[SDK webhook] Payment failure already processed");
     return;
   }
 
@@ -493,10 +492,10 @@ export async function failApiTransactionFromWebhook(
       console.error(`[SDK webhook fail/${provider}] Erreur envoi webhook:`, e);
     }
   } else {
-    console.warn(`[SDK webhook fail/${provider}] Aucun webhook URL pour api_key #${row.api_key_id}`);
+    console.warn("[SDK webhook] Merchant failure notification skipped: no webhook URL configured");
   }
 
-  console.warn(`❌ [SDK webhook fail/${provider}] Transaction ${row.reference} échouée — raison: ${reason || "N/A"}`);
+  console.warn("[SDK webhook] Payment failure processed");
 }
 
 export async function registerRoutes(
@@ -529,11 +528,17 @@ export async function registerRoutes(
   const sessionSecret = (() => {
     const s = process.env.SESSION_SECRET;
     if (!s) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error("SESSION_SECRET doit être configuré en production");
+      }
       console.warn("[session] ⚠️  SESSION_SECRET non défini — sessions non persistantes entre redémarrages.");
       return require("crypto").randomBytes(48).toString("hex");
     }
     return s;
   })();
+  if (process.env.NODE_ENV === "production" && process.env.FORCE_HTTP_COOKIES === "true") {
+    throw new Error("FORCE_HTTP_COOKIES ne peut pas être activé en production");
+  }
 
   app.use(
     session({
@@ -542,8 +547,7 @@ export async function registerRoutes(
       resave: false,
       saveUninitialized: false,
       cookie: {
-        // secure:true uniquement si le client est réellement en HTTPS
-        secure: process.env.NODE_ENV === "production" && process.env.FORCE_HTTP_COOKIES !== "true",
+        secure: process.env.NODE_ENV === "production",
         httpOnly: true,
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 jours
         sameSite: "lax", // "lax" au lieu de "strict" pour compatibilité reverse-proxy
@@ -602,12 +606,12 @@ export async function registerRoutes(
   async function isTrustedDevice(userId: number, deviceToken: string | undefined): Promise<boolean> {
     if (!deviceToken || !pool) return false;
     try {
-      const [_rows] = await pool.query(
-        `SELECT id FROM trusted_devices WHERE user_id=? AND device_token=? LIMIT 1`,
+      const result = await pool.query(
+        `SELECT id FROM trusted_devices WHERE user_id=$1 AND device_token=$2 LIMIT 1`,
         [userId, deviceToken]
       );
-      if ((_rows as any[])[0]) {
-        pool.query(`UPDATE trusted_devices SET last_seen_at=NOW() WHERE device_token=?`, [deviceToken]).catch(() => {});
+      if (result.rows[0]) {
+        pool.query(`UPDATE trusted_devices SET last_seen_at=NOW() WHERE device_token=$1`, [deviceToken]).catch(() => {});
         return true;
       }
       return false;
@@ -618,7 +622,11 @@ export async function registerRoutes(
     if (!pool) return;
     try {
       await pool.query(
-        `INSERT INTO trusted_devices (user_id, device_token, ip_address, user_agent) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE last_seen_at=NOW()`,
+        `INSERT INTO trusted_devices (user_id, device_token, ip_address, user_agent)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (device_token) DO UPDATE
+         SET user_id=EXCLUDED.user_id, ip_address=EXCLUDED.ip_address,
+             user_agent=EXCLUDED.user_agent, last_seen_at=NOW()`,
         [userId, deviceToken, ip, userAgent]
       );
     } catch { /* ignore */ }
@@ -626,6 +634,40 @@ export async function registerRoutes(
 
   function getSiteUrl(): string {
     return (process.env.SITE_URL || process.env.APP_URL || "https://sendavapay.com").replace(/\/$/, "");
+  }
+
+  async function regenerateSession(req: Request): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      req.session.regenerate((error) => error ? reject(error) : resolve());
+    });
+  }
+
+  async function saveSession(req: Request): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      req.session.save((error) => error ? reject(error) : resolve());
+    });
+  }
+
+  function verifyHmacWebhook(req: Request, credentialName: string): { valid: boolean; reason: string } {
+    const secret = getCredential(credentialName);
+    if (!secret) return { valid: false, reason: `Secret ${credentialName} non configuré` };
+
+    const received = (
+      req.header("x-webhook-signature") ||
+      req.header("x-signature") ||
+      req.header("x-signature-256") ||
+      ""
+    ).replace(/^sha256=/i, "").trim();
+    if (!received) return { valid: false, reason: "Signature absente" };
+
+    const rawBody = (req as any).rawBody?.toString("utf8") || JSON.stringify(req.body || {});
+    const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+    if (received.length !== expected.length) return { valid: false, reason: "Signature invalide" };
+
+    return {
+      valid: crypto.timingSafeEqual(Buffer.from(received), Buffer.from(expected)),
+      reason: "Signature invalide",
+    };
   }
 
   app.post("/api/auth/register", registerRateLimit, suspiciousUaMiddleware, async (req, res) => {
@@ -817,12 +859,8 @@ export async function registerRoutes(
       // ── ADMIN : 2FA via Telegram uniquement ─────────────────────────────────
       if (user.role === "admin") {
         // ── Whitelist des emails autorisés à se connecter en tant qu'admin ────
-        const ADMIN_EMAIL_WHITELIST = [
-          "felidolayi@gmail.com",
-          "pagetstudio@gmail.com",
-        ];
         const userEmail = (user.email || "").toLowerCase().trim();
-        if (!ADMIN_EMAIL_WHITELIST.includes(userEmail)) {
+        if (ADMIN_WHITELIST.length > 0 && !isAdminWhitelisted(userEmail)) {
           // Email inconnu avec rôle admin = intrusion / manipulation de DB
           notifySystemError(
             "🚨 INTRUSION ADMIN BLOQUÉE",
@@ -897,7 +935,9 @@ export async function registerRoutes(
         }
       }
 
+      await regenerateSession(req);
       req.session.userId = user.id;
+      await saveSession(req);
       isNewIpForIdentifier(emailOrPhone, ip).then(isNewIp => {
         notifyUserLogin({ accountType: "user", email: user.email || emailOrPhone, ip, userAgent: req.headers["user-agent"], success: true, isNewIp }).catch(() => {});
       }).catch(() => {});
@@ -940,13 +980,11 @@ export async function registerRoutes(
       }
       // ─────────────────────────────────────────────────────────────────────
 
-      // Set session first, then invalidate all other admin sessions
+      // Renouveler l'identifiant de session avant toute élévation de privilège.
+      await regenerateSession(req);
       req.session.userId = user.id;
-      req.session.save(async (err) => {
-        if (err) {
-          console.error("Session save error:", err);
-          return res.status(500).json({ message: "Erreur de session" });
-        }
+      try {
+        await saveSession(req);
         // Invalidate all other sessions for this admin
         await invalidateAllOtherAdminSessions(user.id, (req.session as any).id || "");
         await logSecurityEvent({ userId: user.id, type: "admin_login_success", details: `Login admin réussi`, ipAddress: ip });
@@ -957,7 +995,10 @@ export async function registerRoutes(
         storage.createDefaultWallets(user.id).catch(() => {});
         const { password: _, ...userWithoutPassword } = user;
         res.json(userWithoutPassword);
-      });
+      } catch (err) {
+        console.error("Session save error:", err);
+        return res.status(500).json({ message: "Erreur de session" });
+      }
     } catch (error) {
       console.error("Admin OTP verify error:", error);
       res.status(500).json({ message: "Erreur de vérification" });
@@ -987,7 +1028,9 @@ export async function registerRoutes(
       maxAge: TRUSTED_DEVICE_MAX_AGE,
     });
 
+    await regenerateSession(req);
     req.session.userId = result.userId;
+    await saveSession(req);
     notifyUserLogin({ accountType: "user", email: user.email || "", ip, userAgent: req.headers["user-agent"], success: true, isNewIp: true }).catch(() => {});
     const { password: _, ...userWithoutPassword } = user;
     res.json(userWithoutPassword);
@@ -1014,8 +1057,9 @@ export async function registerRoutes(
       maxAge: TRUSTED_DEVICE_MAX_AGE,
     });
 
+    await regenerateSession(req);
     req.session.userId = result.userId;
-    await new Promise<void>((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+    await saveSession(req);
     res.redirect("/dashboard?device_verified=1");
   });
 
@@ -3022,26 +3066,22 @@ export async function registerRoutes(
       const privateKey = req.headers["x-private-key"] as string;
       const data = req.body;
 
-      console.log("📥 === SoleasPay Webhook reçu ===");
-      console.log("📥 Data:", JSON.stringify(data));
-
       // ── Vérification de signature obligatoire ────────────────────────────────
       const spSecretKey = getCredential("SOLEASPAY_SECRET_KEY");
-      if (spSecretKey) {
-        if (!privateKey) {
-          console.error("❌ SoleasPay webhook: x-private-key manquant — rejet");
-          notifyWebhookRejected({ gateway: "SoleasPay", ip: req.ip || "?", reason: "En-tête x-private-key manquant", path: "/api/webhook/soleaspay" });
-          return res.status(401).json({ message: "Unauthorized" });
-        }
-        const signatureValid = soleaspay.verifyWebhookSignature(spSecretKey, privateKey);
-        if (!signatureValid) {
-          console.error(`❌ SoleasPay webhook: Signature invalide — rejet (ip=${req.ip})`);
-          notifyWebhookRejected({ gateway: "SoleasPay", ip: req.ip || "?", reason: "Signature invalide", path: "/api/webhook/soleaspay" });
-          return res.status(401).json({ message: "Unauthorized" });
-        }
-        console.log("✅ SoleasPay webhook: Signature vérifiée");
-      } else {
-        console.warn("⚠️ SoleasPay webhook: SOLEASPAY_SECRET_KEY non configurée — signature non vérifiée");
+      if (!spSecretKey) {
+        console.error("❌ SoleasPay webhook rejeté : secret de signature non configuré");
+        return res.status(503).json({ message: "Webhook signature not configured" });
+      }
+      if (!privateKey) {
+        console.error("❌ SoleasPay webhook: x-private-key manquant — rejet");
+        notifyWebhookRejected({ gateway: "SoleasPay", ip: req.ip || "?", reason: "En-tête x-private-key manquant", path: "/api/webhook/soleaspay" });
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      const signatureValid = soleaspay.verifyWebhookSignature(spSecretKey, privateKey);
+      if (!signatureValid) {
+        console.error(`❌ SoleasPay webhook: Signature invalide — rejet (ip=${req.ip})`);
+        notifyWebhookRejected({ gateway: "SoleasPay", ip: req.ip || "?", reason: "Signature invalide", path: "/api/webhook/soleaspay" });
+        return res.status(401).json({ message: "Unauthorized" });
       }
       // ────────────────────────────────────────────────────────────────────────
 
@@ -3949,9 +3989,12 @@ export async function registerRoutes(
   app.post("/api/webhook/mbiyopay", async (req, res) => {
     try {
       const data = req.body;
-      console.log("📥 === MbiyoPay Webhook reçu ===");
-      console.log("📥 Data:", JSON.stringify(data));
-
+      const verification = verifyHmacWebhook(req, "MBIYOPAY_WEBHOOK_SECRET");
+      if (!verification.valid) {
+        console.error(`❌ MbiyoPay webhook rejeté : ${verification.reason}`);
+        notifyWebhookRejected({ gateway: "MbiyoPay", ip: req.ip || "?", reason: verification.reason, path: "/api/webhook/mbiyopay" });
+        return res.status(verification.reason.includes("non configuré") ? 503 : 401).json({ message: "Unauthorized" });
+      }
       res.status(200).json({ received: true });
 
       const txStatus = (data?.status || "").toLowerCase();
@@ -4323,9 +4366,12 @@ export async function registerRoutes(
   app.post("/api/webhook/maishapay", async (req, res) => {
     try {
       const data = req.body;
-      console.log("📥 === MaishaPay Webhook reçu ===");
-      console.log("📥 Data:", JSON.stringify(data));
-
+      const verification = verifyHmacWebhook(req, "MAISHAPAY_WEBHOOK_SECRET");
+      if (!verification.valid) {
+        console.error(`❌ MaishaPay webhook rejeté : ${verification.reason}`);
+        notifyWebhookRejected({ gateway: "MaishaPay", ip: req.ip || "?", reason: verification.reason, path: "/api/webhook/maishapay" });
+        return res.status(verification.reason.includes("non configuré") ? 503 : 401).json({ message: "Unauthorized" });
+      }
       res.status(200).json({ received: true });
 
       const transactionStatus = (data?.transactionStatus || "").trim().toUpperCase();
@@ -4535,30 +4581,25 @@ export async function registerRoutes(
   app.post("/api/webhook/omnipay", async (req, res) => {
     try {
       const data = req.body as import("./omnipay").OmniPayWebhookPayload;
-      console.log("📥 === OmniPay Webhook reçu ===");
-      console.log("📥 Data:", JSON.stringify(data));
-
-      res.status(200).json({ received: true });
 
       const { verifyOmnipaySignature } = await import("./omnipay");
       const callbackKey = getCredential("OMNIPAY_CALLBACK_KEY");
 
-      if (callbackKey) {
-        if (!data.signature) {
-          console.error(`❌ OmniPay webhook: Signature manquante alors que OMNIPAY_CALLBACK_KEY est configurée — rejet (ip=${req.ip})`);
-          notifyWebhookRejected({ gateway: "OmniPay", ip: req.ip || "?", reason: "Signature absente (clé configurée)", path: "/api/webhook/omnipay" });
-          return;
-        }
-        const valid = verifyOmnipaySignature(data, callbackKey);
-        if (!valid) {
-          console.error(`❌ OmniPay webhook: Signature invalide — rejet (ip=${req.ip})`);
-          notifyWebhookRejected({ gateway: "OmniPay", ip: req.ip || "?", reason: "Signature invalide", path: "/api/webhook/omnipay" });
-          return;
-        }
-        console.log("✅ OmniPay webhook: Signature vérifiée");
-      } else {
-        console.warn("⚠️ OmniPay webhook: OMNIPAY_CALLBACK_KEY non configurée, signature non vérifiée");
+      if (!callbackKey) {
+        console.error("❌ OmniPay webhook rejeté : clé de callback non configurée");
+        return res.status(503).json({ message: "Webhook signature not configured" });
       }
+      if (!data.signature) {
+        console.error(`❌ OmniPay webhook: Signature manquante — rejet (ip=${req.ip})`);
+        notifyWebhookRejected({ gateway: "OmniPay", ip: req.ip || "?", reason: "Signature absente", path: "/api/webhook/omnipay" });
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      if (!verifyOmnipaySignature(data, callbackKey)) {
+        console.error(`❌ OmniPay webhook: Signature invalide — rejet (ip=${req.ip})`);
+        notifyWebhookRejected({ gateway: "OmniPay", ip: req.ip || "?", reason: "Signature invalide", path: "/api/webhook/omnipay" });
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      res.status(200).json({ received: true });
 
       const status = String(data.status);
       const reference = data.reference;
@@ -4920,9 +4961,12 @@ export async function registerRoutes(
   app.post("/api/webhook/paxity", async (req, res) => {
     try {
       const data = req.body;
-      console.log("📥 === Paxity Webhook reçu ===");
-      console.log("📥 Data:", JSON.stringify(data));
-
+      const verification = verifyHmacWebhook(req, "PAXITY_WEBHOOK_SECRET");
+      if (!verification.valid) {
+        console.error(`❌ Paxity webhook rejeté : ${verification.reason}`);
+        notifyWebhookRejected({ gateway: "Paxity", ip: req.ip || "?", reason: verification.reason, path: "/api/webhook/paxity" });
+        return res.status(verification.reason.includes("non configuré") ? 503 : 401).json({ message: "Unauthorized" });
+      }
       res.status(200).json({ received: true });
 
       const transactionReference = data?.transactionReference;
@@ -5727,8 +5771,7 @@ export async function registerRoutes(
       // Débiter le solde immédiatement (en attente de validation admin)
       await doDebit();
       
-      console.log("💸 Withdrawal request - Country:", selectedCountry.code, "Operator:", paymentMethod, "coverFees:", isCoverFees);
-      console.log("💸 Balance debited immediately:", totalDeducted, "walletId:", walletId);
+        console.log("[withdrawal] Balance debited and request initiated");
 
       if (selectedOperator.paymentGateway === "maishapay") {
         const { maishapay: mpClient, getMaishapayProvider, formatPhoneForMaishapay } = await import("./maishapay");
@@ -5756,7 +5799,7 @@ export async function registerRoutes(
 
         const cleanPhone = formatPhoneForMaishapay(mobileNumber, selectedCountry.code);
 
-        console.log("💸 MaishaPay B2C auto-withdrawal: provider=", mpProvider, "amount=", netAmount, "phone=", cleanPhone, "currency=", currency);
+        console.log("[withdrawal] MaishaPay transfer initiated");
 
         try {
           const b2cRef = `WD-${withdrawalRequest.id}-${Date.now()}`;
@@ -6192,7 +6235,7 @@ export async function registerRoutes(
 
         const mbRef = `mbiyopay_payout_${withdrawalRequest.id}_${Date.now()}`;
 
-        console.log(`💸 MbiyoPay payout: network=${network} amount=${netAmount} currency=${currency} phone=${formattedPhone} ref=${mbRef}`);
+        console.log("[withdrawal] MbiyoPay transfer initiated");
 
         try {
           const mbResult = await mbClient.payout({
@@ -6212,7 +6255,7 @@ export async function registerRoutes(
               transactionReference: mbResult.data.transaction_id || null,
             });
 
-            console.log(`✅ MbiyoPay payout accepted: ref=${mbRef} txId=${mbResult.data.transaction_id} — en attente webhook`);
+            console.log("[withdrawal] MbiyoPay transfer accepted");
 
             notifyWithdrawalAutoProcessed({
               userName: user.fullName,
@@ -6233,7 +6276,7 @@ export async function registerRoutes(
             });
           } else {
             const mbError = mbResult.message || "Erreur MbiyoPay inconnue";
-            console.error("❌ MbiyoPay payout failed:", mbResult);
+            console.error("❌ MbiyoPay payout failed");
             await storage.updateWithdrawalRequest(withdrawalRequest.id, {
               status: "pending",
               rejectionReason: mbError,
@@ -6297,7 +6340,7 @@ export async function registerRoutes(
 
         const pdRef = `PD-WD-${withdrawalRequest.id}-${Date.now()}`;
 
-        console.log(`💸 PayDunya payout: mode=${withdrawMode} amount=${netAmount} currency=${currency} phone=${cleanPhone} ref=${pdRef}`);
+        console.log("[withdrawal] PayDunya transfer initiated");
 
         try {
           const pdResult = await payDunyaDisburse({
@@ -7267,13 +7310,13 @@ export async function registerRoutes(
       }
 
       // Vérifier le statut auprès de la bonne passerelle de paiement
-      console.log(`Checking link payment status via gateway (${leekpayPayment.paymentMethod}) for:`, paymentId);
+      console.log("[payment-link] Gateway payment verification started");
       const gwResult = await verifyPaymentWithGateway(
         leekpayPayment.paymentMethod,
         paymentId,
         parseFloat(leekpayPayment.amount)
       );
-      console.log("Gateway verify result:", gwResult);
+      console.log("[payment-link] Gateway payment verification completed");
 
       if (gwResult.isFailed) {
         await storage.updateLeekpayPayment(paymentId, { status: "failed" });
@@ -9336,9 +9379,17 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     try {
       const data = req.body;
       const webhookIp = getClientIp(req);
-      console.log("📥 === PayDunya Webhook reçu ===");
-      console.log(`📥 IP source: ${webhookIp}`);
-      console.log("📥 Data:", JSON.stringify(data));
+      const masterKey = getCredential("PAYDUNYA_MASTER_KEY");
+      const webhookHash = data?.hash;
+      if (!masterKey) {
+        console.error("❌ PayDunya webhook rejeté : clé de vérification non configurée");
+        return res.status(503).json({ message: "Webhook signature not configured" });
+      }
+      if (!webhookHash || !verifyPayDunyaWebhook(webhookHash)) {
+        console.error("❌ PayDunya webhook rejeté : hash absent ou invalide");
+        notifyWebhookRejected({ gateway: "PayDunya", ip: webhookIp || "?", reason: "Hash absent ou invalide", path: "/api/webhook/paydunya" });
+        return res.status(401).json({ message: "Unauthorized" });
+      }
 
       res.status(200).json({ received: true });
 
@@ -10005,11 +10056,19 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   app.post("/api/webhook/paydunya-disburse", async (req, res) => {
     try {
       const data = req.body;
-      console.log("📥 === PayDunya Webhook retrait reçu ===");
-      console.log("📥 Data:", JSON.stringify(data));
 
       // ── Vérification hash PayDunya ──────────────────────────────────────────
       const pdHash = data?.hash;
+      const masterKey = getCredential("PAYDUNYA_MASTER_KEY");
+      if (!masterKey) {
+        console.error("❌ PayDunya disburse webhook rejeté : clé de vérification non configurée");
+        return res.status(503).json({ message: "Webhook signature not configured" });
+      }
+      if (!pdHash || !verifyPayDunyaWebhook(pdHash)) {
+        console.error(`❌ PayDunya disburse webhook: Hash absent ou invalide — rejet (ip=${req.ip})`);
+        notifyWebhookRejected({ gateway: "PayDunya Disburse", ip: req.ip || "?", reason: "Hash absent ou invalide", path: "/api/webhook/paydunya-disburse" });
+        return res.status(401).json({ message: "Unauthorized" });
+      }
       if (pdHash) {
         const { getCredential: _pdgc } = await import("./credentials");
         const _pdMk = _pdgc("PAYDUNYA_MASTER_KEY");
@@ -10152,18 +10211,9 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
 
   // LeekPay Webhook - Supporte plusieurs formats de données
   app.post("/api/webhook/leekpay", async (req, res) => {
-    console.log("🔔🔔🔔 WEBHOOK LEEKPAY REÇU 🔔🔔🔔");
-    console.log("Webhook reçu:", JSON.stringify(req.body, null, 2));
-    
     try {
       const signature = req.headers["x-leekpay-signature"] as string;
       const data = req.body;
-      
-      console.log("📥 === LeekPay Webhook received ===");
-      console.log("📅 Timestamp:", new Date().toISOString());
-      console.log("🔐 Signature:", signature ? "present" : "missing");
-      console.log("📦 Data:", JSON.stringify(data, null, 2));
-      console.log("📋 Headers:", JSON.stringify(req.headers));
       
       // Vérifier que les données ne sont pas vides ou malformées
       if (!data || Object.keys(data).length === 0) {
@@ -10173,29 +10223,20 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
 
       // ── Vérification de signature LeekPay ───────────────────────────────────
       const lkSecretKey = getCredential("LEEKPAY_SECRET_KEY");
-      if (lkSecretKey) {
-        if (!signature) {
-          console.error(`❌ LeekPay webhook: Signature manquante alors que LEEKPAY_SECRET_KEY est configurée — rejet (ip=${req.ip})`);
-          notifyWebhookRejected({ gateway: "LeekPay", ip: req.ip || "?", reason: "Signature absente (clé configurée)", path: "/api/webhook/leekpay" });
-          return res.status(401).json({ status: "error", message: "Unauthorized" });
-        }
-        const isValid = leekpay.verifyWebhookSignature(JSON.stringify(data), signature);
-        console.log("🔐 Signature verification:", isValid ? "✅ VALID" : "❌ INVALID");
-        if (!isValid) {
-          console.error(`❌ LeekPay webhook: Signature invalide — rejet (ip=${req.ip})`);
-          notifyWebhookRejected({ gateway: "LeekPay", ip: req.ip || "?", reason: "Signature invalide", path: "/api/webhook/leekpay" });
-          return res.status(401).json({ status: "error", message: "Unauthorized" });
-        }
-      } else if (signature) {
-        const isValid = leekpay.verifyWebhookSignature(JSON.stringify(data), signature);
-        console.log("🔐 Signature verification (best-effort):", isValid ? "✅ VALID" : "❌ INVALID");
-        if (!isValid) {
-          console.error(`❌ LeekPay webhook: Signature présente mais invalide — rejet (ip=${req.ip})`);
-          notifyWebhookRejected({ gateway: "LeekPay", ip: req.ip || "?", reason: "Signature présente mais invalide", path: "/api/webhook/leekpay" });
-          return res.status(401).json({ status: "error", message: "Unauthorized" });
-        }
-      } else {
-        console.warn("⚠️ LeekPay webhook: Aucune signature et LEEKPAY_SECRET_KEY non configurée — webhook accepté");
+      if (!lkSecretKey) {
+        console.error("❌ LeekPay webhook rejeté : clé de vérification non configurée");
+        return res.status(503).json({ status: "error", message: "Webhook signature not configured" });
+      }
+      if (!signature) {
+        console.error(`❌ LeekPay webhook: Signature manquante — rejet (ip=${req.ip})`);
+        notifyWebhookRejected({ gateway: "LeekPay", ip: req.ip || "?", reason: "Signature absente", path: "/api/webhook/leekpay" });
+        return res.status(401).json({ status: "error", message: "Unauthorized" });
+      }
+      const isValid = leekpay.verifyWebhookSignature((req as any).rawBody?.toString("utf8") || JSON.stringify(data), signature);
+      if (!isValid) {
+        console.error(`❌ LeekPay webhook: Signature invalide — rejet (ip=${req.ip})`);
+        notifyWebhookRejected({ gateway: "LeekPay", ip: req.ip || "?", reason: "Signature invalide", path: "/api/webhook/leekpay" });
+        return res.status(401).json({ status: "error", message: "Unauthorized" });
       }
       // ────────────────────────────────────────────────────────────────────────
 
@@ -11258,7 +11299,26 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   // ========== TELEGRAM BOT WEBHOOK ==========
   app.post("/api/webhook/telegram", async (req, res) => {
     try {
+      const webhookSecret = getCredential("TELEGRAM_WEBHOOK_SECRET");
+      const receivedSecret = req.header("x-telegram-bot-api-secret-token") || "";
+      if (
+        !webhookSecret ||
+        receivedSecret.length !== webhookSecret.length ||
+        !crypto.timingSafeEqual(Buffer.from(receivedSecret), Buffer.from(webhookSecret))
+      ) {
+        return res.status(webhookSecret ? 401 : 503).json({ message: "Unauthorized" });
+      }
+
       const update = req.body;
+      const allowedIds = getCredential("TELEGRAM_ADMIN_CHAT_IDS")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const senderId = String(update?.callback_query?.from?.id || update?.message?.from?.id || "");
+      const sourceChatId = String(update?.callback_query?.message?.chat?.id || update?.message?.chat?.id || "");
+      if (allowedIds.length === 0 || (!allowedIds.includes(senderId) && !allowedIds.includes(sourceChatId))) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
 
       // ── Handle inline button clicks (callback_query) ──────────────────────
       if (update?.callback_query) {

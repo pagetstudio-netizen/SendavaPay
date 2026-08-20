@@ -2,13 +2,15 @@ import { storage } from "./storage";
 import bcrypt from "bcryptjs";
 import { log } from "./index";
 
-const ADMIN_EMAIL_1 = process.env.ADMIN_EMAIL_1 || "pagetstudio@gmail.com";
-const ADMIN_EMAIL_2 = process.env.ADMIN_EMAIL_2 || "felidolayi@gmail.com";
-const ADMIN_PHONE_1 = process.env.ADMIN_PHONE_1 || "+228 99935673";
-const ADMIN_PHONE_2 = process.env.ADMIN_PHONE_2 || "+228 00000000";
-const ADMIN_DEFAULT_PASSWORD = process.env.ADMIN_DEFAULT_PASSWORD || "AAbb11##";
+const ADMIN_EMAIL_1 = process.env.ADMIN_EMAIL_1?.trim();
+const ADMIN_EMAIL_2 = process.env.ADMIN_EMAIL_2?.trim();
+const ADMIN_PHONE_1 = process.env.ADMIN_PHONE_1?.trim();
+const ADMIN_PHONE_2 = process.env.ADMIN_PHONE_2?.trim();
+const ADMIN_DEFAULT_PASSWORD = process.env.ADMIN_DEFAULT_PASSWORD;
 
-export const ADMIN_WHITELIST = [ADMIN_EMAIL_1, ADMIN_EMAIL_2] as const;
+export const ADMIN_WHITELIST = [ADMIN_EMAIL_1, ADMIN_EMAIL_2]
+  .filter((email): email is string => Boolean(email))
+  .map((email) => email.toLowerCase()) as readonly string[];
 
 export function isAdminWhitelisted(email: string | null | undefined): boolean {
   if (!email) return false;
@@ -19,37 +21,34 @@ async function ensureAdminAccount(
   email: string,
   phone: string,
   name: string,
-  isFirst: boolean
+  isFirst: boolean,
+  bootstrapPassword: string,
 ) {
   const existing = await storage.getUserByEmail(email);
 
   if (existing) {
-    const updates: Record<string, any> = { isVerified: true };
-    if (existing.role !== "admin") {
-      updates.role = "admin";
-      log(`Rôle administrateur mis à jour pour ${email}`, "init");
-    }
-    await storage.updateUser(existing.id, updates);
-    log(`Compte administrateur existant confirmé: ${email}`, "init");
+    // Un compte existant n'est jamais promu automatiquement par son e-mail.
+    // L'élévation de privilège doit rester une action faite par un administrateur
+    // déjà authentifié dans l'interface d'administration.
+    log(`Bootstrap admin ignoré : le compte existe déjà`, "init");
     return existing;
   }
 
-  const hashedPassword = await bcrypt.hash(ADMIN_DEFAULT_PASSWORD, 10);
+  const hashedPassword = await bcrypt.hash(bootstrapPassword, 12);
   const admin = await storage.createUser({
     fullName: name,
     email,
     phone,
     password: hashedPassword,
-    role: "admin",
-    isVerified: true,
   });
+  await storage.updateUser(admin.id, { role: "admin", isVerified: true });
 
-  log(`Compte administrateur créé: ${email}`, "init");
+  log("Compte administrateur créé par bootstrap explicite", "init");
 
   if (isFirst) {
     const existingCommission = await storage.getCommissionSettings();
     if (!existingCommission) {
-      await storage.updateCommissionSettings("7.00", "7.00", admin.id);
+      await storage.updateCommissionSettings("7.00", "7.00", "7.00", admin.id);
       log("Paramètres de commission initialisés (7%)", "init");
     }
     await storage.initializeSocialLinks();
@@ -61,9 +60,22 @@ async function ensureAdminAccount(
 
 export async function initializeAdminAccount() {
   try {
-    await ensureAdminAccount(ADMIN_EMAIL_1, ADMIN_PHONE_1, "Admin SendavaPay", true);
-    await ensureAdminAccount(ADMIN_EMAIL_2, ADMIN_PHONE_2, "Admin Felidolayi", false);
-    log("Comptes administrateurs initialisés", "init");
+    const bootstrapEntries = [
+      { email: ADMIN_EMAIL_1, phone: ADMIN_PHONE_1, name: "Administrateur principal", isFirst: true },
+      { email: ADMIN_EMAIL_2, phone: ADMIN_PHONE_2, name: "Administrateur secondaire", isFirst: false },
+    ].filter((entry): entry is { email: string; phone: string; name: string; isFirst: boolean } =>
+      Boolean(entry.email && entry.phone),
+    );
+
+    if (!ADMIN_DEFAULT_PASSWORD || bootstrapEntries.length === 0) {
+      log("Bootstrap administrateur ignoré : aucune configuration explicite fournie", "init");
+      return;
+    }
+
+    for (const entry of bootstrapEntries) {
+      await ensureAdminAccount(entry.email, entry.phone, entry.name, entry.isFirst, ADMIN_DEFAULT_PASSWORD);
+    }
+    log("Bootstrap administrateur explicite terminé", "init");
   } catch (error) {
     log(`Erreur lors de l'initialisation admin: ${error}`, "init");
     throw error;

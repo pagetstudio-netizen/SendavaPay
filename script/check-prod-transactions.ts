@@ -53,9 +53,7 @@ async function run() {
         LIMIT 100
       `);
       console.log(`Total: ${r.rowCount}`);
-      for (const r2 of r.rows) {
-        console.log(`  [${r2.heures}h] #${r2.id} | ${r2.full_name||"user#"+r2.user_id} | ${r2.amount} ${r2.currency} | ${r2.payment_method||"?"} (${r2.payer_country||"?"}) | status=${r2.status} | créé=${r2.cree_le} | payId=${r2.leekpay_payment_id||"?"}`);
-      }
+      for (const r2 of r.rows) console.log(`  #${r2.id} | status=${r2.status}`);
     } catch(e: any) { console.log(`Erreur: ${e.message}`); }
 
     // 3. Transactions (deposits) bloquées
@@ -73,9 +71,7 @@ async function run() {
         LIMIT 100
       `);
       console.log(`Total: ${r.rowCount}`);
-      for (const r2 of r.rows) {
-        console.log(`  [${r2.heures}h] #${r2.id} | ${r2.full_name||"user#"+r2.user_id} | ${r2.type} ${r2.amount} | ${r2.payment_method||"?"} (${r2.payer_country||"?"}) | status=${r2.status} | extRef=${r2.external_ref||"?"} | créé=${r2.cree_le}`);
-      }
+      for (const r2 of r.rows) console.log(`  #${r2.id} | status=${r2.status}`);
     } catch(e: any) { console.log(`Erreur: ${e.message}`); }
 
     // 4. API transactions bloquées
@@ -94,9 +90,7 @@ async function run() {
         LIMIT 100
       `);
       console.log(`Total: ${r.rowCount}`);
-      for (const r2 of r.rows) {
-        console.log(`  [${r2.heures}h] #${r2.id} | ref=${r2.reference} | ${r2.full_name||"user#"+r2.user_id} | ${r2.type} ${r2.amount} ${r2.currency} | ${r2.payment_method||"?"} (${r2.payer_country||"?"}) | status=${r2.status} | créé=${r2.cree_le}`);
-      }
+      for (const r2 of r.rows) console.log(`  #${r2.id} | status=${r2.status}`);
     } catch(e: any) { console.log(`Erreur: ${e.message}`); }
 
     // 5. Retraits bloqués
@@ -115,9 +109,7 @@ async function run() {
         LIMIT 100
       `);
       console.log(`Total: ${r.rowCount}`);
-      for (const r2 of r.rows) {
-        console.log(`  [${r2.heures}h] #${r2.id} | ${r2.full_name||"user#"+r2.user_id} | ${r2.amount} → net ${r2.net_amount} | ${r2.payment_method} ${r2.mobile_number} ${r2.country} | status=${r2.status} | extRef=${r2.external_reference||"?"} | créé=${r2.cree_le}`);
-      }
+      for (const r2 of r.rows) console.log(`  #${r2.id} | status=${r2.status}`);
     } catch(e: any) { console.log(`Erreur: ${e.message}`); }
 
     // 6. Partner transactions bloquées
@@ -136,9 +128,7 @@ async function run() {
         LIMIT 100
       `);
       console.log(`Total: ${r.rowCount}`);
-      for (const r2 of r.rows) {
-        console.log(`  [${r2.heures}h] #${r2.id} | ref=${r2.reference} | partenaire=${r2.partner_name||r2.partner_id} | ${r2.amount} ${r2.currency} | ${r2.payment_method||"?"} | tel=${r2.customer_phone||"?"} | status=${r2.status} | créé=${r2.cree_le}`);
-      }
+      for (const r2 of r.rows) console.log(`  #${r2.id} | status=${r2.status}`);
     } catch(e: any) { console.log(`Erreur: ${e.message}`); }
 
   } finally {

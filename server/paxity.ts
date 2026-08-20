@@ -204,7 +204,7 @@ export const paxity = {
         idClient: params.idClient,
         ipn: params.ipn,
       };
-      console.log("[paxity] createPayin →", JSON.stringify(body));
+      console.log("[paxity] createPayin request initiated");
       const data = await paxityFetch(`${PAXITY_BASE_URL}/transaction/pay-in-mobile`, {
         method: "POST",
         headers: paxityHeaders(),

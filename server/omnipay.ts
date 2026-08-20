@@ -188,7 +188,6 @@ export function formatPhoneForOmnipay(phone: string, countryCode: string): strin
     cleaned = prefix + cleaned;
   }
 
-  console.log(`[formatPhoneForOmnipay] ${phone} (${cc}) → ${cleaned}`);
   return cleaned;
 }
 
@@ -214,7 +213,7 @@ export class OmniPayClient {
   async requestPayment(params: OmniPayCollectParams): Promise<OmniPayCollectResponse> {
     try {
       console.log("📡 OmniPay: Initiation paiement Mobile Money...");
-      console.log("📡 OmniPay: Ref:", params.reference, "Montant:", params.amount, "MSISDN:", params.msisdn);
+      console.log("📡 OmniPay: payment request initiated");
 
       const body: Record<string, string> = {
         action: "paymentrequest",
@@ -233,8 +232,6 @@ export class OmniPayClient {
       if (params.returnUrl) body.return_url = params.returnUrl;
       if (params.callbackUrl) body.callback_url = params.callbackUrl;
 
-      console.log("📡 OmniPay REQUÊTE:", JSON.stringify({ ...body, apikey: "***" }, null, 2));
-
       const response = await fetch(OMNIPAY_API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -243,7 +240,6 @@ export class OmniPayClient {
 
       const responseText = await response.text();
       console.log("📡 OmniPay requestPayment HTTP status:", response.status);
-      console.log("📡 OmniPay requestPayment response:", responseText);
 
       try {
         return JSON.parse(responseText);
@@ -261,15 +257,7 @@ export class OmniPayClient {
     try {
       const amountStr = String(Math.round(params.amount));
 
-      console.log("💸 OmniPay TRANSFER — Paramètres envoyés:");
-      console.log("   URL     :", OMNIPAY_API_URL);
-      console.log("   action  : transfer");
-      console.log("   msisdn  :", params.msisdn, `(${params.msisdn.length} chiffres)`);
-      console.log("   amount  :", amountStr);
-      console.log("   reference:", params.reference);
-      console.log("   first_name:", params.firstName);
-      console.log("   last_name :", params.lastName);
-      console.log("   operator  :", params.operator ?? "(non envoyé — auto-détection)");
+      console.log("💸 OmniPay: transfer request initiated");
 
       const body: Record<string, string> = {
         action: "transfer",
@@ -283,8 +271,6 @@ export class OmniPayClient {
 
       if (params.operator) body.operator = params.operator;
 
-      console.log("💸 OmniPay TRANSFER REQUÊTE (masquée):", JSON.stringify({ ...body, apikey: "***" }));
-
       const response = await fetch(OMNIPAY_API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -293,7 +279,6 @@ export class OmniPayClient {
 
       const responseText = await response.text();
       console.log("💸 OmniPay transfer HTTP status:", response.status);
-      console.log("💸 OmniPay transfer response:", responseText);
 
       try {
         return JSON.parse(responseText);

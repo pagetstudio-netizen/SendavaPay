@@ -416,7 +416,7 @@ export async function autoDispatchSdkWithdrawal(
       }
       const cleanPhone = formatPhoneForPayDunya(mobileNumber, countryCode);
       const pdRef = `PD-WD-SDK-${wr.id}-${Date.now()}`;
-      console.log(`[sdk-withdrawal] 📤 PayDunya — Envoi retrait ref=${txn.reference} phone=${cleanPhone} montant=${netAmount} mode=${withdrawMode}`);
+      console.log("[sdk-withdrawal] PayDunya transfer initiated");
       const pdResult = await payDunyaDisburse({
         accountAlias: cleanPhone,
         amount:       netAmount,
@@ -425,7 +425,7 @@ export async function autoDispatchSdkWithdrawal(
         disburseId:   pdRef,
       });
       const pdRaw = JSON.stringify({ success: pdResult.success, status: pdResult.status, transactionId: pdResult.transactionId, error: pdResult.error });
-      console.log(`[sdk-withdrawal] 📥 PayDunya — Réponse ref=${txn.reference}: success=${pdResult.success} status=${pdResult.status} txId=${pdResult.transactionId} error=${pdResult.error || "aucun"}`);
+      console.log(`[sdk-withdrawal] PayDunya response received: ${pdResult.success ? "success" : "failure"}`);
       if (entry.auditLogId) storage.updateSdkWithdrawalLog(entry.auditLogId, { gateway: "paydunya", gatewayReference: pdRef, gatewayRawResponse: pdRaw }).catch(() => {});
       if (!pdResult.success) {
         await markSdkWithdrawalFailed(entry, wr, txn, pdResult.error || "Échec PayDunya disburse", pdRaw);

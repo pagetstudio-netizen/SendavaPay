@@ -72,14 +72,9 @@ async function safePayDunyaFetch(
   const payload = options.body ? String(options.body) : undefined;
   const hdrs    = buildHeaders();
 
-  // Log full URL (without credential values)
-  console.log(`[PayDunya] ══════════════════════════════════`);
-  console.log(`[PayDunya] → ${method} ${url}`);
-  console.log(`[PayDunya]   headers présents: ${Object.keys(hdrs).join(", ")}`);
-  console.log(`[PayDunya]   MASTER-KEY présent: ${hdrs["PAYDUNYA-MASTER-KEY"] ? "oui" : "NON ⚠️"}`);
-  console.log(`[PayDunya]   PRIVATE-KEY présent: ${hdrs["PAYDUNYA-PRIVATE-KEY"] ? "oui" : "NON ⚠️"}`);
-  console.log(`[PayDunya]   TOKEN présent: ${hdrs["PAYDUNYA-TOKEN"] ? "oui" : "NON ⚠️"}`);
-  if (payload) console.log(`[PayDunya]   payload: ${payload.slice(0, 800)}`);
+  // Ne jamais journaliser les en-têtes, le contenu de paiement ou la présence
+  // des clés fournisseur : les logs doivent rester exempts de données sensibles.
+  console.log(`[PayDunya] ${method} request initiated`);
 
   let lastResult: SafeFetchResult = {
     ok: false, status: 0, contentType: "", data: null, rawText: "",
