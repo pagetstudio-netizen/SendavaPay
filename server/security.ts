@@ -713,7 +713,7 @@ export async function invalidateAllOtherAdminSessions(userId: number, currentSid
   if (!pool) return;
   try {
     await dbExecute(
-      `DELETE FROM sessions WHERE (sess->>'userId')::integer = ? AND sid != ?`,
+      `DELETE FROM "session" WHERE (sess->>'userId')::integer = ? AND sid != ?`,
       [userId, currentSid]
     );
   } catch (err) {
@@ -730,11 +730,11 @@ export async function invalidateAllSessionsOnStartup(): Promise<void> {
       // Check if session table exists (PostgreSQL way)
       const rows = await dbQuery(
         `SELECT table_name FROM information_schema.tables
-         WHERE table_schema = current_schema() AND table_name = 'sessions'`
+         WHERE table_schema = current_schema() AND table_name = 'session'`
       );
       if (rows.length === 0) return false;
 
-      const count = await dbExecute(`DELETE FROM sessions`);
+      const count = await dbExecute(`DELETE FROM "session"`);
       console.log(
         `[security] ${count} session(s) invalidée(s) au démarrage — tous les utilisateurs doivent se reconnecter.`
       );

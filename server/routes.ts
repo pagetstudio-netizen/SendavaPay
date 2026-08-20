@@ -109,7 +109,7 @@ export async function loadBlockedUsersCache(): Promise<void> {
 async function killUserSessions(userId: number): Promise<void> {
   if (!pool) return;
   try {
-    await (pool as any).query(`DELETE FROM sessions WHERE sess->>'userId' = $1`, [String(userId)]);
+    await (pool as any).query(`DELETE FROM "session" WHERE sess->>'userId' = $1`, [String(userId)]);
   } catch (e) {
     console.error(`[security] Échec destruction sessions user #${userId}:`, e);
   }
@@ -506,13 +506,14 @@ export async function registerRoutes(
   // Plesk + Nginx reverse proxy : on fait confiance à tous les proxies
   app.set("trust proxy", true);
 
-  // Initialiser le store de session PostgreSQL (crée la table automatiquement)
+  // Utilise la table historique `session` créée par connect-pg-simple.
+  // Son nom est important : le module associe sa clé primaire à `session_pkey`.
   let sessionStore: any = undefined;
   if (pool) {
     try {
       sessionStore = new PgSession({
         pool: pool as any,
-        tableName: 'sessions',
+        tableName: 'session',
         createTableIfMissing: true,
         ttl: 86400, // 24h en secondes
         pruneSessionInterval: 900, // 15 min
