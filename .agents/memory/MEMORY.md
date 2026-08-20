@@ -2,3 +2,4 @@
 - [Custom fee priority](custom-fees.md) — Fee resolution order: user override > country rate > global rate; user overrides stored as nullable decimals on users table.
 - [Webhook security](webhook-security.md) — Callbacks fail closed unless provider authentication succeeds: signatures where documented, merchant API verification for MbiyoPay.
 - [Payout confirmation](payout-confirmation.md) — Persist merchant order IDs before payout submission; finalize only after exact provider ID/order ID correlation with atomic status-and-ledger writes.
+- [PayDunya disbursement status](paydunya-disbursement-status.md) — Poll disbursements with POST check-status using the provider disburse token, never the merchant disburse_id.
