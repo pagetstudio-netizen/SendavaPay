@@ -9575,11 +9575,17 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         data?.custom_data?.reference ||
         data?.customData?.reference
       );
-      if (!webhookHash && !hasBusinessIdentifier) {
-        console.log(`[PayDunya] POST de contrôle d'accessibilité accepté (ip=${webhookIp || "?"})`);
+      if (!webhookHash) {
+        // PayDunya peut inclure un identifiant technique (notamment disburse_id)
+        // dans son POST de précontrôle sans signer ce message. Répondre 200 rend
+        // le callback accessible, mais le retour anticipé garantit qu'aucun état
+        // financier ne peut être modifié par un appel non authentifié.
+        console.log(
+          `[PayDunya] POST non signé ignoré (contrôle d'accessibilité, identifiant=${hasBusinessIdentifier ? "présent" : "absent"}, ip=${webhookIp || "?"})`,
+        );
         return res.status(200).json({ status: "ok" });
       }
-      if (!webhookHash || !verifyPayDunyaWebhook(webhookHash)) {
+      if (!verifyPayDunyaWebhook(webhookHash)) {
         console.error("❌ PayDunya webhook rejeté : hash absent ou invalide");
         notifyWebhookRejected({ gateway: "PayDunya", ip: webhookIp || "?", reason: "Hash absent ou invalide", path: "/api/webhook/paydunya" });
         return res.status(401).json({ message: "Unauthorized" });
