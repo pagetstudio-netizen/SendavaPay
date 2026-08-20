@@ -203,12 +203,13 @@ export interface PayDunyaDisburseResponse {
 }
 
 /**
- * The PayDunya account uses one callback URL for checkout and disbursement.
- * The shared webhook distinguishes withdrawals by `disburse_id`.
+ * Checkout and disbursement use separate public webhook endpoints.
+ * A dedicated payout endpoint keeps the payment and withdrawal callbacks
+ * unambiguous while still allowing each to apply the same hash verification.
  * Never send a local, Replit preview, or non-HTTPS URL to the provider.
  */
 export function getPayDunyaDisbursementCallbackUrl(): string {
-  const fallback = "https://sendavapay.com/api/webhook/paydunya";
+  const fallback = "https://sendavapay.com/api/webhook/paydunya-disburse";
   const configured =
     getCredential("PAYDUNYA_CALLBACK_URL") ||
     process.env.SITE_URL ||
@@ -232,7 +233,7 @@ export function getPayDunyaDisbursementCallbackUrl(): string {
       return fallback;
     }
 
-    const callbackUrl = `${url.origin}/api/webhook/paydunya`;
+    const callbackUrl = `${url.origin}/api/webhook/paydunya-disburse`;
     console.log(`[PayDunya] Callback disbursement: ${callbackUrl}`);
     return callbackUrl;
   } catch {
@@ -387,6 +388,40 @@ export function normalizePayDunyaWebhookPayload(body: unknown): Record<string, a
 
   if (nestedData && typeof nestedData === "object") {
     return { ...outer, ...nestedData } as Record<string, any>;
+  }
+
+  // Le callback PayDunya application/x-www-form-urlencoded arrive selon les
+  // intégrations sous deux formes :
+  // - data={"hash":"...","invoice":{...}}
+  // - data[hash]=...&data[invoice][token]=...
+  //
+  // Avec express.urlencoded({ extended: false }), la seconde forme est
+  // représentée par des clés plates (`data[hash]`). Reconstruire seulement
+  // ce sous-arbre connu évite de perdre le hash avant sa vérification.
+  const bracketData: Record<string, any> = {};
+  let hasBracketData = false;
+  for (const [key, value] of Object.entries(outer)) {
+    if (!key.startsWith("data[")) continue;
+
+    const parts = Array.from(key.matchAll(/\[([^\]]+)\]/g), match => match[1]);
+    if (
+      parts.length === 0 ||
+      parts.some(part => !/^[A-Za-z0-9_-]+$/.test(part) || ["__proto__", "constructor", "prototype"].includes(part))
+    ) {
+      continue;
+    }
+
+    let target = bracketData;
+    for (const part of parts.slice(0, -1)) {
+      if (!target[part] || typeof target[part] !== "object") target[part] = {};
+      target = target[part];
+    }
+    target[parts[parts.length - 1]] = value;
+    hasBracketData = true;
+  }
+
+  if (hasBracketData) {
+    return { ...outer, ...bracketData } as Record<string, any>;
   }
 
   return outer;
