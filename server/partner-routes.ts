@@ -749,25 +749,6 @@ export function registerPartnerRoutes(app: Express) {
       const reference = "PTR_" + uuidv4().replace(/-/g, "").substring(0, 16).toUpperCase();
       const fee = (numericAmount * parseFloat(partner.commissionRate) / 100).toFixed(2);
 
-      let paymentProvider = (provider || "").toLowerCase();
-      if (!paymentProvider && operator && country) {
-        const { SOLEASPAY_SERVICES } = await import("./soleaspay");
-        const countryUp = country.toUpperCase();
-        const opLower = operator.toLowerCase();
-        const svc = SOLEASPAY_SERVICES.find(s =>
-          s.countryCode === countryUp &&
-          (s.operator.toLowerCase() === opLower || s.name.toLowerCase().includes(opLower))
-        );
-        if (svc) {
-          const operators = await storage.getOperators();
-          const dbOp = operators.find(op => op.code === svc.id.toString());
-          paymentProvider = "soleaspay";
-        } else {
-          paymentProvider = "soleaspay";
-        }
-      }
-      if (!paymentProvider) paymentProvider = "soleaspay";
-
       if (!phone) {
         return res.status(400).json({ success: false, status: "ERROR", message: "Numéro de téléphone requis (phoneNumber)" });
       }
@@ -778,7 +759,7 @@ export function registerPartnerRoutes(app: Express) {
         return res.status(400).json({ success: false, status: "ERROR", message: "Code pays requis (country: TG, BJ, BF, CM, CI, COD, COG)" });
       }
 
-      const { SOLEASPAY_SERVICES, soleaspay, getCurrencyByCountry, formatPhoneForSoleasPay } = await import("./soleaspay");
+      const { SOLEASPAY_SERVICES, soleaspay, getCurrencyByCountry, formatPhoneForSoleasPay, resolveConfiguredOperator } = await import("./soleaspay");
       const countryUpper = country.toUpperCase();
       const operatorLower = operator.toLowerCase();
 
@@ -813,9 +794,26 @@ export function registerPartnerRoutes(app: Express) {
 
       const txCurrency = currency || getCurrencyByCountry(countryUpper);
 
-      const allOperators = await storage.getOperators();
-      const dbOperator = allOperators.find(op => op.code === service.id.toString());
-      const paymentGateway = dbOperator?.paymentGateway || "soleaspay";
+      const [allOperators, countries] = await Promise.all([
+        storage.getOperators(),
+        storage.getCountries(),
+      ]);
+      const dbOperator = resolveConfiguredOperator(service, allOperators, countries);
+      if (!dbOperator?.paymentGateway) {
+        return res.status(400).json({
+          success: false,
+          status: "ERROR",
+          message: "Cet opérateur doit être configuré dans l’administration avant de recevoir des paiements",
+        });
+      }
+      if (dbOperator.isActive === false) {
+        return res.status(503).json({
+          success: false,
+          status: "ERROR",
+          message: "Cet opérateur est désactivé dans l’administration",
+        });
+      }
+      const paymentGateway = dbOperator.paymentGateway;
 
       console.log(`📡 SDK Payment: opérateur=${service.operator} (${countryUpper}), gateway configuré=${paymentGateway}, ref=${reference}`);
 
@@ -1983,10 +1981,13 @@ export function registerPartnerRoutes(app: Express) {
 
   app.get("/api/partner/deposit/services/:countryCode", requirePartnerAuth, async (req: Request, res: Response) => {
     try {
-      const { getServicesByCountry } = await import("./soleaspay");
+      const { getServicesByCountry, resolveConfiguredOperator } = await import("./soleaspay");
       const { countryCode } = req.params;
       const services = getServicesByCountry(countryCode);
-      const operators = await storage.getOperators();
+      const [operators, countries] = await Promise.all([
+        storage.getOperators(),
+        storage.getCountries(),
+      ]);
 
       const partner = await storage.getPartner(req.session.partnerId!);
       let allowedOperators: string[] = [];
@@ -1994,13 +1995,14 @@ export function registerPartnerRoutes(app: Express) {
         if (partner?.allowedOperators) allowedOperators = JSON.parse(partner.allowedOperators);
       } catch {}
 
-      let availableServices = services.map((service: any) => {
-        const operator = operators.find((op: any) => op.code === service.id.toString());
-        return {
+      let availableServices = services.flatMap((service: any) => {
+        const operator = resolveConfiguredOperator(service, operators, countries);
+        if (!operator?.paymentGateway) return [];
+        return [{
           ...service,
-          inMaintenance: operator?.inMaintenance ?? false,
-          paymentGateway: operator?.paymentGateway || "soleaspay",
-        };
+          inMaintenance: operator.isActive === false || operator.inMaintenance || operator.maintenanceDeposit || false,
+          paymentGateway: operator.paymentGateway,
+        }];
       });
 
       if (allowedOperators.length > 0) {
@@ -2009,6 +2011,7 @@ export function registerPartnerRoutes(app: Express) {
         );
       }
 
+      res.setHeader("Cache-Control", "no-store, max-age=0");
       res.json(availableServices);
     } catch (error) {
       console.error("Partner get services error:", error);
@@ -2029,17 +2032,28 @@ export function registerPartnerRoutes(app: Express) {
       const partner = await storage.getPartner(req.session.partnerId!);
       if (!partner) return res.status(404).json({ message: "Partenaire non trouvé" });
 
-      const { getServiceById, soleaspay } = await import("./soleaspay");
+      const { getServiceById, soleaspay, resolveConfiguredOperator } = await import("./soleaspay");
       const service = getServiceById(parseInt(serviceId));
       if (!service) return res.status(400).json({ message: "Service non trouvé" });
 
-      const operators = await storage.getOperators();
-      const operator = operators.find((op: any) => op.code === serviceId.toString());
-      if (operator?.inMaintenance) {
+      const [operators, countries] = await Promise.all([
+        storage.getOperators(),
+        storage.getCountries(),
+      ]);
+      const operator = resolveConfiguredOperator(service, operators, countries);
+      if (!operator?.paymentGateway) {
+        return res.status(400).json({
+          message: "Cet opérateur doit être configuré dans l’administration avant de recevoir des dépôts",
+        });
+      }
+      if (operator.isActive === false) {
+        return res.status(400).json({ message: "Cet opérateur est désactivé dans l’administration" });
+      }
+      if (operator.inMaintenance || operator.maintenanceDeposit) {
         return res.status(400).json({ message: "Ce moyen de paiement est actuellement en maintenance" });
       }
 
-      const paymentGateway = operator?.paymentGateway || "soleaspay";
+      const paymentGateway = operator.paymentGateway;
       const baseUrl = "https://sendavapay.com";
 
       console.log(`📡 Partner Deposit: opérateur=${service.operator} (${service.countryCode}), gateway=${paymentGateway}, partner=${partner.name}`);

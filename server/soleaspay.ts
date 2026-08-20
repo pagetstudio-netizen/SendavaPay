@@ -47,6 +47,96 @@ export const SOLEASPAY_SERVICES: SoleasPayService[] = [
   { id: 60, name: "OM ML", description: "Orange Money", country: "Mali", countryCode: "ML", currency: "XOF", operator: "Orange", paymentGateway: "omnipay" },
 ];
 
+type PaymentOperatorConfig = {
+  id: number;
+  code: string;
+  name: string;
+  countryId: number;
+  paymentGateway?: string | null;
+  isActive?: boolean;
+  inMaintenance?: boolean;
+  maintenanceDeposit?: boolean;
+  maintenanceWithdraw?: boolean;
+  maintenancePaymentLink?: boolean;
+  maintenanceApi?: boolean;
+};
+
+type PaymentCountryConfig = {
+  id: number;
+  code: string;
+  name: string;
+};
+
+function normalizeServiceValue(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function getServiceAliases(service: SoleasPayService): Set<string> {
+  const values = [
+    String(service.id),
+    service.name,
+    service.description,
+    service.operator,
+    `${service.name} ${service.countryCode}`,
+    `${service.description} ${service.countryCode}`,
+    `${service.operator} ${service.countryCode}`,
+    `${service.name} ${service.country}`,
+    `${service.description} ${service.country}`,
+    `${service.operator} ${service.country}`,
+  ];
+
+  return new Set(values.map(normalizeServiceValue).filter(Boolean));
+}
+
+export function getServiceByOperator(
+  countryCode: string,
+  operatorValue: string,
+): SoleasPayService | undefined {
+  const normalizedOperator = normalizeServiceValue(operatorValue);
+  return SOLEASPAY_SERVICES.find((service) => {
+    if (service.countryCode.toUpperCase() !== countryCode.toUpperCase()) return false;
+    const aliases = getServiceAliases(service);
+    return Array.from(aliases).some(
+      (alias) =>
+        alias === normalizedOperator ||
+        (normalizedOperator.length >= 3 &&
+          (alias.includes(normalizedOperator) || normalizedOperator.includes(alias))),
+    );
+  });
+}
+
+/**
+ * Returns the administrator-configured operator for a catalog service.
+ * Static services are only a catalog; they never decide the payment gateway.
+ */
+export function resolveConfiguredOperator(
+  service: SoleasPayService,
+  operators: PaymentOperatorConfig[],
+  countries: PaymentCountryConfig[],
+): PaymentOperatorConfig | undefined {
+  const country = countries.find(
+    (item) => item.code.toUpperCase() === service.countryCode.toUpperCase(),
+  );
+  if (!country) return undefined;
+
+  const countryOperators = operators.filter((operator) => operator.countryId === country.id);
+  const legacyCodeMatch = countryOperators.find(
+    (operator) => operator.code === String(service.id),
+  );
+  if (legacyCodeMatch) return legacyCodeMatch;
+
+  const aliases = getServiceAliases(service);
+  return countryOperators.find((operator) => {
+    const code = normalizeServiceValue(operator.code);
+    const name = normalizeServiceValue(operator.name);
+    return aliases.has(code) || aliases.has(name);
+  });
+}
+
 export const SOLEASPAY_COUNTRIES = [
   { code: "BJ", name: "Bénin", flag: "🇧🇯", currency: "XOF" },
   { code: "BF", name: "Burkina Faso", flag: "🇧🇫", currency: "XOF" },
