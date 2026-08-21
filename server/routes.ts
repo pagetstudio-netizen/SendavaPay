@@ -11695,18 +11695,18 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
         try {
           const { pool: dbPool } = await import("./db");
           if (!dbPool) throw new Error("DB not ready");
-          const conn = await dbPool.getConnection();
-          const [eventsRows] = await conn.query(`SELECT COUNT(*) cnt FROM security_events WHERE type='failed_login' AND created_at > NOW() - INTERVAL 24 HOUR`);
-          const [bruteRows] = await conn.query(`SELECT COUNT(*) cnt FROM security_events WHERE type='brute_force' AND created_at > NOW() - INTERVAL 24 HOUR`);
-          const [blockedRows] = await conn.query(`SELECT COUNT(*) cnt FROM blocked_ips WHERE expires_at > NOW()`);
-          const [attemptsRows] = await conn.query(`SELECT COUNT(*) cnt FROM login_attempts WHERE created_at > NOW() - INTERVAL 1 HOUR`);
-          conn.release();
+          const [eventsResult, bruteResult, blockedResult, attemptsResult] = await Promise.all([
+            dbPool.query(`SELECT COUNT(*) AS cnt FROM security_events WHERE type = 'failed_login' AND created_at > NOW() - INTERVAL '24 hours'`),
+            dbPool.query(`SELECT COUNT(*) AS cnt FROM security_events WHERE type = 'brute_force' AND created_at > NOW() - INTERVAL '24 hours'`),
+            dbPool.query(`SELECT COUNT(*) AS cnt FROM blocked_ips WHERE expires_at > NOW()`),
+            dbPool.query(`SELECT COUNT(*) AS cnt FROM login_attempts WHERE created_at > NOW() - INTERVAL '1 hour'`),
+          ]);
           const reply =
             `<b>🔐 SÉCURITÉ SENDAVAPAY</b>\n\n` +
-            `<b>❌ Connexions échouées (24h):</b> ${(eventsRows as any[])[0].cnt}\n` +
-            `<b>🔨 Force brute (24h):</b> ${(bruteRows as any[])[0].cnt}\n` +
-            `<b>🚫 IPs bloquées:</b> ${(blockedRows as any[])[0].cnt}\n` +
-            `<b>🔑 Tentatives login (1h):</b> ${(attemptsRows as any[])[0].cnt}\n\n` +
+            `<b>❌ Connexions échouées (24h):</b> ${eventsResult.rows[0]?.cnt ?? 0}\n` +
+            `<b>🔨 Force brute (24h):</b> ${bruteResult.rows[0]?.cnt ?? 0}\n` +
+            `<b>🚫 IPs bloquées:</b> ${blockedResult.rows[0]?.cnt ?? 0}\n` +
+            `<b>🔑 Tentatives login (1h):</b> ${attemptsResult.rows[0]?.cnt ?? 0}\n\n` +
             `Commandes:\n/bloquer_ip &lt;ip&gt;\n/debloquer_ip &lt;ip&gt;`;
           await sendBotReply(chatId, reply);
         } catch {
@@ -11778,10 +11778,8 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   app.get("/api/admin/security/blocked-ips", requireAdmin, async (req, res) => {
     const { pool: dbPool } = await import("./db");
     if (!dbPool) return res.json([]);
-    const conn = await dbPool.getConnection();
-    const [rows] = await conn.query(`SELECT * FROM blocked_ips WHERE expires_at > NOW() ORDER BY created_at DESC`);
-    conn.release();
-    res.json(rows);
+    const result = await dbPool.query(`SELECT * FROM blocked_ips WHERE expires_at > NOW() ORDER BY created_at DESC`);
+    res.json(result.rows);
   });
 
   app.post("/api/admin/security/block-ip", requireAdmin, async (req, res) => {
@@ -11803,19 +11801,15 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
   app.get("/api/admin/security/events", requireAdmin, async (req, res) => {
     const { pool: dbPool } = await import("./db");
     if (!dbPool) return res.json([]);
-    const conn = await dbPool.getConnection();
-    const [rows] = await conn.query(`SELECT * FROM security_events ORDER BY created_at DESC LIMIT 500`);
-    conn.release();
-    res.json(rows);
+    const result = await dbPool.query(`SELECT * FROM security_events ORDER BY created_at DESC LIMIT 500`);
+    res.json(result.rows);
   });
 
   app.get("/api/admin/security/login-attempts", requireAdmin, async (req, res) => {
     const { pool: dbPool } = await import("./db");
     if (!dbPool) return res.json([]);
-    const conn = await dbPool.getConnection();
-    const [rows] = await conn.query(`SELECT * FROM login_attempts ORDER BY created_at DESC LIMIT 500`);
-    conn.release();
-    res.json(rows);
+    const result = await dbPool.query(`SELECT * FROM login_attempts ORDER BY created_at DESC LIMIT 500`);
+    res.json(result.rows);
   });
 
   // ── Whitelist (IPs toujours autorisées) ──────────────────────────────────────
@@ -11823,10 +11817,8 @@ Retourne UNIQUEMENT un JSON avec cette structure exacte (pas de markdown, pas de
     const { pool: dbPool } = await import("./db");
     if (!dbPool) return res.json([]);
     try {
-      const conn = await dbPool.getConnection();
-      const [rows] = await conn.query(`SELECT * FROM allowed_ips ORDER BY created_at DESC`);
-      conn.release();
-      res.json(rows);
+      const result = await dbPool.query(`SELECT * FROM allowed_ips ORDER BY created_at DESC`);
+      res.json(result.rows);
     } catch {
       res.json([]);
     }
