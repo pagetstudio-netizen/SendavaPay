@@ -3084,6 +3084,61 @@ export async function registerRoutes(
         });
       }
 
+      if (paymentGateway === "gomboplus") {
+        if (!phoneNumber) {
+          return res.status(400).json({ message: "Numéro de téléphone requis pour GomboPlus" });
+        }
+
+        const cleanPhone = formatPhoneForGomboPlus(phoneNumber, service.countryCode);
+        console.log(`📤 GomboPlus: Paiement lien ${linkCode} opérateur=${service.operator}, pays=${service.countryCode}, montant=${numericAmount} ${service.currency}`);
+
+        const gomboResult = await gomboPlusPayin({
+          amount: numericAmount,
+          phoneNumber: cleanPhone,
+          countryCode: service.countryCode,
+          operator: service.operator,
+          callbackUrl: `${baseUrl}/api/webhook/gomboplus`,
+          reference: orderId,
+        });
+
+        if (!gomboResult.accepted || !gomboResult.reference) {
+          console.error("❌ GomboPlus pay-link error:", {
+            status: gomboResult.status,
+            message: gomboResult.message,
+            http: gomboResult.raw?.status,
+          });
+          return res.status(502).json({
+            message: gomboResult.message || "GomboPlus n'a pas accepté le paiement",
+          });
+        }
+
+        await storage.createLeekpayPayment({
+          leekpayPaymentId: gomboResult.reference,
+          userId: null,
+          paymentLinkId: link.id,
+          amount: numericAmount.toString(),
+          currency: service.currency,
+          type: "payment_link",
+          status: "pending",
+          description: `Paiement ${link.title} - GomboPlus`,
+          customerEmail: payerEmail,
+          payerName,
+          payerPhone: cleanPhone,
+          payerCountry: service.countryCode,
+          paymentMethod: `gomboplus_${service.name}`,
+          returnUrl: `${baseUrl}/payment-success?vendeur_id=${link.userId}&reference=${orderId}`,
+        });
+
+        return res.json({
+          success: true,
+          payId: gomboResult.reference,
+          orderId,
+          status: "PENDING",
+          provider: "gomboplus",
+          message: "Paiement initié. Veuillez confirmer le paiement sur votre téléphone.",
+        });
+      }
+
       if (!phoneNumber) {
         return res.status(400).json({ message: "Numéro de téléphone requis" });
       }

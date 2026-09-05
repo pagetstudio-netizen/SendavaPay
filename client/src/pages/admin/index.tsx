@@ -5218,8 +5218,8 @@ function CountriesContent() {
                         <div key={op.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
                           <div className="flex items-center gap-3">
                             <span className="font-medium">{op.name}</span>
-                            <Badge variant={op.paymentGateway === "soleaspay" ? "default" : op.paymentGateway === "maishapay" ? "outline" : op.paymentGateway === "omnipay" ? "outline" : op.paymentGateway === "paxity" ? "outline" : op.paymentGateway === "mbiyopay" ? "outline" : "secondary"}>
-                              {op.paymentGateway === "soleaspay" ? "SoleasPay" : op.paymentGateway === "maishapay" ? "MaishaPay" : op.paymentGateway === "omnipay" ? "OmniPay" : op.paymentGateway === "paxity" ? "Paxity" : op.paymentGateway === "mbiyopay" ? "MbiyoPay" : op.paymentGateway === "paydunya" ? "PayDunya" : op.paymentGateway}
+                            <Badge variant={op.paymentGateway === "soleaspay" ? "default" : op.paymentGateway === "maishapay" ? "outline" : op.paymentGateway === "omnipay" ? "outline" : op.paymentGateway === "paxity" ? "outline" : op.paymentGateway === "mbiyopay" ? "outline" : op.paymentGateway === "gomboplus" ? "outline" : "secondary"}>
+                              {op.paymentGateway === "soleaspay" ? "SoleasPay" : op.paymentGateway === "maishapay" ? "MaishaPay" : op.paymentGateway === "omnipay" ? "OmniPay" : op.paymentGateway === "paxity" ? "Paxity" : op.paymentGateway === "mbiyopay" ? "MbiyoPay" : op.paymentGateway === "gomboplus" ? "GomboPlus" : op.paymentGateway === "paydunya" ? "PayDunya" : op.paymentGateway}
                             </Badge>
                             {op.inMaintenance && <Badge variant="destructive">Maintenance totale</Badge>}
                             {!op.inMaintenance && (op as any).maintenanceDeposit && <Badge variant="destructive" className="text-xs">🔴 Dépôts</Badge>}
@@ -5331,10 +5331,11 @@ function CountriesContent() {
                   <SelectItem value="maishapay">MaishaPay</SelectItem>
                   <SelectItem value="omnipay">OmniPay</SelectItem>
                   <SelectItem value="paxity">Paxity</SelectItem>
+                  <SelectItem value="gomboplus">GomboPlus</SelectItem>
                   <SelectItem value="paydunya">PayDunya</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">MbiyoPay: Afrique de l'Ouest &amp; Centrale | SoleasPay: USSD direct | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave) | Paxity: Afrique de l'Ouest &amp; Centrale | PayDunya: SN, ML, BF, CI, BJ</p>
+              <p className="text-xs text-muted-foreground">GomboPlus: TG, BJ, BF (MTN, Moov, Yas/T-Money, Orange) | MbiyoPay: Afrique de l'Ouest &amp; Centrale | SoleasPay: USSD direct | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave) | Paxity: Afrique de l'Ouest &amp; Centrale | PayDunya: SN, ML, BF, CI, BJ</p>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -5420,10 +5421,11 @@ function CountriesContent() {
                   <SelectItem value="maishapay">MaishaPay</SelectItem>
                   <SelectItem value="omnipay">OmniPay</SelectItem>
                   <SelectItem value="paxity">Paxity</SelectItem>
+                  <SelectItem value="gomboplus">GomboPlus</SelectItem>
                   <SelectItem value="paydunya">PayDunya</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">MbiyoPay: Afrique de l'Ouest &amp; Centrale | SoleasPay: USSD direct | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave) | Paxity: Afrique de l'Ouest &amp; Centrale | PayDunya: SN, ML, BF, CI, BJ</p>
+              <p className="text-xs text-muted-foreground">GomboPlus: TG, BJ, BF (MTN, Moov, Yas/T-Money, Orange) | MbiyoPay: Afrique de l'Ouest &amp; Centrale | SoleasPay: USSD direct | MaishaPay: USSD direct (RDC, Congo, +) | OmniPay: CI (MTN, Moov, Orange, Wave) | Paxity: Afrique de l'Ouest &amp; Centrale | PayDunya: SN, ML, BF, CI, BJ</p>
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
