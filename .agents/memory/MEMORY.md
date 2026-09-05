@@ -4,3 +4,4 @@
 - [Payout confirmation](payout-confirmation.md) — Persist merchant order IDs before payout submission; finalize only after exact provider ID/order ID correlation with atomic status-and-ledger writes.
 - [PayDunya disbursement status](paydunya-disbursement-status.md) — Poll disbursements with POST check-status using the provider disburse token, never the merchant disburse_id.
 - [Imported Replit database setup](replit-database-setup.md) — Imported apps may have only bootstrap tables; initialize the full Drizzle schema idempotently before relying on API routes.
+- [GomboPlus API quirks](gomboplus-api-quirks.md) — Mobile-service requests require `number`; the outer success message can coexist with a failed inner transaction status.
