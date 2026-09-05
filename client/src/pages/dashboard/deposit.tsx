@@ -101,7 +101,7 @@ export default function DepositPage() {
   const [currentOrderId, setCurrentOrderId] = useState("");
   const [otp, setOtp] = useState("");
   const [requiresPaydunyaOtp, setRequiresPaydunyaOtp] = useState(false);
-  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "maishapay" | "omnipay" | "paxity" | "mbiyopay" | "paydunya">("soleaspay");
+  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "maishapay" | "omnipay" | "paxity" | "mbiyopay" | "paydunya" | "gomboplus">("soleaspay");
   const [timeLeft, setTimeLeft] = useState(TIMEOUT_SECONDS);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [depositAmount, setDepositAmount] = useState(0);
@@ -218,6 +218,8 @@ export default function DepositPage() {
         ? `/api/verify-paxity/${currentPayId}`
         : currentProvider === "mbiyopay"
         ? `/api/verify-mbiyopay/${currentPayId}`
+        : currentProvider === "gomboplus"
+        ? `/api/verify-gomboplus/${currentPayId}`
         : currentProvider === "paydunya"
         ? `/api/verify-paydunya/${currentPayId}`
         : `/api/verify-soleaspay/${currentOrderId}/${currentPayId}`;

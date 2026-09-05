@@ -123,7 +123,7 @@ export default function PaymentPage() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [currentPayId, setCurrentPayId] = useState("");
   const [currentOrderId, setCurrentOrderId] = useState("");
-  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "maishapay" | "omnipay" | "paxity" | "mbiyopay" | "paydunya">("soleaspay");
+  const [currentProvider, setCurrentProvider] = useState<"soleaspay" | "maishapay" | "omnipay" | "paxity" | "mbiyopay" | "paydunya" | "gomboplus">("soleaspay");
   const [paydunyaActionUrl, setPaydunyaActionUrl] = useState<string | null>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const pollingAttemptsRef = useRef(0);
@@ -188,6 +188,8 @@ export default function PaymentPage() {
         ? `/api/verify-paxity/${currentPayId}`
         : currentProvider === "mbiyopay"
         ? `/api/verify-mbiyopay/${currentPayId}`
+        : currentProvider === "gomboplus"
+        ? `/api/verify-gomboplus/${currentPayId}`
         : currentProvider === "paydunya"
         ? `/api/verify-paydunya/${currentPayId}`
         : `/api/verify-link-soleaspay/${currentOrderId}/${currentPayId}`;
@@ -258,7 +260,7 @@ export default function PaymentPage() {
   }, [params?.code]);
 
   useEffect(() => {
-    if (step === "processing" && currentPayId && (currentOrderId || currentProvider === "maishapay" || currentProvider === "omnipay" || currentProvider === "paxity")) {
+    if (step === "processing" && currentPayId && (currentOrderId || currentProvider === "maishapay" || currentProvider === "omnipay" || currentProvider === "paxity" || currentProvider === "gomboplus")) {
       checkPaymentStatus();
       pollingRef.current = setInterval(checkPaymentStatus, 3000);
     }
