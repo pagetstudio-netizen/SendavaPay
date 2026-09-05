@@ -1,4 +1,5 @@
 import { getCredential } from "./credentials";
+import { readFileSync } from "fs";
 
 const GOMBOPLUS_API_URL = "https://api.gomboplus.com";
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -74,7 +75,19 @@ export class GomboPlusConfigurationError extends Error {
 }
 
 function getKeys(): { publicKey: string; privateKey: string } {
-  const publicKey = getCredential("GOMBOPLUS_PUBLIC_KEY").trim();
+  let publicKey = getCredential("GOMBOPLUS_PUBLIC_KEY").trim();
+  if (!publicKey) {
+    const publicKeyPath = getCredential("GOMBOPLUS_PUBLIC_KEY_PATH").trim();
+    if (publicKeyPath) {
+      try {
+        publicKey = readFileSync(publicKeyPath, "utf8").trim();
+      } catch {
+        throw new GomboPlusConfigurationError(
+          `Impossible de lire le fichier GomboPlus indiqué par GOMBOPLUS_PUBLIC_KEY_PATH: ${publicKeyPath}`,
+        );
+      }
+    }
+  }
   const privateKey = getCredential("GOMBOPLUS_PRIVATE_KEY").trim();
   if (!publicKey || !privateKey) {
     throw new GomboPlusConfigurationError(
