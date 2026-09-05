@@ -224,7 +224,7 @@ export async function gomboPlusPayin(params: GomboPlusTransactionParams): Promis
   const recipientNumber = formatPhoneForGomboPlus(params.phoneNumber, params.countryCode);
   const { response, data } = await gomboRequest("/api/mobile-services/mobile-deposit/", "POST", {
     amount: params.amount,
-    recipient_number: recipientNumber,
+    number: recipientNumber,
     country,
     operator,
     callback_url: params.callbackUrl,
@@ -239,7 +239,7 @@ export async function gomboPlusPayout(params: GomboPlusTransactionParams): Promi
   const recipientNumber = formatPhoneForGomboPlus(params.phoneNumber, params.countryCode);
   const { response, data } = await gomboRequest("/api/mobile-services/mobile-withdrawal/", "POST", {
     amount: params.amount,
-    recipient_number: recipientNumber,
+    number: recipientNumber,
     country,
     operator,
     callback_url: params.callbackUrl,
