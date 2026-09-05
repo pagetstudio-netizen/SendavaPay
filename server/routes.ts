@@ -23,6 +23,13 @@ import {
 } from "./paydunya";
 import { getSoftPayOperator } from "./paydunya-softpay-map";
 import { getCredential } from "./credentials";
+import {
+  gomboPlusPayin,
+  gomboPlusPayout,
+  gomboPlusCheckStatus,
+  formatPhoneForGomboPlus,
+  GomboPlusConfigurationError,
+} from "./gomboplus";
 import bcrypt from "bcryptjs";
 import session from "express-session";
 import { createRequire } from "module";
@@ -183,6 +190,190 @@ async function getEffectiveFeeRate(
   }
   // 3. Frais globaux (fallback)
   return getCommissionRate(settings, transactionType);
+}
+
+async function settleGomboPlusDeposit(reference: string): Promise<{
+  status: "SUCCESS" | "FAILURE" | "PENDING" | "NOT_FOUND";
+  message: string;
+  amount?: number;
+}> {
+  const payment = await storage.getLeekpayPaymentById(reference);
+  if (!payment) {
+    return { status: "NOT_FOUND", message: "Paiement GomboPlus non trouvé" };
+  }
+  if (payment.status === "completed") {
+    return { status: "SUCCESS", message: "Paiement déjà traité", amount: parseFloat(payment.amount) };
+  }
+
+  const providerStatus = await gomboPlusCheckStatus(reference);
+  if (providerStatus.status === "PENDING") {
+    return { status: "PENDING", message: providerStatus.message || "Paiement en attente de confirmation" };
+  }
+  if (providerStatus.status === "FAILED") {
+    await storage.updateLeekpayPayment(reference, {
+      status: "failed",
+      webhookReceived: true,
+      webhookData: JSON.stringify(providerStatus.raw).slice(0, 10000),
+    });
+    return { status: "FAILURE", message: providerStatus.message || "Le paiement GomboPlus a échoué" };
+  }
+
+  const expectedAmount = parseFloat(payment.amount);
+  if (providerStatus.amount != null && Math.abs(providerStatus.amount - expectedAmount) > 0.01) {
+    console.error(`[GomboPlus] Montant incohérent pour ${reference}: attendu=${expectedAmount}, reçu=${providerStatus.amount}`);
+    return { status: "PENDING", message: "Montant retourné par GomboPlus incohérent" };
+  }
+
+  const claimed = await storage.claimLeekpayPayment(reference);
+  if (!claimed) {
+    return { status: "SUCCESS", message: "Paiement déjà traité", amount: expectedAmount };
+  }
+
+  const amount = expectedAmount;
+  const settings = await storage.getCommissionSettings();
+  const commissionRate = claimed.userId
+    ? await getEffectiveFeeRate(claimed.userId, "deposit", settings)
+    : getCommissionRate(settings, "deposit");
+  const fee = Math.round(amount * (commissionRate / 100));
+  const netAmount = amount - fee;
+
+  if (claimed.userId) {
+    await storage.createTransaction({
+      userId: claimed.userId,
+      type: "deposit",
+      amount: amount.toString(),
+      fee: fee.toString(),
+      netAmount: netAmount.toString(),
+      status: "completed",
+      description: claimed.description || "Dépôt via GomboPlus",
+      externalRef: reference,
+      paymentMethod: claimed.paymentMethod || "gomboplus",
+      mobileNumber: claimed.payerPhone,
+      payerCountry: claimed.payerCountry,
+    });
+    await storage.updateUserBalance(claimed.userId, netAmount.toString());
+
+    const countries = await storage.getCountries();
+    const country = claimed.payerCountry
+      ? countries.find((item: any) => item.code.toUpperCase() === claimed.payerCountry!.toUpperCase())
+      : undefined;
+    if (country) {
+      await storage.creditWallet(
+        claimed.userId,
+        country.code,
+        country.name,
+        claimed.currency || country.currency,
+        netAmount.toString(),
+      );
+    }
+
+    const depositUser = await storage.getUser(claimed.userId);
+    if (depositUser?.email) {
+      sendDepositEmail(depositUser.email, {
+        userName: depositUser.fullName,
+        amount: netAmount,
+        currency: claimed.currency || "XOF",
+        transactionId: reference,
+        phone: claimed.payerPhone || "",
+        operator: claimed.paymentMethod || "GomboPlus",
+      }).catch((error) => console.error("GomboPlus deposit email error:", error));
+    }
+    notifyDeposit({
+      userName: depositUser?.fullName || "Inconnu",
+      userId: claimed.userId,
+      amount,
+      fee,
+      netAmount,
+      currency: claimed.currency || "XOF",
+      phone: claimed.payerPhone || undefined,
+      operator: claimed.paymentMethod || "GomboPlus",
+      reference,
+    });
+  } else if (claimed.type === "payment_link" && claimed.paymentLinkId) {
+    const link = await storage.getPaymentLink(claimed.paymentLinkId);
+    if (!link) {
+      return { status: "PENDING", message: "Lien de paiement associé introuvable" };
+    }
+
+    const linkCommissionRate = getCommissionRate(settings, "payment_received");
+    const linkFee = Math.round(amount * (linkCommissionRate / 100));
+    const linkNetAmount = amount - linkFee;
+    await storage.updatePaymentLink(link.id, {
+      paidAt: new Date(),
+      payerName: claimed.payerName,
+      payerEmail: claimed.customerEmail || null,
+      payerPhone: claimed.payerPhone,
+      payerCountry: claimed.payerCountry,
+      paidAmount: amount.toString(),
+    });
+    await storage.createTransaction({
+      userId: link.userId,
+      type: "payment_received",
+      amount: amount.toString(),
+      fee: linkFee.toString(),
+      netAmount: linkNetAmount.toString(),
+      status: "completed",
+      description: `Paiement reçu: ${link.title}`,
+      externalRef: reference,
+      paymentMethod: claimed.paymentMethod || "gomboplus",
+      mobileNumber: claimed.payerPhone,
+      payerName: claimed.payerName,
+      payerEmail: claimed.customerEmail,
+      payerCountry: claimed.payerCountry,
+      paymentLinkId: link.id,
+    });
+    await storage.updateUserBalance(link.userId, linkNetAmount.toString());
+
+    const countries = await storage.getCountries();
+    const country = claimed.payerCountry
+      ? countries.find((item: any) => item.code.toUpperCase() === claimed.payerCountry!.toUpperCase())
+      : undefined;
+    if (country) {
+      await storage.creditWallet(
+        link.userId,
+        country.code,
+        country.name,
+        claimed.currency || country.currency,
+        linkNetAmount.toString(),
+      );
+    }
+
+    const merchant = await storage.getUser(link.userId);
+    if (merchant?.email) {
+      sendPaymentReceivedEmail(merchant.email, {
+        merchantName: merchant.fullName,
+        amount: linkNetAmount,
+        currency: claimed.currency || "XOF",
+        transactionId: reference,
+        payerPhone: claimed.payerPhone || "",
+        paymentLinkTitle: link.title,
+      }).catch((error) => console.error("GomboPlus payment-link email error:", error));
+    }
+    notifyPaymentReceived({
+      merchantName: merchant?.fullName || "Inconnu",
+      merchantId: link.userId,
+      amount,
+      fee: linkFee,
+      netAmount: linkNetAmount,
+      currency: claimed.currency || "XOF",
+      payerPhone: claimed.payerPhone || undefined,
+      payerName: claimed.payerName || undefined,
+      paymentLinkTitle: link.title,
+      reference,
+      source: "link",
+    });
+    return {
+      status: "SUCCESS",
+      message: `Paiement confirmé! Le vendeur a reçu ${linkNetAmount} ${claimed.currency || "XOF"}.`,
+      amount: linkNetAmount,
+    };
+  }
+
+  return {
+    status: "SUCCESS",
+    message: `Paiement confirmé! ${netAmount} ${claimed.currency || "XOF"} crédités.`,
+    amount: netAmount,
+  };
 }
 
 function requireDatabase(req: Request, res: Response, next: NextFunction) {
@@ -2016,6 +2207,59 @@ export async function registerRoutes(
         });
       }
 
+      if (paymentGateway === "gomboplus") {
+        if (!phoneNumber) {
+          return res.status(400).json({ message: "Numéro de téléphone requis pour GomboPlus" });
+        }
+
+        const cleanPhone = formatPhoneForGomboPlus(phoneNumber, service.countryCode);
+        console.log(`📤 GomboPlus: Initiation dépôt opérateur=${service.operator}, pays=${service.countryCode}, montant=${numericAmount} ${service.currency}`);
+
+        const gomboResult = await gomboPlusPayin({
+          amount: numericAmount,
+          phoneNumber: cleanPhone,
+          countryCode: service.countryCode,
+          operator: service.operator,
+          callbackUrl: `${baseUrl}/api/webhook/gomboplus`,
+          reference: orderId,
+        });
+
+        if (!gomboResult.accepted || !gomboResult.reference) {
+          console.error("❌ GomboPlus payin refusé:", {
+            status: gomboResult.status,
+            message: gomboResult.message,
+            http: gomboResult.raw?.status,
+          });
+          return res.status(502).json({
+            message: gomboResult.message || "GomboPlus n'a pas accepté le paiement",
+          });
+        }
+
+        await storage.createLeekpayPayment({
+          leekpayPaymentId: gomboResult.reference,
+          userId: req.session.userId!,
+          amount: numericAmount.toString(),
+          currency: service.currency,
+          type: "deposit",
+          status: "pending",
+          description: `Dépôt via ${service.operator} (${service.country}) - GomboPlus`,
+          customerEmail: user.email,
+          payerPhone: cleanPhone,
+          payerCountry: service.countryCode,
+          paymentMethod: `gomboplus_${service.name}`,
+          returnUrl: `${baseUrl}/success`,
+        });
+
+        return res.json({
+          success: true,
+          payId: gomboResult.reference,
+          orderId,
+          status: "PENDING",
+          provider: "gomboplus",
+          message: "Paiement initié. Veuillez confirmer le paiement sur votre téléphone.",
+        });
+      }
+
       if (paymentGateway === "paydunya") {
         console.log(`📤 PayDunya: Initiation dépôt utilisateur=${req.session.userId}, montant=${numericAmount} ${service.currency}`);
 
@@ -3442,6 +3686,120 @@ export async function registerRoutes(
   });
 
 
+  // Webhook GomboPlus. Le payload n'est pas une preuve d'authentification :
+  // le statut est toujours relu auprès de l'API GomboPlus avant toute écriture.
+  app.post("/api/webhook/gomboplus", async (req, res) => {
+    try {
+      const body = req.body && typeof req.body === "object" ? req.body : {};
+      const content = body.content && typeof body.content === "object" ? body.content : body;
+      const referenceValue = content.transaction_reference ?? content.reference ?? body.transaction_reference ?? body.reference;
+      const reference = referenceValue == null ? "" : String(referenceValue).trim();
+      const transactionType = String(content.transaction_type ?? body.transaction_type ?? "").toLowerCase();
+
+      if (!reference) {
+        return res.status(400).json({ received: false, message: "Référence GomboPlus manquante" });
+      }
+
+      const withdrawalRequests = await storage.getAllWithdrawalRequests();
+      const withdrawal = withdrawalRequests.find((request: any) =>
+        request.externalReference === reference || request.transactionReference === reference
+      );
+      const isPayout = transactionType.includes("withdraw") ||
+        transactionType.includes("payout") ||
+        transactionType.includes("cashout") ||
+        !!withdrawal;
+
+      const providerStatus = await gomboPlusCheckStatus(reference);
+      if (providerStatus.status === "PENDING") {
+        return res.status(200).json({ received: true, status: "PENDING" });
+      }
+
+      if (isPayout) {
+        if (!withdrawal) {
+          // Do not process an unsolicited provider payout callback.
+          console.warn(`[GomboPlus webhook] Retrait sans corrélation locale: ${reference}`);
+          return res.status(404).json({ received: false, message: "Retrait GomboPlus non trouvé" });
+        }
+
+        if (providerStatus.amount != null) {
+          const expectedAmount = parseFloat(withdrawal.netAmount);
+          if (Math.abs(providerStatus.amount - expectedAmount) > 0.01) {
+            console.error(`[GomboPlus webhook] Montant payout incohérent ref=${reference}`);
+            return res.status(400).json({ received: false, message: "Montant GomboPlus incohérent" });
+          }
+        }
+
+        if (providerStatus.status === "SUCCESS") {
+          const completed = await storage.completeWithdrawalRequest(
+            withdrawal.id,
+            "processing",
+            { status: "approved", processedAt: new Date(), rejectionReason: null },
+            {
+              userId: withdrawal.userId,
+              type: "withdrawal",
+              amount: withdrawal.amount,
+              fee: withdrawal.fee,
+              netAmount: withdrawal.netAmount,
+              status: "completed",
+              description: `Retrait ${withdrawal.paymentMethod} - ${withdrawal.mobileNumber}`,
+              externalRef: withdrawal.transactionReference || reference,
+              mobileNumber: withdrawal.mobileNumber,
+              paymentMethod: withdrawal.paymentMethod,
+            },
+          );
+          if (completed) {
+            const payoutUser = await storage.getUser(withdrawal.userId);
+            notifyWithdrawalAutoProcessed({
+              userName: payoutUser?.fullName || "Client",
+              userId: withdrawal.userId,
+              amount: withdrawal.amount,
+              netAmount: withdrawal.netAmount,
+              paymentMethod: withdrawal.paymentMethod,
+              mobileNumber: withdrawal.mobileNumber,
+              payoutUuid: withdrawal.transactionReference || reference,
+              status: "success",
+              gateway: "GomboPlus",
+            });
+          }
+          return res.status(200).json({ received: true, status: "SUCCESS" });
+        }
+
+        // Transition first: only the first failed callback is allowed to refund.
+        const failed = await storage.transitionWithdrawalRequest(withdrawal.id, "processing", {
+          status: "failed",
+          rejectionReason: providerStatus.message || "Le retrait GomboPlus a échoué",
+        });
+        if (failed) {
+          const requestedAmount = parseFloat(withdrawal.amount);
+          const fee = parseFloat(withdrawal.fee);
+          const netAmount = parseFloat(withdrawal.netAmount);
+          const totalDeducted = Math.abs(netAmount - requestedAmount) < 0.01
+            ? requestedAmount + fee
+            : requestedAmount;
+          if (withdrawal.walletId) {
+            await storage.creditWalletById(withdrawal.walletId, totalDeducted.toString());
+          }
+          await storage.atomicCreditUserBalance(withdrawal.userId, totalDeducted.toString());
+        }
+        return res.status(200).json({ received: true, status: "FAILURE" });
+      }
+
+      const result = await settleGomboPlusDeposit(reference);
+      return res.status(result.status === "NOT_FOUND" ? 404 : 200).json({
+        received: result.status !== "NOT_FOUND",
+        status: result.status,
+        message: result.message,
+        ...(result.amount != null ? { amount: result.amount } : {}),
+      });
+    } catch (error: any) {
+      if (error instanceof GomboPlusConfigurationError) {
+        return res.status(503).json({ received: false, message: error.message });
+      }
+      console.error("GomboPlus webhook error:", error?.message || error);
+      return res.status(500).json({ received: false, message: "Erreur webhook" });
+    }
+  });
+
   // Vérification manuelle d'un paiement OmniPay
   app.get("/api/verify-omnipay/:reference", async (req, res) => {
     try {
@@ -3850,6 +4208,25 @@ export async function registerRoutes(
       return res.json({ status: "PENDING", message: "Paiement en attente de confirmation" });
     } catch (error) {
       console.error("MbiyoPay verify error:", error);
+      return res.json({ status: "PENDING", message: "Vérification en cours..." });
+    }
+  });
+
+  // Vérification manuelle d'un paiement GomboPlus
+  app.get("/api/verify-gomboplus/:reference", async (req, res) => {
+    try {
+      const { reference } = req.params;
+      const result = await settleGomboPlusDeposit(reference);
+      return res.status(result.status === "NOT_FOUND" ? 404 : 200).json({
+        status: result.status,
+        message: result.message,
+        ...(result.amount != null ? { amount: result.amount } : {}),
+      });
+    } catch (error: any) {
+      if (error instanceof GomboPlusConfigurationError) {
+        return res.status(503).json({ status: "PENDING", message: error.message });
+      }
+      console.error("GomboPlus verify error:", error?.message || error);
       return res.json({ status: "PENDING", message: "Vérification en cours..." });
     }
   });
@@ -6475,6 +6852,103 @@ export async function registerRoutes(
         }
       }
 
+      if (selectedOperator.paymentGateway === "gomboplus") {
+        let formattedPhone: string;
+        try {
+          formattedPhone = formatPhoneForGomboPlus(mobileNumber, selectedCountry.code);
+        } catch (error: any) {
+          await restore();
+          return res.status(400).json({ message: error?.message || "Opérateur non supporté par GomboPlus" });
+        }
+
+        const currency = selectedCountry.currency || "XOF";
+        const withdrawalRequest = await storage.createWithdrawalRequest({
+          userId: req.session.userId!,
+          amount: numericAmount.toString(),
+          fee: fee.toString(),
+          netAmount: netAmount.toString(),
+          paymentMethod: selectedOperator.name,
+          mobileNumber,
+          country,
+          walletName: walletName || null,
+          walletId: walletId || null,
+        });
+
+        const localReference = `GP-WD-${withdrawalRequest.id}-${Date.now()}`;
+        await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+          status: "processing",
+          externalReference: localReference,
+        });
+
+        try {
+          const gomboResult = await gomboPlusPayout({
+            amount: netAmount,
+            phoneNumber: formattedPhone,
+            countryCode: selectedCountry.code,
+            operator: selectedOperator.name,
+            callbackUrl: `${process.env.APP_URL || "https://sendavapay.com"}/api/webhook/gomboplus`,
+            reference: localReference,
+          });
+
+          if (gomboResult.accepted && gomboResult.reference) {
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              externalReference: localReference,
+              transactionReference: gomboResult.reference,
+            });
+
+            notifyWithdrawalAutoProcessed({
+              userName: user.fullName,
+              userId: req.session.userId!,
+              amount: numericAmount.toString(),
+              netAmount: netAmount.toString(),
+              paymentMethod: selectedOperator.name,
+              mobileNumber,
+              payoutUuid: gomboResult.reference,
+              status: "processing",
+              gateway: "GomboPlus",
+            });
+
+            return res.json({
+              message: "Retrait soumis à GomboPlus. En attente de confirmation.",
+              request: { ...withdrawalRequest, status: "processing", externalReference: localReference, transactionReference: gomboResult.reference },
+              autoProcessed: true,
+            });
+          }
+
+          await restore();
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+            status: "pending",
+            rejectionReason: gomboResult.message || "GomboPlus a refusé le retrait",
+          });
+          return res.json({
+            message: "Le retrait automatique a échoué. La demande est en attente de validation manuelle par l'admin.",
+            request: { ...withdrawalRequest, status: "pending" },
+          });
+        } catch (error: any) {
+          if (error instanceof GomboPlusConfigurationError) {
+            await restore();
+            await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+              status: "pending",
+              rejectionReason: error.message,
+            });
+            return res.status(503).json({ message: error.message });
+          }
+
+          // A timeout can happen after GomboPlus accepted the payout. Keep the
+          // debit and local reference so reconciliation/webhook cannot duplicate it.
+          console.error("❌ GomboPlus payout confirmation pending:", error?.message || "Erreur réseau");
+          await storage.updateWithdrawalRequest(withdrawalRequest.id, {
+            status: "processing",
+            rejectionReason: "Confirmation GomboPlus en attente après erreur de communication",
+          });
+          return res.json({
+            message: "Retrait en cours de confirmation. Ne relancez pas la demande.",
+            request: { ...withdrawalRequest, status: "processing", externalReference: localReference },
+            autoProcessed: true,
+          });
+        }
+      }
+
       if (selectedOperator.paymentGateway === "paydunya") {
         const withdrawMode = getPayDunyaWithdrawMode(selectedOperator.name, selectedCountry.code);
         if (!withdrawMode) {
@@ -6667,6 +7141,78 @@ export async function registerRoutes(
 
       if (withdrawalRequest.status === "processing" && withdrawalRequest.externalReference) {
         console.log("🔍 Vérification du statut de retrait:", withdrawalRequest.externalReference);
+
+        const verifyCountries = await storage.getCountries();
+        const verifyOperators = await storage.getOperators();
+        const verifyCountry = verifyCountries.find((item: any) =>
+          item.code.toLowerCase() === withdrawalRequest.country.toLowerCase() ||
+          item.name.toLowerCase() === withdrawalRequest.country.toLowerCase()
+        );
+        const verifyOperator = verifyCountry
+          ? verifyOperators.find((item: any) =>
+              item.countryId === verifyCountry.id &&
+              (item.name.toLowerCase() === withdrawalRequest.paymentMethod.toLowerCase() ||
+               item.code === withdrawalRequest.paymentMethod)
+            )
+          : undefined;
+
+        if (verifyOperator?.paymentGateway === "gomboplus") {
+          const reference = withdrawalRequest.transactionReference || withdrawalRequest.externalReference;
+          const providerStatus = await gomboPlusCheckStatus(reference);
+          if (providerStatus.status === "PENDING") {
+            return res.json({
+              status: "processing",
+              message: "Retrait en cours de traitement...",
+              request: withdrawalRequest,
+            });
+          }
+          if (providerStatus.status === "SUCCESS") {
+            const completed = await storage.completeWithdrawalRequest(
+              requestId,
+              "processing",
+              { status: "approved", processedAt: new Date(), rejectionReason: null },
+              {
+                userId: withdrawalRequest.userId,
+                type: "withdrawal",
+                amount: withdrawalRequest.amount,
+                fee: withdrawalRequest.fee,
+                netAmount: withdrawalRequest.netAmount,
+                status: "completed",
+                description: `Retrait ${withdrawalRequest.paymentMethod} - ${withdrawalRequest.mobileNumber}`,
+                externalRef: reference,
+                mobileNumber: withdrawalRequest.mobileNumber,
+                paymentMethod: withdrawalRequest.paymentMethod,
+              },
+            );
+            return res.json({
+              status: "approved",
+              message: completed ? "Retrait effectué avec succès!" : "Retrait déjà confirmé",
+              request: { ...withdrawalRequest, status: "approved" },
+            });
+          }
+
+          const failed = await storage.transitionWithdrawalRequest(requestId, "processing", {
+            status: "failed",
+            rejectionReason: providerStatus.message || "Le retrait GomboPlus a échoué",
+          });
+          if (failed) {
+            const requestedAmount = parseFloat(withdrawalRequest.amount);
+            const fee = parseFloat(withdrawalRequest.fee);
+            const netAmount = parseFloat(withdrawalRequest.netAmount);
+            const totalDeducted = Math.abs(netAmount - requestedAmount) < 0.01
+              ? requestedAmount + fee
+              : requestedAmount;
+            if (withdrawalRequest.walletId) {
+              await storage.creditWalletById(withdrawalRequest.walletId, totalDeducted.toString());
+            }
+            await storage.atomicCreditUserBalance(withdrawalRequest.userId, totalDeducted.toString());
+          }
+          return res.json({
+            status: "failed",
+            message: providerStatus.message || "Le retrait a échoué. Votre solde a été restauré.",
+            request: { ...withdrawalRequest, status: "failed" },
+          });
+        }
 
         {
           const transactionDetails = await soleaspay.getTransactionDetails(withdrawalRequest.externalReference);
